@@ -14,7 +14,7 @@ export default function SettingsPage() {
   const [autoUpload, setAutoUpload] = useState(true);
   const [shortsPerDay, setShortsPerDay] = useState(DAILY_QUOTA.shorts);
   const [longPerDay, setLongPerDay] = useState(DAILY_QUOTA.long);
-  const [selectedCategories, setSelectedCategories] = useState<string[]>(CONTENT_CATEGORIES);
+  const [selectedCategories, setSelectedCategories] = useState<string[]>(CONTENT_CATEGORIES.map(c => c.name));
   const [theme, setTheme] = useState<'light' | 'dark'>('light');
 
   const [loading, setLoading] = useState(true);
