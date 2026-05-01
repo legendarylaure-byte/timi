@@ -236,7 +236,7 @@ export default function BrandSafetyPage() {
                   )}
 
                   {review.feedback && (
-                    <p className="text-[10px] text-light-muted dark:text-dark-muted mb-3 italic">"{review.feedback}"</p>
+                    <p className="text-[10px] text-light-muted dark:text-dark-muted mb-3 italic">&ldquo;{review.feedback}&rdquo;</p>
                   )}
 
                   {review.flags.length > 0 && (

@@ -236,7 +236,7 @@ export default function MonetizationPage() {
 
       {/* CPM Info */}
       <div className="rounded-2xl glass-strong border border-light-border/30 dark:border-white/5 p-6">
-        <h2 className="text-lg font-bold text-light-text dark:text-dark-text mb-4">CPM Rates for Kids' Content</h2>
+        <h2 className="text-lg font-bold text-light-text dark:text-dark-text mb-4">CPM Rates for Kids&apos; Content</h2>
         <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
           {[
             { platform: 'YouTube', cpm: '$1.50 - $4.00', rpm: '$0.80 - $2.50', icon: '🔴' },

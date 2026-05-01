@@ -119,7 +119,7 @@ export default function TrendsPage() {
             </div>
             <div>
               <h1 className="text-3xl font-bold text-light-text dark:text-dark-text">Trend Discovery</h1>
-              <p className="text-light-muted dark:text-dark-muted mt-1">AI-powered trending topic discovery for kids' content</p>
+              <p className="text-light-muted dark:text-dark-muted mt-1">AI-powered trending topic discovery for kids&apos; content</p>
             </div>
           </div>
           <button
