@@ -1,0 +1,29 @@
+rules_version = '2';
+service firebase.storage {
+  match /b/{bucket}/o {
+    
+    // User profile images
+    match /users/{userId}/avatar/{fileName} {
+      allow read: if request.auth != null;
+      allow write: if request.auth != null && request.auth.uid == userId
+                   && request.resource.size < 5 * 1024 * 1024;
+    }
+    
+    // Video outputs
+    match /videos/{videoId}/{fileName} {
+      allow read: if request.auth != null;
+      allow write: if false; // Only backend agents can upload
+    }
+    
+    // Thumbnails
+    match /thumbnails/{videoId}/{fileName} {
+      allow read: if true; // Public for video playback
+      allow write: if false; // Only backend agents can upload
+    }
+    
+    // Agent assets (temp files)
+    match /assets/{agentId}/{fileName} {
+      allow read, write: if false; // Internal only
+    }
+  }
+}

@@ -1,0 +1,42 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    
+    // Users collection
+    match /users/{userId} {
+      allow read, write: if request.auth != null && request.auth.uid == userId;
+    }
+    
+    // Channels collection
+    match /channels/{channelId} {
+      allow read: if request.auth != null;
+      allow write: if request.auth != null && resource.data.ownerId == request.auth.uid;
+      allow create: if request.auth != null;
+    }
+    
+    // Videos collection
+    match /videos/{videoId} {
+      allow read: if request.auth != null;
+      allow create, update: if request.auth != null;
+      allow delete: if request.auth != null && resource.data.createdBy == request.auth.uid;
+    }
+    
+    // Agents collection (read-only for dashboard)
+    match /agents/{agentId} {
+      allow read: if request.auth != null;
+      allow write: if false; // Only backend can write
+    }
+    
+    // Logs collection (read-only)
+    match /logs/{logId} {
+      allow read: if request.auth != null;
+      allow write: if false; // Only backend can write
+    }
+    
+    // Analytics collection
+    match /analytics/{docId} {
+      allow read: if request.auth != null;
+      allow write: if false; // Only backend can write
+    }
+  }
+}
