@@ -263,9 +263,6 @@ export default function DashboardPage() {
               {stat.suffix && <span className="text-light-muted dark:text-dark-muted text-lg font-normal">{stat.suffix}</span>}
             </p>
             <p className="text-sm text-light-muted dark:text-dark-muted">{stat.label}</p>
-            {stat.tooltip && (
-              <p className="text-[10px] text-light-primary/80 dark:text-light-primary/60 mt-1">{stat.tooltip}</p>
-            )}
           </GradientCard>
         ))}
       </div>
