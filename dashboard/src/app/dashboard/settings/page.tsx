@@ -205,16 +205,16 @@ export default function SettingsPage() {
         <div className="flex flex-wrap gap-2">
           {CONTENT_CATEGORIES.map((cat) => (
             <button
-              key={cat}
-              onClick={() => toggleCategory(cat)}
+              key={cat.name}
+              onClick={() => toggleCategory(cat.name)}
               className={`px-4 py-2 rounded-xl text-sm font-medium transition-all ${
-                selectedCategories.includes(cat)
+                selectedCategories.includes(cat.name)
                   ? 'text-white'
                   : 'bg-light-border dark:bg-dark-border text-light-muted dark:text-dark-muted'
               }`}
-              style={selectedCategories.includes(cat) ? { background: 'linear-gradient(135deg, #FF4D6D, #7C3AED)' } : {}}
+              style={selectedCategories.includes(cat.name) ? { background: 'linear-gradient(135deg, #FF4D6D, #7C3AED)' } : {}}
             >
-              {cat}
+              {cat.name}
             </button>
           ))}
         </div>
