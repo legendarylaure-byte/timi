@@ -50,7 +50,7 @@ function generateCalendarData(weekStart: Date, quota: { shorts: number; long: nu
           scheduledTime: optimalTimes[s % optimalTimes.length],
           status: statuses[Math.min(idx, 2)],
           predictedScore: predictScore(),
-          category: CONTENT_CATEGORIES[(date.getDay() + s) % CONTENT_CATEGORIES.length],
+          category: CONTENT_CATEGORIES[(date.getDay() + s) % CONTENT_CATEGORIES.length].name,
         });
       }
       for (let l = 0; l < quota.long; l++) {
@@ -65,7 +65,7 @@ function generateCalendarData(weekStart: Date, quota: { shorts: number; long: nu
           scheduledTime: optimalTimes[(l + 2) % optimalTimes.length],
           status: statuses[Math.min(idx, 2)],
           predictedScore: predictScore(),
-          category: CONTENT_CATEGORIES[(date.getDay() + l + 2) % CONTENT_CATEGORIES.length],
+          category: CONTENT_CATEGORIES[(date.getDay() + l + 2) % CONTENT_CATEGORIES.length].name,
         });
       }
     }
