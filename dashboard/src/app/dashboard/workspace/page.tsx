@@ -34,9 +34,9 @@ export default function WorkspacePage() {
   useEffect(() => {
     const q = collection(db, 'agent_status');
     const unsubscribe = onSnapshot(q, (snapshot) => {
-      const liveData: Record<string, Partial<WorkspaceAgent>> = {};
+      const liveData: Record<string, any> = {};
       snapshot.docs.forEach((d) => {
-        liveData[d.id] = d.data() as Partial<WorkspaceAgent>;
+        liveData[d.id] = d.data();
       });
 
       const merged = AGENT_ROLES.map((role) => {
@@ -46,8 +46,8 @@ export default function WorkspacePage() {
           name: role.name,
           emoji: role.emoji,
           color: role.color,
-          status: (live.status as string) || 'idle',
-          currentAction: (live.current_action as string) || 'Waiting for next task',
+          status: live.status || 'idle',
+          currentAction: live.current_action || 'Waiting for next task',
           enabled: live.enabled !== false,
           lastUpdated: live.last_updated,
         };
