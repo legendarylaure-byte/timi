@@ -80,12 +80,12 @@ export default function MonetizationPage() {
   if (!revenue) return null;
 
   const milestones = [
-    { label: '1,000 Subscribers', target: 1000, current: 847, icon: '👥' },
-    { label: '4,000 Watch Hours', target: 4000, current: 3200, icon: '⏰' },
-    { label: '$100/month', target: 100, current: revenue.currentMonth, icon: '💵' },
-    { label: '$1,000/month', target: 1000, current: revenue.currentMonth, icon: '💰' },
-    { label: '$10,000 Total', target: 10000, current: revenue.totalRevenue, icon: '🏆' },
-    { label: '100K Total Views', target: 100000, current: 78500, icon: '👁️' },
+    { label: '1,000 Subscribers', target: 1000, current: 847, icon: '👥', achieved: false },
+    { label: '4,000 Watch Hours', target: 4000, current: 3200, icon: '⏰', achieved: false },
+    { label: '$100/month', target: 100, current: revenue.currentMonth, icon: '💵', achieved: revenue.currentMonth >= 100 },
+    { label: '$1,000/month', target: 1000, current: revenue.currentMonth, icon: '💰', achieved: revenue.currentMonth >= 1000 },
+    { label: '$10,000 Total', target: 10000, current: revenue.totalRevenue, icon: '🏆', achieved: revenue.totalRevenue >= 10000 },
+    { label: '100K Total Views', target: 100000, current: 78500, icon: '👁️', achieved: false },
   ];
 
   return (
