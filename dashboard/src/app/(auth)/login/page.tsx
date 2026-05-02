@@ -28,10 +28,6 @@ export default function LoginPage() {
   const containerRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
-    console.log('Firebase auth loaded. API key:', process.env.NEXT_PUBLIC_FIREBASE_API_KEY ? process.env.NEXT_PUBLIC_FIREBASE_API_KEY.slice(0, 8) + '...' : 'using fallback');
-  }, []);
-
-  useEffect(() => {
     const newParticles: Particle[] = Array.from({ length: 30 }, (_, i) => ({
       id: i,
       x: Math.random() * 100,
