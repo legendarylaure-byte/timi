@@ -243,23 +243,29 @@ def check_repetition(current_script: str, category: str, max_recent: int = 10) -
         db = get_firestore_client()
         recent_videos = (
             db.collection("videos")
-            .where("format", "==", "long" if "long" in category.lower() else "shorts")
-            .order_by("created_at", direction=firestore.Query.DESCENDING)
-            .limit(max_recent)
+            .where("status", "in", ["uploaded", "completed"])
+            .limit(max_recent * 2)
             .stream()
         )
 
-        recent_scripts = []
+        all_recent = []
         for doc in recent_videos:
             data = doc.to_dict()
             if data.get("script"):
-                recent_scripts.append({"title": data.get("title", ""), "script": data["script"]})
+                all_recent.append({
+                    "title": data.get("title", ""),
+                    "script": data["script"],
+                    "created_at": data.get("created_at", ""),
+                })
 
-        if not recent_scripts:
+        all_recent.sort(key=lambda x: x.get("created_at", ""), reverse=True)
+        recent_videos = all_recent[:max_recent]
+
+        if not recent_videos:
             return {"is_repetitive": False, "similarity_scores": [], "recommendation": "approve"}
 
         similarities = []
-        for recent in recent_scripts:
+        for recent in recent_videos:
             sim = _text_similarity(current_script, recent["script"])
             similarities.append({"title": recent["title"], "similarity": sim})
 
