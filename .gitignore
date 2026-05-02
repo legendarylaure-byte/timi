@@ -14,6 +14,9 @@ Thumbs.db
 .vscode/
 .idea/
 firebase/serviceAccountKey.json
+agents/firebase/
+firebase/Live_*
+firebase/*.json
 agents/.venv/
 bot/.venv/
 pipeline/output/
