@@ -11,24 +11,13 @@ from googleapiclient.errors import HttpError
 
 CLIENT_ID = os.getenv("YOUTUBE_CLIENT_ID", "839918420419-88cjde4sjnt3s18stnaehoaggtdcp617.apps.googleusercontent.com")
 CLIENT_SECRET = os.getenv("YOUTUBE_CLIENT_SECRET", "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")
-REDIRECT_URI = os.getenv("YOUTUBE_REDIRECT_URI", "http://localhost:8080/")
 
 SCOPES = [
     "https://www.googleapis.com/auth/youtube.upload",
     "https://www.googleapis.com/auth/youtube",
-    "https://www.googleapis.com/auth/youtubepartner",
 ]
 
 TOKEN_FILE = "./youtube_token.json"
-CLIENT_CONFIG = {
-    "web": {
-        "client_id": CLIENT_ID,
-        "client_secret": CLIENT_SECRET,
-        "auth_uri": "https://accounts.google.com/o/oauth2/auth",
-        "token_uri": "https://oauth2.googleapis.com/token",
-        "redirect_uris": [REDIRECT_URI],
-    }
-}
 
 def get_youtube_credentials():
     creds = None
@@ -39,8 +28,16 @@ def get_youtube_credentials():
         if creds and creds.expired and creds.refresh_token:
             creds.refresh(Request())
         else:
-            flow = InstalledAppFlow.from_client_config(CLIENT_CONFIG, SCOPES)
-            creds = flow.run_local_server(port=8080)
+            client_config = {
+                "installed": {
+                    "client_id": CLIENT_ID,
+                    "client_secret": CLIENT_SECRET,
+                    "auth_uri": "https://accounts.google.com/o/oauth2/auth",
+                    "token_uri": "https://oauth2.googleapis.com/token",
+                }
+            }
+            flow = InstalledAppFlow.from_client_config(client_config, SCOPES)
+            creds = flow.run_local_server(port=8080, open_browser=True)
 
         with open(TOKEN_FILE, "w") as token:
             token.write(creds.to_json())
