@@ -94,7 +94,7 @@ export default function LoginPage() {
 
   return (
     <div ref={containerRef} className="min-h-screen relative overflow-hidden flex items-center justify-center" style={{ background: 'linear-gradient(135deg, #0B0F1A 0%, #151B2B 50%, #0B0F1A 100%)' }}>
-      <ThemeToggle />
+      <div className="fixed top-4 right-4 z-50"><ThemeToggle /></div>
 
       {/* Aurora animated background */}
       <div className="absolute inset-0 aurora-bg opacity-20 blur-3xl" />
