@@ -1,5 +1,7 @@
 import os
 import sys
+import json
+import asyncio
 from dotenv import load_dotenv
 from apscheduler.schedulers.blocking import BlockingScheduler
 from datetime import datetime
@@ -10,10 +12,7 @@ sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 
 from crew.scriptwriter import create_scriptwriter_crew
 from crew.storyboard import create_storyboard_crew
-from crew.voice import create_voice_crew
-from crew.composer import create_composer_crew
 from crew.animator import create_animator_crew
-from crew.editor import create_editor_crew
 from crew.thumbnail import create_thumbnail_crew
 from crew.metadata import create_metadata_crew
 from crew.publisher import create_publisher_crew
@@ -31,13 +30,17 @@ from utils.quality_scorer import score_content, predict_performance
 from utils.trend_discovery import discover_trends
 from utils.repurposer import batch_reprocess_all_videos
 from utils.multi_platform_publisher import multi_platform_publish
+from utils.stock_video import search_videos_for_scenes
+from utils.voice_gen import generate_voiceover
+from utils.music_gen import generate_background_music
+from utils.video_compositor import composite_video
 
 AGENT_MAP = {
     'scriptwriter': 'scriptwriter',
     'storyboard': 'storyboard',
     'voice': 'voice',
-    'composer': 'composer',
     'animator': 'animator',
+    'composer': 'composer',
     'editor': 'editor',
     'thumbnail': 'thumbnail',
     'metadata': 'metadata',
@@ -54,11 +57,11 @@ def run_agent_step(agent_id: str, agent_name: str, action: str, crew_factory, in
         log_event(agent_name, "Skipped (paused by user)")
         update_agent_status(agent_id, "idle", "Paused by user")
         return None
-    
+
     update_agent_status(agent_id, "working", action)
     log_event(agent_name, action)
     log_activity(agent_id, action, "info")
-    
+
     try:
         crew = crew_factory()
         result = crew.kickoff(inputs=inputs)
@@ -72,14 +75,92 @@ def run_agent_step(agent_id: str, agent_name: str, action: str, crew_factory, in
         log_event(agent_name, f"Failed: {action} - {str(e)}", "error")
         raise
 
+def parse_scenes_from_storyboard(storyboard_text: str) -> list[dict]:
+    try:
+        json_match = ""
+        if "[" in storyboard_text and "]" in storyboard_text:
+            start = storyboard_text.index("[")
+            end = storyboard_text.rindex("]") + 1
+            json_match = storyboard_text[start:end]
+            scenes = json.loads(json_match)
+            if isinstance(scenes, list) and len(scenes) > 0:
+                return scenes
+    except Exception:
+        pass
+
+    lines = storyboard_text.strip().split("\n")
+    scenes = []
+    for i, line in enumerate(lines):
+        if any(kw in line.lower() for kw in ["scene", "shot", "clip"]):
+            scenes.append({
+                "keyword": line.strip()[:50],
+                "target_duration": 5.0,
+                "description": line.strip(),
+            })
+    if not scenes:
+        scenes = [{"keyword": "nature", "target_duration": 5.0, "description": "general scene"}]
+    return scenes
+
+def run_video_pipeline(script_text: str, storyboard_text: str, category: str, format_type: str, video_id: str, max_duration: int) -> dict:
+    log_event("PIPELINE", "Step 1: Analyzing storyboard for scene keywords")
+    scenes = parse_scenes_from_storyboard(storyboard_text)
+    log_event("PIPELINE", f"Found {len(scenes)} scenes to source video for")
+
+    orientation = "portrait" if format_type == "shorts" else "landscape"
+    update_agent_status("animator", "working", f"Fetching stock video for {len(scenes)} scenes")
+    log_event("ANIMATOR", f"Searching Pexels/Pixabay for {len(scenes)} real video clips")
+    clips = search_videos_for_scenes(scenes, orientation=orientation)
+    log_event("ANIMATOR", f"Found {len(clips)}/{len(scenes)} video clips with real motion")
+    update_agent_status("animator", "completed", f"Found {len(clips)} video clips")
+
+    if not clips:
+        raise Exception("No video clips found. Cannot create video.")
+
+    log_event("PIPELINE", "Step 2: Generating voice-over with Edge TTS")
+    update_agent_status("voice", "working", "Generating narration audio")
+    voice_result = asyncio.run(generate_voiceover(script_text))
+    if not voice_result.get("success"):
+        raise Exception("Voice-over generation failed.")
+    log_event("VOICE", f"Voice-over: {voice_result['duration']:.1f}s, {voice_result['segments']} segments -> {voice_result['path']}")
+    update_agent_status("voice", "completed", f"Voice-over {voice_result['duration']:.1f}s")
+
+    total_video_duration = sum(c["duration"] for c in clips)
+    log_event("PIPELINE", "Step 3: Generating background music")
+    update_agent_status("composer", "working", "Creating background music")
+    music_result = generate_background_music(category, duration=total_video_duration)
+    music_path = music_result.get("path")
+    log_event("COMPOSER", f"Music: {music_result.get('mood', 'unknown')} mood -> {music_path}")
+    update_agent_status("composer", "completed", f"Music generated ({music_result.get('mood')})")
+
+    log_event("PIPELINE", "Step 4: Compositing final video")
+    update_agent_status("editor", "working", "Compositing video with FFmpeg")
+    final_path = composite_video(
+        clips=clips,
+        voice_path=voice_result["path"],
+        music_path=music_path,
+        format_type=format_type,
+        video_id=video_id,
+    )
+    if not final_path:
+        raise Exception("Video compositing failed.")
+    log_event("EDITOR", f"Final video: {final_path}")
+    update_agent_status("editor", "completed", f"Video composited -> {final_path}")
+
+    return {
+        "video_path": final_path,
+        "voice_path": voice_result["path"],
+        "music_path": music_path,
+        "clips_used": len(clips),
+        "duration": total_video_duration,
+    }
+
 def generate_short_video(topic: str, category: str, video_id: str):
     update_pipeline_status(True, video_id)
     add_video_record(video_id, topic, "shorts", "generating")
     log_event("PIPELINE", f"Starting SHORT video generation: {topic}")
     try:
         script = run_agent_step("scriptwriter", "Scriptwriter", f"Writing script for: {topic}", create_scriptwriter_crew, {"topic": topic, "category": category, "format": "shorts", "max_duration": 120})
-        
-        # Quality Score step
+
         update_agent_status("quality_scorer", "working", f"Scoring: {topic}")
         quality = score_content(str(script), topic, category, "shorts")
         prediction = predict_performance(topic, category, "shorts", str(script))
@@ -91,36 +172,33 @@ def generate_short_video(topic: str, category: str, video_id: str):
             "virality_score": prediction["virality_score"],
         })
         log_event("QUALITY", f"Score: {quality['overall_score']}/100, Predicted 7D: {prediction['predicted_views_7d']:,} views")
-        
+
         if quality["recommendation"] == "block":
             add_video_record(video_id, topic, "shorts", "blocked")
             log_event("QUALITY", f"BLOCKED: {topic} (score: {quality['overall_score']})")
             update_pipeline_status(False)
             return False
-        
+
         storyboard = run_agent_step("storyboard", "Storyboard", "Generating storyboard", create_storyboard_crew, {"script": str(script)})
-        voice = run_agent_step("voice", "Voice Actor", "Generating voice-over", create_voice_crew, {"script": str(script)})
-        music = run_agent_step("composer", "Composer", "Creating background music", create_composer_crew, {"category": category, "duration": 120})
-        animation = run_agent_step("animator", "Animator", "Generating animation frames", create_animator_crew, {"storyboard": str(storyboard), "format": "shorts"})
-        video = run_agent_step("editor", "Video Editor", "Compositing video", create_editor_crew, {"animation": str(animation), "voice": str(voice), "music": str(music), "format": "shorts"})
+
+        video_result = run_video_pipeline(str(script), str(storyboard), category, "shorts", video_id, 120)
+
         thumbnail = run_agent_step("thumbnail", "Thumbnail Creator", "Creating thumbnail", create_thumbnail_crew, {"topic": topic, "format": "shorts"})
         metadata = run_agent_step("metadata", "Metadata Writer", "Writing metadata", create_metadata_crew, {"script": str(script), "format": "shorts"})
-        result = run_agent_step("publisher", "Publisher", "Uploading video", create_publisher_crew, {"video": str(video), "thumbnail": str(thumbnail), "metadata": str(metadata), "format": "shorts"})
-        
-        # Multi-platform publishing
+
         update_agent_status("publisher", "working", f"Publishing to platforms: {topic}")
-        platforms_to_publish = ['youtube']  # Default, can be configured
+        platforms_to_publish = ['youtube']
         publish_result = multi_platform_publish(
             video_id=video_id,
             title=topic,
             description="",
-            video_path=str(video),
+            video_path=video_result["video_path"],
             thumbnail_path=str(thumbnail),
             format_type="shorts",
             platforms=platforms_to_publish,
         )
         log_event("PUBLISH", f"Published to {publish_result['success_count']}/{publish_result['total_count']} platforms")
-        
+
         add_video_record(video_id, topic, "shorts", "uploaded")
         log_event("PIPELINE", f"SHORT video generation SUCCESS: {topic}")
         update_pipeline_status(False)
@@ -137,8 +215,7 @@ def generate_long_video(topic: str, category: str, video_id: str):
     log_event("PIPELINE", f"Starting LONG video generation: {topic}")
     try:
         script = run_agent_step("scriptwriter", "Scriptwriter", f"Writing script for: {topic}", create_scriptwriter_crew, {"topic": topic, "category": category, "format": "long", "max_duration": 300})
-        
-        # Quality Score step
+
         update_agent_status("quality_scorer", "working", f"Scoring: {topic}")
         quality = score_content(str(script), topic, category, "long")
         prediction = predict_performance(topic, category, "long", str(script))
@@ -150,36 +227,33 @@ def generate_long_video(topic: str, category: str, video_id: str):
             "virality_score": prediction["virality_score"],
         })
         log_event("QUALITY", f"Score: {quality['overall_score']}/100, Predicted 7D: {prediction['predicted_views_7d']:,} views")
-        
+
         if quality["recommendation"] == "block":
             add_video_record(video_id, topic, "long", "blocked")
             log_event("QUALITY", f"BLOCKED: {topic} (score: {quality['overall_score']})")
             update_pipeline_status(False)
             return False
-        
+
         storyboard = run_agent_step("storyboard", "Storyboard", "Generating storyboard", create_storyboard_crew, {"script": str(script)})
-        voice = run_agent_step("voice", "Voice Actor", "Generating voice-over", create_voice_crew, {"script": str(script)})
-        music = run_agent_step("composer", "Composer", "Creating background music", create_composer_crew, {"category": category, "duration": 300})
-        animation = run_agent_step("animator", "Animator", "Generating animation frames", create_animator_crew, {"storyboard": str(storyboard), "format": "long"})
-        video = run_agent_step("editor", "Video Editor", "Compositing video", create_editor_crew, {"animation": str(animation), "voice": str(voice), "music": str(music), "format": "long"})
+
+        video_result = run_video_pipeline(str(script), str(storyboard), category, "long", video_id, 300)
+
         thumbnail = run_agent_step("thumbnail", "Thumbnail Creator", "Creating thumbnail", create_thumbnail_crew, {"topic": topic, "format": "long"})
         metadata = run_agent_step("metadata", "Metadata Writer", "Writing metadata", create_metadata_crew, {"script": str(script), "format": "long"})
-        result = run_agent_step("publisher", "Publisher", "Uploading video", create_publisher_crew, {"video": str(video), "thumbnail": str(thumbnail), "metadata": str(metadata), "format": "long"})
-        
-        # Multi-platform publishing
+
         update_agent_status("publisher", "working", f"Publishing to platforms: {topic}")
-        platforms_to_publish = ['youtube', 'facebook']  # Long form goes to YouTube + Facebook
+        platforms_to_publish = ['youtube', 'facebook']
         publish_result = multi_platform_publish(
             video_id=video_id,
             title=topic,
             description="",
-            video_path=str(video),
+            video_path=video_result["video_path"],
             thumbnail_path=str(thumbnail),
             format_type="long",
             platforms=platforms_to_publish,
         )
         log_event("PUBLISH", f"Published to {publish_result['success_count']}/{publish_result['total_count']} platforms")
-        
+
         add_video_record(video_id, topic, "long", "uploaded")
         log_event("PIPELINE", f"LONG video generation SUCCESS: {topic}")
         update_pipeline_status(False)

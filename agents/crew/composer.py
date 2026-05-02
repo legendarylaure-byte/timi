@@ -5,38 +5,28 @@ from langchain_groq import ChatGroq
 def create_composer_crew():
     composer = Agent(
         role="Children's Music Composer",
-        goal="Create engaging, age-appropriate background music for kids' content",
+        goal="Create engaging background music that matches the emotional tone of each scene",
         backstory="""You are a music composer specializing in children's content.
-You create melodies that are memorable, uplifting, and perfectly matched to the
-emotional tone of each scene. You use Meta's MusicGen for AI music generation.""",
+You create simple, memorable melodies that are uplifting and perfectly matched
+to the emotional tone of each scene. You use procedural music generation
+with child-friendly tempos and instrument tones.""",
         llm=ChatGroq(
             model=os.getenv("GROQ_MODEL", "llama-3.3-70b-versatile"),
             api_key=os.getenv("GROQ_API_KEY"),
             temperature=0.6,
-            max_tokens=2000,
+            max_tokens=1000,
         ),
         verbose=True,
         allow_delegation=False,
     )
 
     music_task = Task(
-        description="""Compose background music plan for a {category} video with duration of {duration} seconds.
+        description="""Compose background music for a {category} video with duration of {duration} seconds.
 
-Include:
-1. Music genre and style (lullaby, upbeat, adventurous, etc.)
-2. Tempo and key
-3. Instrument list
-4. Emotional progression matching scenes
-5. MusicGen prompt for generation
-6. Fade in/out points
-
-The music must be child-friendly, non-distracting, and enhance the storytelling.""",
-        expected_output="Complete music composition plan with MusicGen prompts and timing markers.",
+Select the appropriate mood: happy, calm, adventure, bedtime, playful, exciting, or sad.
+Generate a melody file path and mood selection.""",
+        expected_output="Background music file path with mood and duration.",
         agent=composer,
     )
 
-    return Crew(
-        agents=[composer],
-        tasks=[music_task],
-        verbose=True,
-    )
+    return Crew(agents=[composer], tasks=[music_task], verbose=True)
