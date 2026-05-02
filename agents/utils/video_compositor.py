@@ -9,6 +9,33 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
+FFMPEG_PATH = os.getenv("FFMPEG_PATH", "")
+FFPROBE_PATH = os.getenv("FFPROBE_PATH", "")
+
+def _get_env():
+    env = os.environ.copy()
+    env_path = os.getenv("PATH", "/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin")
+    if "/opt/homebrew/opt/ffmpeg-full/bin" not in env_path:
+        env_path = "/opt/homebrew/opt/ffmpeg-full/bin:" + env_path
+    env["PATH"] = env_path
+    return env
+
+def _ffmpeg_cmd():
+    if FFMPEG_PATH and os.path.exists(FFMPEG_PATH):
+        return FFMPEG_PATH
+    full_path = "/opt/homebrew/opt/ffmpeg-full/bin/ffmpeg"
+    if os.path.exists(full_path):
+        return full_path
+    return "ffmpeg"
+
+def _ffprobe_cmd():
+    if FFPROBE_PATH and os.path.exists(FFPROBE_PATH):
+        return FFPROBE_PATH
+    full_path = "/opt/homebrew/opt/ffmpeg-full/bin/ffprobe"
+    if os.path.exists(full_path):
+        return full_path
+    return "ffprobe"
+
 OUTPUT_DIR = Path(__file__).parent.parent / "output"
 OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
 
@@ -34,14 +61,14 @@ KEN_BURNS_PRESETS = [
 def apply_ken_burns(input_path: str, output_path: str, target_w: int, target_h: int, duration: float, preset_idx: int = 0) -> bool:
     kb = KEN_BURNS_PRESETS[preset_idx % len(KEN_BURNS_PRESETS)]
     cmd = [
-        "ffmpeg", "-y", "-i", input_path,
+        _ffmpeg_cmd(), "-y", "-i", input_path,
         "-vf", f"scale={target_w}*2:{target_h}*2,zoompan='{kb}':d={int(duration*30)}:s={target_w}x{target_h}:fps=30",
         "-t", str(duration),
         "-c:v", "libx264", "-preset", "fast", "-crf", "23",
         "-an", "-pix_fmt", "yuv420p", output_path,
     ]
     try:
-        result = subprocess.run(cmd, capture_output=True, text=True, timeout=300)
+        result = subprocess.run(cmd, capture_output=True, text=True, timeout=300, env=_get_env())
         return result.returncode == 0
     except Exception as e:
         print(f"[compositor] Ken Burns error: {e}")
@@ -49,23 +76,23 @@ def apply_ken_burns(input_path: str, output_path: str, target_w: int, target_h: 
 
 def trim_clip(input_path: str, output_path: str, start: float = 0, duration: float = 5) -> bool:
     cmd = [
-        "ffmpeg", "-y", "-i", input_path, "-ss", str(start), "-t", str(duration),
+        _ffmpeg_cmd(), "-y", "-i", input_path, "-ss", str(start), "-t", str(duration),
         "-c:v", "libx264", "-preset", "fast", "-crf", "23", "-an", "-pix_fmt", "yuv420p", output_path,
     ]
     try:
-        return subprocess.run(cmd, capture_output=True, text=True, timeout=120).returncode == 0
+        return subprocess.run(cmd, capture_output=True, text=True, timeout=120, env=_get_env()).returncode == 0
     except Exception as e:
         print(f"[compositor] Trim error: {e}")
         return False
 
 def resize_to_target(input_path: str, output_path: str, target_w: int, target_h: int) -> bool:
     cmd = [
-        "ffmpeg", "-y", "-i", input_path,
+        _ffmpeg_cmd(), "-y", "-i", input_path,
         "-vf", f"scale={target_w}:{target_h}:force_original_aspect_ratio=increase,crop={target_w}:{target_h}",
         "-c:v", "libx264", "-preset", "fast", "-crf", "23", "-an", "-pix_fmt", "yuv420p", output_path,
     ]
     try:
-        return subprocess.run(cmd, capture_output=True, text=True, timeout=120).returncode == 0
+        return subprocess.run(cmd, capture_output=True, text=True, timeout=120, env=_get_env()).returncode == 0
     except Exception as e:
         print(f"[compositor] Resize error: {e}")
         return False
@@ -90,27 +117,27 @@ def add_text_overlay(video_path: str, text: str, output_path: str, fontsize: int
     pos = positions.get(position, positions["center"])
     escaped_text = text.replace("'", "\\'").replace(":", "\\:").replace("-", "\\-")
     cmd = [
-        "ffmpeg", "-y", "-i", video_path,
+        _ffmpeg_cmd(), "-y", "-i", video_path,
         "-vf", f"drawtext=text='{escaped_text}':fontsize={fontsize}:fontcolor={color}:x={pos}:enable='between(t,{start_time},{start_time+duration})'",
         "-c:v", "libx264", "-preset", "fast", "-crf", "23", "-c:a", "copy", "-pix_fmt", "yuv420p", output_path,
     ]
     try:
-        return subprocess.run(cmd, capture_output=True, text=True, timeout=120).returncode == 0
+        return subprocess.run(cmd, capture_output=True, text=True, timeout=120, env=_get_env()).returncode == 0
     except Exception as e:
         print(f"[compositor] Text overlay error: {e}")
         return False
 
 def burn_subtitles(video_path: str, subtitle_path: str, output_path: str, fontsize: int = 24) -> bool:
-    escaped_subtitle = subtitle_path.replace(":", "\\:").replace("'", "\\'")
-    vf = f"subtitles='{escaped_subtitle}':force_style='FontSize={fontsize},PrimaryColour=&HFFFFFF&,OutlineColour=&H000000&,Outline=2,Shadow=1'"
+    abs_subtitle = os.path.abspath(subtitle_path)
+    vf = f"subtitles=filename='{abs_subtitle}':force_style='FontSize={fontsize},PrimaryColour=&HFFFFFF&,OutlineColour=&H000000&,Outline=2,Shadow=1'"
     cmd = [
-        "ffmpeg", "-y", "-i", video_path,
+        _ffmpeg_cmd(), "-y", "-i", video_path,
         "-vf", vf,
         "-c:v", "libx264", "-preset", "fast", "-crf", "23",
         "-c:a", "copy", "-pix_fmt", "yuv420p", output_path,
     ]
     try:
-        result = subprocess.run(cmd, capture_output=True, text=True, timeout=300)
+        result = subprocess.run(cmd, capture_output=True, text=True, timeout=300, env=_get_env())
         if result.returncode == 0:
             print(f"[compositor] Subtitles burned successfully")
             return True
@@ -132,12 +159,12 @@ def add_chapter_markers(video_path: str, chapters: list[dict], output_path: str)
             f.write(f"[CHAPTER]\nTIMEBASE=1/1000\nSTART={start_ms}\nEND={end_ms}\ntitle={title}\n")
 
     cmd = [
-        "ffmpeg", "-y", "-i", video_path, "-i", metadata_path,
+        _ffmpeg_cmd(), "-y", "-i", video_path, "-i", metadata_path,
         "-map_metadata", "1",
         "-c:v", "copy", "-c:a", "copy", output_path,
     ]
     try:
-        result = subprocess.run(cmd, capture_output=True, text=True, timeout=120)
+        result = subprocess.run(cmd, capture_output=True, text=True, timeout=120, env=_get_env())
         if result.returncode == 0:
             print(f"[compositor] Chapter markers added: {len(chapters)} chapters")
             return True
@@ -175,10 +202,10 @@ def composite_video(clips: list[dict], voice_path: str, music_path: Optional[str
             f.write(f"file '{p}'\n")
 
     combined_video = str(TEMP_DIR / "combined_video.mp4")
-    cmd = ["ffmpeg", "-y", "-f", "concat", "-safe", "0", "-i", concat_list_path,
+    cmd = [_ffmpeg_cmd(), "-y", "-f", "concat", "-safe", "0", "-i", concat_list_path,
            "-c:v", "libx264", "-preset", "fast", "-crf", "23", "-pix_fmt", "yuv420p", combined_video]
     try:
-        result = subprocess.run(cmd, capture_output=True, text=True, timeout=300)
+        result = subprocess.run(cmd, capture_output=True, text=True, timeout=300, env=_get_env())
         if result.returncode != 0:
             print(f"[compositor] Concat error: {result.stderr[-300:]}")
     except Exception as e:
@@ -204,11 +231,11 @@ def composite_video(clips: list[dict], voice_path: str, music_path: Optional[str
     mix_audio(voice_path, music_path, mixed_audio_path)
 
     final_path = str(OUTPUT_DIR / f"{video_id}_{format_type}.mp4")
-    cmd = ["ffmpeg", "-y", "-i", combined_video, "-i", mixed_audio_path,
+    cmd = [_ffmpeg_cmd(), "-y", "-i", combined_video, "-i", mixed_audio_path,
            "-c:v", "libx264", "-preset", "fast", "-crf", "23",
            "-c:a", "aac", "-b:a", "128k", "-shortest", "-pix_fmt", "yuv420p", final_path]
     try:
-        result = subprocess.run(cmd, capture_output=True, text=True, timeout=300)
+        result = subprocess.run(cmd, capture_output=True, text=True, timeout=300, env=_get_env())
         if result.returncode == 0 and os.path.exists(final_path):
             print(f"[compositor] Final video: {final_path}")
             return final_path

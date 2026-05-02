@@ -6,30 +6,40 @@ from typing import Optional
 SUBTITLE_DIR = Path(__file__).parent.parent / "tmp" / "subtitles"
 SUBTITLE_DIR.mkdir(parents=True, exist_ok=True)
 
+def load_phrase_timing(timing_file: str) -> list[dict]:
+    if os.path.exists(timing_file):
+        with open(timing_file, "r") as f:
+            data = json.load(f)
+            if isinstance(data, list):
+                return data
+            return data.get("phrases", [])
+    return []
+
 def load_word_timing(timing_file: str) -> list[dict]:
     if os.path.exists(timing_file):
         with open(timing_file, "r") as f:
-            return json.load(f)
+            data = json.load(f)
+            if isinstance(data, list):
+                return data
     return []
 
 def generate_srt(timing_file: str, full_text: str, output_path: Optional[str] = None, language: str = "en") -> str:
-    word_times = load_word_timing(timing_file)
-    if not word_times:
-        return ""
+    phrases = load_phrase_timing(timing_file)
 
-    words = full_text.split()
-    if len(words) != len(word_times):
-        print(f"[subtitle_gen] Word count mismatch: text={len(words)}, timing={len(word_times)}")
-        return ""
-
-    phrases = _group_words_into_phrases(words, word_times, max_words_per_phrase=8)
+    if not phrases:
+        words = load_word_timing(timing_file)
+        if words:
+            phrases = _convert_word_times_to_phrases(words)
+        else:
+            return ""
 
     srt_content = ""
     for i, phrase in enumerate(phrases, 1):
-        start_time = _ms_to_srt_time(phrase["start_ms"])
-        end_time = _ms_to_srt_time(phrase["end_ms"])
-        text = phrase["text"]
-        srt_content += f"{i}\n{start_time} --> {end_time}\n{text}\n\n"
+        start_time = _ms_to_srt_time(phrase.get("start_ms", 0))
+        end_time = _ms_to_srt_time(phrase.get("end_ms", 0))
+        text = phrase.get("text", "")
+        if text:
+            srt_content += f"{i}\n{start_time} --> {end_time}\n{text}\n\n"
 
     if output_path is None:
         output_path = str(SUBTITLE_DIR / f"subtitles_{language}.srt")
@@ -37,26 +47,26 @@ def generate_srt(timing_file: str, full_text: str, output_path: Optional[str] = 
     with open(output_path, "w", encoding="utf-8") as f:
         f.write(srt_content)
 
-    print(f"[subtitle_gen] SRT saved: {output_path}")
+    print(f"[subtitle_gen] SRT saved: {output_path} ({len(phrases)} phrases)")
     return output_path
 
 def generate_vtt(timing_file: str, full_text: str, output_path: Optional[str] = None, language: str = "en") -> str:
-    word_times = load_word_timing(timing_file)
-    if not word_times:
-        return ""
+    phrases = load_phrase_timing(timing_file)
 
-    words = full_text.split()
-    if len(words) != len(word_times):
-        return ""
-
-    phrases = _group_words_into_phrases(words, word_times, max_words_per_phrase=8)
+    if not phrases:
+        words = load_word_timing(timing_file)
+        if words:
+            phrases = _convert_word_times_to_phrases(words)
+        else:
+            return ""
 
     vtt_content = "WEBVTT\n\n"
     for i, phrase in enumerate(phrases, 1):
-        start_time = _ms_to_vtt_time(phrase["start_ms"])
-        end_time = _ms_to_vtt_time(phrase["end_ms"])
-        text = phrase["text"]
-        vtt_content += f"{i}\n{start_time} --> {end_time}\n{text}\n\n"
+        start_time = _ms_to_vtt_time(phrase.get("start_ms", 0))
+        end_time = _ms_to_vtt_time(phrase.get("end_ms", 0))
+        text = phrase.get("text", "")
+        if text:
+            vtt_content += f"{i}\n{start_time} --> {end_time}\n{text}\n\n"
 
     if output_path is None:
         output_path = str(SUBTITLE_DIR / f"subtitles_{language}.vtt")
@@ -64,26 +74,27 @@ def generate_vtt(timing_file: str, full_text: str, output_path: Optional[str] = 
     with open(output_path, "w", encoding="utf-8") as f:
         f.write(vtt_content)
 
-    print(f"[subtitle_gen] VTT saved: {output_path}")
+    print(f"[subtitle_gen] VTT saved: {output_path} ({len(phrases)} phrases)")
     return output_path
 
-def _group_words_into_phrases(words: list, word_times: list, max_words_per_phrase: int = 8) -> list[dict]:
+def _convert_word_times_to_phrases(word_times: list[dict], max_words: int = 8) -> list[dict]:
     phrases = []
     current_words = []
     current_start = None
     current_end = None
 
-    for i, (word, timing) in enumerate(zip(words, word_times)):
-        offset_ms = timing.get("offset_ms", 0)
-        duration_ms = timing.get("duration_ms", 0)
+    for wt in word_times:
+        offset = wt.get("offset_ms", 0)
+        duration = wt.get("duration_ms", 100)
+        word = wt.get("word", "")
 
         if current_start is None:
-            current_start = offset_ms
+            current_start = offset
 
         current_words.append(word)
-        current_end = offset_ms + duration_ms
+        current_end = offset + duration
 
-        if len(current_words) >= max_words_per_phrase or _is_sentence_end(word):
+        if len(current_words) >= max_words or word.endswith((".", "!", "?")):
             phrases.append({
                 "text": " ".join(current_words),
                 "start_ms": current_start,
@@ -101,9 +112,6 @@ def _group_words_into_phrases(words: list, word_times: list, max_words_per_phras
         })
 
     return phrases
-
-def _is_sentence_end(word: str) -> bool:
-    return word.endswith((".", "!", "?"))
 
 def _ms_to_srt_time(ms: float) -> str:
     total_seconds = int(ms / 1000)

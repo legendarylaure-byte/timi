@@ -47,20 +47,61 @@ async def generate_segment_audio(text: str, output_path: str, voice: str = DEFAU
         print(f"[voice_gen] Edge TTS error: {e}")
         return False
 
-async def generate_word_timing(text: str, voice: str = DEFAULT_VOICE, rate: str = DEFAULT_RATE, pitch: str = DEFAULT_PITCH) -> list[dict]:
-    word_times = []
+async def generate_segment_timing(text: str, voice: str = DEFAULT_VOICE, rate: str = DEFAULT_RATE, pitch: str = DEFAULT_PITCH) -> list[dict]:
+    sentence_times = []
     try:
         communicate = edge_tts.Communicate(text, voice, rate=rate, pitch=pitch)
         async for chunk in communicate.stream():
-            if chunk["type"] == "WordBoundary":
-                word_times.append({
-                    "word": chunk["text"],
-                    "offset_ms": chunk["offset"] / 10000,
-                    "duration_ms": chunk["duration"] / 10000,
+            if chunk["type"] in ("SentenceBoundary", "WordBoundary"):
+                sentence_times.append({
+                    "text": chunk.get("text", ""),
+                    "offset_ms": chunk.get("offset", 0) / 10000,
+                    "duration_ms": chunk.get("duration", 0) / 10000,
+                    "type": chunk["type"],
                 })
     except Exception as e:
-        print(f"[voice_gen] Word timing error: {e}")
-    return word_times
+        print(f"[voice_gen] Timing error: {e}")
+    return sentence_times
+
+def generate_phrase_timings_from_sentences(text: str, sentence_times: list[dict]) -> list[dict]:
+    sentences_in_text = re.split(r'(?<=[.!?])\s+', text.strip())
+    phrase_timings = []
+    max_words_per_phrase = 8
+
+    for sent_time in sentence_times:
+        offset = sent_time["offset_ms"]
+        duration = sent_time["duration_ms"]
+        sent_text = sent_time.get("text", "")
+
+        matching_sentences = [s for s in sentences_in_text if sent_text and (s.strip() in sent_text or sent_text.strip() in s)]
+        if not matching_sentences:
+            continue
+
+        for sent in matching_sentences:
+            words = sent.split()
+            if not words:
+                continue
+
+            if len(words) <= max_words_per_phrase:
+                phrase_timings.append({
+                    "text": " ".join(words),
+                    "start_ms": offset,
+                    "end_ms": offset + duration,
+                })
+            else:
+                num_phrases = (len(words) + max_words_per_phrase - 1) // max_words_per_phrase
+                phrase_duration = duration / num_phrases
+                for i in range(num_phrases):
+                    start_idx = i * max_words_per_phrase
+                    end_idx = min(start_idx + max_words_per_phrase, len(words))
+                    phrase_words = words[start_idx:end_idx]
+                    phrase_timings.append({
+                        "text": " ".join(phrase_words),
+                        "start_ms": offset + (i * phrase_duration),
+                        "end_ms": offset + ((i + 1) * phrase_duration),
+                    })
+
+    return phrase_timings
 
 def concatenate_audio(segment_files: list[str], output_path: str) -> bool:
     try:
@@ -79,7 +120,8 @@ def concatenate_audio(segment_files: list[str], output_path: str) -> bool:
 async def generate_voiceover(script: str, voice: str = DEFAULT_VOICE, output_filename: str = "voiceover.wav") -> dict:
     segments = split_script_into_segments(script)
     segment_files = []
-    all_word_times = []
+    all_phrase_timings = []
+    cumulative_offset = 0.0
 
     for i, seg_text in enumerate(segments):
         seg_path = str(VOICE_DIR / f"seg_{i+1:03d}.wav")
@@ -87,19 +129,32 @@ async def generate_voiceover(script: str, voice: str = DEFAULT_VOICE, output_fil
         success = await generate_segment_audio(seg_text, seg_path, voice=voice)
         if success:
             segment_files.append(seg_path)
-            word_times = await generate_word_timing(seg_text, voice=voice)
-            if word_times:
+
+            sentence_times = await generate_segment_timing(seg_text, voice=voice)
+            if sentence_times:
+                phrase_timings = generate_phrase_timings_from_sentences(seg_text, sentence_times)
+                for pt in phrase_timings:
+                    pt["start_ms"] += cumulative_offset
+                    pt["end_ms"] += cumulative_offset
+                all_phrase_timings.extend(phrase_timings)
+
                 with open(timing_path, "w") as f:
-                    json.dump(word_times, f)
-                all_word_times.extend(word_times)
+                    json.dump({"sentences": sentence_times, "phrases": phrase_timings}, f)
+
+            try:
+                seg_audio = AudioSegment.from_file(seg_path)
+                cumulative_offset += len(seg_audio) + 200
+            except Exception:
+                cumulative_offset += 5000
 
     output_path = str(VOICE_DIR / output_filename)
     concat_success = concatenate_audio(segment_files, output_path)
 
-    timing_file = str(VOICE_DIR / "word_timing.json")
-    if all_word_times:
+    timing_file = str(VOICE_DIR / "phrase_timing.json")
+    if all_phrase_timings:
         with open(timing_file, "w") as f:
-            json.dump(all_word_times, f)
+            json.dump(all_phrase_timings, f)
+        print(f"[voice_gen] Generated {len(all_phrase_timings)} phrase timings")
 
     duration = 0.0
     if concat_success:
@@ -113,7 +168,8 @@ async def generate_voiceover(script: str, voice: str = DEFAULT_VOICE, output_fil
         "path": output_path,
         "duration": duration,
         "segments": len(segment_files),
-        "timing_file": timing_file if all_word_times else None,
+        "timing_file": timing_file if all_phrase_timings else None,
+        "phrase_timings": all_phrase_timings,
         "success": concat_success,
     }
 
