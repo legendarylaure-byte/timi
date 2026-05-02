@@ -20,8 +20,6 @@ pipeline/
 *.mp4
 *.mp3
 *.wav
-*.json
-!dashboard/**/*.json
 firebase-debug.log
 .vercel
 *.tsbuildinfo
