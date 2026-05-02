@@ -116,3 +116,18 @@ async def generate_voiceover(script: str, voice: str = DEFAULT_VOICE, output_fil
         "timing_file": timing_file if all_word_times else None,
         "success": concat_success,
     }
+
+async def generate_voiceover_multi(translations: dict, voice_dir_suffix: str = "") -> dict:
+    results = {}
+    for lang_code, translation in translations.items():
+        voice = translation.get("edge_tts_voice", DEFAULT_VOICE)
+        script = translation.get("translated_script", "")
+        filename = f"voiceover_{lang_code}{voice_dir_suffix}.wav"
+        print(f"[voice_gen] Generating voiceover for {lang_code} with voice {voice}")
+        result = await generate_voiceover(script, voice=voice, output_filename=filename)
+        results[lang_code] = {
+            **result,
+            "language": lang_code,
+            "translated_title": translation.get("title", ""),
+        }
+    return results

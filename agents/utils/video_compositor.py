@@ -100,7 +100,53 @@ def add_text_overlay(video_path: str, text: str, output_path: str, fontsize: int
         print(f"[compositor] Text overlay error: {e}")
         return False
 
-def composite_video(clips: list[dict], voice_path: str, music_path: Optional[str] = None, format_type: str = "shorts", video_id: str = "output") -> Optional[str]:
+def burn_subtitles(video_path: str, subtitle_path: str, output_path: str, fontsize: int = 24) -> bool:
+    escaped_subtitle = subtitle_path.replace(":", "\\:").replace("'", "\\'")
+    vf = f"subtitles='{escaped_subtitle}':force_style='FontSize={fontsize},PrimaryColour=&HFFFFFF&,OutlineColour=&H000000&,Outline=2,Shadow=1'"
+    cmd = [
+        "ffmpeg", "-y", "-i", video_path,
+        "-vf", vf,
+        "-c:v", "libx264", "-preset", "fast", "-crf", "23",
+        "-c:a", "copy", "-pix_fmt", "yuv420p", output_path,
+    ]
+    try:
+        result = subprocess.run(cmd, capture_output=True, text=True, timeout=300)
+        if result.returncode == 0:
+            print(f"[compositor] Subtitles burned successfully")
+            return True
+        else:
+            print(f"[compositor] Subtitle burn error: {result.stderr[-300:]}")
+            return False
+    except Exception as e:
+        print(f"[compositor] Subtitle burn error: {e}")
+        return False
+
+def add_chapter_markers(video_path: str, chapters: list[dict], output_path: str) -> bool:
+    metadata_path = str(TEMP_DIR / "chapters_metadata.txt")
+    with open(metadata_path, "w") as f:
+        f.write(";FFMETADATA1\n")
+        for chapter in chapters:
+            start_ms = int(chapter.get("start_time", 0) * 1000)
+            end_ms = int(chapter.get("end_time", 0) * 1000)
+            title = chapter.get("title", "Chapter")
+            f.write(f"[CHAPTER]\nTIMEBASE=1/1000\nSTART={start_ms}\nEND={end_ms}\ntitle={title}\n")
+
+    cmd = [
+        "ffmpeg", "-y", "-i", video_path, "-i", metadata_path,
+        "-map_metadata", "1",
+        "-c:v", "copy", "-c:a", "copy", output_path,
+    ]
+    try:
+        result = subprocess.run(cmd, capture_output=True, text=True, timeout=120)
+        if result.returncode == 0:
+            print(f"[compositor] Chapter markers added: {len(chapters)} chapters")
+            return True
+        return False
+    except Exception as e:
+        print(f"[compositor] Chapter markers error: {e}")
+        return False
+
+def composite_video(clips: list[dict], voice_path: str, music_path: Optional[str] = None, format_type: str = "shorts", video_id: str = "output", subtitle_path: Optional[str] = None, chapters: Optional[list] = None) -> Optional[str]:
     target = ASPECT_RATIOS.get(format_type, ASPECT_RATIOS["long"])
     tw, th = target["w"], target["h"]
 
@@ -141,6 +187,18 @@ def composite_video(clips: list[dict], voice_path: str, music_path: Optional[str
 
     if not os.path.exists(combined_video):
         return None
+
+    if subtitle_path and os.path.exists(subtitle_path):
+        print(f"[compositor] Burning subtitles into video")
+        with_subs_path = str(TEMP_DIR / "video_with_subs.mp4")
+        if burn_subtitles(combined_video, subtitle_path, with_subs_path):
+            combined_video = with_subs_path
+
+    if chapters and format_type == "long":
+        print(f"[compositor] Adding chapter markers")
+        with_chapters_path = str(TEMP_DIR / "video_with_chapters.mp4")
+        if add_chapter_markers(combined_video, chapters, with_chapters_path):
+            combined_video = with_chapters_path
 
     mixed_audio_path = str(TEMP_DIR / "mixed_audio.wav")
     mix_audio(voice_path, music_path, mixed_audio_path)

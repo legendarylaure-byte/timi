@@ -26,14 +26,17 @@ from utils.firebase_status import (
 )
 from utils.firebase_control import AgentControlListener
 from utils.cleanup_service import run_cleanup
-from utils.quality_scorer import score_content, predict_performance
+from utils.quality_scorer import score_content, predict_performance, check_repetition, evaluate_publish_decision
 from utils.trend_discovery import discover_trends
 from utils.repurposer import batch_reprocess_all_videos
 from utils.multi_platform_publisher import multi_platform_publish
 from utils.stock_video import search_videos_for_scenes
 from utils.voice_gen import generate_voiceover
 from utils.music_gen import generate_background_music
-from utils.video_compositor import composite_video
+from utils.video_compositor import composite_video, add_chapter_markers
+from utils.translate import translate_script, get_voice_for_language
+from utils.subtitle_gen import generate_subtitles_for_video
+from utils.description_gen import generate_description, get_coppa_metadata
 
 AGENT_MAP = {
     'scriptwriter': 'scriptwriter',
@@ -48,6 +51,12 @@ AGENT_MAP = {
 }
 
 control_listener = AgentControlListener(check_interval=5)
+
+AUTO_APPROVE_THRESHOLD = int(os.getenv("AUTO_APPROVE_THRESHOLD", 80))
+ENABLE_MULTI_LANG = os.getenv("ENABLE_MULTI_LANG", "true").lower() == "true"
+ENABLE_SUBTITLES = os.getenv("ENABLE_SUBTITLES", "true").lower() == "true"
+ENABLE_REVIEW_GATE = os.getenv("ENABLE_REVIEW_GATE", "true").lower() == "true"
+MULTI_LANG_CODES = os.getenv("MULTI_LANG_CODES", "es,de,fr").split(",")
 
 def log_event(agent: str, message: str, level: str = "info"):
     print(f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] [{level.upper()}] [{agent}] {message}")
@@ -101,10 +110,16 @@ def parse_scenes_from_storyboard(storyboard_text: str) -> list[dict]:
         scenes = [{"keyword": "nature", "target_duration": 5.0, "description": "general scene"}]
     return scenes
 
-def run_video_pipeline(script_text: str, storyboard_text: str, category: str, format_type: str, video_id: str, max_duration: int) -> dict:
+def run_video_pipeline(script_text: str, storyboard_text: str, category: str, format_type: str, video_id: str, max_duration: int, generate_subs: bool = True, subtitle_lang: str = "en") -> dict:
     log_event("PIPELINE", "Step 1: Analyzing storyboard for scene keywords")
     scenes = parse_scenes_from_storyboard(storyboard_text)
     log_event("PIPELINE", f"Found {len(scenes)} scenes to source video for")
+
+    if format_type == "long":
+        min_scenes = max(16, max_duration // 30)
+        while len(scenes) < min_scenes:
+            scenes.append({"keyword": "transition", "target_duration": 5.0, "description": "transition scene"})
+        log_event("PIPELINE", f"Extended to {len(scenes)} scenes for >8min long-form")
 
     orientation = "portrait" if format_type == "shorts" else "landscape"
     update_agent_status("animator", "working", f"Fetching stock video for {len(scenes)} scenes")
@@ -124,6 +139,19 @@ def run_video_pipeline(script_text: str, storyboard_text: str, category: str, fo
     log_event("VOICE", f"Voice-over: {voice_result['duration']:.1f}s, {voice_result['segments']} segments -> {voice_result['path']}")
     update_agent_status("voice", "completed", f"Voice-over {voice_result['duration']:.1f}s")
 
+    subtitle_path = None
+    if generate_subs and ENABLE_SUBTITLES and voice_result.get("timing_file"):
+        log_event("PIPELINE", "Step 2.5: Generating subtitles")
+        update_agent_status("voice", "working", "Generating subtitles from voice timing")
+        sub_result = generate_subtitles_for_video(
+            timing_file=voice_result["timing_file"],
+            full_text=script_text,
+            language=subtitle_lang,
+        )
+        subtitle_path = sub_result.get("srt")
+        if subtitle_path:
+            log_event("VOICE", f"Subtitles generated: {subtitle_path}")
+
     total_video_duration = sum(c["duration"] for c in clips)
     log_event("PIPELINE", "Step 3: Generating background music")
     update_agent_status("composer", "working", "Creating background music")
@@ -131,6 +159,20 @@ def run_video_pipeline(script_text: str, storyboard_text: str, category: str, fo
     music_path = music_result.get("path")
     log_event("COMPOSER", f"Music: {music_result.get('mood', 'unknown')} mood -> {music_path}")
     update_agent_status("composer", "completed", f"Music generated ({music_result.get('mood')})")
+
+    chapters = None
+    if format_type == "long" and scenes:
+        chapters = []
+        current_time = 0
+        for i, scene in enumerate(scenes[:len(clips)]):
+            clip_dur = clips[i]["duration"] if i < len(clips) else 5.0
+            chapters.append({
+                "start_time": current_time,
+                "end_time": current_time + clip_dur,
+                "title": scene.get("keyword", f"Chapter {i+1}"),
+            })
+            current_time += clip_dur
+        log_event("PIPELINE", f"Generated {len(chapters)} chapter markers")
 
     log_event("PIPELINE", "Step 4: Compositing final video")
     update_agent_status("editor", "working", "Compositing video with FFmpeg")
@@ -140,6 +182,8 @@ def run_video_pipeline(script_text: str, storyboard_text: str, category: str, fo
         music_path=music_path,
         format_type=format_type,
         video_id=video_id,
+        subtitle_path=subtitle_path,
+        chapters=chapters,
     )
     if not final_path:
         raise Exception("Video compositing failed.")
@@ -150,9 +194,40 @@ def run_video_pipeline(script_text: str, storyboard_text: str, category: str, fo
         "video_path": final_path,
         "voice_path": voice_result["path"],
         "music_path": music_path,
+        "subtitle_path": subtitle_path,
         "clips_used": len(clips),
         "duration": total_video_duration,
+        "chapters": chapters,
     }
+
+def apply_review_gate(video_id: str, topic: str, format_type: str, script_text: str, quality: dict):
+    if not ENABLE_REVIEW_GATE:
+        log_event("REVIEW", "Review gate disabled - auto-publishing")
+        return "auto_approve"
+
+    repetition = check_repetition(script_text, topic)
+    log_event("REVIEW", f"Repetition check: max_similarity={repetition.get('max_similarity', 0):.0%}")
+
+    decision = evaluate_publish_decision(quality, repetition, AUTO_APPROVE_THRESHOLD)
+    log_event("REVIEW", f"Decision: {decision['action']} - {decision['reason']}")
+
+    update_video_record(video_id, {
+        "review_status": decision["action"],
+        "review_reason": decision["reason"],
+        "repetition_check": repetition,
+        "reviewed_at": datetime.utcnow().isoformat(),
+    })
+
+    if decision["action"] == "block":
+        add_video_record(video_id, topic, format_type, "blocked_review")
+        log_event("REVIEW", f"BLOCKED: {topic}")
+        return "block"
+    elif decision["action"] == "manual_review":
+        add_video_record(video_id, topic, format_type, "pending_review")
+        log_event("REVIEW", f"PENDING REVIEW: {topic}")
+        return "pending_review"
+
+    return "auto_approve"
 
 def generate_short_video(topic: str, category: str, video_id: str):
     update_pipeline_status(True, video_id)
@@ -160,10 +235,11 @@ def generate_short_video(topic: str, category: str, video_id: str):
     log_event("PIPELINE", f"Starting SHORT video generation: {topic}")
     try:
         script = run_agent_step("scriptwriter", "Scriptwriter", f"Writing script for: {topic}", create_scriptwriter_crew, {"topic": topic, "category": category, "format": "shorts", "max_duration": 120})
+        script_text = str(script)
 
         update_agent_status("quality_scorer", "working", f"Scoring: {topic}")
-        quality = score_content(str(script), topic, category, "shorts")
-        prediction = predict_performance(topic, category, "shorts", str(script))
+        quality = score_content(script_text, topic, category, "shorts")
+        prediction = predict_performance(topic, category, "shorts", script_text)
         update_video_record(video_id, {
             "quality_score": quality["overall_score"],
             "quality_breakdown": quality.get("breakdown", {}),
@@ -179,25 +255,50 @@ def generate_short_video(topic: str, category: str, video_id: str):
             update_pipeline_status(False)
             return False
 
-        storyboard = run_agent_step("storyboard", "Storyboard", "Generating storyboard", create_storyboard_crew, {"script": str(script)})
+        storyboard = run_agent_step("storyboard", "Storyboard", "Generating storyboard", create_storyboard_crew, {"script": script_text})
 
-        video_result = run_video_pipeline(str(script), str(storyboard), category, "shorts", video_id, 120)
+        video_result = run_video_pipeline(script_text, str(storyboard), category, "shorts", video_id, 120)
+
+        review_decision = apply_review_gate(video_id, topic, "shorts", script_text, quality)
+        if review_decision == "block":
+            update_pipeline_status(False)
+            return False
 
         thumbnail = run_agent_step("thumbnail", "Thumbnail Creator", "Creating thumbnail", create_thumbnail_crew, {"topic": topic, "format": "shorts"})
-        metadata = run_agent_step("metadata", "Metadata Writer", "Writing metadata", create_metadata_crew, {"script": str(script), "format": "shorts"})
 
-        update_agent_status("publisher", "working", f"Publishing to platforms: {topic}")
+        desc_result = generate_description(
+            title=topic,
+            script=script_text,
+            category=category,
+            format_type="shorts",
+            channel_name="Vyom Ai Cloud",
+        )
+
         platforms_to_publish = ['youtube']
         publish_result = multi_platform_publish(
             video_id=video_id,
             title=topic,
-            description="",
+            description=desc_result.get("full_description", ""),
             video_path=video_result["video_path"],
             thumbnail_path=str(thumbnail),
             format_type="shorts",
             platforms=platforms_to_publish,
         )
         log_event("PUBLISH", f"Published to {publish_result['success_count']}/{publish_result['total_count']} platforms")
+
+        if ENABLE_MULTI_LANG:
+            log_event("PIPELINE", "Generating multi-language versions")
+            translations = {}
+            for lang_code in MULTI_LANG_CODES:
+                try:
+                    translations[lang_code] = translate_script(script_text, lang_code, title=topic)
+                except Exception as e:
+                    log_event("TRANSLATE", f"Failed {lang_code}: {e}")
+
+            if translations:
+                update_video_record(video_id, {
+                    "translations": {k: v.get("title", "") for k, v in translations.items()},
+                })
 
         add_video_record(video_id, topic, "shorts", "uploaded")
         log_event("PIPELINE", f"SHORT video generation SUCCESS: {topic}")
@@ -214,11 +315,12 @@ def generate_long_video(topic: str, category: str, video_id: str):
     add_video_record(video_id, topic, "long", "generating")
     log_event("PIPELINE", f"Starting LONG video generation: {topic}")
     try:
-        script = run_agent_step("scriptwriter", "Scriptwriter", f"Writing script for: {topic}", create_scriptwriter_crew, {"topic": topic, "category": category, "format": "long", "max_duration": 300})
+        script = run_agent_step("scriptwriter", "Scriptwriter", f"Writing script for: {topic}", create_scriptwriter_crew, {"topic": topic, "category": category, "format": "long", "max_duration": 600})
+        script_text = str(script)
 
         update_agent_status("quality_scorer", "working", f"Scoring: {topic}")
-        quality = score_content(str(script), topic, category, "long")
-        prediction = predict_performance(topic, category, "long", str(script))
+        quality = score_content(script_text, topic, category, "long")
+        prediction = predict_performance(topic, category, "long", script_text)
         update_video_record(video_id, {
             "quality_score": quality["overall_score"],
             "quality_breakdown": quality.get("breakdown", {}),
@@ -234,25 +336,44 @@ def generate_long_video(topic: str, category: str, video_id: str):
             update_pipeline_status(False)
             return False
 
-        storyboard = run_agent_step("storyboard", "Storyboard", "Generating storyboard", create_storyboard_crew, {"script": str(script)})
+        storyboard = run_agent_step("storyboard", "Storyboard", "Generating storyboard", create_storyboard_crew, {"script": script_text})
 
-        video_result = run_video_pipeline(str(script), str(storyboard), category, "long", video_id, 300)
+        video_result = run_video_pipeline(script_text, str(storyboard), category, "long", video_id, 600)
+
+        review_decision = apply_review_gate(video_id, topic, "long", script_text, quality)
+        if review_decision == "block":
+            update_pipeline_status(False)
+            return False
 
         thumbnail = run_agent_step("thumbnail", "Thumbnail Creator", "Creating thumbnail", create_thumbnail_crew, {"topic": topic, "format": "long"})
-        metadata = run_agent_step("metadata", "Metadata Writer", "Writing metadata", create_metadata_crew, {"script": str(script), "format": "long"})
 
-        update_agent_status("publisher", "working", f"Publishing to platforms: {topic}")
+        desc_result = generate_description(
+            title=topic,
+            script=script_text,
+            category=category,
+            format_type="long",
+            scenes=parse_scenes_from_storyboard(str(storyboard)),
+            channel_name="Vyom Ai Cloud",
+        )
+
         platforms_to_publish = ['youtube', 'facebook']
         publish_result = multi_platform_publish(
             video_id=video_id,
             title=topic,
-            description="",
+            description=desc_result.get("full_description", ""),
             video_path=video_result["video_path"],
             thumbnail_path=str(thumbnail),
             format_type="long",
             platforms=platforms_to_publish,
         )
         log_event("PUBLISH", f"Published to {publish_result['success_count']}/{publish_result['total_count']} platforms")
+
+        update_video_record(video_id, {
+            "script": script_text,
+            "subtitle_path": video_result.get("subtitle_path"),
+            "chapters": video_result.get("chapters"),
+            "is_above_8min": video_result.get("duration", 0) >= 480,
+        })
 
         add_video_record(video_id, topic, "long", "uploaded")
         log_event("PIPELINE", f"LONG video generation SUCCESS: {topic}")
@@ -267,17 +388,15 @@ def generate_long_video(topic: str, category: str, video_id: str):
 def daily_content_job():
     update_pipeline_status(True)
     log_event("SCHEDULER", "Starting daily content generation")
-    
-    # Discover trending topics first
+
     log_event("TRENDS", "Discovering trending topics for today")
     update_agent_status("trend_discovery", "working", "Scanning for trending topics")
     trends = discover_trends()
     update_agent_status("trend_discovery", "completed", f"Found {len(trends)} trending topics")
     log_event("TRENDS", f"Found {len(trends)} trending topics")
-    
-    # Pick top trending topics for today's content
+
     top_trends = sorted(trends, key=lambda t: t['score'], reverse=True)[:4]
-    
+
     shorts_per_day = int(os.getenv("SCHEDULE_SHORTS_PER_DAY", 2))
     long_per_day = int(os.getenv("SCHEDULE_LONG_PER_DAY", 2))
 
@@ -311,6 +430,10 @@ if __name__ == "__main__":
 
     for agent_id in AGENT_MAP.values():
         update_agent_status(agent_id, "idle", "Ready")
+
+    log_event("SYSTEM", f"Multi-language: {ENABLE_MULTI_LANG} ({', '.join(MULTI_LANG_CODES)})")
+    log_event("SYSTEM", f"Subtitles: {ENABLE_SUBTITLES}")
+    log_event("SYSTEM", f"Review gate: {ENABLE_REVIEW_GATE} (threshold: {AUTO_APPROVE_THRESHOLD})")
 
     scheduler = BlockingScheduler()
     scheduler.add_job(daily_content_job, "cron", hour=6, minute=0)

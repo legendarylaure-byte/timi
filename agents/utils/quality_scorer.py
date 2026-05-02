@@ -2,6 +2,7 @@ import json
 from utils.groq_client import generate_completion
 from utils.firebase_status import get_firestore_client, update_agent_status, log_activity
 from utils.validators import validate_script_content
+from firebase_admin import firestore
 
 SYSTEM_PROMPT = """You are an expert content quality evaluator for children's YouTube/TikTok videos (ages 1-9).
 Evaluate the provided content on these criteria and return ONLY a valid JSON object with this exact structure:
@@ -234,3 +235,74 @@ def _fallback_prediction(title: str, category: str, format_type: str = "shorts")
         "trending_match": "high" if virality > 60 else "medium" if virality > 40 else "low",
         "reasoning": f"Prediction based on category popularity ({category}), format trends ({format_type}), and historical patterns.",
     }
+
+
+def check_repetition(current_script: str, category: str, max_recent: int = 10) -> dict:
+    """Check if current content is too similar to recent videos (prevents 'repetitious content' flags)."""
+    try:
+        db = get_firestore_client()
+        recent_videos = (
+            db.collection("videos")
+            .where("format", "==", "long" if "long" in category.lower() else "shorts")
+            .order_by("created_at", direction=firestore.Query.DESCENDING)
+            .limit(max_recent)
+            .stream()
+        )
+
+        recent_scripts = []
+        for doc in recent_videos:
+            data = doc.to_dict()
+            if data.get("script"):
+                recent_scripts.append({"title": data.get("title", ""), "script": data["script"]})
+
+        if not recent_scripts:
+            return {"is_repetitive": False, "similarity_scores": [], "recommendation": "approve"}
+
+        similarities = []
+        for recent in recent_scripts:
+            sim = _text_similarity(current_script, recent["script"])
+            similarities.append({"title": recent["title"], "similarity": sim})
+
+        max_similarity = max(s["similarity"] for s in similarities)
+        is_repetitive = max_similarity > 0.6
+
+        result = {
+            "is_repetitive": is_repetitive,
+            "similarity_scores": similarities,
+            "max_similarity": round(max_similarity, 2),
+            "recommendation": "block" if is_repetitive else "approve",
+        }
+
+        if is_repetitive:
+            result["flags"] = ["repetitious_content_detected"]
+            result["feedback"] = f"Content is {max_similarity:.0%} similar to a recent video. YouTube may flag this as repetitious."
+
+        return result
+    except Exception as e:
+        print(f"[repetition] Check failed: {e}")
+        return {"is_repetitive": False, "similarity_scores": [], "recommendation": "approve"}
+
+
+def _text_similarity(text1: str, text2: str) -> float:
+    words1 = set(text1.lower().split())
+    words2 = set(text2.lower().split())
+    if not words1 or not words2:
+        return 0.0
+    intersection = words1 & words2
+    union = words1 | words2
+    return len(intersection) / len(union) if union else 0.0
+
+
+def evaluate_publish_decision(quality_score: dict, repetition_check: dict, auto_approve_threshold: int = 80) -> dict:
+    score = quality_score.get("overall_score", 0)
+    recommendation = quality_score.get("recommendation", "review")
+    is_repetitive = repetition_check.get("is_repetitive", False)
+
+    if score >= auto_approve_threshold and recommendation == "approve" and not is_repetitive:
+        return {"action": "auto_approve", "reason": f"Score {score} >= {auto_approve_threshold}, no flags"}
+    elif recommendation == "block" or score < 50:
+        return {"action": "block", "reason": f"Score {score} < 50 or blocked by quality scorer"}
+    elif is_repetitive:
+        return {"action": "block", "reason": "Repetitious content detected"}
+    else:
+        return {"action": "manual_review", "reason": f"Score {score} requires human review"}
