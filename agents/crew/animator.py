@@ -1,6 +1,8 @@
 import os
 from crewai import Agent, Task, Crew
-from langchain_groq import ChatGroq
+
+OLLAMA_MODEL = "ollama/" + os.getenv("OLLAMA_MODEL", "qwen2.5:7b")
+OLLAMA_BASE = os.getenv("OLLAMA_BASE_URL", "http://localhost:11434")
 
 def create_animator_crew():
     animator = Agent(
@@ -10,12 +12,8 @@ def create_animator_crew():
 You analyze each scene and choose video clips from Pexels/Pixabay stock library
 that have real motion - animals moving, nature scenes, kids playing, etc.
 You avoid static images and prefer clips with smooth, continuous movement.""",
-        llm=ChatGroq(
-            model=os.getenv("GROQ_MODEL", "llama-3.3-70b-versatile"),
-            api_key=os.getenv("GROQ_API_KEY"),
-            temperature=0.5,
-            max_tokens=2000,
-        ),
+        llm=OLLAMA_MODEL,
+        base_url=OLLAMA_BASE,
         verbose=True,
         allow_delegation=False,
     )

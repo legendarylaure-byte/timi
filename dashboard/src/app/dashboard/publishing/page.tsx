@@ -32,20 +32,6 @@ interface UploadQueueItem {
   progress: Record<string, number>;
 }
 
-const mockPlatforms: PlatformConfig[] = [
-  { id: 'youtube', name: 'YouTube', icon: '🔴', color: '#FF0000', connected: true, followers: 12400, videosPublished: 156, autoPublish: true, bestTime: '18:00', scheduleEnabled: true, maxShortsPerDay: 2, maxLongPerDay: 2 },
-  { id: 'tiktok', name: 'TikTok', icon: '🎵', color: '#000000', connected: true, followers: 28900, videosPublished: 203, autoPublish: true, bestTime: '19:00', scheduleEnabled: true, maxShortsPerDay: 3, maxLongPerDay: 0 },
-  { id: 'instagram', name: 'Instagram', icon: '📸', color: '#E4405F', connected: true, followers: 8700, videosPublished: 98, autoPublish: false, bestTime: '20:00', scheduleEnabled: false, maxShortsPerDay: 2, maxLongPerDay: 1 },
-  { id: 'facebook', name: 'Facebook', icon: '👤', color: '#1877F2', connected: false, followers: 0, videosPublished: 0, autoPublish: false, bestTime: '17:00', scheduleEnabled: false, maxShortsPerDay: 0, maxLongPerDay: 0 },
-];
-
-const mockQueue: UploadQueueItem[] = [
-  { id: 'q1', title: 'ABC Phonics with Animals', format: 'shorts', platforms: ['youtube', 'tiktok', 'instagram'], status: 'published', progress: { youtube: 100, tiktok: 100, instagram: 100 } },
-  { id: 'q2', title: 'Why is the Sky Blue?', format: 'shorts', platforms: ['youtube', 'tiktok'], status: 'uploading', progress: { youtube: 78, tiktok: 45 } },
-  { id: 'q3', title: 'The Solar System Adventure', format: 'long', platforms: ['youtube', 'facebook'], status: 'queued', progress: { youtube: 0, facebook: 0 } },
-  { id: 'q4', title: 'Sleepy Cloud Bedtime Story', format: 'long', platforms: ['youtube'], status: 'queued', progress: { youtube: 0 } },
-];
-
 export default function PublishingPage() {
   const [platforms, setPlatforms] = useState<PlatformConfig[]>([]);
   const [queue, setQueue] = useState<UploadQueueItem[]>([]);
@@ -56,8 +42,6 @@ export default function PublishingPage() {
     const unsub = onSnapshot(collection(db, 'platform_settings'), (snap) => {
       if (!snap.empty) {
         setPlatforms(snap.docs.map(d => ({ id: d.id, ...d.data() } as PlatformConfig)));
-      } else {
-        setPlatforms(mockPlatforms);
       }
       setLoading(false);
     });
@@ -68,8 +52,6 @@ export default function PublishingPage() {
     const unsub = onSnapshot(query(collection(db, 'upload_queue'), orderBy('created_at', 'desc'), limit(20)), (snap) => {
       if (!snap.empty) {
         setQueue(snap.docs.map(d => ({ id: d.id, ...d.data() } as UploadQueueItem)));
-      } else {
-        setQueue(mockQueue);
       }
     });
     return () => unsub();
@@ -129,8 +111,17 @@ export default function PublishingPage() {
       </div>
 
       {/* Platform Cards */}
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-        {platforms.map((platform, i) => (
+      {platforms.length === 0 ? (
+        <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="rounded-2xl glass-strong border border-light-border/30 dark:border-white/5 p-12 text-center">
+          <div className="text-5xl mb-4">📤</div>
+          <h3 className="text-lg font-bold text-light-text dark:text-dark-text mb-2">No Platforms Connected</h3>
+          <p className="text-sm text-light-muted dark:text-dark-muted max-w-md mx-auto">
+            Connect your YouTube, TikTok, Instagram, or Facebook accounts to start publishing videos automatically.
+          </p>
+        </motion.div>
+      ) : (
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          {platforms.map((platform, i) => (
           <motion.div
             key={platform.id}
             initial={{ opacity: 0, y: 20 }}
@@ -235,12 +226,18 @@ export default function PublishingPage() {
           </motion.div>
         ))}
       </div>
+      )}
 
       {/* Upload Queue */}
       <div className="rounded-2xl glass-strong border border-light-border/30 dark:border-white/5 p-6">
         <h2 className="text-lg font-bold text-light-text dark:text-dark-text mb-4">Upload Queue</h2>
-        <div className="space-y-3">
-          {queue.map((item, i) => (
+          {queue.length === 0 ? (
+            <div className="text-center py-8 text-light-muted dark:text-dark-muted">
+              <p className="text-sm">No videos in queue</p>
+            </div>
+          ) : (
+            <div className="space-y-3">
+              {queue.map((item, i) => (
             <motion.div
               key={item.id}
               initial={{ opacity: 0, x: -10 }}
@@ -280,9 +277,10 @@ export default function PublishingPage() {
                 })}
               </div>
             </motion.div>
-          ))}
+              ))}
+            </div>
+          )}
         </div>
-      </div>
     </div>
   );
 }

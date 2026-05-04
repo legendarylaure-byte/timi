@@ -1,6 +1,8 @@
 import os
 from crewai import Agent, Task, Crew
-from langchain_groq import ChatGroq
+
+OLLAMA_MODEL = "ollama/" + os.getenv("OLLAMA_MODEL", "qwen2.5:7b")
+OLLAMA_BASE = os.getenv("OLLAMA_BASE_URL", "http://localhost:11434")
 
 def create_composer_crew():
     composer = Agent(
@@ -10,12 +12,8 @@ def create_composer_crew():
 You create simple, memorable melodies that are uplifting and perfectly matched
 to the emotional tone of each scene. You use procedural music generation
 with child-friendly tempos and instrument tones.""",
-        llm=ChatGroq(
-            model=os.getenv("GROQ_MODEL", "llama-3.3-70b-versatile"),
-            api_key=os.getenv("GROQ_API_KEY"),
-            temperature=0.6,
-            max_tokens=1000,
-        ),
+        llm=OLLAMA_MODEL,
+        base_url=OLLAMA_BASE,
         verbose=True,
         allow_delegation=False,
     )

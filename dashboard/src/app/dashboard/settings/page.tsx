@@ -3,7 +3,7 @@
 import { useState, useEffect } from 'react';
 import { motion } from 'framer-motion';
 import { db } from '@/lib/firebase';
-import { doc, updateDoc, getDoc, setDoc } from 'firebase/firestore';
+import { doc, updateDoc, getDoc, setDoc, collection, onSnapshot } from 'firebase/firestore';
 import { useToast } from '@/components/ui/Toast';
 import { GradientCard } from '@/components/ui/GradientCard';
 import { DAILY_QUOTA, CONTENT_CATEGORIES, PLATFORMS } from '@/lib/constants';
@@ -18,6 +18,7 @@ export default function SettingsPage() {
   const [theme, setTheme] = useState<'light' | 'dark'>('light');
 
   const [loading, setLoading] = useState(true);
+  const [platformConnections, setPlatformConnections] = useState<Record<string, { connected: boolean; followers: number }>>({});
   const [notifSuccess, setNotifSuccess] = useState(true);
   const [notifWarning, setNotifWarning] = useState(true);
   const [notifError, setNotifError] = useState(true);
@@ -53,6 +54,21 @@ export default function SettingsPage() {
       }
     };
     loadSettings();
+  }, []);
+
+  useEffect(() => {
+    const unsub = onSnapshot(collection(db, 'platform_settings'), (snap) => {
+      const connections: Record<string, { connected: boolean; followers: number }> = {};
+      snap.forEach(doc => {
+        const d = doc.data();
+        connections[doc.id] = {
+          connected: d.connected || false,
+          followers: d.followers || 0,
+        };
+      });
+      setPlatformConnections(connections);
+    });
+    return () => unsub();
   }, []);
 
   const toggleTheme = () => {
@@ -302,16 +318,37 @@ export default function SettingsPage() {
       <GradientCard gradient="info">
         <h2 className="text-lg font-bold text-light-text dark:text-dark-text mb-4">Connected Channels</h2>
         <div className="space-y-3">
-          {Object.entries(PLATFORMS).map(([key, platform]) => (
-            <div key={key} className="flex items-center justify-between p-3 rounded-xl bg-light-bg dark:bg-dark-bg/50">
-              <span className="text-sm font-medium text-light-text dark:text-dark-text">{platform.name}</span>
-              <span className="text-xs px-3 py-1 rounded-full bg-light-warning/20 text-light-warning">
-                Not Connected
-              </span>
-            </div>
-          ))}
+          {Object.entries(PLATFORMS).map(([key, platform]) => {
+            const conn = platformConnections[key.toLowerCase()];
+            const isConnected = conn?.connected || false;
+            const followers = conn?.followers || 0;
+            const iconMap: Record<string, string> = {
+              YOUTUBE: '▶️',
+              TIKTOK: '🎵',
+              INSTAGRAM: '📸',
+              FACEBOOK: '👥',
+            };
+            return (
+              <div key={key} className="flex items-center justify-between p-3 rounded-xl bg-light-bg dark:bg-dark-bg/50">
+                <div className="flex items-center gap-3">
+                  <span className="text-lg">{iconMap[key] || '🔗'}</span>
+                  <span className="text-sm font-medium text-light-text dark:text-dark-text">{platform.name}</span>
+                  {isConnected && followers > 0 && (
+                    <span className="text-xs text-light-muted dark:text-dark-muted">{followers.toLocaleString()} followers</span>
+                  )}
+                </div>
+                <span className={`text-xs px-3 py-1 rounded-full ${
+                  isConnected
+                    ? 'bg-emerald-500/20 text-emerald-400'
+                    : 'bg-light-warning/20 text-light-warning'
+                }`}>
+                  {isConnected ? 'Connected' : 'Not Connected'}
+                </span>
+              </div>
+            );
+          })}
         </div>
-        <p className="text-xs text-light-muted dark:text-dark-muted mt-4">Connect your social media accounts in the .env file</p>
+        <p className="text-xs text-light-muted dark:text-dark-muted mt-4">Connect your social media accounts from the Publishing page</p>
       </GradientCard>
 
       {/* Save Button */}

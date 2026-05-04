@@ -141,10 +141,12 @@ def download_clip(video_url: str, output_path: Path, timeout: int = 60) -> bool:
         print(f"[stock_video] Download error: {e}")
         return False
 
+FFPROBE_PATH = "/opt/homebrew/opt/ffmpeg-full/bin/ffprobe"
+
 def get_video_duration(file_path: str) -> float:
     try:
         result = subprocess.run(
-            ["ffprobe", "-v", "error", "-show_entries", "format=duration",
+            [FFPROBE_PATH, "-v", "error", "-show_entries", "format=duration",
              "-of", "default=noprint_wrappers=1:nokey=1", file_path],
             capture_output=True, text=True, timeout=10
         )

@@ -1,6 +1,8 @@
 import os
 from crewai import Agent, Task, Crew
-from langchain_groq import ChatGroq
+
+OLLAMA_MODEL = "ollama/" + os.getenv("OLLAMA_MODEL", "qwen2.5:7b")
+OLLAMA_BASE = os.getenv("OLLAMA_BASE_URL", "http://localhost:11434")
 
 def create_storyboard_crew():
     storyboard_artist = Agent(
@@ -10,12 +12,8 @@ def create_storyboard_crew():
 You translate scripts into vivid visual descriptions that animators can use directly.
 Your storyboards include camera angles, character positions, color palettes, lighting,
 and mood descriptions optimized for the target age group (1-9 years).""",
-        llm=ChatGroq(
-            model=os.getenv("GROQ_MODEL", "llama-3.3-70b-versatile"),
-            api_key=os.getenv("GROQ_API_KEY"),
-            temperature=0.6,
-            max_tokens=3000,
-        ),
+        llm=OLLAMA_MODEL,
+        base_url=OLLAMA_BASE,
         verbose=True,
         allow_delegation=False,
     )

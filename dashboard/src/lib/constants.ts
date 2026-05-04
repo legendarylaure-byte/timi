@@ -36,6 +36,15 @@ export const CONTENT_CATEGORIES = [
   { name: 'Science for Kids', description: 'Fun science experiments' },
   { name: 'Rhymes & Songs', description: 'Nursery rhymes and music' },
   { name: 'Colors & Shapes', description: 'Visual learning basics' },
+  { name: 'Tech & AI', description: 'Technology and AI trends' },
+  { name: 'Gaming', description: 'Gaming content and reviews' },
+  { name: 'Cooking & Food', description: 'Recipes and food content' },
+  { name: 'DIY & Crafts', description: 'DIY projects and crafts' },
+  { name: 'Health & Wellness', description: 'Health and fitness content' },
+  { name: 'Travel & Adventure', description: 'Travel guides and adventures' },
+  { name: 'Finance & Business', description: 'Finance and business tips' },
+  { name: 'Comedy & Entertainment', description: 'Funny and entertaining content' },
+  { name: 'Music & Dance', description: 'Music and dance content' },
 ];
 
 export const DAILY_QUOTA = {

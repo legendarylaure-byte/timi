@@ -10,14 +10,14 @@ from datetime import datetime
 from utils.groq_client import generate_completion
 from utils.firebase_status import get_firestore_client, log_activity
 
-SYSTEM_PROMPT = """You are a trend analyst specializing in children's YouTube/TikTok content.
-Analyze current trends and suggest video topics for children ages 1-9.
+SYSTEM_PROMPT = """You are a trend analyst specializing in YouTube/TikTok content across multiple niches.
+Analyze current trends and suggest video topics for both children's content and global trending categories.
 Return ONLY a valid JSON array of objects with this exact structure:
 
 [
   {
     "title": "Catchy video title",
-    "category": "One of: Self-Learning, Bedtime Stories, Mythology Stories, Animated Fables, Science for Kids, Rhymes & Songs, Colors & Shapes",
+    "category": "One of: Self-Learning, Bedtime Stories, Mythology Stories, Animated Fables, Science for Kids, Rhymes & Songs, Colors & Shapes, Tech & AI, Gaming, Cooking & Food, DIY & Crafts, Health & Wellness, Travel & Adventure, Finance & Business, Comedy & Entertainment, Music & Dance",
     "search_volume": estimated_monthly_searches,
     "growth": percentage_growth_last_month,
     "competition": "low" or "medium" or "high",
@@ -27,7 +27,7 @@ Return ONLY a valid JSON array of objects with this exact structure:
   }
 ]
 
-Return 10 trending topics. Consider seasonal events, viral patterns, and gaps in children's content."""
+Return 15 trending topics. Mix children's content (ages 1-9) with global trending categories. Consider seasonal events, viral patterns, and content gaps."""
 
 def discover_trends() -> list:
     """Discover trending topics for children's content."""
@@ -82,13 +82,27 @@ def _fallback_trends() -> list:
 
     topics = seasonal_topics.get(seasonal, ["Fun Learning Adventures", "Bedtime Dreams"])
     
-    return [
+    global_trends = [
+        {"title": "AI Tools That Will Change 2025", "category": "Tech & AI", "search_volume": 890000, "growth": 120, "competition": "medium", "suggested_format": "long", "score": 96, "keywords": ["AI", "tools", "future", "technology"]},
+        {"title": "5-Minute Healthy Breakfast Ideas", "category": "Cooking & Food", "search_volume": 650000, "growth": 45, "competition": "low", "suggested_format": "shorts", "score": 88, "keywords": ["breakfast", "healthy", "quick", "recipes"]},
+        {"title": "Hidden Gems in Southeast Asia", "category": "Travel & Adventure", "search_volume": 420000, "growth": 67, "competition": "medium", "suggested_format": "long", "score": 85, "keywords": ["travel", "asia", "budget", "adventure"]},
+        {"title": "10-Minute Home Workout No Equipment", "category": "Health & Wellness", "search_volume": 1200000, "growth": 38, "competition": "high", "suggested_format": "shorts", "score": 82, "keywords": ["workout", "home", "fitness", "no equipment"]},
+        {"title": "Beginner's Guide to Crypto Investing", "category": "Finance & Business", "search_volume": 780000, "growth": 55, "competition": "high", "suggested_format": "long", "score": 79, "keywords": ["crypto", "investing", "beginner", "finance"]},
+        {"title": "DIY Room Decor Under $20", "category": "DIY & Crafts", "search_volume": 530000, "growth": 42, "competition": "low", "suggested_format": "shorts", "score": 91, "keywords": ["DIY", "room decor", "budget", "crafts"]},
+        {"title": "Funniest Pet Fails Compilation", "category": "Comedy & Entertainment", "search_volume": 2100000, "growth": 28, "competition": "high", "suggested_format": "shorts", "score": 87, "keywords": ["pets", "funny", "fails", "compilation"]},
+        {"title": "Learn Guitar in 30 Days", "category": "Music & Dance", "search_volume": 340000, "growth": 51, "competition": "medium", "suggested_format": "long", "score": 83, "keywords": ["guitar", "learn", "music", "30 days"]},
+        {"title": "Top 10 Indie Games You Must Play", "category": "Gaming", "search_volume": 680000, "growth": 73, "competition": "medium", "suggested_format": "long", "score": 90, "keywords": ["indie games", "gaming", "top 10", "must play"]},
+    ]
+    
+    kids_trends = [
         {"title": f"{topics[0]}", "category": "Self-Learning", "search_volume": random.randint(100000, 500000), "growth": random.randint(15, 70), "competition": random.choice(["low", "medium"]), "suggested_format": "shorts", "score": random.randint(75, 95), "keywords": ["learn", "kids", "fun"]},
         {"title": f"{topics[1]}", "category": "Bedtime Stories", "search_volume": random.randint(80000, 300000), "growth": random.randint(10, 50), "competition": random.choice(["low", "medium", "high"]), "suggested_format": "long", "score": random.randint(70, 90), "keywords": ["bedtime", "sleep", "story"]},
         {"title": "Why is the Sky Blue?", "category": "Science for Kids", "search_volume": 410000, "growth": 45, "competition": "medium", "suggested_format": "shorts", "score": 94, "keywords": ["sky", "blue", "science", "why"]},
         {"title": "ABC Phonics with Animals", "category": "Self-Learning", "search_volume": 245000, "growth": 34, "competition": "low", "suggested_format": "shorts", "score": 92, "keywords": ["abc", "phonics", "animals"]},
         {"title": "Counting to 10 with Dinosaurs", "category": "Rhymes & Songs", "search_volume": 290000, "growth": 52, "competition": "low", "suggested_format": "shorts", "score": 91, "keywords": ["count", "dinosaurs", "numbers"]},
     ]
+    
+    return kids_trends + global_trends
 
 
 def _save_trends(trends: list):
@@ -150,6 +164,15 @@ def _fallback_category_analysis(category: str) -> dict:
         "Science for Kids": {"trending_score": 91, "monthly_searches": 3200000, "saturation": "medium", "growth_trend": "increasing"},
         "Rhymes & Songs": {"trending_score": 85, "monthly_searches": 4500000, "saturation": "high", "growth_trend": "stable"},
         "Colors & Shapes": {"trending_score": 79, "monthly_searches": 1200000, "saturation": "medium", "growth_trend": "increasing"},
+        "Tech & AI": {"trending_score": 95, "monthly_searches": 5600000, "saturation": "medium", "growth_trend": "increasing"},
+        "Gaming": {"trending_score": 89, "monthly_searches": 8900000, "saturation": "high", "growth_trend": "stable"},
+        "Cooking & Food": {"trending_score": 84, "monthly_searches": 4200000, "saturation": "medium", "growth_trend": "increasing"},
+        "DIY & Crafts": {"trending_score": 81, "monthly_searches": 2800000, "saturation": "low", "growth_trend": "increasing"},
+        "Health & Wellness": {"trending_score": 87, "monthly_searches": 6100000, "saturation": "high", "growth_trend": "stable"},
+        "Travel & Adventure": {"trending_score": 76, "monthly_searches": 3400000, "saturation": "medium", "growth_trend": "increasing"},
+        "Finance & Business": {"trending_score": 83, "monthly_searches": 4800000, "saturation": "high", "growth_trend": "stable"},
+        "Comedy & Entertainment": {"trending_score": 92, "monthly_searches": 12000000, "saturation": "high", "growth_trend": "stable"},
+        "Music & Dance": {"trending_score": 80, "monthly_searches": 5200000, "saturation": "medium", "growth_trend": "increasing"},
     }
     
     base = data.get(category, {"trending_score": 70, "monthly_searches": 500000, "saturation": "medium", "growth_trend": "stable"})
@@ -157,8 +180,75 @@ def _fallback_category_analysis(category: str) -> dict:
     return {
         **base,
         "category": category,
-        "top_keywords": [category.lower().replace(" ", "_"), "kids", "children", "learn"],
-        "recommended_topics": [f"Intro to {category}", f"Advanced {category}", f"Fun {category} Songs"],
+        "top_keywords": [category.lower().replace(" ", "_"), "trending", "viral"],
+        "recommended_topics": [f"Beginner's Guide to {category}", f"Top 10 {category} Tips", f"{category} Trends 2025"],
         "best_posting_time": "18:00",
         "average_views": random.randint(50000, 500000),
     }
+
+
+def generate_monthly_plan(month: int = None, year: int = None, focus_categories: list = None) -> dict:
+    """Generate a monthly content plan with diversified categories."""
+    from datetime import datetime
+    month = month or datetime.now().month
+    year = year or datetime.now().month
+    
+    if focus_categories is None:
+        focus_categories = ["Self-Learning", "Bedtime Stories", "Science for Kids", "Tech & AI", "Cooking & Food", "DIY & Crafts"]
+    
+    seasonal_events = {
+        1: ["New Year", "Winter Activities"],
+        2: ["Valentine's Day", "Black History Month"],
+        3: ["Spring Begins", "St. Patrick's Day"],
+        4: ["Earth Day", "April Fools"],
+        5: ["Mother's Day", "Memorial Day"],
+        6: ["Father's Day", "Summer Begins"],
+        7: ["Independence Day", "Summer Camp"],
+        8: ["Back to School", "Summer Finale"],
+        9: ["Autumn Begins", "Grandparents Day"],
+        10: ["Halloween", "Fall Activities"],
+        11: ["Thanksgiving", "Black Friday"],
+        12: ["Christmas", "New Year's Eve"],
+    }
+    
+    events = seasonal_events.get(month, [])
+    weeks_in_month = 4
+    videos_per_week = 5
+    total_videos = weeks_in_month * videos_per_week
+    
+    plan = {
+        "month": month,
+        "year": year,
+        "total_videos": total_videos,
+        "seasonal_events": events,
+        "weekly_plan": [],
+        "category_distribution": {},
+    }
+    
+    category_counts = {cat: 0 for cat in focus_categories}
+    
+    for week in range(1, weeks_in_month + 1):
+        week_videos = []
+        for day in range(1, videos_per_week + 1):
+            cat_idx = (week + day) % len(focus_categories)
+            category = focus_categories[cat_idx]
+            category_counts[category] += 1
+            
+            video = {
+                "week": week,
+                "day": day,
+                "category": category,
+                "format": "shorts" if day <= 3 else "long",
+                "theme": events[0] if events and day == 1 else None,
+            }
+            week_videos.append(video)
+        
+        plan["weekly_plan"].append({
+            "week": week,
+            "videos": week_videos,
+            "focus": events[0] if events else f"Week {week} content",
+        })
+    
+    plan["category_distribution"] = category_counts
+    
+    return plan

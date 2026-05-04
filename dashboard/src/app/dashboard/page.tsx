@@ -3,8 +3,8 @@
 import { useEffect, useState, useCallback } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { db } from '@/lib/firebase';
-import { collection, onSnapshot, doc, updateDoc, query, orderBy, limit } from 'firebase/firestore';
-import { AGENT_ROLES } from '@/lib/constants';
+import { collection, onSnapshot, doc, updateDoc, query, orderBy, limit, addDoc, serverTimestamp } from 'firebase/firestore';
+import { AGENT_ROLES, CONTENT_CATEGORIES } from '@/lib/constants';
 import { GradientCard } from '@/components/ui/GradientCard';
 import { StatusBadge } from '@/components/ui/StatusBadge';
 import { useToast } from '@/components/ui/Toast';
@@ -36,6 +36,15 @@ interface VideoDoc {
   created_at: any;
 }
 
+interface PipelineTrigger {
+  id: string;
+  topic: string;
+  category: string;
+  format: string;
+  status: string;
+  created_at: any;
+}
+
 const gradients: Record<string, string> = {
   primary: 'linear-gradient(135deg, #FF4D6D, #7C3AED)',
   warm: 'linear-gradient(135deg, #FF4D6D, #FBBF24)',
@@ -62,6 +71,9 @@ export default function DashboardPage() {
   const [longQuota, setLongQuota] = useState(2);
   const [shortsTodayDone, setShortsTodayDone] = useState(0);
   const [longTodayDone, setLongTodayDone] = useState(0);
+  const [triggers, setTriggers] = useState<PipelineTrigger[]>([]);
+  const [triggerForm, setTriggerForm] = useState({ topic: '', category: 'science', format: 'shorts', schedule: 'now' as 'now' | 'schedule', publishAt: '' });
+  const [triggerSubmitting, setTriggerSubmitting] = useState(false);
   const { addToast } = useToast();
 
   useEffect(() => {
@@ -135,6 +147,46 @@ export default function DashboardPage() {
     });
     return () => unsub();
   }, []);
+
+  useEffect(() => {
+    const q = query(collection(db, 'pipeline_triggers'), orderBy('created_at', 'desc'), limit(5));
+    const unsubscribe = onSnapshot(q, (snapshot) => {
+      const items: PipelineTrigger[] = [];
+      snapshot.docs.forEach((d) => {
+        items.push({ id: d.id, ...d.data() } as PipelineTrigger);
+      });
+      setTriggers(items);
+    });
+    return () => unsubscribe();
+  }, []);
+
+  const submitTrigger = useCallback(async () => {
+    if (!triggerForm.topic.trim()) {
+      addToast('Please enter a topic', 'error');
+      return;
+    }
+    setTriggerSubmitting(true);
+    try {
+      const publishAt = triggerForm.schedule === 'schedule' && triggerForm.publishAt ? new Date(triggerForm.publishAt).toISOString() : null;
+      await addDoc(collection(db, 'pipeline_triggers'), {
+        topic: triggerForm.topic.trim(),
+        category: triggerForm.category,
+        format: triggerForm.format,
+        status: 'pending',
+        publish_at: publishAt,
+        created_at: serverTimestamp(),
+      });
+      const msg = publishAt
+        ? `Scheduled ${triggerForm.format}: "${triggerForm.topic}" for ${new Date(publishAt).toLocaleString()}`
+        : `Triggered ${triggerForm.format}: "${triggerForm.topic}"`;
+      addToast(msg, 'success');
+      setTriggerForm({ topic: '', category: 'science', format: 'shorts', schedule: 'now', publishAt: '' });
+    } catch (error) {
+      addToast('Failed to trigger pipeline', 'error');
+    } finally {
+      setTriggerSubmitting(false);
+    }
+  }, [triggerForm, addToast]);
 
   const toggleAgent = useCallback(async (agentId: string, currentEnabled: boolean) => {
     try {
@@ -233,13 +285,11 @@ export default function DashboardPage() {
       </AnimatePresence>
 
       {/* Stats Cards */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4">
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
         {[
           { label: 'Videos Today', value: `${videosToday}`, suffix: `/${shortsQuota + longQuota}`, icon: '🎬', gradient: 'primary' as const },
           { label: 'Total Videos', value: `${totalVideos}`, icon: '📁', gradient: 'warm' as const },
           { label: 'Total Views', value: `${totalViews > 999 ? (totalViews / 1000).toFixed(1) + 'K' : totalViews}`, icon: '👁️', gradient: 'cool' as const },
-          { label: 'Trending Topics', value: '10', icon: '🔥', gradient: 'warm' as const },
-          { label: 'Clips Ready', value: '9', icon: '✂️', gradient: 'success' as const },
         ].map((stat, i) => (
           <GradientCard key={stat.label} gradient={stat.gradient} delay={0.1 + i * 0.1}>
             <div className="flex items-center justify-between mb-3">
@@ -378,6 +428,117 @@ export default function DashboardPage() {
           </div>
         </GradientCard>
       </div>
+
+      {/* Quick Run Pipeline */}
+      <GradientCard gradient="primary">
+        <h2 className="text-lg font-bold text-light-text dark:text-dark-text mb-4">🚀 Run Pipeline</h2>
+        <div className="flex flex-col sm:flex-row gap-3">
+          <input
+            type="text"
+            placeholder="Enter video topic (e.g. The Magic of Rainbows)"
+            value={triggerForm.topic}
+            onChange={(e) => setTriggerForm({ ...triggerForm, topic: e.target.value })}
+            onKeyDown={(e) => e.key === 'Enter' && submitTrigger()}
+            className="flex-1 px-4 py-2.5 rounded-xl bg-light-bg dark:bg-dark-bg border border-light-border dark:border-dark-border text-light-text dark:text-dark-text placeholder:text-light-muted focus:outline-none focus:ring-2 focus:ring-light-primary"
+          />
+          <select
+            value={triggerForm.category}
+            onChange={(e) => setTriggerForm({ ...triggerForm, category: e.target.value })}
+            className="px-4 py-2.5 rounded-xl bg-light-bg dark:bg-dark-bg border border-light-border dark:border-dark-border text-light-text dark:text-dark-text focus:outline-none focus:ring-2 focus:ring-light-primary"
+          >
+            {CONTENT_CATEGORIES.map(cat => (
+              <option key={cat.name} value={cat.name}>{cat.name}</option>
+            ))}
+          </select>
+          <div className="flex gap-2">
+            <button
+              onClick={() => setTriggerForm({ ...triggerForm, format: 'shorts' })}
+              className={`px-4 py-2.5 rounded-xl font-medium text-sm transition-all ${
+                triggerForm.format === 'shorts'
+                  ? 'bg-light-primary text-white'
+                  : 'bg-light-bg dark:bg-dark-bg border border-light-border dark:border-dark-border text-light-muted'
+              }`}
+            >
+              Shorts
+            </button>
+            <button
+              onClick={() => setTriggerForm({ ...triggerForm, format: 'long' })}
+              className={`px-4 py-2.5 rounded-xl font-medium text-sm transition-all ${
+                triggerForm.format === 'long'
+                  ? 'bg-light-primary text-white'
+                  : 'bg-light-bg dark:bg-dark-bg border border-light-border dark:border-dark-border text-light-muted'
+              }`}
+            >
+              Long
+            </button>
+          </div>
+        </div>
+
+        {/* Schedule toggle */}
+        <div className="flex flex-col sm:flex-row items-start sm:items-center gap-3 mt-4">
+          <div className="flex gap-2">
+            <button
+              onClick={() => setTriggerForm({ ...triggerForm, schedule: 'now' })}
+              className={`px-4 py-2 rounded-xl text-xs font-medium transition-all ${
+                triggerForm.schedule === 'now'
+                  ? 'bg-light-success text-white'
+                  : 'bg-light-bg dark:bg-dark-bg border border-light-border dark:border-dark-border text-light-muted'
+              }`}
+            >
+              Publish Now
+            </button>
+            <button
+              onClick={() => setTriggerForm({ ...triggerForm, schedule: 'schedule' })}
+              className={`px-4 py-2 rounded-xl text-xs font-medium transition-all ${
+                triggerForm.schedule === 'schedule'
+                  ? 'bg-light-secondary text-white'
+                  : 'bg-light-bg dark:bg-dark-bg border border-light-border dark:border-dark-border text-light-muted'
+              }`}
+            >
+              Schedule
+            </button>
+          </div>
+          {triggerForm.schedule === 'schedule' && (
+            <input
+              type="datetime-local"
+              value={triggerForm.publishAt}
+              min={new Date().toISOString().slice(0, 16)}
+              onChange={(e) => setTriggerForm({ ...triggerForm, publishAt: e.target.value })}
+              className="px-4 py-2 rounded-xl bg-light-bg dark:bg-dark-bg border border-light-border dark:border-dark-border text-light-text dark:text-dark-text text-sm focus:outline-none focus:ring-2 focus:ring-light-secondary"
+            />
+          )}
+          <div className="flex-1" />
+          <button
+            onClick={submitTrigger}
+            disabled={triggerSubmitting || (triggerForm.schedule === 'schedule' && !triggerForm.publishAt)}
+            className="px-6 py-2.5 rounded-xl bg-light-success hover:bg-light-success/90 text-white font-medium text-sm transition-all disabled:opacity-50 disabled:cursor-not-allowed"
+          >
+            {triggerSubmitting ? 'Starting...' : triggerForm.schedule === 'schedule' ? 'Schedule' : 'Run Now'}
+          </button>
+        </div>
+
+        {/* Recent triggers */}
+        {triggers.length > 0 && (
+          <div className="mt-4 space-y-2">
+            {triggers.map((t) => (
+              <div key={t.id} className="flex items-center gap-3 text-sm p-2 rounded-lg bg-light-bg/50 dark:bg-dark-bg/30">
+                <span className={`w-2 h-2 rounded-full ${
+                  t.status === 'completed' ? 'bg-light-success' :
+                  t.status === 'processing' ? 'bg-light-info animate-pulse' :
+                  t.status === 'failed' ? 'bg-light-primary' : 'bg-light-muted animate-pulse'
+                }`} />
+                <span className="flex-1 truncate text-light-text dark:text-dark-text">{t.topic}</span>
+                <span className="text-light-muted dark:text-dark-muted capitalize">{t.format}</span>
+                <span className={`capitalize font-medium ${
+                  t.status === 'completed' ? 'text-light-success' :
+                  t.status === 'processing' ? 'text-light-info' :
+                  t.status === 'failed' ? 'text-light-primary' : 'text-light-muted'
+                }`}>{t.status}</span>
+              </div>
+            ))}
+          </div>
+        )}
+      </GradientCard>
 
       {/* Content Schedule */}
       <GradientCard gradient="warm">

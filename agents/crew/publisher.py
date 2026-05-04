@@ -2,10 +2,12 @@ import os
 import sys
 import json
 from crewai import Agent, Task, Crew
-from langchain_groq import ChatGroq
 
 PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, PROJECT_ROOT)
+
+OLLAMA_MODEL = "ollama/" + os.getenv("OLLAMA_MODEL", "qwen2.5:7b")
+OLLAMA_BASE = os.getenv("OLLAMA_BASE_URL", "http://localhost:11434")
 
 def create_publisher_crew():
     publisher = Agent(
@@ -14,12 +16,8 @@ def create_publisher_crew():
         backstory="""You are a multi-platform publishing expert. You handle automated uploads
 to all major social media platforms with proper metadata, scheduling, and notifications.
 You ensure COPPA compliance and platform-specific optimization for each upload.""",
-        llm=ChatGroq(
-            model=os.getenv("GROQ_MODEL", "llama-3.3-70b-versatile"),
-            api_key=os.getenv("GROQ_API_KEY"),
-            temperature=0.3,
-            max_tokens=2000,
-        ),
+        llm=OLLAMA_MODEL,
+        base_url=OLLAMA_BASE,
         verbose=True,
         allow_delegation=False,
     )

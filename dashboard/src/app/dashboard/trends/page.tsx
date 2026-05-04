@@ -28,20 +28,16 @@ const trendingIcons: Record<string, string> = {
   'Science for Kids': '🔬',
   'Rhymes & Songs': '🎵',
   'Colors & Shapes': '🎨',
+  'Tech & AI': '🤖',
+  'Gaming': '🎮',
+  'Cooking & Food': '🍳',
+  'DIY & Crafts': '✂️',
+  'Health & Wellness': '💪',
+  'Travel & Adventure': '✈️',
+  'Finance & Business': '💰',
+  'Comedy & Entertainment': '😂',
+  'Music & Dance': '💃',
 };
-
-const mockTrends: TrendItem[] = [
-  { id: '1', title: 'ABC Phonics with Animals', category: 'Self-Learning', search_volume: 245000, growth: 34, competition: 'low', suggested_format: 'shorts', score: 92, keywords: ['abc', 'phonics', 'animals', 'learn'] },
-  { id: '2', title: 'Sleepy Cloud Bedtime Story', category: 'Bedtime Stories', search_volume: 180000, growth: 28, competition: 'medium', suggested_format: 'long', score: 88, keywords: ['bedtime', 'sleep', 'cloud', 'calm'] },
-  { id: '3', title: 'Norse Gods for Kids', category: 'Mythology Stories', search_volume: 95000, growth: 67, competition: 'low', suggested_format: 'both', score: 85, keywords: ['thor', 'odin', 'norse', 'myths'] },
-  { id: '4', title: 'The Tortoise and the Hare 3D', category: 'Animated Fables', search_volume: 320000, growth: 12, competition: 'high', suggested_format: 'shorts', score: 78, keywords: ['fable', 'tortoise', 'hare', 'moral'] },
-  { id: '5', title: 'Why is the Sky Blue?', category: 'Science for Kids', search_volume: 410000, growth: 45, competition: 'medium', suggested_format: 'shorts', score: 94, keywords: ['sky', 'blue', 'science', 'why'] },
-  { id: '6', title: 'Counting to 10 with Dinosaurs', category: 'Rhymes & Songs', search_volume: 290000, growth: 52, competition: 'low', suggested_format: 'shorts', score: 91, keywords: ['count', 'dinosaurs', 'numbers', 'song'] },
-  { id: '7', title: 'Learning Shapes with Robots', category: 'Colors & Shapes', search_volume: 175000, growth: 38, competition: 'medium', suggested_format: 'shorts', score: 82, keywords: ['shapes', 'robots', 'circle', 'square'] },
-  { id: '8', title: 'Greek Mythology: Hercules', category: 'Mythology Stories', search_volume: 130000, growth: 71, competition: 'low', suggested_format: 'long', score: 87, keywords: ['hercules', 'greek', 'hero', 'myth'] },
-  { id: '9', title: 'Solar System Adventure', category: 'Science for Kids', search_volume: 380000, growth: 29, competition: 'medium', suggested_format: 'both', score: 86, keywords: ['solar system', 'planets', 'space', 'adventure'] },
-  { id: '10', title: 'Twinkle Twinkle Remix', category: 'Rhymes & Songs', search_volume: 520000, growth: 18, competition: 'high', suggested_format: 'shorts', score: 74, keywords: ['twinkle', 'lullaby', 'remix', 'nursery'] },
-];
 
 export default function TrendsPage() {
   const [trends, setTrends] = useState<TrendItem[]>([]);
@@ -68,29 +64,26 @@ export default function TrendsPage() {
       const snap = await getDocs(q);
       if (!snap.empty) {
         setTrends(snap.docs.map(d => ({ id: d.id, ...d.data() } as TrendItem)));
-      } else {
-        setTrends(mockTrends);
-        // Seed Firestore with mock trends
-        for (const t of mockTrends) {
-          await addDoc(collection(db, 'trends'), { ...t, created_at: serverTimestamp() });
-        }
       }
     } catch {
-      setTrends(mockTrends);
+      setTrends([]);
     }
   };
 
   const discoverTrends = async () => {
     setRefreshing(true);
-    // Simulate trend discovery
-    await new Promise(r => setTimeout(r, 2000));
-    const newTrends = mockTrends.map(t => ({
-      ...t,
-      growth: Math.min(100, t.growth + Math.floor(Math.random() * 20 - 5)),
-      search_volume: Math.floor(t.search_volume * (0.9 + Math.random() * 0.2)),
-      score: Math.min(100, Math.max(50, t.score + Math.floor(Math.random() * 10 - 5))),
-    }));
-    setTrends(newTrends);
+    try {
+      const response = await fetch('/api/agents', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'discover_trends' }),
+      });
+      if (response.ok) {
+        await loadTrends();
+      }
+    } catch (e) {
+      console.error('Trend discovery failed:', e);
+    }
     setRefreshing(false);
   };
 
@@ -192,6 +185,21 @@ export default function TrendsPage() {
         <div className="flex items-center justify-center py-20">
           <motion.div animate={{ rotate: 360 }} transition={{ duration: 1, repeat: Infinity }} className="text-3xl">🔍</motion.div>
         </div>
+      ) : filtered.length === 0 ? (
+        <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="rounded-2xl glass-strong border border-light-border/30 dark:border-white/5 p-12 text-center">
+          <div className="text-5xl mb-4">🔥</div>
+          <h3 className="text-lg font-bold text-light-text dark:text-dark-text mb-2">No Trends Discovered Yet</h3>
+          <p className="text-sm text-light-muted dark:text-dark-muted max-w-md mx-auto mb-4">
+            Click &quot;Discover Trends&quot; to find trending topics for your content.
+          </p>
+          <button
+            onClick={discoverTrends}
+            disabled={refreshing}
+            className="px-6 py-2.5 rounded-xl bg-gradient-to-r from-orange-500 to-pink-500 text-white text-sm font-medium hover:opacity-90 disabled:opacity-50 transition-opacity"
+          >
+            {refreshing ? 'Discovering...' : 'Discover Trends'}
+          </button>
+        </motion.div>
       ) : (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
           <AnimatePresence>

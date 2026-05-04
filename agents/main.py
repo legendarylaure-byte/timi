@@ -2,6 +2,7 @@ import os
 import sys
 import json
 import asyncio
+import time
 from dotenv import load_dotenv
 from apscheduler.schedulers.blocking import BlockingScheduler
 from datetime import datetime
@@ -23,6 +24,7 @@ from utils.firebase_status import (
     update_pipeline_status,
     add_video_record,
     update_video_record,
+    get_firestore_client,
 )
 from utils.firebase_control import AgentControlListener
 from utils.cleanup_service import run_cleanup
@@ -50,7 +52,7 @@ AGENT_MAP = {
     'publisher': 'publisher',
 }
 
-control_listener = AgentControlListener(check_interval=5)
+control_listener = AgentControlListener(check_interval=15)
 
 AUTO_APPROVE_THRESHOLD = int(os.getenv("AUTO_APPROVE_THRESHOLD", 80))
 ENABLE_MULTI_LANG = os.getenv("ENABLE_MULTI_LANG", "true").lower() == "true"
@@ -61,7 +63,7 @@ MULTI_LANG_CODES = os.getenv("MULTI_LANG_CODES", "es,de,fr").split(",")
 def log_event(agent: str, message: str, level: str = "info"):
     print(f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] [{level.upper()}] [{agent}] {message}")
 
-def run_agent_step(agent_id: str, agent_name: str, action: str, crew_factory, inputs: dict):
+def run_agent_step(agent_id: str, agent_name: str, action: str, crew_factory, inputs: dict, max_retries: int = 2):
     if control_listener.is_paused(agent_id):
         log_event(agent_name, "Skipped (paused by user)")
         update_agent_status(agent_id, "idle", "Paused by user")
@@ -71,18 +73,23 @@ def run_agent_step(agent_id: str, agent_name: str, action: str, crew_factory, in
     log_event(agent_name, action)
     log_activity(agent_id, action, "info")
 
-    try:
-        crew = crew_factory()
-        result = crew.kickoff(inputs=inputs)
-        update_agent_status(agent_id, "completed", f"Completed: {action}")
-        log_activity(agent_id, f"Completed: {action}", "success")
-        log_event(agent_name, f"Completed: {action}")
-        return result
-    except Exception as e:
-        update_agent_status(agent_id, "error", f"Failed: {action}", str(e))
-        log_activity(agent_id, f"Failed: {action} - {str(e)}", "error")
-        log_event(agent_name, f"Failed: {action} - {str(e)}", "error")
-        raise
+    for attempt in range(max_retries):
+        try:
+            crew = crew_factory()
+            result = crew.kickoff(inputs=inputs)
+            update_agent_status(agent_id, "completed", f"Completed: {action}")
+            log_activity(agent_id, f"Completed: {action}", "success")
+            log_event(agent_name, f"Completed: {action}")
+            return result
+        except Exception as e:
+            if attempt < max_retries - 1:
+                log_event(agent_name, f"Failed (attempt {attempt + 1}/{max_retries}), retrying: {str(e)[:100]}")
+                time.sleep(2)
+            else:
+                update_agent_status(agent_id, "error", f"Failed: {action}", str(e))
+                log_activity(agent_id, f"Failed: {action} - {str(e)}", "error")
+                log_event(agent_name, f"Failed: {action} - {str(e)}", "error")
+                raise
 
 def parse_scenes_from_storyboard(storyboard_text: str) -> list[dict]:
     try:
@@ -133,7 +140,10 @@ def run_video_pipeline(script_text: str, storyboard_text: str, category: str, fo
 
     log_event("PIPELINE", "Step 2: Generating voice-over with Edge TTS")
     update_agent_status("voice", "working", "Generating narration audio")
-    voice_result = asyncio.run(generate_voiceover(script_text))
+    from utils.voice_gen import extract_narration_text, get_voice_settings
+    narration_text = extract_narration_text(script_text)
+    content_type = "bedtime" if "bedtime" in category.lower() else "story" if "story" in category.lower() or "fable" in category.lower() else "educational" if "science" in category.lower() or "learn" in category.lower() else "general"
+    voice_result = asyncio.run(generate_voiceover(script_text, content_type=content_type))
     if not voice_result.get("success"):
         raise Exception("Voice-over generation failed.")
     log_event("VOICE", f"Voice-over: {voice_result['duration']:.1f}s, {voice_result['segments']} segments -> {voice_result['path']}")
@@ -145,7 +155,7 @@ def run_video_pipeline(script_text: str, storyboard_text: str, category: str, fo
         update_agent_status("voice", "working", "Generating subtitles from voice timing")
         sub_result = generate_subtitles_for_video(
             timing_file=voice_result["timing_file"],
-            full_text=script_text,
+            full_text=narration_text,
             language=subtitle_lang,
         )
         subtitle_path = sub_result.get("srt")
@@ -184,6 +194,7 @@ def run_video_pipeline(script_text: str, storyboard_text: str, category: str, fo
         video_id=video_id,
         subtitle_path=subtitle_path,
         chapters=chapters,
+        category=category,
     )
     if not final_path:
         raise Exception("Video compositing failed.")
@@ -229,7 +240,7 @@ def apply_review_gate(video_id: str, topic: str, format_type: str, script_text: 
 
     return "auto_approve"
 
-def generate_short_video(topic: str, category: str, video_id: str):
+def generate_short_video(topic: str, category: str, video_id: str, publish_at: str = None):
     update_pipeline_status(True, video_id)
     add_video_record(video_id, topic, "shorts", "generating")
     log_event("PIPELINE", f"Starting SHORT video generation: {topic}")
@@ -283,8 +294,21 @@ def generate_short_video(topic: str, category: str, video_id: str):
             thumbnail_path=str(thumbnail),
             format_type="shorts",
             platforms=platforms_to_publish,
+            publish_at=publish_at,
         )
-        log_event("PUBLISH", f"Published to {publish_result['success_count']}/{publish_result['total_count']} platforms")
+        publish_status = "scheduled" if publish_at else "Published"
+        log_event("PUBLISH", f"{publish_status} to {publish_result['success_count']}/{publish_result['total_count']} platforms")
+
+        if publish_result.get("success_count", 0) > 0:
+            log_event("CLEANUP", "Cleaning up intermediate files after successful upload")
+            from utils.cleanup_service import cleanup_after_upload
+            cleanup_after_upload(
+                video_path=video_result["video_path"],
+                thumbnail_path=str(thumbnail),
+                voice_path=video_result.get("voice_path"),
+                music_path=video_result.get("music_path"),
+                subtitle_path=video_result.get("subtitle_path"),
+            )
 
         if ENABLE_MULTI_LANG:
             log_event("PIPELINE", "Generating multi-language versions")
@@ -300,7 +324,12 @@ def generate_short_video(topic: str, category: str, video_id: str):
                     "translations": {k: v.get("title", "") for k, v in translations.items()},
                 })
 
-        add_video_record(video_id, topic, "shorts", "uploaded")
+        youtube_url = publish_result.get('platforms', {}).get('youtube', {}).get('video_url', '')
+        update_video_record(video_id, {
+            "status": "scheduled" if publish_at else "uploaded",
+            "youtube_url": youtube_url,
+            "publish_at": publish_at,
+        })
         log_event("PIPELINE", f"SHORT video generation SUCCESS: {topic}")
         update_pipeline_status(False)
         return True
@@ -310,7 +339,7 @@ def generate_short_video(topic: str, category: str, video_id: str):
         log_event("PIPELINE", f"SHORT video generation FAILED: {str(e)}", "error")
         return False
 
-def generate_long_video(topic: str, category: str, video_id: str):
+def generate_long_video(topic: str, category: str, video_id: str, publish_at: str = None):
     update_pipeline_status(True, video_id)
     add_video_record(video_id, topic, "long", "generating")
     log_event("PIPELINE", f"Starting LONG video generation: {topic}")
@@ -365,8 +394,21 @@ def generate_long_video(topic: str, category: str, video_id: str):
             thumbnail_path=str(thumbnail),
             format_type="long",
             platforms=platforms_to_publish,
+            publish_at=publish_at,
         )
-        log_event("PUBLISH", f"Published to {publish_result['success_count']}/{publish_result['total_count']} platforms")
+        publish_status = "scheduled" if publish_at else "Published"
+        log_event("PUBLISH", f"{publish_status} to {publish_result['success_count']}/{publish_result['total_count']} platforms")
+
+        if publish_result.get("success_count", 0) > 0:
+            log_event("CLEANUP", "Cleaning up intermediate files after successful upload")
+            from utils.cleanup_service import cleanup_after_upload
+            cleanup_after_upload(
+                video_path=video_result["video_path"],
+                thumbnail_path=str(thumbnail),
+                voice_path=video_result.get("voice_path"),
+                music_path=video_result.get("music_path"),
+                subtitle_path=video_result.get("subtitle_path"),
+            )
 
         update_video_record(video_id, {
             "script": script_text,
@@ -402,11 +444,13 @@ def daily_content_job():
 
     for i in range(shorts_per_day):
         trend = top_trends[i % len(top_trends)]
-        generate_short_video(trend['title'], trend['category'], f"short-{datetime.now().strftime('%Y%m%d')}-{i+1}")
+        publish_time = f"{datetime.now().strftime('%Y-%m-%d')}T{6 + i * 2}:00:00Z"
+        generate_short_video(trend['title'], trend['category'], f"short-{datetime.now().strftime('%Y%m%d')}-{i+1}", publish_at=publish_time)
 
     for i in range(long_per_day):
         trend = top_trends[(shorts_per_day + i) % len(top_trends)]
-        generate_long_video(trend['title'], trend['category'], f"long-{datetime.now().strftime('%Y%m%d')}-{i+1}")
+        publish_time = f"{datetime.now().strftime('%Y-%m-%d')}T{10 + i * 4}:00:00Z"
+        generate_long_video(trend['title'], trend['category'], f"long-{datetime.now().strftime('%Y%m%d')}-{i+1}", publish_at=publish_time)
 
     update_pipeline_status(False)
     log_event("SCHEDULER", "Daily content generation complete")
@@ -423,9 +467,57 @@ def daily_cleanup_job():
     run_cleanup()
     log_event("CLEANUP", "Auto-cleanup complete")
 
+def scheduled_publish_job():
+    """Check for videos scheduled to publish now and process them."""
+    try:
+        db = get_firestore_client()
+        now = time.time()
+        q = db.collection('videos').where('status', '==', 'scheduled').where('publish_at', '<=', datetime.utcnow().isoformat()).stream()
+        for doc in q:
+            data = doc.to_dict()
+            log_event("SCHEDULE", f"Publishing scheduled video: {data.get('title', 'unknown')}")
+            # YouTube handles scheduled publishing via publishAt, so we just update status
+            update_video_record(doc.id, {
+                "status": "uploaded",
+                "published_at": datetime.utcnow().isoformat(),
+            })
+            log_event("SCHEDULE", f"Video {doc.id} status updated to uploaded")
+    except Exception as e:
+        log_event("SCHEDULE", f"Scheduled publish check failed: {e}", "error")
+
+def _handle_pipeline_trigger(topic: str, category: str, format_type: str, trigger_id: str, publish_at: str = None):
+    """Handle a pipeline run trigger from the dashboard."""
+    scheduled_note = f" (scheduled: {publish_at})" if publish_at else ""
+    log_event("TRIGGER", f"Dashboard trigger: {format_type} - {topic} (id: {trigger_id}){scheduled_note}")
+    try:
+        video_id = f"trigger-{trigger_id}"
+        if format_type == "long":
+            success = generate_long_video(topic, category, video_id, publish_at=publish_at)
+        else:
+            success = generate_short_video(topic, category, video_id, publish_at=publish_at)
+
+        db = get_firestore_client()
+        db.collection('pipeline_triggers').document(trigger_id).update({
+            'status': 'completed' if success else 'failed',
+            'completed_at': time.time(),
+        })
+        log_event("TRIGGER", f"Pipeline complete: {'SUCCESS' if success else 'FAILED'}")
+    except Exception as e:
+        log_event("TRIGGER", f"Trigger failed: {e}", "error")
+        try:
+            db = get_firestore_client()
+            db.collection('pipeline_triggers').document(trigger_id).update({
+                'status': 'failed',
+                'error': str(e),
+                'completed_at': time.time(),
+            })
+        except Exception:
+            pass
+
 if __name__ == "__main__":
     log_event("SYSTEM", "Vyom Ai Cloud - Agent Orchestrator Starting")
 
+    control_listener.set_trigger_handler(_handle_pipeline_trigger)
     control_listener.start()
 
     for agent_id in AGENT_MAP.values():
@@ -439,8 +531,11 @@ if __name__ == "__main__":
     scheduler.add_job(daily_content_job, "cron", hour=6, minute=0)
     scheduler.add_job(daily_repurpose_job, "cron", hour=14, minute=0)
     scheduler.add_job(daily_cleanup_job, "cron", hour=4, minute=0)
+    scheduler.add_job(scheduled_publish_job, "interval", minutes=5)
     log_event("SCHEDULER", "Daily content job scheduled at 06:00 UTC")
     log_event("SCHEDULER", "Daily repurpose job scheduled at 14:00 UTC")
+    log_event("SCHEDULER", "Daily cleanup job scheduled at 04:00 UTC")
+    log_event("SCHEDULER", "Scheduled publish check every 5 minutes")
     log_event("SCHEDULER", "Daily cleanup job scheduled at 04:00 UTC")
 
     try:

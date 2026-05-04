@@ -1,6 +1,11 @@
 import os
 import random
 from pathlib import Path
+
+_FFMPEG_BIN = "/opt/homebrew/opt/ffmpeg-full/bin"
+if _FFMPEG_BIN not in os.environ.get("PATH", ""):
+    os.environ["PATH"] = _FFMPEG_BIN + ":" + os.environ.get("PATH", "")
+
 from pydub import AudioSegment
 from pydub.generators import Sine, Triangle
 from typing import Optional

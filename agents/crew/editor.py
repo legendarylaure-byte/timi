@@ -1,6 +1,8 @@
 import os
 from crewai import Agent, Task, Crew
-from langchain_groq import ChatGroq
+
+OLLAMA_MODEL = "ollama/" + os.getenv("OLLAMA_MODEL", "qwen2.5:7b")
+OLLAMA_BASE = os.getenv("OLLAMA_BASE_URL", "http://localhost:11434")
 
 def create_editor_crew():
     editor = Agent(
@@ -9,12 +11,8 @@ def create_editor_crew():
         backstory="""You are a professional video editor specializing in children's content.
 You use FFmpeg to composite real video clips from stock footage, voice-overs, and
 background music into polished final videos with smooth transitions and proper audio mixing.""",
-        llm=ChatGroq(
-            model=os.getenv("GROQ_MODEL", "llama-3.3-70b-versatile"),
-            api_key=os.getenv("GROQ_API_KEY"),
-            temperature=0.3,
-            max_tokens=1000,
-        ),
+        llm=OLLAMA_MODEL,
+        base_url=OLLAMA_BASE,
         verbose=True,
         allow_delegation=False,
     )

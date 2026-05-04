@@ -1,10 +1,11 @@
 import os
 from dotenv import load_dotenv
-from groq import Groq
+from ollama import chat
 
 load_dotenv(os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), '.env'))
 
-client = Groq(api_key=os.getenv("GROQ_API_KEY"))
+OLLAMA_MODEL = os.getenv("OLLAMA_MODEL", "qwen2.5:7b")
+OLLAMA_BASE_URL = os.getenv("OLLAMA_BASE_URL", "http://localhost:11434")
 
 def generate_completion(prompt: str, system_prompt: str = "", temperature: float = 0.7, max_tokens: int = 2000) -> str:
     messages = []
@@ -12,11 +13,13 @@ def generate_completion(prompt: str, system_prompt: str = "", temperature: float
         messages.append({"role": "system", "content": system_prompt})
     messages.append({"role": "user", "content": prompt})
 
-    response = client.chat.completions.create(
-        model=os.getenv("GROQ_MODEL", "llama-3.3-70b-versatile"),
+    response = chat(
+        model=OLLAMA_MODEL,
         messages=messages,
-        temperature=temperature,
-        max_tokens=max_tokens,
+        options={
+            "temperature": temperature,
+            "num_predict": max_tokens,
+        },
     )
 
-    return response.choices[0].message.content
+    return response["message"]["content"]

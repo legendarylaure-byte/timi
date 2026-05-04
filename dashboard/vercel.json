@@ -1,0 +1,14 @@
+{
+  "framework": "nextjs",
+  "buildCommand": "next build",
+  "devCommand": "next dev",
+  "installCommand": "npm install",
+  "outputDirectory": ".next",
+  "rewrites": [
+    { "source": "/(.*)", "destination": "/" }
+  ],
+  "env": {
+    "NEXT_PUBLIC_APP_NAME": "Vyom Ai Cloud",
+    "NEXT_PUBLIC_APP_URL": "https://timi.vyomai.cloud"
+  }
+}

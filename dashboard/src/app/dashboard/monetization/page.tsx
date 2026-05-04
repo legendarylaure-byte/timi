@@ -1,10 +1,9 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import { motion, AnimatePresence } from 'framer-motion';
+import { motion } from 'framer-motion';
 import { db } from '@/lib/firebase';
-import { collection, onSnapshot, doc, setDoc, getDoc } from 'firebase/firestore';
-import Image from 'next/image';
+import { collection, onSnapshot, doc, getDoc } from 'firebase/firestore';
 
 interface RevenueData {
   totalRevenue: number;
@@ -13,7 +12,6 @@ interface RevenueData {
   rpm: number;
   cpm: number;
   estimatedYearly: number;
-  milestones: Milestone[];
   dailyRevenue: DailyEntry[];
   platformBreakdown: PlatformRevenue[];
 }
@@ -24,7 +22,6 @@ interface Milestone {
   current: number;
   icon: string;
   achieved: boolean;
-  achievedDate?: string;
 }
 
 interface DailyEntry {
@@ -41,33 +38,66 @@ interface PlatformRevenue {
   rpm: number;
 }
 
+interface VideoStats {
+  totalVideos: number;
+  totalViews: number;
+  uploadedCount: number;
+}
+
 export default function MonetizationPage() {
   const [revenue, setRevenue] = useState<RevenueData | null>(null);
+  const [videoStats, setVideoStats] = useState<VideoStats | null>(null);
+  const [milestones, setMilestones] = useState<Milestone[]>([]);
   const [loading, setLoading] = useState(true);
-  const [showDemo, setShowDemo] = useState(false);
 
   useEffect(() => {
-    loadRevenue();
-  }, []);
-
-  const loadRevenue = async () => {
-    try {
-      const snap = await getDoc(doc(db, 'monetization', 'revenue'));
+    const unsubRevenue = onSnapshot(doc(db, 'monetization', 'revenue'), (snap) => {
       if (snap.exists()) {
         setRevenue(snap.data() as RevenueData);
-      } else {
-        const demo = generateDemoData();
-        setRevenue(demo);
-        setShowDemo(true);
-        await setDoc(doc(db, 'monetization', 'revenue'), demo);
       }
-    } catch {
-      setRevenue(generateDemoData());
-      setShowDemo(true);
-    } finally {
       setLoading(false);
+    });
+
+    const unsubVideos = onSnapshot(collection(db, 'videos'), (snap) => {
+      let totalViews = 0;
+      let uploadedCount = 0;
+      snap.forEach(doc => {
+        const d = doc.data();
+        totalViews += d.views || 0;
+        if (d.status === 'uploaded' || d.status === 'completed') uploadedCount++;
+      });
+      setVideoStats({
+        totalVideos: snap.size,
+        totalViews,
+        uploadedCount,
+      });
+    });
+
+    return () => {
+      unsubRevenue();
+      unsubVideos();
+    };
+  }, []);
+
+  useEffect(() => {
+    if (revenue && videoStats) {
+      const subsTarget = 1000;
+      const watchHoursTarget = 4000;
+      const viewsTarget = 100000;
+      const revenue100Target = 100;
+      const revenue1kTarget = 1000;
+      const totalRevTarget = 10000;
+
+      setMilestones([
+        { label: '1,000 Subscribers', target: subsTarget, current: 0, icon: '👥', achieved: false },
+        { label: '4,000 Watch Hours', target: watchHoursTarget, current: 0, icon: '⏰', achieved: false },
+        { label: '100K Total Views', target: viewsTarget, current: videoStats.totalViews, icon: '👁️', achieved: videoStats.totalViews >= viewsTarget },
+        { label: '$100/month', target: revenue100Target, current: revenue.currentMonth, icon: '💵', achieved: revenue.currentMonth >= revenue100Target },
+        { label: '$1,000/month', target: revenue1kTarget, current: revenue.currentMonth, icon: '💰', achieved: revenue.currentMonth >= revenue1kTarget },
+        { label: '$10,000 Total', target: totalRevTarget, current: revenue.totalRevenue, icon: '🏆', achieved: revenue.totalRevenue >= totalRevTarget },
+      ]);
     }
-  };
+  }, [revenue, videoStats]);
 
   if (loading) {
     return (
@@ -77,22 +107,11 @@ export default function MonetizationPage() {
     );
   }
 
-  if (!revenue) return null;
-
-  const milestones = [
-    { label: '1,000 Subscribers', target: 1000, current: 847, icon: '👥', achieved: false },
-    { label: '4,000 Watch Hours', target: 4000, current: 3200, icon: '⏰', achieved: false },
-    { label: '$100/month', target: 100, current: revenue.currentMonth, icon: '💵', achieved: revenue.currentMonth >= 100 },
-    { label: '$1,000/month', target: 1000, current: revenue.currentMonth, icon: '💰', achieved: revenue.currentMonth >= 1000 },
-    { label: '$10,000 Total', target: 10000, current: revenue.totalRevenue, icon: '🏆', achieved: revenue.totalRevenue >= 10000 },
-    { label: '100K Total Views', target: 100000, current: 78500, icon: '👁️', achieved: false },
-  ];
-
-  return (
-    <div className="space-y-6 max-w-6xl">
-      <motion.div initial={{ opacity: 0, y: -20 }} animate={{ opacity: 1, y: 0 }}>
-        <div className="flex items-center justify-between mb-2">
-          <div className="flex items-center gap-4">
+  if (!revenue) {
+    return (
+      <div className="space-y-6 max-w-6xl">
+        <motion.div initial={{ opacity: 0, y: -20 }} animate={{ opacity: 1, y: 0 }}>
+          <div className="flex items-center gap-4 mb-2">
             <div className="w-12 h-12 rounded-2xl bg-gradient-to-br from-yellow-500/20 to-green-500/20 flex items-center justify-center">
               <span className="text-2xl">💰</span>
             </div>
@@ -101,11 +120,54 @@ export default function MonetizationPage() {
               <p className="text-light-muted dark:text-dark-muted mt-1">Revenue tracking and growth milestones</p>
             </div>
           </div>
-          {showDemo && (
-            <span className="px-3 py-1.5 rounded-full text-xs font-medium bg-yellow-500/20 text-yellow-400 border border-yellow-500/30">
-              Demo Mode — Connect YouTube API for real data
-            </span>
-          )}
+        </motion.div>
+
+        <motion.div
+          initial={{ opacity: 0, y: 20 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ delay: 0.2 }}
+          className="rounded-2xl glass-strong border border-light-border/30 dark:border-white/5 p-12 text-center"
+        >
+          <div className="text-6xl mb-4">💰</div>
+          <h2 className="text-xl font-bold text-light-text dark:text-dark-text mb-2">No Revenue Data Yet</h2>
+          <p className="text-light-muted dark:text-dark-muted max-w-md mx-auto mb-6">
+            Revenue data will appear here once your videos start earning. Connect your YouTube AdSense account to enable revenue tracking.
+          </p>
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-4 max-w-2xl mx-auto">
+            <div className="p-4 rounded-xl bg-light-bg/50 dark:bg-dark-bg/50 border border-light-border/30 dark:border-white/5">
+              <p className="text-2xl mb-1">📹</p>
+              <p className="text-sm font-medium text-light-text dark:text-dark-text">Upload Videos</p>
+              <p className="text-xs text-light-muted dark:text-dark-muted mt-1">Content must be published and monetized</p>
+            </div>
+            <div className="p-4 rounded-xl bg-light-bg/50 dark:bg-dark-bg/50 border border-light-border/30 dark:border-white/5">
+              <p className="text-2xl mb-1">💳</p>
+              <p className="text-sm font-medium text-light-text dark:text-dark-text">Connect AdSense</p>
+              <p className="text-xs text-light-muted dark:text-dark-muted mt-1">Link your Google AdSense account</p>
+            </div>
+            <div className="p-4 rounded-xl bg-light-bg/50 dark:bg-dark-bg/50 border border-light-border/30 dark:border-white/5">
+              <p className="text-2xl mb-1">📊</p>
+              <p className="text-sm font-medium text-light-text dark:text-dark-text">Track Revenue</p>
+              <p className="text-xs text-light-muted dark:text-dark-muted mt-1">Revenue appears here automatically</p>
+            </div>
+          </div>
+        </motion.div>
+
+        <CPMInfoTable />
+      </div>
+    );
+  }
+
+  return (
+    <div className="space-y-6 max-w-6xl">
+      <motion.div initial={{ opacity: 0, y: -20 }} animate={{ opacity: 1, y: 0 }}>
+        <div className="flex items-center gap-4 mb-2">
+          <div className="w-12 h-12 rounded-2xl bg-gradient-to-br from-yellow-500/20 to-green-500/20 flex items-center justify-center">
+            <span className="text-2xl">💰</span>
+          </div>
+          <div>
+            <h1 className="text-3xl font-bold text-light-text dark:text-dark-text">Monetization</h1>
+            <p className="text-light-muted dark:text-dark-muted mt-1">Revenue tracking and growth milestones</p>
+          </div>
         </div>
       </motion.div>
 
@@ -127,166 +189,145 @@ export default function MonetizationPage() {
         ))}
       </div>
 
-      {/* Revenue Chart (simple bar) */}
-      <div className="rounded-2xl glass-strong border border-light-border/30 dark:border-white/5 p-6">
-        <h2 className="text-lg font-bold text-light-text dark:text-dark-text mb-4">Revenue Trend (Last 14 Days)</h2>
-        <div className="flex items-end gap-2 h-40">
-          {revenue.dailyRevenue.map((entry, i) => {
-            const maxRev = Math.max(...revenue.dailyRevenue.map(d => d.revenue));
-            const height = maxRev > 0 ? (entry.revenue / maxRev) * 100 : 0;
-            return (
-              <motion.div
-                key={entry.date}
-                initial={{ height: 0 }}
-                animate={{ height: `${height}%` }}
-                transition={{ delay: i * 0.05, duration: 0.5 }}
-                className="flex-1 rounded-t-md bg-gradient-to-t from-emerald-500/60 to-emerald-400/80 relative group cursor-pointer min-w-[20px]"
-              >
-                <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 hidden group-hover:block z-10">
-                  <div className="px-2 py-1 rounded bg-dark-bg text-xs text-white whitespace-nowrap">
-                    ${entry.revenue.toFixed(0)} · {entry.views.toLocaleString()} views
-                  </div>
-                </div>
-              </motion.div>
-            );
-          })}
-        </div>
-        <div className="flex gap-2 mt-2">
-          {revenue.dailyRevenue.map((entry, i) => (
-            <div key={entry.date} className="flex-1 text-center text-[9px] text-light-muted dark:text-dark-muted">
-              {entry.date.slice(5)}
-            </div>
-          ))}
-        </div>
-      </div>
-
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        {/* Platform Breakdown */}
+      {/* Revenue Chart */}
+      {revenue.dailyRevenue && revenue.dailyRevenue.length > 0 && (
         <div className="rounded-2xl glass-strong border border-light-border/30 dark:border-white/5 p-6">
-          <h2 className="text-lg font-bold text-light-text dark:text-dark-text mb-4">Revenue by Platform</h2>
-          <div className="space-y-4">
-            {revenue.platformBreakdown.map(platform => (
-              <div key={platform.platform}>
-                <div className="flex items-center justify-between mb-2">
-                  <div className="flex items-center gap-2">
-                    <span className="text-xl">{platform.icon}</span>
-                    <span className="text-sm font-medium text-light-text dark:text-dark-text">{platform.platform}</span>
-                  </div>
-                  <div className="text-right">
-                    <p className="text-sm font-bold text-light-text dark:text-dark-text">${platform.revenue.toLocaleString()}</p>
-                    <p className="text-[10px] text-light-muted dark:text-dark-muted">RPM: ${platform.rpm.toFixed(2)}</p>
-                  </div>
-                </div>
-                <div className="w-full h-2 bg-light-border dark:bg-dark-border rounded-full overflow-hidden">
-                  <motion.div
-                    initial={{ width: 0 }}
-                    animate={{ width: `${platform.percentage}%` }}
-                    transition={{ duration: 0.8 }}
-                    className="h-full rounded-full bg-gradient-to-r from-emerald-500 to-green-400"
-                  />
-                </div>
-                <p className="text-[10px] text-light-muted dark:text-dark-muted mt-1">{platform.percentage}% of total</p>
-              </div>
-            ))}
-          </div>
-        </div>
-
-        {/* Milestones */}
-        <div className="rounded-2xl glass-strong border border-light-border/30 dark:border-white/5 p-6">
-          <h2 className="text-lg font-bold text-light-text dark:text-dark-text mb-4">Monetization Milestones</h2>
-          <div className="space-y-3">
-            {milestones.map((m, i) => {
-              const progress = Math.min(100, (m.current / m.target) * 100);
+          <h2 className="text-lg font-bold text-light-text dark:text-dark-text mb-4">Revenue Trend (Last 14 Days)</h2>
+          <div className="flex items-end gap-2 h-40">
+            {revenue.dailyRevenue.map((entry, i) => {
+              const maxRev = Math.max(...revenue.dailyRevenue.map(d => d.revenue));
+              const height = maxRev > 0 ? (entry.revenue / maxRev) * 100 : 0;
               return (
                 <motion.div
-                  key={m.label}
-                  initial={{ opacity: 0, x: -10 }}
-                  animate={{ opacity: 1, x: 0 }}
-                  transition={{ delay: i * 0.1 }}
-                  className="p-3 rounded-xl bg-light-bg/50 dark:bg-dark-bg/50 border border-light-border/30 dark:border-white/5"
+                  key={entry.date}
+                  initial={{ height: 0 }}
+                  animate={{ height: `${height}%` }}
+                  transition={{ delay: i * 0.05, duration: 0.5 }}
+                  className="flex-1 rounded-t-md bg-gradient-to-t from-emerald-500/60 to-emerald-400/80 relative group cursor-pointer min-w-[20px]"
                 >
-                  <div className="flex items-center justify-between mb-2">
-                    <div className="flex items-center gap-2">
-                      <span className="text-lg">{m.icon}</span>
-                      <span className="text-sm font-medium text-light-text dark:text-dark-text">{m.label}</span>
+                  <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 hidden group-hover:block z-10">
+                    <div className="px-2 py-1 rounded bg-dark-bg text-xs text-white whitespace-nowrap">
+                      ${entry.revenue.toFixed(0)} · {entry.views.toLocaleString()} views
                     </div>
-                    {m.achieved ? (
-                      <span className="text-xs font-bold text-emerald-400">✅ Done</span>
-                    ) : (
-                      <span className="text-xs font-bold text-light-muted dark:text-dark-muted">{Math.round(progress)}%</span>
-                    )}
                   </div>
-                  <div className="w-full h-1.5 bg-light-border dark:bg-dark-border rounded-full overflow-hidden">
-                    <motion.div
-                      initial={{ width: 0 }}
-                      animate={{ width: `${progress}%` }}
-                      transition={{ duration: 0.5, delay: i * 0.1 }}
-                      className={`h-full rounded-full ${progress >= 100 ? 'bg-emerald-400' : 'bg-gradient-to-r from-yellow-500 to-orange-400'}`}
-                    />
-                  </div>
-                  <p className="text-[10px] text-light-muted dark:text-dark-muted mt-1">
-                    {formatNumber(m.current)} / {formatNumber(m.target)}
-                  </p>
                 </motion.div>
               );
             })}
           </div>
+          <div className="flex gap-2 mt-2">
+            {revenue.dailyRevenue.map((entry, i) => (
+              <div key={entry.date} className="flex-1 text-center text-[9px] text-light-muted dark:text-dark-muted">
+                {entry.date.slice(5)}
+              </div>
+            ))}
+          </div>
         </div>
+      )}
+
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+        {/* Platform Breakdown */}
+        {revenue.platformBreakdown && revenue.platformBreakdown.length > 0 && (
+          <div className="rounded-2xl glass-strong border border-light-border/30 dark:border-white/5 p-6">
+            <h2 className="text-lg font-bold text-light-text dark:text-dark-text mb-4">Revenue by Platform</h2>
+            <div className="space-y-4">
+              {revenue.platformBreakdown.map(platform => (
+                <div key={platform.platform}>
+                  <div className="flex items-center justify-between mb-2">
+                    <div className="flex items-center gap-2">
+                      <span className="text-xl">{platform.icon}</span>
+                      <span className="text-sm font-medium text-light-text dark:text-dark-text">{platform.platform}</span>
+                    </div>
+                    <div className="text-right">
+                      <p className="text-sm font-bold text-light-text dark:text-dark-text">${platform.revenue.toLocaleString()}</p>
+                      <p className="text-[10px] text-light-muted dark:text-dark-muted">RPM: ${platform.rpm.toFixed(2)}</p>
+                    </div>
+                  </div>
+                  <div className="w-full h-2 bg-light-border dark:bg-dark-border rounded-full overflow-hidden">
+                    <motion.div
+                      initial={{ width: 0 }}
+                      animate={{ width: `${platform.percentage}%` }}
+                      transition={{ duration: 0.8 }}
+                      className="h-full rounded-full bg-gradient-to-r from-emerald-500 to-green-400"
+                    />
+                  </div>
+                  <p className="text-[10px] text-light-muted dark:text-dark-muted mt-1">{platform.percentage}% of total</p>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {/* Milestones */}
+        {milestones.length > 0 && (
+          <div className="rounded-2xl glass-strong border border-light-border/30 dark:border-white/5 p-6">
+            <h2 className="text-lg font-bold text-light-text dark:text-dark-text mb-4">Monetization Milestones</h2>
+            <div className="space-y-3">
+              {milestones.map((m, i) => {
+                const progress = Math.min(100, (m.current / m.target) * 100);
+                return (
+                  <motion.div
+                    key={m.label}
+                    initial={{ opacity: 0, x: -10 }}
+                    animate={{ opacity: 1, x: 0 }}
+                    transition={{ delay: i * 0.1 }}
+                    className="p-3 rounded-xl bg-light-bg/50 dark:bg-dark-bg/50 border border-light-border/30 dark:border-white/5"
+                  >
+                    <div className="flex items-center justify-between mb-2">
+                      <div className="flex items-center gap-2">
+                        <span className="text-lg">{m.icon}</span>
+                        <span className="text-sm font-medium text-light-text dark:text-dark-text">{m.label}</span>
+                      </div>
+                      {m.achieved ? (
+                        <span className="text-xs font-bold text-emerald-400">✅ Done</span>
+                      ) : (
+                        <span className="text-xs font-bold text-light-muted dark:text-dark-muted">{Math.round(progress)}%</span>
+                      )}
+                    </div>
+                    <div className="w-full h-1.5 bg-light-border dark:bg-dark-border rounded-full overflow-hidden">
+                      <motion.div
+                        initial={{ width: 0 }}
+                        animate={{ width: `${progress}%` }}
+                        transition={{ duration: 0.5, delay: i * 0.1 }}
+                        className={`h-full rounded-full ${progress >= 100 ? 'bg-emerald-400' : 'bg-gradient-to-r from-yellow-500 to-orange-400'}`}
+                      />
+                    </div>
+                    <p className="text-[10px] text-light-muted dark:text-dark-muted mt-1">
+                      {formatNumber(m.current)} / {formatNumber(m.target)}
+                    </p>
+                  </motion.div>
+                );
+              })}
+            </div>
+          </div>
+        )}
       </div>
 
-      {/* CPM Info */}
-      <div className="rounded-2xl glass-strong border border-light-border/30 dark:border-white/5 p-6">
-        <h2 className="text-lg font-bold text-light-text dark:text-dark-text mb-4">CPM Rates for Kids&apos; Content</h2>
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-          {[
-            { platform: 'YouTube', cpm: '$1.50 - $4.00', rpm: '$0.80 - $2.50', icon: '🔴' },
-            { platform: 'TikTok', cpm: '$0.50 - $2.00', rpm: '$0.20 - $0.80', icon: '🎵' },
-            { platform: 'Instagram', cpm: '$1.00 - $3.00', rpm: '$0.50 - $1.50', icon: '📸' },
-            { platform: 'Facebook', cpm: '$1.20 - $3.50', rpm: '$0.60 - $2.00', icon: '👤' },
-          ].map(p => (
-            <div key={p.platform} className="p-4 rounded-xl bg-light-bg/50 dark:bg-dark-bg/50 border border-light-border/30 dark:border-white/5 text-center">
-              <span className="text-2xl mb-2 block">{p.icon}</span>
-              <p className="text-sm font-bold text-light-text dark:text-dark-text mb-1">{p.platform}</p>
-              <p className="text-xs text-light-muted dark:text-dark-muted">CPM: {p.cpm}</p>
-              <p className="text-xs text-light-muted dark:text-dark-muted">RPM: {p.rpm}</p>
-            </div>
-          ))}
-        </div>
-      </div>
+      <CPMInfoTable />
     </div>
   );
 }
 
-function generateDemoData(): RevenueData {
-  const daily = [];
-  for (let i = 13; i >= 0; i--) {
-    const d = new Date();
-    d.setDate(d.getDate() - i);
-    daily.push({
-      date: d.toISOString().slice(0, 10),
-      revenue: Math.floor(Math.random() * 50) + 10,
-      views: Math.floor(Math.random() * 5000) + 1000,
-    });
-  }
-  const total = daily.reduce((s, d) => s + d.revenue, 0);
-  const currentMonth = daily.filter(d => d.date.startsWith(new Date().toISOString().slice(0, 7))).reduce((s, d) => s + d.revenue, 0);
-
-  return {
-    totalRevenue: total + 1847,
-    currentMonth: currentMonth,
-    lastMonth: currentMonth + Math.floor(Math.random() * 100),
-    rpm: 2.15,
-    cpm: 3.80,
-    estimatedYearly: (total + 1847) + currentMonth * 11,
-    milestones: [],
-    dailyRevenue: daily,
-    platformBreakdown: [
-      { platform: 'YouTube', icon: '🔴', revenue: Math.floor((total + 1847) * 0.72), percentage: 72, rpm: 2.45 },
-      { platform: 'TikTok', icon: '🎵', revenue: Math.floor((total + 1847) * 0.15), percentage: 15, rpm: 0.65 },
-      { platform: 'Instagram', icon: '📸', revenue: Math.floor((total + 1847) * 0.08), percentage: 8, rpm: 1.20 },
-      { platform: 'Facebook', icon: '👤', revenue: Math.floor((total + 1847) * 0.05), percentage: 5, rpm: 0.95 },
-    ],
-  };
+function CPMInfoTable() {
+  return (
+    <div className="rounded-2xl glass-strong border border-light-border/30 dark:border-white/5 p-6">
+      <h2 className="text-lg font-bold text-light-text dark:text-dark-text mb-4">CPM Rates for Kids&apos; Content (Reference)</h2>
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+        {[
+          { platform: 'YouTube', cpm: '$1.50 - $4.00', rpm: '$0.80 - $2.50', icon: '🔴' },
+          { platform: 'TikTok', cpm: '$0.50 - $2.00', rpm: '$0.20 - $0.80', icon: '🎵' },
+          { platform: 'Instagram', cpm: '$1.00 - $3.00', rpm: '$0.50 - $1.50', icon: '📸' },
+          { platform: 'Facebook', cpm: '$1.20 - $3.50', rpm: '$0.60 - $2.00', icon: '👤' },
+        ].map(p => (
+          <div key={p.platform} className="p-4 rounded-xl bg-light-bg/50 dark:bg-dark-bg/50 border border-light-border/30 dark:border-white/5 text-center">
+            <span className="text-2xl mb-2 block">{p.icon}</span>
+            <p className="text-sm font-bold text-light-text dark:text-dark-text mb-1">{p.platform}</p>
+            <p className="text-xs text-light-muted dark:text-dark-muted">CPM: {p.cpm}</p>
+            <p className="text-xs text-light-muted dark:text-dark-muted">RPM: {p.rpm}</p>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
 }
 
 function formatNumber(n: number) {

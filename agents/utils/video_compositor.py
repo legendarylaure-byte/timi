@@ -4,6 +4,11 @@ import json
 import subprocess
 from pathlib import Path
 from typing import Optional
+
+_FFMPEG_BIN = "/opt/homebrew/opt/ffmpeg-full/bin"
+if _FFMPEG_BIN not in os.environ.get("PATH", ""):
+    os.environ["PATH"] = _FFMPEG_BIN + ":" + os.environ.get("PATH", "")
+
 from pydub import AudioSegment
 from dotenv import load_dotenv
 
@@ -127,9 +132,23 @@ def add_text_overlay(video_path: str, text: str, output_path: str, fontsize: int
         print(f"[compositor] Text overlay error: {e}")
         return False
 
-def burn_subtitles(video_path: str, subtitle_path: str, output_path: str, fontsize: int = 24) -> bool:
+KIDS_FONT = "Marker Felt"
+KIDS_SUB_COLORS = [
+    {"primary": "&H00FFFF&", "outline": "&H0000FF&"},
+    {"primary": "&HFF00FF&", "outline": "&H000080&"},
+    {"primary": "&H00FF00&", "outline": "&H800000&"},
+    {"primary": "&HFFFF00&", "outline": "&HFF0000&"},
+    {"primary": "&HFF8000&", "outline": "&H000000&"},
+]
+
+def burn_subtitles(video_path: str, subtitle_path: str, output_path: str, fontsize: int = 24, is_kids: bool = True) -> bool:
     abs_subtitle = os.path.abspath(subtitle_path)
-    vf = f"subtitles=filename='{abs_subtitle}':force_style='FontSize={fontsize},PrimaryColour=&HFFFFFF&,OutlineColour=&H000000&,Outline=2,Shadow=1'"
+    if is_kids:
+        temp_ass = str(TEMP_DIR / "kids_subtitles.ass")
+        _convert_srt_to_kids_ass(abs_subtitle, temp_ass, fontsize)
+        vf = f"subtitles=filename='{os.path.abspath(temp_ass)}'"
+    else:
+        vf = f"subtitles=filename='{abs_subtitle}':force_style='FontSize={fontsize},PrimaryColour=&HFFFFFF&,OutlineColour=&H000000&,Outline=2,Shadow=1'"
     cmd = [
         _ffmpeg_cmd(), "-y", "-i", video_path,
         "-vf", vf,
@@ -143,9 +162,68 @@ def burn_subtitles(video_path: str, subtitle_path: str, output_path: str, fontsi
             return True
         else:
             print(f"[compositor] Subtitle burn error: {result.stderr[-300:]}")
+            cmd_fallback = [
+                _ffmpeg_cmd(), "-y", "-i", video_path,
+                "-vf", f"subtitles=filename='{abs_subtitle}':force_style='FontSize={fontsize},PrimaryColour=&HFFFFFF&,OutlineColour=&H000000&,Outline=2,Shadow=1'",
+                "-c:v", "libx264", "-preset", "fast", "-crf", "23",
+                "-c:a", "copy", "-pix_fmt", "yuv420p", output_path,
+            ]
+            result2 = subprocess.run(cmd_fallback, capture_output=True, text=True, timeout=300, env=_get_env())
+            if result2.returncode == 0:
+                print(f"[compositor] Subtitles burned with fallback style")
+                return True
             return False
     except Exception as e:
         print(f"[compositor] Subtitle burn error: {e}")
+        return False
+
+def _convert_srt_to_kids_ass(srt_path: str, ass_path: str, base_fontsize: int = 36) -> bool:
+    try:
+        with open(srt_path, "r", encoding="utf-8") as f:
+            srt_content = f.read()
+        blocks = re.split(r'\n\s*\n', srt_content.strip())
+        ass_header = """[Script Info]
+Title: Kids Subtitles
+ScriptType: v4.00+
+PlayResX: 1920
+PlayResY: 1080
+
+[V4+ Styles]
+Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding
+Style: Default,{font},{size},&H00FFFFFF,&H000000FF,&H00000000,&H80000000,1,0,0,0,100,100,0,0,1,3,2,2,10,10,40,1
+
+[Events]
+Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
+"""
+        font = KIDS_FONT
+        with open(ass_path, "w", encoding="utf-8") as f:
+            f.write(ass_header.format(font=font, size=base_fontsize))
+            idx = 0
+            for block in blocks:
+                lines = block.strip().split('\n')
+                if len(lines) < 3:
+                    continue
+                try:
+                    int(lines[0])
+                except ValueError:
+                    continue
+                time_line = lines[1]
+                text_lines = lines[2:]
+                if '-->' not in time_line:
+                    continue
+                start, end = time_line.split('-->')
+                start = start.strip().replace(',', '.')
+                end = end.strip().replace(',', '.')
+                text = ' '.join(t.strip() for t in text_lines)
+                color = KIDS_SUB_COLORS[idx % len(KIDS_SUB_COLORS)]
+                styled_text = r"{\c%s\3c%s\3%s\blur1}%s" % (
+                    color["primary"], color["outline"], "b1", text
+                )
+                f.write(f"Dialogue: 0,{start},{end},Default,,0,0,0,,{styled_text}\n")
+                idx += 1
+        return True
+    except Exception as e:
+        print(f"[compositor] ASS conversion error: {e}")
         return False
 
 def add_chapter_markers(video_path: str, chapters: list[dict], output_path: str) -> bool:
@@ -173,7 +251,7 @@ def add_chapter_markers(video_path: str, chapters: list[dict], output_path: str)
         print(f"[compositor] Chapter markers error: {e}")
         return False
 
-def composite_video(clips: list[dict], voice_path: str, music_path: Optional[str] = None, format_type: str = "shorts", video_id: str = "output", subtitle_path: Optional[str] = None, chapters: Optional[list] = None) -> Optional[str]:
+def composite_video(clips: list[dict], voice_path: str, music_path: Optional[str] = None, format_type: str = "shorts", video_id: str = "output", subtitle_path: Optional[str] = None, chapters: Optional[list] = None, category: str = "") -> Optional[str]:
     target = ASPECT_RATIOS.get(format_type, ASPECT_RATIOS["long"])
     tw, th = target["w"], target["h"]
 
@@ -218,7 +296,9 @@ def composite_video(clips: list[dict], voice_path: str, music_path: Optional[str
     if subtitle_path and os.path.exists(subtitle_path):
         print(f"[compositor] Burning subtitles into video")
         with_subs_path = str(TEMP_DIR / "video_with_subs.mp4")
-        if burn_subtitles(combined_video, subtitle_path, with_subs_path):
+        is_kids_content = any(kw in category.lower() for kw in ["kids", "children", "bedtime", "fable", "rhyme", "story", "nursery", "baby", "toddler"])
+        sub_fontsize = 52 if format_type == "shorts" else 36
+        if burn_subtitles(combined_video, subtitle_path, with_subs_path, fontsize=sub_fontsize, is_kids=is_kids_content):
             combined_video = with_subs_path
 
     if chapters and format_type == "long":

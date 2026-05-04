@@ -52,9 +52,14 @@ def upload_video_to_youtube(
     thumbnail_file: str = None,
     category_id: str = "27",
     is_shorts: bool = False,
+    publish_at: str = None,
 ) -> dict:
     creds = get_youtube_credentials()
     youtube = build("youtube", "v3", credentials=creds)
+
+    privacy_status = "public"
+    if publish_at:
+        privacy_status = "private"
 
     body = {
         "snippet": {
@@ -66,7 +71,7 @@ def upload_video_to_youtube(
             "defaultAudioLanguage": "en",
         },
         "status": {
-            "privacyStatus": "public",
+            "privacyStatus": privacy_status,
             "madeForKids": True,
             "selfDeclaredMadeForKids": True,
         },
@@ -95,12 +100,32 @@ def upload_video_to_youtube(
     if is_shorts:
         video_url = f"https://www.youtube.com/shorts/{video_id}"
 
+    if publish_at:
+        try:
+            youtube.videos().update(
+                part="status",
+                body={
+                    "id": video_id,
+                    "status": {
+                        "privacyStatus": "private",
+                        "publishAt": publish_at,
+                        "madeForKids": True,
+                        "selfDeclaredMadeForKids": True,
+                    },
+                },
+            ).execute()
+            print(f"Video scheduled for {publish_at}")
+        except HttpError as e:
+            print(f"Failed to set publish time: {e}")
+
     result = {
+        "success": True,
         "platform": "YouTube",
         "video_id": video_id,
         "video_url": video_url,
         "title": title,
-        "status": "published",
+        "status": "scheduled" if publish_at else "published",
+        "publish_at": publish_at,
         "upload_time": datetime.utcnow().isoformat(),
     }
 

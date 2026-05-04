@@ -1,19 +1,8 @@
 import os
 from crewai import Agent, Task, Crew
-from crewai_tools import BaseTool
-from langchain_groq import ChatGroq
 
-class GroqLLMTool(BaseTool):
-    name: str = "groq_llm"
-    description: str = "Access Groq LLM for text generation"
-    def _run(self, prompt: str) -> str:
-        llm = ChatGroq(
-            model=os.getenv("GROQ_MODEL", "llama-3.3-70b-versatile"),
-            api_key=os.getenv("GROQ_API_KEY"),
-            temperature=0.7,
-            max_tokens=2000,
-        )
-        return str(llm.invoke(prompt).content)
+OLLAMA_MODEL = "ollama/" + os.getenv("OLLAMA_MODEL", "qwen2.5:7b")
+OLLAMA_BASE = os.getenv("OLLAMA_BASE_URL", "http://localhost:11434")
 
 def create_scriptwriter_crew():
     scriptwriter = Agent(
@@ -23,13 +12,8 @@ def create_scriptwriter_crew():
 You create content that is COPPA-compliant, culturally inclusive, and designed to be viral on social media.
 Your scripts follow proven engagement patterns: hook in first 3 seconds, pattern interrupts every 5-7 seconds,
 emotional triggers (wonder, curiosity, joy), and end with curiosity-building cliffhangers.""",
-        tools=[GroqLLMTool()],
-        llm=ChatGroq(
-            model=os.getenv("GROQ_MODEL", "llama-3.3-70b-versatile"),
-            api_key=os.getenv("GROQ_API_KEY"),
-            temperature=0.7,
-            max_tokens=3000,
-        ),
+        llm=OLLAMA_MODEL,
+        base_url=OLLAMA_BASE,
         verbose=True,
         allow_delegation=False,
     )
