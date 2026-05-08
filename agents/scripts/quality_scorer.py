@@ -6,6 +6,7 @@ import argparse
 import json
 from agents.utils.quality_scorer import score_content, predict_performance
 
+
 def main():
     parser = argparse.ArgumentParser(description='Quality Score & Performance Predictor')
     parser.add_argument('--title', required=True, help='Video title')
@@ -40,6 +41,7 @@ def main():
 
     print(f"\n{json.dumps(results, indent=2, default=str)}")
     return results
+
 
 if __name__ == '__main__':
     main()

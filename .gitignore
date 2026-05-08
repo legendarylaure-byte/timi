@@ -34,4 +34,5 @@ firebase-debug.log
 dashboard/.npm-cache/
 agents/venv/
 agents/tmp/
+agents/data/
 youtube_token.json

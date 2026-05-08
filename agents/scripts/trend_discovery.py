@@ -6,6 +6,7 @@ import argparse
 import json
 from agents.utils.trend_discovery import discover_trends, analyze_category
 
+
 def main():
     parser = argparse.ArgumentParser(description='Trend Discovery for Children\'s Content')
     parser.add_argument('--category', help='Analyze specific category')
@@ -27,6 +28,7 @@ def main():
             print()
 
         print(json.dumps(trends, indent=2, default=str))
+
 
 if __name__ == '__main__':
     main()

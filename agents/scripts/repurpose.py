@@ -6,6 +6,7 @@ import argparse
 import json
 from agents.utils.repurposer import repurpose_video, batch_reprocess_all_videos
 
+
 def main():
     parser = argparse.ArgumentParser(description='Content Repurposing Agent')
     parser.add_argument('--title', help='Video title')
@@ -24,13 +25,14 @@ def main():
         print(f"\nGenerated {result['total_clips']} clips:")
         for clip in result['clips']:
             print(f"  🎬 {clip['title']}")
-            print(f"     {clip['start_time']}s - {clip['end_time']}s ({clip['duration']}s) | Hook: {clip['hook_score']}/100")
-            print(f"     {clip.get('reasoning', '')}")
+            print(f"     {clip['start_time']}s - {clip['end_time']}s ({clip['duration']}s) | Hook: {clip['hook_score']}/100")  # noqa: E501
+            print("     " + clip.get('reasoning', ''))
             print()
         print(f"Estimated total views: {result.get('estimated_total_views', 0):,}")
         print(json.dumps(result, indent=2, default=str))
     else:
         print("Use --title or --batch flag. Run with --help for options.")
+
 
 if __name__ == '__main__':
     main()

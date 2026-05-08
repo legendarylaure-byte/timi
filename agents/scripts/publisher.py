@@ -6,6 +6,7 @@ import argparse
 import json
 from agents.utils.multi_platform_publisher import multi_platform_publish, schedule_upload
 
+
 def main():
     parser = argparse.ArgumentParser(description='Multi-Platform Publisher')
     parser.add_argument('--title', required=True, help='Video title')
@@ -35,13 +36,14 @@ def main():
             platforms=platforms,
         )
 
-        print(f"\nResults:")
+        print("\nResults:")
         for platform, r in result['platforms'].items():
             status = '✅' if r.get('success') else '❌'
             print(f"  {status} {platform}: {r.get('url', r.get('error', ''))}")
 
         print(f"\nSuccess: {result['success_count']}/{result['total_count']}")
         print(json.dumps(result, indent=2, default=str))
+
 
 if __name__ == '__main__':
     main()
