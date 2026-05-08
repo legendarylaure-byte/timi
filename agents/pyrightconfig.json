@@ -1,0 +1,11 @@
+{
+  "typeCheckingMode": "basic",
+  "reportArgumentType": "warning",
+  "reportReturnType": "warning",
+  "reportOptionalMemberAccess": "warning",
+  "reportPossiblyUnboundVariable": "warning",
+  "reportCallIssue": "warning",
+  "reportAttributeAccessIssue": "warning",
+  "reportOptionalOperand": "warning",
+  "reportOptionalSubscript": "warning"
+}
