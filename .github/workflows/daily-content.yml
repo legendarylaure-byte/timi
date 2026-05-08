@@ -107,6 +107,7 @@ jobs:
           EOF
 
           # Decode Firebase service account
+          mkdir -p firebase
           echo "$FIREBASE_SERVICE_ACCOUNT" > firebase/serviceAccountKey.json
 
           # Decode YouTube OAuth token if available

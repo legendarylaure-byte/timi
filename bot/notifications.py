@@ -2,6 +2,7 @@ import os
 import requests
 from datetime import datetime
 
+
 def send_telegram_message(text: str):
     token = os.getenv("TELEGRAM_BOT_TOKEN")
     chat_id = os.getenv("TELEGRAM_CHAT_ID")
@@ -23,6 +24,7 @@ def send_telegram_message(text: str):
         print(f"Telegram notification sent to {chat_id}")
     except Exception as e:
         print(f"Failed to send Telegram notification: {e}")
+
 
 def send_upload_notification(video_data: dict):
     title = video_data.get("title", "Unknown")
@@ -46,6 +48,7 @@ def send_upload_notification(video_data: dict):
     )
 
     send_telegram_message(message)
+
 
 def send_error_notification(error: str, context: str = ""):
     message = (

@@ -4,7 +4,6 @@ from dotenv import load_dotenv
 from telegram import Update
 from telegram.ext import ApplicationBuilder, CommandHandler, MessageHandler, ContextTypes, filters
 from handlers import start, status, today, analytics, youtube_stats, pause_pipeline, resume_pipeline, cleanup, query
-from notifications import send_upload_notification
 
 load_dotenv()
 
@@ -13,12 +12,14 @@ logging.basicConfig(
     level=logging.INFO,
 )
 
+
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(
         "🤖 I'm the Vyom Ai Cloud assistant!\n\n"
         "Use /start to see available commands.\n"
         "Or type /query followed by your question."
     )
+
 
 def main():
     token = os.getenv("TELEGRAM_BOT_TOKEN")
@@ -41,6 +42,7 @@ def main():
 
     print("🤖 Vyom Ai Cloud Telegram Bot is running...")
     app.run_polling()
+
 
 if __name__ == "__main__":
     main()

@@ -8,6 +8,7 @@ from groq import Groq
 PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, PROJECT_ROOT)
 
+
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(
         "🎬 *Welcome to Vyom Ai Cloud!*\n\n"
@@ -23,6 +24,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "/query <question> - Ask me anything about the project\n\n"
         "I'll notify you when videos are uploaded! 🚀"
     )
+
 
 async def status(update: Update, context: ContextTypes.DEFAULT_TYPE):
     status_msg = (
@@ -40,6 +42,7 @@ async def status(update: Update, context: ContextTypes.DEFAULT_TYPE):
     )
     await update.message.reply_text(status_msg, parse_mode="Markdown")
 
+
 async def today(update: Update, context: ContextTypes.DEFAULT_TYPE):
     today_msg = (
         "📅 *Today's Progress*\n\n"
@@ -52,6 +55,7 @@ async def today(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "📊 Total videos today: 1/4"
     )
     await update.message.reply_text(today_msg, parse_mode="Markdown")
+
 
 async def analytics(update: Update, context: ContextTypes.DEFAULT_TYPE):
     analytics_msg = (
@@ -70,6 +74,7 @@ async def analytics(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "  TikTok: 456/10000 followers"
     )
     await update.message.reply_text(analytics_msg, parse_mode="Markdown")
+
 
 async def youtube_stats(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text("📊 Fetching YouTube channel stats...")
@@ -90,11 +95,14 @@ async def youtube_stats(update: Update, context: ContextTypes.DEFAULT_TYPE):
     except Exception as e:
         await update.message.reply_text(f"❌ YouTube stats failed: {str(e)}")
 
+
 async def pause_pipeline(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text("⏸️ Pipeline paused. No new videos will be generated.")
 
+
 async def resume_pipeline(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text("▶️ Pipeline resumed. Content generation is back on!")
+
 
 async def cleanup(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text("🧹 Running cleanup of old uploaded videos...")
@@ -106,9 +114,13 @@ async def cleanup(update: Update, context: ContextTypes.DEFAULT_TYPE):
     except Exception as e:
         await update.message.reply_text(f"❌ Cleanup failed: {str(e)}")
 
+
 async def query(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not context.args:
-        await update.message.reply_text("Please ask a question after /query.\nExample: /query How many videos were uploaded today?")
+        await update.message.reply_text(
+            "Please ask a question after /query.\n"
+            "Example: /query How many videos were uploaded today?"
+        )
         return
 
     question = " ".join(context.args)
@@ -118,7 +130,10 @@ async def query(update: Update, context: ContextTypes.DEFAULT_TYPE):
         response = client.chat.completions.create(
             model="llama-3.3-70b-versatile",
             messages=[
-                {"role": "system", "content": "You are the Vyom Ai Cloud assistant. Answer questions about the content automation project concisely and accurately."},
+                {"role": "system", "content": (
+                    "You are the Vyom Ai Cloud assistant. "
+                    "Answer questions about the content automation project concisely and accurately."
+                )},
                 {"role": "user", "content": question},
             ],
             temperature=0.5,
