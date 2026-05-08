@@ -1,6 +1,4 @@
 import os
-import re
-import json
 import time
 import requests
 import subprocess
@@ -49,6 +47,14 @@ PEXELS_KEYWORD_MAP = {
     "flower": ["flower blooming", "flower garden"],
 }
 
+UNIVERSAL_KEYWORDS = [
+    "colorful background", "nature scenery", "kids learning",
+    "happy children", "animated shapes", "bright colors",
+    "cute animals playing", "nature landscape", "abstract animation",
+    "sunny day outdoor", "waterfall nature", "rainbow sky",
+]
+
+
 def _keyword_expand(base_keyword: str) -> list[str]:
     base = base_keyword.lower().strip()
     for key, aliases in PEXELS_KEYWORD_MAP.items():
@@ -56,13 +62,41 @@ def _keyword_expand(base_keyword: str) -> list[str]:
             return aliases
     return [base, base + " cartoon", base + " animation", base + " kids"]
 
+
+def _handle_rate_limit(resp: requests.Response, source: str, max_retries: int = 2) -> requests.Response:
+    """Handle 429 rate limit by waiting and retrying."""
+    if resp.status_code != 429:
+        return resp
+    wait_time = 60
+    retry_header = resp.headers.get('Retry-After')
+    if retry_header:
+        try:
+            wait_time = int(retry_header)
+        except ValueError:
+            pass
+    for attempt in range(max_retries):
+        print(f"[stock_video] {source} rate limited (429). Waiting {wait_time}s before retry {attempt+1}/{max_retries}")
+        time.sleep(wait_time)
+        new_resp = resp.request.session.send(resp.request)
+        if new_resp.status_code != 429:
+            return new_resp
+        wait_time *= 2
+    print(f"[stock_video] {source} still rate limited after {max_retries} retries")
+    return resp
+
+
 def search_pexels(query: str, orientation: str = "landscape", per_page: int = 10) -> list[dict]:
     if not PEXELS_API_KEY:
         return []
     headers = {"Authorization": PEXELS_API_KEY}
     params = {"query": query, "per_page": per_page, "orientation": orientation}
     try:
-        resp = requests.get("https://api.pexels.com/videos/search", headers=headers, params=params, timeout=15)
+        session = requests.Session()
+        resp = session.get("https://api.pexels.com/videos/search", headers=headers, params=params, timeout=15)
+        resp = _handle_rate_limit(resp, "Pexels")
+        if resp.status_code == 403:
+            print("[stock_video] Pexels API key invalid (403)")
+            return []
         resp.raise_for_status()
         data = resp.json()
         results = []
@@ -83,9 +117,13 @@ def search_pexels(query: str, orientation: str = "landscape", per_page: int = 10
                 "query": query,
             })
         return results
+    except requests.exceptions.HTTPError as e:
+        print(f"[stock_video] Pexels HTTP error: {e}")
+        return []
     except Exception as e:
         print(f"[stock_video] Pexels search error: {e}")
         return []
+
 
 def search_pixabay(query: str, per_page: int = 10) -> list[dict]:
     if not PIXABAY_API_KEY:
@@ -98,7 +136,12 @@ def search_pixabay(query: str, per_page: int = 10) -> list[dict]:
         "safesearch": "true",
     }
     try:
-        resp = requests.get("https://pixabay.com/api/videos/", params=params, timeout=15)
+        session = requests.Session()
+        resp = session.get("https://pixabay.com/api/videos/", params=params, timeout=15)
+        resp = _handle_rate_limit(resp, "Pixabay")
+        if resp.status_code == 403:
+            print("[stock_video] Pixabay API key invalid (403)")
+            return []
         resp.raise_for_status()
         data = resp.json()
         results = []
@@ -120,11 +163,15 @@ def search_pixabay(query: str, per_page: int = 10) -> list[dict]:
                 "query": query,
             })
         return results
+    except requests.exceptions.HTTPError as e:
+        print(f"[stock_video] Pixabay HTTP error: {e}")
+        return []
     except Exception as e:
         print(f"[stock_video] Pixabay search error: {e}")
         return []
 
-def download_clip(video_url: str, output_path: Path, timeout: int = 60) -> bool:
+
+def download_clip(video_url: str, output_path: Path, timeout: int = 30) -> bool:
     if not video_url:
         return False
     try:
@@ -137,22 +184,28 @@ def download_clip(video_url: str, output_path: Path, timeout: int = 60) -> bool:
             output_path.unlink(missing_ok=True)
             return False
         return True
+    except requests.exceptions.Timeout:
+        print(f"[stock_video] Download timeout for {video_url[:50]}")
+        return False
     except Exception as e:
         print(f"[stock_video] Download error: {e}")
         return False
 
+
 FFPROBE_PATH = "/opt/homebrew/opt/ffmpeg-full/bin/ffprobe"
+
 
 def get_video_duration(file_path: str) -> float:
     try:
         result = subprocess.run(
             [FFPROBE_PATH, "-v", "error", "-show_entries", "format=duration",
-             "-of", "default=noprint_wrappers=1:nokey=1", file_path],
+             "-o", "default=noprint_wrappers=1:nokey=1", file_path],
             capture_output=True, text=True, timeout=10
         )
         return float(result.stdout.strip())
     except Exception:
         return 0.0
+
 
 def search_and_download(
     scene_keyword: str,
@@ -175,6 +228,13 @@ def search_and_download(
         for kw in fallback_kw:
             all_candidates.extend(search_pexels(kw, orientation=orientation, per_page=5))
             all_candidates.extend(search_pixabay(kw, per_page=5))
+            if all_candidates:
+                break
+
+    if not all_candidates:
+        for kw in UNIVERSAL_KEYWORDS:
+            all_candidates.extend(search_pexels(kw, orientation=orientation, per_page=3))
+            all_candidates.extend(search_pixabay(kw, per_page=3))
             if all_candidates:
                 break
 
@@ -216,17 +276,52 @@ def search_and_download(
     print(f"[stock_video] No video found for: {scene_keyword}")
     return None
 
+
 def search_videos_for_scenes(scenes: list[dict], orientation: str = "landscape") -> list[dict]:
     clips = []
+    max_retries_per_scene = 2
+
     for i, scene in enumerate(scenes):
         keyword = scene.get("keyword", scene.get("description", ""))
         target_dur = scene.get("target_duration", 5.0)
         print(f"[stock_video] Scene {i+1}/{len(scenes)}: '{keyword}'")
-        clip = search_and_download(keyword, target_duration=target_dur, orientation=orientation, scene_idx=i)
-        if clip:
-            clips.append(clip)
-            print(f"[stock_video] -> Found: {clip['path']} ({clip['duration']:.1f}s)")
-        else:
-            print(f"[stock_video] -> FAILED for '{keyword}'")
+
+        for attempt in range(max_retries_per_scene):
+            if attempt > 0:
+                print(f"[stock_video] Retrying scene {i+1} (attempt {attempt+1})")
+                time.sleep(2)
+
+            clip = search_and_download(keyword, target_duration=target_dur, orientation=orientation, scene_idx=i)
+            if clip:
+                clips.append(clip)
+                print(f"[stock_video] -> Found: {clip['path']} ({clip['duration']:.1f}s)")
+                break
+
+        if not clip and attempt == max_retries_per_scene - 1:
+            print(f"[stock_video] -> FAILED for '{keyword}' after {max_retries_per_scene} attempts")
+            if clips:
+                prev_clip = clips[-1]
+                clips.append({
+                    "path": prev_clip["path"],
+                    "duration": prev_clip["duration"] * 0.5,
+                    "width": prev_clip["width"],
+                    "height": prev_clip["height"],
+                    "source": "fallback",
+                    "keyword": keyword,
+                })
+                print("[stock_video] -> Using fallback clip from previous scene")
+
         time.sleep(0.5)
+
+    if not clips:
+        print("[stock_video] CRITICAL: No clips found for any scene. Using universal fallback.")
+        for kw in UNIVERSAL_KEYWORDS:
+            clip = search_and_download(kw, target_duration=5.0, orientation=orientation, scene_idx=len(clips))
+            if clip:
+                clips.append(clip)
+                print(f"[stock_video] -> Universal fallback: {clip['path']} ({clip['duration']:.1f}s)")
+            if len(clips) >= min(len(scenes), 5):
+                break
+            time.sleep(0.5)
+
     return clips

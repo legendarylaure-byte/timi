@@ -1,5 +1,6 @@
 from pydantic import BaseModel, validator
-from typing import Optional, List
+from typing import List
+
 
 class ScriptOutput(BaseModel):
     title: str
@@ -23,6 +24,7 @@ class ScriptOutput(BaseModel):
             raise ValueError("Age group must be 1-3, 4-6, 7-9, or 1-9")
         return v
 
+
 class MetadataOutput(BaseModel):
     title: str
     description: str
@@ -43,10 +45,12 @@ class MetadataOutput(BaseModel):
             raise ValueError("Maximum 30 tags allowed")
         return v
 
+
 def validate_script_content(content: str) -> bool:
     forbidden_words = ["violence", "scary", "death", "kill", "hurt", "fight", "war"]
     content_lower = content.lower()
     return not any(word in content_lower for word in forbidden_words)
+
 
 def validate_video_duration(file_path: str, format_type: str) -> bool:
     import subprocess

@@ -4,7 +4,6 @@ Handles uploads to YouTube, TikTok, Instagram, and Facebook.
 Run: python -m agents.scripts.publisher --title "..." --video_path "..." --platforms youtube,tiktok
 """
 import os
-import json
 from datetime import datetime
 from utils.firebase_status import get_firestore_client, log_activity, update_video_record
 
@@ -39,7 +38,8 @@ PLATFORMS = {
     },
 }
 
-def upload_to_platform(platform: str, title: str, description: str, video_path: str, thumbnail_path: str, format_type: str = 'shorts', publish_at: str = None) -> dict:
+
+def upload_to_platform(platform: str, title: str, description: str, video_path: str, thumbnail_path: str, format_type: str = 'shorts', publish_at: str = None) -> dict:  # noqa: E501
     """Upload a video to a specific platform."""
     platform_info = PLATFORMS.get(platform)
     if not platform_info:
@@ -63,7 +63,7 @@ def upload_to_platform(platform: str, title: str, description: str, video_path: 
         return {'success': False, 'error': str(e)}
 
 
-def _upload_youtube(title: str, description: str, video_path: str, thumbnail_path: str, format_type: str, publish_at: str = None) -> dict:
+def _upload_youtube(title: str, description: str, video_path: str, thumbnail_path: str, format_type: str, publish_at: str = None) -> dict:  # noqa: E501
     try:
         from utils.youtube_upload import upload_video_to_youtube
         from utils.description_gen import get_coppa_metadata
@@ -131,9 +131,9 @@ def multi_platform_publish(video_id: str, title: str, description: str, video_pa
     """Publish to multiple platforms with progress tracking."""
     if platforms is None:
         platforms = ['youtube']
-    
+
     log_activity('publisher', f"Starting multi-platform publish: {title}", 'info')
-    
+
     results = {
         'video_id': video_id,
         'title': title,
@@ -143,35 +143,37 @@ def multi_platform_publish(video_id: str, title: str, description: str, video_pa
         'total_count': len(platforms),
         'all_success': True,
     }
-    
+
     for platform in platforms:
         try:
             log_activity('publisher', f"Uploading to {PLATFORMS[platform]['name']}...", 'info')
-            result = upload_to_platform(platform, title, description, video_path, thumbnail_path, format_type, publish_at)
+            result = upload_to_platform(platform, title, description, video_path,
+                                        thumbnail_path, format_type, publish_at)
             results['platforms'][platform] = result
-            
+
             # Update queue in Firestore
             _update_queue(video_id, platform, result['success'])
-            
+
             if result['success']:
                 results['success_count'] += 1
             else:
                 results['all_success'] = False
-                
+
         except Exception as e:
             results['platforms'][platform] = {'success': False, 'error': str(e)}
             results['all_success'] = False
-    
+
     # Update video record
     update_video_record(video_id, {
         'published_platforms': list(results['platforms'].keys()),
-        'publish_urls': {p: r.get('url', r.get('video_url', '')) for p, r in results['platforms'].items() if r.get('success')},
+        'publish_urls': {p: r.get('url', r.get('video_url', '')) for p, r in results['platforms'].items() if r.get('success')},  # noqa: E501
     })
-    
+
     # Send Telegram notification
     _send_telegram_notification(results)
-    
-    log_activity('publisher', f"Publish complete: {results['success_count']}/{results['total_count']} successful", 'success')
+
+    log_activity(
+        'publisher', f"Publish complete: {results['success_count']}/{results['total_count']} successful", 'success')
     return results
 
 
@@ -212,7 +214,7 @@ def _send_telegram_notification(results: dict):
                 icon = PLATFORMS.get(platform, {}).get('icon', '⚠️')
                 failures.append(f"{icon} {platform.title()}: {result.get('error', 'unknown error')}")
 
-        message = f"🎬 *Video Published!*\n\n"
+        message = "🎬 *Video Published!*\n\n"
         message += f"📌 {results['title']}\n"
         message += f"📊 {results['success_count']}/{results['total_count']} platforms\n"
         if success_urls:

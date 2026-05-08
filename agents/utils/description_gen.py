@@ -1,5 +1,4 @@
 import json
-import os
 from utils.groq_client import generate_completion
 
 SYSTEM_PROMPT = """You are an expert YouTube SEO specialist for children's content.
@@ -12,6 +11,47 @@ Generate optimized video descriptions that:
 6. Support merch/affiliate link injection when provided
 
 The description should be professional, parent-friendly, and optimized for YouTube's algorithm for kids' content."""
+
+
+def _extract_json(response: str) -> dict:
+    """Robustly extract JSON from LLM response, handling control characters."""
+    json_start = response.find("{")
+    json_end = response.rfind("}") + 1
+    if json_start < 0 or json_end <= json_start:
+        return None
+
+    raw = response[json_start:json_end]
+
+    for depth in range(3):
+        try:
+            return json.loads(raw)
+        except json.JSONDecodeError:
+            pass
+
+        cleaned = ""
+        in_string = False
+        escaped = False
+        for c in raw:
+            if escaped:
+                cleaned += c
+                escaped = False
+                continue
+            if c == '\\' and in_string:
+                cleaned += c
+                escaped = True
+                continue
+            if c == '"':
+                in_string = not in_string
+                cleaned += c
+                continue
+            if in_string and ord(c) < 32 and c not in '\n\r\t':
+                cleaned += ' '
+                continue
+            cleaned += c
+        raw = cleaned
+
+    return None
+
 
 def generate_description(
     title: str,
@@ -79,11 +119,8 @@ Return ONLY a JSON object:
             max_tokens=1000,
         )
 
-        json_start = response.find("{")
-        json_end = response.rfind("}") + 1
-        if json_start >= 0 and json_end > json_start:
-            result = json.loads(response[json_start:json_end])
-        else:
+        result = _extract_json(response)
+        if result is None:
             result = _fallback_description(title, category, format_type, hook)
 
         full_description = result.get("description", "")
@@ -101,20 +138,21 @@ Return ONLY a JSON object:
         result["full_description"] = result.get("description", "") + chapters + merch_section
         return result
 
+
 def _fallback_description(title: str, category: str, format_type: str, hook: str) -> dict:
     safe_tags = {
-        "Self-Learning": ["kids learning", "educational videos", "preschool learning", "toddler education", "learn at home"],
+        "Self-Learning": ["kids learning", "educational videos", "preschool learning", "toddler education", "learn at home"],  # noqa: E501
         "Bedtime Stories": ["bedtime stories", "sleep stories", "calm stories", "kids sleep", "gentle stories"],
-        "Science for Kids": ["science for kids", "kids experiments", "stem learning", "fun science", "educational science"],
+        "Science for Kids": ["science for kids", "kids experiments", "stem learning", "fun science", "educational science"],  # noqa: E501
         "Animated Fables": ["fables for kids", "moral stories", "animated stories", "kids tales", "story time"],
         "Rhymes & Songs": ["kids songs", "nursery rhymes", "children music", "sing along", "kids entertainment"],
-        "Colors & Shapes": ["colors for kids", "shapes learning", "preschool colors", "toddler learning", "educational shapes"],
+        "Colors & Shapes": ["colors for kids", "shapes learning", "preschool colors", "toddler learning", "educational shapes"],  # noqa: E501
     }
 
     tags = safe_tags.get(category, ["kids content", "children videos", "educational"])
     hashtags = [f"#{category.replace(' ', '')}", "#KidsContent", "#MadeForKids"]
 
-    description = f"Welcome to our channel! This {format_type} video is part of our {category} series for children ages 1-9.\n\n{hook[:150]}...\n\nThis video is designed to be educational, entertaining, and safe for young viewers."
+    description = f"Welcome to our channel! This {format_type} video is part of our {category} series for children ages 1-9.\n\n{hook[:150]}...\n\nThis video is designed to be educational, entertaining, and safe for young viewers."  # noqa: E501
 
     return {
         "description": description,
@@ -122,6 +160,7 @@ def _fallback_description(title: str, category: str, format_type: str, hook: str
         "tags": tags[:15],
         "is_coppa_compliant": True,
     }
+
 
 def get_coppa_metadata(category: str, format_type: str = "shorts") -> dict:
     return {

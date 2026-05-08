@@ -1,7 +1,8 @@
 import time
 import random
 import threading
-from utils.firebase_status import get_firestore_client, is_agent_enabled, update_pipeline_status
+from utils.firebase_status import get_firestore_client
+
 
 class AgentControlListener:
     """Polls Firestore for agent control signals (pause/resume) and pipeline triggers."""
@@ -46,7 +47,8 @@ class AgentControlListener:
                 backoff = min(self.max_backoff, self.check_interval * (2 ** (self._consecutive_errors - 1)))
                 jitter = random.uniform(0, backoff * 0.3)
                 sleep_time = backoff + jitter
-                print(f"[CONTROL] Error (#{self._consecutive_errors}), backing off {sleep_time:.1f}s: {type(e).__name__}")
+                print(
+                    f"[CONTROL] Error (#{self._consecutive_errors}), backing off {sleep_time:.1f}s: {type(e).__name__}")
                 time.sleep(sleep_time)
                 continue
 
@@ -89,7 +91,8 @@ class AgentControlListener:
         format_type = trigger_data.get('format', 'shorts')
         publish_at = trigger_data.get('publish_at', None)
 
-        print(f"[CONTROL] Pipeline trigger received: {format_type} - {topic}{f' (scheduled: {publish_at})' if publish_at else ''}")
+        print(
+            f"[CONTROL] Pipeline trigger received: {format_type} - {topic}{f' (scheduled: {publish_at})' if publish_at else ''}")  # noqa: E501
 
         trigger_doc.reference.update({'status': 'processing', 'started_at': __import__('time').time()})
 

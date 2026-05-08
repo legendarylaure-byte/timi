@@ -1,17 +1,15 @@
+from dotenv import load_dotenv
+from pydub import AudioSegment
 import os
 import re
 import json
-import asyncio
 import edge_tts
 from pathlib import Path
-from typing import Optional
 
 _FFMPEG_BIN = "/opt/homebrew/opt/ffmpeg-full/bin"
 if _FFMPEG_BIN not in os.environ.get("PATH", ""):
     os.environ["PATH"] = _FFMPEG_BIN + ":" + os.environ.get("PATH", "")
 
-from pydub import AudioSegment
-from dotenv import load_dotenv
 
 load_dotenv()
 
@@ -29,7 +27,8 @@ DEFAULT_VOICE = KIDS_VOICES["narrator_warm"]
 DEFAULT_RATE = "-5%"
 DEFAULT_PITCH = "-2Hz"
 
-def extract_narration_text(script: str) -> str:
+
+def extract_narration_text(script: str, is_long_form: bool = False) -> str:
     skip_patterns = [
         r'^#{1,6}\s',
         r'^\*{1,2}Scene\s*:',
@@ -55,19 +54,23 @@ def extract_narration_text(script: str) -> str:
         r'^The\s+script\s+is\s+designed',
         r'^This\s+detailed\s+storyboard',
         r'^\d+\.\s+\*\*',
-        r'^Camera\s+Angle',
-        r'^Character\s+Positions',
-        r'^Color\s+Palette',
-        r'^Background\s+Elements',
-        r'^Transition\s+to',
-        r'^Mood\s+(and\s+)?Emotional',
-        r'^\d+\.\s+Camera\s+',
-        r'^\d+\.\s+Character\s+',
-        r'^\d+\.\s+Color\s+',
-        r'^\d+\.\s+Background\s+',
-        r'^\d+\.\s+Transition\s+',
-        r'^\d+\.\s+Mood\s+',
     ]
+
+    if not is_long_form:
+        skip_patterns.extend([
+            r'^Camera\s+Angle',
+            r'^Character\s+Positions',
+            r'^Color\s+Palette',
+            r'^Background\s+Elements',
+            r'^Transition\s+to',
+            r'^Mood\s+(and\s+)?Emotional',
+            r'^\d+\.\s+Camera\s+',
+            r'^\d+\.\s+Character\s+',
+            r'^\d+\.\s+Color\s+',
+            r'^\d+\.\s+Background\s+',
+            r'^\d+\.\s+Transition\s+',
+            r'^\d+\.\s+Mood\s+',
+        ])
     lines = script.split('\n')
     narration_parts = []
     for line in lines:
@@ -84,25 +87,37 @@ def extract_narration_text(script: str) -> str:
                 if text and len(text) > 5:
                     narration_parts.append(text)
                 continue
+        if re.search(r'\bNarration\b', stripped, re.IGNORECASE) and ':' in stripped:
+            parts = stripped.split(':', 1)
+            if len(parts) == 2:
+                text = parts[1].strip()
+                text = re.sub(r'[\*\'\"]', '', text).strip()
+                if text and len(text) > 5:
+                    narration_parts.append(text)
+                continue
         cleaned = re.sub(r'\*{1,2}([^\*]+)\*{1,2}', r'\1', stripped)
         cleaned = re.sub(r'_{1,2}([^_]+)_{1,2}', r'\1', cleaned)
-        generic_dialogue = re.search(r'[\w\s]+\s*\(?(?:voiceover|to \w+)?\)?\s*:\s*["\u2018\u2019](.+?)["\u2018\u2019]', cleaned, re.IGNORECASE)
+        generic_dialogue = re.search(
+            r'[\w\s]+\s*\(?(?:voiceover|to \w+)?\)?\s*:\s*["\u2018\u2019](.+?)["\u2018\u2019]', cleaned, re.IGNORECASE)
         if generic_dialogue:
             narration_parts.append(generic_dialogue.group(1).strip())
             continue
-        dialogue_match = re.search(r'(?:Narrator|Narr\.?|Child\s*\d*|Character|Host|Voice|Speaker)\s*:\s*["\u2018\u2019](.+?)["\u2018\u2019]', cleaned, re.IGNORECASE)
+        dialogue_match = re.search(
+            r'(?:Narrator|Narr\.?|Child\s*\d*|Character|Host|Voice|Speaker)\s*:\s*["\u2018\u2019](.+?)["\u2018\u2019]', cleaned, re.IGNORECASE)  # noqa: E501
         if dialogue_match:
             narration_parts.append(dialogue_match.group(1).strip())
             continue
-        char_match = re.search(r'(?:Narrator|Narr\.?|Child\s*\d*|Character|Host|Voice|Speaker)\s*:\s*(.+)', cleaned, re.IGNORECASE)
+        char_match = re.search(
+            r'(?:Narrator|Narr\.?|Child\s*\d*|Character|Host|Voice|Speaker)\s*:\s*(.+)', cleaned, re.IGNORECASE)
         if char_match:
             text = char_match.group(1).strip()
             text = text.strip("'").strip('"').strip()
             if text and len(text) > 2:
                 narration_parts.append(text)
             continue
-        if not cleaned.startswith('*') and not cleaned.startswith('**') and not cleaned.startswith('-') and not cleaned.startswith('#'):
-            metadata_keywords = ['camera angle', 'character position', 'color palette', 'background element', 'transition to', 'mood and emotional', 'educational value']
+        if not cleaned.startswith('*') and not cleaned.startswith('**') and not cleaned.startswith('-') and not cleaned.startswith('#'):  # noqa: E501
+            metadata_keywords = ['camera angle', 'character position', 'color palette',
+                                 'background element', 'transition to', 'mood and emotional', 'educational value']
             if any(kw in cleaned.lower() for kw in metadata_keywords):
                 continue
             if re.match(r'^\d+\.\s+', cleaned):
@@ -120,7 +135,7 @@ def extract_narration_text(script: str) -> str:
             s = line.strip()
             quote_match = re.findall(r'["\'"]([^"\']+?)["\'"]', s)
             for q in quote_match:
-                if len(q) > 5 and not any(w in q.lower() for w in ['scene', 'visual', 'camera', 'color', 'background', 'transition', 'mood']):
+                if len(q) > 5 and not any(w in q.lower() for w in ['scene', 'visual', 'camera', 'color', 'background', 'transition', 'mood']):  # noqa: E501
                     fallback_lines.append(q)
         if fallback_lines:
             result = ' '.join(fallback_lines)
@@ -130,6 +145,7 @@ def extract_narration_text(script: str) -> str:
             result = re.sub(r'\n\s*\n', '\n', result)
             result = re.sub(r'\s+', ' ', result).strip()
     return result
+
 
 def get_voice_settings(content_type: str = "general") -> dict:
     settings = {
@@ -161,6 +177,7 @@ def get_voice_settings(content_type: str = "general") -> dict:
     }
     return settings.get(content_type, settings["general"])
 
+
 def split_script_into_segments(script: str, max_chars: int = 300) -> list[str]:
     sentences = re.split(r'(?<=[.!?])\s+', script.strip())
     segments = []
@@ -175,7 +192,8 @@ def split_script_into_segments(script: str, max_chars: int = 300) -> list[str]:
         segments.append(current.strip())
     return segments
 
-async def generate_segment_audio(text: str, output_path: str, voice: str = DEFAULT_VOICE, rate: str = DEFAULT_RATE, pitch: str = DEFAULT_PITCH) -> bool:
+
+async def generate_segment_audio(text: str, output_path: str, voice: str = DEFAULT_VOICE, rate: str = DEFAULT_RATE, pitch: str = DEFAULT_PITCH) -> bool:  # noqa: E501
     try:
         communicate = edge_tts.Communicate(text, voice, rate=rate, pitch=pitch)
         await communicate.save(output_path)
@@ -184,7 +202,8 @@ async def generate_segment_audio(text: str, output_path: str, voice: str = DEFAU
         print(f"[voice_gen] Edge TTS error: {e}")
         return False
 
-async def generate_segment_timing(text: str, voice: str = DEFAULT_VOICE, rate: str = DEFAULT_RATE, pitch: str = DEFAULT_PITCH) -> list[dict]:
+
+async def generate_segment_timing(text: str, voice: str = DEFAULT_VOICE, rate: str = DEFAULT_RATE, pitch: str = DEFAULT_PITCH) -> list[dict]:  # noqa: E501
     sentence_times = []
     try:
         communicate = edge_tts.Communicate(text, voice, rate=rate, pitch=pitch)
@@ -200,6 +219,7 @@ async def generate_segment_timing(text: str, voice: str = DEFAULT_VOICE, rate: s
         print(f"[voice_gen] Timing error: {e}")
     return sentence_times
 
+
 def generate_phrase_timings_from_sentences(text: str, sentence_times: list[dict]) -> list[dict]:
     sentences_in_text = re.split(r'(?<=[.!?])\s+', text.strip())
     phrase_timings = []
@@ -210,7 +230,8 @@ def generate_phrase_timings_from_sentences(text: str, sentence_times: list[dict]
         duration = sent_time["duration_ms"]
         sent_text = sent_time.get("text", "")
 
-        matching_sentences = [s for s in sentences_in_text if sent_text and (s.strip() in sent_text or sent_text.strip() in s)]
+        matching_sentences = [s for s in sentences_in_text if sent_text and (
+            s.strip() in sent_text or sent_text.strip() in s)]
         if not matching_sentences:
             continue
 
@@ -240,6 +261,7 @@ def generate_phrase_timings_from_sentences(text: str, sentence_times: list[dict]
 
     return phrase_timings
 
+
 def concatenate_audio(segment_files: list[str], output_path: str) -> bool:
     try:
         combined = AudioSegment.empty()
@@ -254,8 +276,9 @@ def concatenate_audio(segment_files: list[str], output_path: str) -> bool:
         print(f"[voice_gen] Concatenation error: {e}")
         return False
 
-async def generate_voiceover(script: str, voice: str = DEFAULT_VOICE, output_filename: str = "voiceover.wav", content_type: str = "general") -> dict:
-    narration_text = extract_narration_text(script)
+
+async def generate_voiceover(script: str, voice: str = DEFAULT_VOICE, output_filename: str = "voiceover.wav", content_type: str = "general", is_long_form: bool = False) -> dict:  # noqa: E501
+    narration_text = extract_narration_text(script, is_long_form=is_long_form)
     print(f"[voice_gen] Original script: {len(script)} chars -> Narration: {len(narration_text)} chars")
     if not narration_text.strip():
         print("[voice_gen] WARNING: Narration extraction failed, using raw script")
@@ -320,6 +343,7 @@ async def generate_voiceover(script: str, voice: str = DEFAULT_VOICE, output_fil
         "phrase_timings": all_phrase_timings,
         "success": concat_success,
     }
+
 
 async def generate_voiceover_multi(translations: dict, voice_dir_suffix: str = "") -> dict:
     results = {}

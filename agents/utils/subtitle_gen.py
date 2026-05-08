@@ -6,6 +6,7 @@ from typing import Optional
 SUBTITLE_DIR = Path(__file__).parent.parent / "tmp" / "subtitles"
 SUBTITLE_DIR.mkdir(parents=True, exist_ok=True)
 
+
 def load_phrase_timing(timing_file: str) -> list[dict]:
     if os.path.exists(timing_file):
         with open(timing_file, "r") as f:
@@ -15,6 +16,7 @@ def load_phrase_timing(timing_file: str) -> list[dict]:
             return data.get("phrases", [])
     return []
 
+
 def load_word_timing(timing_file: str) -> list[dict]:
     if os.path.exists(timing_file):
         with open(timing_file, "r") as f:
@@ -22,6 +24,7 @@ def load_word_timing(timing_file: str) -> list[dict]:
             if isinstance(data, list):
                 return data
     return []
+
 
 def generate_srt(timing_file: str, full_text: str, output_path: Optional[str] = None, language: str = "en") -> str:
     phrases = load_phrase_timing(timing_file)
@@ -50,6 +53,7 @@ def generate_srt(timing_file: str, full_text: str, output_path: Optional[str] = 
     print(f"[subtitle_gen] SRT saved: {output_path} ({len(phrases)} phrases)")
     return output_path
 
+
 def generate_vtt(timing_file: str, full_text: str, output_path: Optional[str] = None, language: str = "en") -> str:
     phrases = load_phrase_timing(timing_file)
 
@@ -76,6 +80,7 @@ def generate_vtt(timing_file: str, full_text: str, output_path: Optional[str] = 
 
     print(f"[subtitle_gen] VTT saved: {output_path} ({len(phrases)} phrases)")
     return output_path
+
 
 def _convert_word_times_to_phrases(word_times: list[dict], max_words: int = 8) -> list[dict]:
     phrases = []
@@ -113,6 +118,7 @@ def _convert_word_times_to_phrases(word_times: list[dict], max_words: int = 8) -
 
     return phrases
 
+
 def _ms_to_srt_time(ms: float) -> str:
     total_seconds = int(ms / 1000)
     milliseconds = int(ms % 1000)
@@ -121,6 +127,7 @@ def _ms_to_srt_time(ms: float) -> str:
     seconds = total_seconds % 60
     return f"{hours:02d}:{minutes:02d}:{seconds:02d},{milliseconds:03d}"
 
+
 def _ms_to_vtt_time(ms: float) -> str:
     total_seconds = int(ms / 1000)
     milliseconds = int(ms % 1000)
@@ -128,6 +135,7 @@ def _ms_to_vtt_time(ms: float) -> str:
     minutes = (total_seconds % 3600) // 60
     seconds = total_seconds % 60
     return f"{hours:02d}:{minutes:02d}:{seconds:02d}.{milliseconds:03d}"
+
 
 def generate_subtitles_for_video(
     timing_file: str,

@@ -76,6 +76,47 @@ Return ONLY a valid JSON object with this structure:
   "description_snippet": "Short description in target language"
 }"""
 
+
+def _extract_json(response: str) -> dict:
+    """Robustly extract JSON from LLM response, handling control characters."""
+    json_start = response.find("{")
+    json_end = response.rfind("}") + 1
+    if json_start < 0 or json_end <= json_start:
+        return None
+
+    raw = response[json_start:json_end]
+
+    for depth in range(3):
+        try:
+            return json.loads(raw)
+        except json.JSONDecodeError:
+            pass
+
+        cleaned = ""
+        in_string = False
+        escaped = False
+        for c in raw:
+            if escaped:
+                cleaned += c
+                escaped = False
+                continue
+            if c == '\\' and in_string:
+                cleaned += c
+                escaped = True
+                continue
+            if c == '"':
+                in_string = not in_string
+                cleaned += c
+                continue
+            if in_string and ord(c) < 32 and c not in '\n\r\t':
+                cleaned += ' '
+                continue
+            cleaned += c
+        raw = cleaned
+
+    return None
+
+
 def translate_script(script: str, target_lang: str, title: str = "") -> dict:
     lang = LANGUAGES.get(target_lang)
     if not lang:
@@ -98,19 +139,17 @@ Translate all content to {lang['name']} while keeping it age-appropriate and cul
             max_tokens=2000,
         )
 
-        json_start = response.find("{")
-        json_end = response.rfind("}") + 1
-        if json_start >= 0 and json_end > json_start:
-            result = json.loads(response[json_start:json_end])
-            result["language_code"] = target_lang
-            result["language_name"] = lang["name"]
-            result["edge_tts_voice"] = lang["edge_tts_voice"]
-            return result
-        else:
+        result = _extract_json(response)
+        if result is None:
             return _fallback_translation(script, title, target_lang, lang)
+        result["language_code"] = target_lang
+        result["language_name"] = lang["name"]
+        result["edge_tts_voice"] = lang["edge_tts_voice"]
+        return result
     except Exception as e:
         print(f"[translate] Translation error: {e}")
         return _fallback_translation(script, title, target_lang, lang)
+
 
 def _fallback_translation(script: str, title: str, lang_code: str, lang_info: dict) -> dict:
     segments = script.split(". ")
@@ -124,6 +163,7 @@ def _fallback_translation(script: str, title: str, lang_code: str, lang_info: di
         "edge_tts_voice": lang_info["edge_tts_voice"],
     }
 
+
 def translate_script_batch(script: str, title: str = "", languages: list = None) -> dict:
     if languages is None:
         languages = ["es", "de", "fr", "pt", "hi", "ar"]
@@ -136,11 +176,13 @@ def translate_script_batch(script: str, title: str = "", languages: list = None)
         results[lang_code] = translate_script(script, lang_code, title)
     return results
 
+
 def get_voice_for_language(lang_code: str) -> str:
     lang = LANGUAGES.get(lang_code)
     if not lang:
         raise ValueError(f"Unsupported language: {lang_code}")
     return lang["edge_tts_voice"]
+
 
 def get_tier1_languages() -> list:
     return [code for code, info in LANGUAGES.items() if info["cpm_tier"] == "tier1"]

@@ -1,16 +1,15 @@
 import os
 import subprocess
-import random
 from pathlib import Path
 from datetime import datetime
 from typing import Optional
-from pydub import AudioSegment
 
 COMPILATION_DIR = Path(__file__).parent.parent / "output" / "compilations"
 COMPILATION_DIR.mkdir(parents=True, exist_ok=True)
 
 TEMP_DIR = Path(__file__).parent.parent / "tmp" / "compilation"
 TEMP_DIR.mkdir(parents=True, exist_ok=True)
+
 
 def create_compilation(
     video_paths: list[str],
@@ -87,6 +86,7 @@ def create_compilation(
         print(f"[compilation] Error: {e}")
         return {"success": False, "error": str(e)}
 
+
 def _get_duration(file_path: str) -> float:
     try:
         result = subprocess.run(
@@ -97,6 +97,7 @@ def _get_duration(file_path: str) -> float:
         return float(result.stdout.strip())
     except Exception:
         return 0.0
+
 
 def _ensure_format(input_path: str, output_path: str, target_format: str) -> bool:
     target = {"long": ("1920", "1080"), "shorts": ("1080", "1920")}
@@ -112,6 +113,7 @@ def _ensure_format(input_path: str, output_path: str, target_format: str) -> boo
     except Exception:
         return False
 
+
 def _generate_transition(temp_dir: Path, idx: int) -> str:
     transition_path = str(temp_dir / f"transition_{idx:03d}.mp4")
     cmd = [
@@ -126,6 +128,7 @@ def _generate_transition(temp_dir: Path, idx: int) -> str:
     except Exception:
         pass
     return ""
+
 
 def create_compilation_from_shorts(
     shorts_data: list[dict],

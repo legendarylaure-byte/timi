@@ -1,3 +1,7 @@
+from dotenv import load_dotenv
+from typing import Optional
+from pydub.generators import Sine, Triangle
+from pydub import AudioSegment
 import os
 import random
 from pathlib import Path
@@ -6,10 +10,6 @@ _FFMPEG_BIN = "/opt/homebrew/opt/ffmpeg-full/bin"
 if _FFMPEG_BIN not in os.environ.get("PATH", ""):
     os.environ["PATH"] = _FFMPEG_BIN + ":" + os.environ.get("PATH", "")
 
-from pydub import AudioSegment
-from pydub.generators import Sine, Triangle
-from typing import Optional
-from dotenv import load_dotenv
 
 load_dotenv()
 
@@ -26,6 +26,7 @@ MOOD_CONFIGS = {
     "playful": {"bpm": 130, "notes": [261.63, 329.63, 392.00, 523.25, 659.25], "waveform": "triangle"},
 }
 
+
 def detect_mood(category: str) -> str:
     category = category.lower()
     mood_map = {
@@ -39,6 +40,7 @@ def detect_mood(category: str) -> str:
         if key in category:
             return mood
     return "playful"
+
 
 def generate_melody(duration_seconds: float, mood: str = "playful", output_path: Optional[str] = None) -> Optional[str]:
     config = MOOD_CONFIGS.get(mood, MOOD_CONFIGS["playful"])
@@ -66,6 +68,7 @@ def generate_melody(duration_seconds: float, mood: str = "playful", output_path:
 
     melody.export(output_path, format="wav")
     return output_path
+
 
 def generate_background_music(category: str, duration: float = 60, output_filename: Optional[str] = None) -> dict:
     mood = detect_mood(category)

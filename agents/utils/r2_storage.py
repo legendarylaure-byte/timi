@@ -20,10 +20,12 @@ if ACCOUNT_ID and ACCESS_KEY and SECRET_KEY:
 else:
     r2_client = None
 
+
 def get_r2_client():
     if r2_client is None:
         raise ValueError("Cloudflare R2 credentials not configured")
     return r2_client
+
 
 def upload_video(file_path: str, video_id: str, format_type: str = "long") -> str:
     client = get_r2_client()
@@ -50,6 +52,7 @@ def upload_video(file_path: str, video_id: str, format_type: str = "long") -> st
     print(f"Uploaded to R2: {key} -> {public_url}")
     return public_url
 
+
 def upload_thumbnail(file_path: str, video_id: str) -> str:
     client = get_r2_client()
     ext = os.path.splitext(file_path)[1]
@@ -72,6 +75,7 @@ def upload_thumbnail(file_path: str, video_id: str) -> str:
     print(f"Uploaded thumbnail to R2: {key} -> {public_url}")
     return public_url
 
+
 def delete_video(video_id: str, format_type: str = "long"):
     client = get_r2_client()
     ext = ".mp4"
@@ -85,6 +89,7 @@ def delete_video(video_id: str, format_type: str = "long"):
         print(f"Failed to delete {key}: {e}")
         return False
 
+
 def delete_thumbnail(video_id: str):
     client = get_r2_client()
     ext = ".jpg"
@@ -97,6 +102,7 @@ def delete_thumbnail(video_id: str):
     except Exception as e:
         print(f"Failed to delete {key}: {e}")
         return False
+
 
 def list_pending_deletion() -> list:
     client = get_r2_client()
@@ -115,6 +121,7 @@ def list_pending_deletion() -> list:
                 pending.append(obj["Key"])
 
     return pending
+
 
 def cleanup_old_videos() -> dict:
     pending_keys = list_pending_deletion()

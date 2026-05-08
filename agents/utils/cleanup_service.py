@@ -1,14 +1,12 @@
+from utils.firebase_status import log_activity
 import os
 import sys
-import glob
-import shutil
 from pathlib import Path
-from datetime import datetime, timedelta
+from datetime import datetime
 
 PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, PROJECT_ROOT)
 
-from utils.firebase_status import log_activity
 
 def cleanup_local_files(max_age_hours: int = 24, keep_output_hours: int = 48) -> dict:
     """Clean up local temp and old output files after successful uploads.
@@ -64,12 +62,14 @@ def cleanup_local_files(max_age_hours: int = 24, keep_output_hours: int = 48) ->
                 result["errors"].append(f"output/{item.name}: {e}")
 
     freed_mb = result["freed_bytes"] / (1024 * 1024)
-    log_activity("cleanup", f"Local cleanup: {result['deleted_files']} files, {result['deleted_dirs']} dirs, {freed_mb:.1f}MB freed", "success")
-    print(f"[cleanup] Local cleanup complete: {result['deleted_files']} files, {result['deleted_dirs']} dirs, {freed_mb:.1f}MB freed")
+    log_activity(
+        "cleanup", f"Local cleanup: {result['deleted_files']} files, {result['deleted_dirs']} dirs, {freed_mb:.1f}MB freed", "success")  # noqa: E501
+    print(
+        f"[cleanup] Local cleanup complete: {result['deleted_files']} files, {result['deleted_dirs']} dirs, {freed_mb:.1f}MB freed")  # noqa: E501
     return result
 
 
-def cleanup_after_upload(video_path: str, thumbnail_path: str = None, voice_path: str = None, music_path: str = None, subtitle_path: str = None) -> dict:
+def cleanup_after_upload(video_path: str, thumbnail_path: str = None, voice_path: str = None, music_path: str = None, subtitle_path: str = None) -> dict:  # noqa: E501
     """Immediately clean up source/intermediate files after a successful upload.
 
     Keeps the final output video but removes intermediate temp files.
@@ -147,6 +147,7 @@ def run_cleanup():
         "r2": r2_result,
         "local": local_result,
     }
+
 
 if __name__ == "__main__":
     run_cleanup()

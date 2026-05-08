@@ -1,9 +1,7 @@
 import os
 import webbrowser
-import json
 import urllib.parse
 from google.oauth2.credentials import Credentials
-from google.auth.transport.requests import Request
 from googleapiclient.discovery import build
 
 CLIENT_ID = os.getenv("YOUTUBE_CLIENT_ID", "839918420419-88cjde4sjnt3s18stnaehoaggtdcp617.apps.googleusercontent.com")
@@ -15,6 +13,7 @@ SCOPES = [
     "https://www.googleapis.com/auth/youtube",
     "https://www.googleapis.com/auth/youtubepartner",
 ]
+
 
 def setup_oauth():
     auth_url = (
@@ -99,6 +98,7 @@ def setup_oauth():
     else:
         print(f"Token exchange failed: {token_response.status_code}")
         print(token_response.text)
+
 
 if __name__ == "__main__":
     setup_oauth()

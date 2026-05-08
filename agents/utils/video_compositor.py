@@ -1,6 +1,7 @@
+from dotenv import load_dotenv
+from pydub import AudioSegment
 import os
 import re
-import json
 import subprocess
 from pathlib import Path
 from typing import Optional
@@ -9,13 +10,12 @@ _FFMPEG_BIN = "/opt/homebrew/opt/ffmpeg-full/bin"
 if _FFMPEG_BIN not in os.environ.get("PATH", ""):
     os.environ["PATH"] = _FFMPEG_BIN + ":" + os.environ.get("PATH", "")
 
-from pydub import AudioSegment
-from dotenv import load_dotenv
 
 load_dotenv()
 
 FFMPEG_PATH = os.getenv("FFMPEG_PATH", "")
 FFPROBE_PATH = os.getenv("FFPROBE_PATH", "")
+
 
 def _get_env():
     env = os.environ.copy()
@@ -25,6 +25,7 @@ def _get_env():
     env["PATH"] = env_path
     return env
 
+
 def _ffmpeg_cmd():
     if FFMPEG_PATH and os.path.exists(FFMPEG_PATH):
         return FFMPEG_PATH
@@ -33,6 +34,7 @@ def _ffmpeg_cmd():
         return full_path
     return "ffmpeg"
 
+
 def _ffprobe_cmd():
     if FFPROBE_PATH and os.path.exists(FFPROBE_PATH):
         return FFPROBE_PATH
@@ -40,6 +42,7 @@ def _ffprobe_cmd():
     if os.path.exists(full_path):
         return full_path
     return "ffprobe"
+
 
 OUTPUT_DIR = Path(__file__).parent.parent / "output"
 OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
@@ -63,13 +66,14 @@ KEN_BURNS_PRESETS = [
     "z=1.25-0.25*t:x=(iw-iw/zoom)/3:y=(ih-ih/zoom)/3",
 ]
 
-def apply_ken_burns(input_path: str, output_path: str, target_w: int, target_h: int, duration: float, preset_idx: int = 0) -> bool:
+
+def apply_ken_burns(input_path: str, output_path: str, target_w: int, target_h: int, duration: float, preset_idx: int = 0) -> bool:  # noqa: E501
     kb = KEN_BURNS_PRESETS[preset_idx % len(KEN_BURNS_PRESETS)]
     cmd = [
         _ffmpeg_cmd(), "-y", "-i", input_path,
-        "-vf", f"scale={target_w}*2:{target_h}*2,zoompan='{kb}':d={int(duration*30)}:s={target_w}x{target_h}:fps=30",
+        "-v", f"scale={target_w}*2:{target_h}*2,zoompan='{kb}':d={int(duration*30)}:s={target_w}x{target_h}:fps=30",
         "-t", str(duration),
-        "-c:v", "libx264", "-preset", "fast", "-crf", "23",
+        "-c:v", "libx264", "-preset", "fast", "-cr", "23",
         "-an", "-pix_fmt", "yuv420p", output_path,
     ]
     try:
@@ -79,10 +83,11 @@ def apply_ken_burns(input_path: str, output_path: str, target_w: int, target_h: 
         print(f"[compositor] Ken Burns error: {e}")
         return False
 
+
 def trim_clip(input_path: str, output_path: str, start: float = 0, duration: float = 5) -> bool:
     cmd = [
         _ffmpeg_cmd(), "-y", "-i", input_path, "-ss", str(start), "-t", str(duration),
-        "-c:v", "libx264", "-preset", "fast", "-crf", "23", "-an", "-pix_fmt", "yuv420p", output_path,
+        "-c:v", "libx264", "-preset", "fast", "-cr", "23", "-an", "-pix_fmt", "yuv420p", output_path,
     ]
     try:
         return subprocess.run(cmd, capture_output=True, text=True, timeout=120, env=_get_env()).returncode == 0
@@ -90,11 +95,12 @@ def trim_clip(input_path: str, output_path: str, start: float = 0, duration: flo
         print(f"[compositor] Trim error: {e}")
         return False
 
+
 def resize_to_target(input_path: str, output_path: str, target_w: int, target_h: int) -> bool:
     cmd = [
         _ffmpeg_cmd(), "-y", "-i", input_path,
-        "-vf", f"scale={target_w}:{target_h}:force_original_aspect_ratio=increase,crop={target_w}:{target_h}",
-        "-c:v", "libx264", "-preset", "fast", "-crf", "23", "-an", "-pix_fmt", "yuv420p", output_path,
+        "-v", f"scale={target_w}:{target_h}:force_original_aspect_ratio=increase,crop={target_w}:{target_h}",
+        "-c:v", "libx264", "-preset", "fast", "-cr", "23", "-an", "-pix_fmt", "yuv420p", output_path,
     ]
     try:
         return subprocess.run(cmd, capture_output=True, text=True, timeout=120, env=_get_env()).returncode == 0
@@ -102,7 +108,8 @@ def resize_to_target(input_path: str, output_path: str, target_w: int, target_h:
         print(f"[compositor] Resize error: {e}")
         return False
 
-def mix_audio(voice_path: str, music_path: Optional[str], output_path: str, voice_volume_db: float = 0, music_volume_db: float = -18) -> bool:
+
+def mix_audio(voice_path: str, music_path: Optional[str], output_path: str, voice_volume_db: float = 0, music_volume_db: float = -18) -> bool:  # noqa: E501
     try:
         voice = AudioSegment.from_file(voice_path) + voice_volume_db
         if music_path and os.path.exists(music_path):
@@ -117,20 +124,23 @@ def mix_audio(voice_path: str, music_path: Optional[str], output_path: str, voic
         print(f"[compositor] Audio mix error: {e}")
         return False
 
-def add_text_overlay(video_path: str, text: str, output_path: str, fontsize: int = 48, color: str = "white", position: str = "center", start_time: float = 0, duration: float = 3) -> bool:
-    positions = {"center": "(w-text_w)/2:(h-text_h)/2", "bottom": "(w-text_w)/2:(h-text_h)-50", "top": "(w-text_w)/2:50"}
+
+def add_text_overlay(video_path: str, text: str, output_path: str, fontsize: int = 48, color: str = "white", position: str = "center", start_time: float = 0, duration: float = 3) -> bool:  # noqa: E501
+    positions = {"center": "(w-text_w)/2:(h-text_h)/2",
+                 "bottom": "(w-text_w)/2:(h-text_h)-50", "top": "(w-text_w)/2:50"}
     pos = positions.get(position, positions["center"])
     escaped_text = text.replace("'", "\\'").replace(":", "\\:").replace("-", "\\-")
     cmd = [
         _ffmpeg_cmd(), "-y", "-i", video_path,
-        "-vf", f"drawtext=text='{escaped_text}':fontsize={fontsize}:fontcolor={color}:x={pos}:enable='between(t,{start_time},{start_time+duration})'",
-        "-c:v", "libx264", "-preset", "fast", "-crf", "23", "-c:a", "copy", "-pix_fmt", "yuv420p", output_path,
+        "-v", f"drawtext=text='{escaped_text}':fontsize={fontsize}:fontcolor={color}:x={pos}:enable='between(t,{start_time},{start_time+duration})'",  # noqa: E501
+        "-c:v", "libx264", "-preset", "fast", "-cr", "23", "-c:a", "copy", "-pix_fmt", "yuv420p", output_path,
     ]
     try:
         return subprocess.run(cmd, capture_output=True, text=True, timeout=120, env=_get_env()).returncode == 0
     except Exception as e:
         print(f"[compositor] Text overlay error: {e}")
         return False
+
 
 KIDS_FONT = "Marker Felt"
 KIDS_SUB_COLORS = [
@@ -141,60 +151,67 @@ KIDS_SUB_COLORS = [
     {"primary": "&HFF8000&", "outline": "&H000000&"},
 ]
 
-def burn_subtitles(video_path: str, subtitle_path: str, output_path: str, fontsize: int = 24, is_kids: bool = True) -> bool:
+
+def burn_subtitles(video_path: str, subtitle_path: str, output_path: str, fontsize: int = 24, is_kids: bool = True) -> bool:  # noqa: E501
     abs_subtitle = os.path.abspath(subtitle_path)
     if is_kids:
         temp_ass = str(TEMP_DIR / "kids_subtitles.ass")
         _convert_srt_to_kids_ass(abs_subtitle, temp_ass, fontsize)
         vf = f"subtitles=filename='{os.path.abspath(temp_ass)}'"
     else:
-        vf = f"subtitles=filename='{abs_subtitle}':force_style='FontSize={fontsize},PrimaryColour=&HFFFFFF&,OutlineColour=&H000000&,Outline=2,Shadow=1'"
+        vf = f"subtitles=filename='{abs_subtitle}':force_style='FontSize={fontsize},PrimaryColour=&HFFFFFF&,OutlineColour=&H000000&,Outline=2,Shadow=1'"  # noqa: E501
     cmd = [
         _ffmpeg_cmd(), "-y", "-i", video_path,
         "-vf", vf,
-        "-c:v", "libx264", "-preset", "fast", "-crf", "23",
+        "-c:v", "libx264", "-preset", "fast", "-cr", "23",
         "-c:a", "copy", "-pix_fmt", "yuv420p", output_path,
     ]
     try:
         result = subprocess.run(cmd, capture_output=True, text=True, timeout=300, env=_get_env())
         if result.returncode == 0:
-            print(f"[compositor] Subtitles burned successfully")
+            print("[compositor] Subtitles burned successfully")
             return True
         else:
             print(f"[compositor] Subtitle burn error: {result.stderr[-300:]}")
             cmd_fallback = [
                 _ffmpeg_cmd(), "-y", "-i", video_path,
-                "-vf", f"subtitles=filename='{abs_subtitle}':force_style='FontSize={fontsize},PrimaryColour=&HFFFFFF&,OutlineColour=&H000000&,Outline=2,Shadow=1'",
-                "-c:v", "libx264", "-preset", "fast", "-crf", "23",
+                "-v", f"subtitles=filename='{abs_subtitle}':force_style='FontSize={fontsize},PrimaryColour=&HFFFFFF&,OutlineColour=&H000000&,Outline=2,Shadow=1'",  # noqa: E501
+                "-c:v", "libx264", "-preset", "fast", "-cr", "23",
                 "-c:a", "copy", "-pix_fmt", "yuv420p", output_path,
             ]
             result2 = subprocess.run(cmd_fallback, capture_output=True, text=True, timeout=300, env=_get_env())
             if result2.returncode == 0:
-                print(f"[compositor] Subtitles burned with fallback style")
+                print("[compositor] Subtitles burned with fallback style")
                 return True
             return False
     except Exception as e:
         print(f"[compositor] Subtitle burn error: {e}")
         return False
 
+
 def _convert_srt_to_kids_ass(srt_path: str, ass_path: str, base_fontsize: int = 36) -> bool:
     try:
         with open(srt_path, "r", encoding="utf-8") as f:
             srt_content = f.read()
         blocks = re.split(r'\n\s*\n', srt_content.strip())
-        ass_header = """[Script Info]
-Title: Kids Subtitles
-ScriptType: v4.00+
-PlayResX: 1920
-PlayResY: 1080
-
-[V4+ Styles]
-Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding
-Style: Default,{font},{size},&H00FFFFFF,&H000000FF,&H00000000,&H80000000,1,0,0,0,100,100,0,0,1,3,2,2,10,10,40,1
-
-[Events]
-Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
-"""
+        ass_header = (
+            "[Script Info]\n"
+            "Title: Kids Subtitles\n"
+            "ScriptType: v4.00+\n"
+            "PlayResX: 1920\n"
+            "PlayResY: 1080\n"
+            "\n"
+            "[V4+ Styles]\n"
+            "Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, "
+            "OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, "
+            "ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, "
+            "Alignment, MarginL, MarginR, MarginV, Encoding\n"
+            "Style: Default,{font},{size},&H00FFFFFF,&H000000FF,&H00000000,"
+            "&H80000000,1,0,0,0,100,100,0,0,1,3,2,2,10,10,40,1\n"
+            "\n"
+            "[Events]\n"
+            "Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text\n"
+        )
         font = KIDS_FONT
         with open(ass_path, "w", encoding="utf-8") as f:
             f.write(ass_header.format(font=font, size=base_fontsize))
@@ -226,6 +243,7 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
         print(f"[compositor] ASS conversion error: {e}")
         return False
 
+
 def add_chapter_markers(video_path: str, chapters: list[dict], output_path: str) -> bool:
     metadata_path = str(TEMP_DIR / "chapters_metadata.txt")
     with open(metadata_path, "w") as f:
@@ -251,7 +269,8 @@ def add_chapter_markers(video_path: str, chapters: list[dict], output_path: str)
         print(f"[compositor] Chapter markers error: {e}")
         return False
 
-def composite_video(clips: list[dict], voice_path: str, music_path: Optional[str] = None, format_type: str = "shorts", video_id: str = "output", subtitle_path: Optional[str] = None, chapters: Optional[list] = None, category: str = "") -> Optional[str]:
+
+def composite_video(clips: list[dict], voice_path: str, music_path: Optional[str] = None, format_type: str = "shorts", video_id: str = "output", subtitle_path: Optional[str] = None, chapters: Optional[list] = None, category: str = "") -> Optional[str]:  # noqa: E501
     target = ASPECT_RATIOS.get(format_type, ASPECT_RATIOS["long"])
     tw, th = target["w"], target["h"]
 
@@ -280,8 +299,8 @@ def composite_video(clips: list[dict], voice_path: str, music_path: Optional[str
             f.write(f"file '{p}'\n")
 
     combined_video = str(TEMP_DIR / "combined_video.mp4")
-    cmd = [_ffmpeg_cmd(), "-y", "-f", "concat", "-safe", "0", "-i", concat_list_path,
-           "-c:v", "libx264", "-preset", "fast", "-crf", "23", "-pix_fmt", "yuv420p", combined_video]
+    cmd = [_ffmpeg_cmd(), "-y", "-", "concat", "-safe", "0", "-i", concat_list_path,
+           "-c:v", "libx264", "-preset", "fast", "-cr", "23", "-pix_fmt", "yuv420p", combined_video]
     try:
         result = subprocess.run(cmd, capture_output=True, text=True, timeout=300, env=_get_env())
         if result.returncode != 0:
@@ -294,15 +313,16 @@ def composite_video(clips: list[dict], voice_path: str, music_path: Optional[str
         return None
 
     if subtitle_path and os.path.exists(subtitle_path):
-        print(f"[compositor] Burning subtitles into video")
+        print("[compositor] Burning subtitles into video")
         with_subs_path = str(TEMP_DIR / "video_with_subs.mp4")
-        is_kids_content = any(kw in category.lower() for kw in ["kids", "children", "bedtime", "fable", "rhyme", "story", "nursery", "baby", "toddler"])
+        is_kids_content = any(kw in category.lower() for kw in [
+                              "kids", "children", "bedtime", "fable", "rhyme", "story", "nursery", "baby", "toddler"])
         sub_fontsize = 52 if format_type == "shorts" else 36
-        if burn_subtitles(combined_video, subtitle_path, with_subs_path, fontsize=sub_fontsize, is_kids=is_kids_content):
+        if burn_subtitles(combined_video, subtitle_path, with_subs_path, fontsize=sub_fontsize, is_kids=is_kids_content):  # noqa: E501
             combined_video = with_subs_path
 
     if chapters and format_type == "long":
-        print(f"[compositor] Adding chapter markers")
+        print("[compositor] Adding chapter markers")
         with_chapters_path = str(TEMP_DIR / "video_with_chapters.mp4")
         if add_chapter_markers(combined_video, chapters, with_chapters_path):
             combined_video = with_chapters_path
@@ -312,7 +332,7 @@ def composite_video(clips: list[dict], voice_path: str, music_path: Optional[str
 
     final_path = str(OUTPUT_DIR / f"{video_id}_{format_type}.mp4")
     cmd = [_ffmpeg_cmd(), "-y", "-i", combined_video, "-i", mixed_audio_path,
-           "-c:v", "libx264", "-preset", "fast", "-crf", "23",
+           "-c:v", "libx264", "-preset", "fast", "-cr", "23",
            "-c:a", "aac", "-b:a", "128k", "-shortest", "-pix_fmt", "yuv420p", final_path]
     try:
         result = subprocess.run(cmd, capture_output=True, text=True, timeout=300, env=_get_env())

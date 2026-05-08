@@ -1,10 +1,19 @@
 import os
 from crewai import Agent, Task, Crew
+from crewai.llm import LLM
 
-OLLAMA_MODEL = "ollama/" + os.getenv("OLLAMA_MODEL", "qwen2.5:7b")
+OLLAMA_MODEL = os.getenv("OLLAMA_MODEL", "qwen2.5:7b")
 OLLAMA_BASE = os.getenv("OLLAMA_BASE_URL", "http://localhost:11434")
 
-def create_animator_crew():
+
+def create_animator_crew(storyboard: str = "", format: str = "shorts"):
+    llm = LLM(
+        model=f"ollama/{OLLAMA_MODEL}",
+        base_url=OLLAMA_BASE,
+        temperature=0.4,
+        max_tokens=4000,
+    )
+
     animator = Agent(
         role="Animation Clip Director",
         goal="Select and arrange real stock video clips that match each scene of the script",
@@ -12,8 +21,7 @@ def create_animator_crew():
 You analyze each scene and choose video clips from Pexels/Pixabay stock library
 that have real motion - animals moving, nature scenes, kids playing, etc.
 You avoid static images and prefer clips with smooth, continuous movement.""",
-        llm=OLLAMA_MODEL,
-        base_url=OLLAMA_BASE,
+        llm=llm,
         verbose=True,
         allow_delegation=False,
     )

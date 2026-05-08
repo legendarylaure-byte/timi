@@ -1,10 +1,19 @@
 import os
 from crewai import Agent, Task, Crew
+from crewai.llm import LLM
 
-OLLAMA_MODEL = "ollama/" + os.getenv("OLLAMA_MODEL", "qwen2.5:7b")
+OLLAMA_MODEL = os.getenv("OLLAMA_MODEL", "qwen2.5:7b")
 OLLAMA_BASE = os.getenv("OLLAMA_BASE_URL", "http://localhost:11434")
 
-def create_thumbnail_crew():
+
+def create_thumbnail_crew(topic: str = "", format: str = "shorts"):
+    llm = LLM(
+        model=f"ollama/{OLLAMA_MODEL}",
+        base_url=OLLAMA_BASE,
+        temperature=0.7,
+        max_tokens=2000,
+    )
+
     thumbnail_creator = Agent(
         role="Thumbnail Designer",
         goal="Create eye-catching, high-CTR thumbnails for children's content",
@@ -12,8 +21,7 @@ def create_thumbnail_crew():
 You use Stable Diffusion XL to generate vibrant, expressive thumbnails that drive
 high click-through rates. Your designs use bright colors, curious expressions,
 and follow proven viral thumbnail formulas.""",
-        llm=OLLAMA_MODEL,
-        base_url=OLLAMA_BASE,
+        llm=llm,
         verbose=True,
         allow_delegation=False,
     )

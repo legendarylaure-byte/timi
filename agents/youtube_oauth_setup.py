@@ -24,7 +24,7 @@ print()
 print("1. Opening browser to Google authorization page...")
 try:
     webbrowser.open(auth_url)
-except:
+except Exception:
     print("   Could not open browser automatically. Use this URL:")
     print()
     print(auth_url)

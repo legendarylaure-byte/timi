@@ -1,6 +1,4 @@
 import os
-import sys
-import json
 from datetime import datetime
 from googleapiclient.discovery import build
 from googleapiclient.http import MediaFileUpload
@@ -18,6 +16,7 @@ SCOPES = [
 ]
 
 TOKEN_FILE = "./youtube_token.json"
+
 
 def get_youtube_credentials():
     creds = None
@@ -43,6 +42,7 @@ def get_youtube_credentials():
             token.write(creds.to_json())
 
     return creds
+
 
 def upload_video_to_youtube(
     video_file: str,
@@ -143,6 +143,7 @@ def upload_video_to_youtube(
     print(f"YouTube upload complete: {video_url}")
     return result
 
+
 def get_channel_stats() -> dict:
     creds = get_youtube_credentials()
     youtube = build("youtube", "v3", credentials=creds)
@@ -164,11 +165,12 @@ def get_channel_stats() -> dict:
 
     return {}
 
+
 if __name__ == "__main__":
     print("=== YouTube API Test ===")
     try:
         stats = get_channel_stats()
-        print(f"✅ Connected to YouTube!")
+        print("✅ Connected to YouTube!")
         print(f"Channel: {stats.get('channel_name', 'Unknown')}")
         print(f"Subscribers: {stats.get('subscribers', 'N/A')}")
         print(f"Total Views: {stats.get('total_views', 'N/A')}")

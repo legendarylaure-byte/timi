@@ -3,14 +3,14 @@ Content Repurposing Agent
 Auto-splits long-form videos into viral shorts.
 Run: python -m agents.scripts.repurpose --video_id "v-001" --title "..."
 """
-import os
 import json
 import random
 from utils.groq_client import generate_completion
 from utils.firebase_status import get_firestore_client, log_activity, update_video_record
 
 SYSTEM_PROMPT = """You are a content repurposing expert for children's YouTube/TikTok videos.
-Given a long-form video title and approximate duration, identify the best segments to extract as shorts (30-60 seconds each).
+Given a long-form video title and approximate duration, identify the best segments \
+to extract as shorts (30-60 seconds each).
 Focus on moments with strong hooks, educational value, or entertainment peak.
 
 Return ONLY a valid JSON object with this exact structure:
@@ -31,6 +31,7 @@ Return ONLY a valid JSON object with this exact structure:
 }
 
 Each clip should be 30-60 seconds. Start times should not overlap. Hook score should reflect engagement potential."""
+
 
 def repurpose_video(video_id: str, title: str, duration_seconds: int = 300) -> dict:
     """Analyze a long video and generate repurposing clips."""
@@ -61,7 +62,7 @@ Identify 3-6 high-engagement segments suitable for 30-60 second clips."""
 
         # Save to Firestore
         _save_repurpose_job(video_id, title, duration_seconds, result)
-        
+
         log_activity("repurposer", f"Generated {len(result['clips'])} clips from '{title}'", "success")
         return result
 
@@ -74,23 +75,23 @@ def _fallback_repurpose(title: str, duration: int) -> dict:
     """Fallback clip generation if Groq fails."""
     clip_count = max(3, min(6, duration // 90))
     clips = []
-    
+
     words = title.split()
     key_words = [w for w in words if len(w) > 3]
-    
+
     for i in range(clip_count):
         clip_duration = random.randint(35, 58)
         start = i * (duration // clip_count) + random.randint(5, 15)
         end = start + clip_duration
-        
+
         if end > duration:
             end = duration
             clip_duration = end - start
-        
+
         hook = random.randint(65, 96)
-        
+
         clips.append({
-            "title": f"{key_words[0] if key_words else 'Clip'}: {random.choice(['Amazing', 'Fun', 'Learn', 'Discover', 'Why'])} {random.choice(['Fact', 'Story', 'Song', 'Magic', 'Secret'])}",
+            "title": f"{key_words[0] if key_words else 'Clip'}: {random.choice(['Amazing', 'Fun', 'Learn', 'Discover', 'Why'])} {random.choice(['Fact', 'Story', 'Song', 'Magic', 'Secret'])}",  # noqa: E501
             "start_time": start,
             "end_time": end,
             "duration": clip_duration,
@@ -109,7 +110,7 @@ def _save_repurpose_job(video_id: str, title: str, duration: int, result: dict):
     """Save repurpose job to Firestore."""
     try:
         db = get_firestore_client()
-        
+
         clips_data = []
         for clip in result.get("clips", []):
             clips_data.append({
@@ -135,10 +136,10 @@ def _save_repurpose_job(video_id: str, title: str, duration: int, result: dict):
 
         doc_ref = db.collection('repurpose_jobs').document()
         doc_ref.set(job_data)
-        
+
         # Update source video with repurpose flag
         update_video_record(video_id, {"repurposed": True, "repurpose_clips": len(clips_data)})
-        
+
         print(f"[REPURPOSE] Saved {len(clips_data)} clips for '{title}'")
     except Exception as e:
         print(f"[REPURPOSE] Failed to save: {e}")
@@ -149,14 +150,14 @@ def batch_reprocess_all_videos() -> dict:
     try:
         db = get_firestore_client()
         videos = db.collection('videos').where('format', '==', 'long').where('status', '==', 'uploaded').stream()
-        
+
         results = []
         for vid in videos:
             data = vid.to_dict()
             if not data.get('repurposed'):
                 result = repurpose_video(vid.id, data.get('title', 'Unknown'), data.get('duration', 300))
                 results.append({"video_id": vid.id, "title": data.get('title'), "clips": result['total_clips']})
-        
+
         return {"processed": len(results), "videos": results}
     except Exception as e:
         print(f"[REPURPOSE] Batch failed: {e}")

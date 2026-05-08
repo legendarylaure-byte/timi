@@ -5,8 +5,10 @@ import firebase_admin
 from firebase_admin import credentials, firestore
 from datetime import datetime
 
-_service_account_path = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 'firebase', 'serviceAccountKey.json')
+_service_account_path = os.path.join(os.path.dirname(os.path.dirname(
+    os.path.abspath(__file__))), 'firebase', 'serviceAccountKey.json')
 _db = None
+
 
 def _retry_firestore(op_name, func, max_retries=3):
     """Execute a Firestore operation with exponential backoff on quota errors."""
@@ -17,13 +19,15 @@ def _retry_firestore(op_name, func, max_retries=3):
             if "429" in str(e) or "Quota" in str(e) or attempt == max_retries - 1:
                 if attempt < max_retries - 1:
                     wait = (2 ** attempt) * 3 + random.uniform(0, 2)
-                    print(f"[FIRESTORE] {op_name} failed (attempt {attempt + 1}/{max_retries}), retrying in {wait:.1f}s: {e}")
+                    print(
+                        f"[FIRESTORE] {op_name} failed (attempt {attempt + 1}/{max_retries}), retrying in {wait:.1f}s: {e}")  # noqa: E501
                     time.sleep(wait)
                 else:
                     print(f"[FIRESTORE] {op_name} failed after {max_retries} attempts: {e}")
             else:
                 raise
     return None
+
 
 def get_firestore_client():
     global _db
@@ -38,6 +42,7 @@ def get_firestore_client():
         pass
     _db = firestore.client()
     return _db
+
 
 def update_agent_status(agent_id: str, status: str, action: str = "", error_message: str = ""):
     """Update agent status in Firestore for real-time dashboard updates."""
@@ -54,9 +59,11 @@ def update_agent_status(agent_id: str, status: str, action: str = "", error_mess
     _retry_firestore(f"Agent '{agent_id}' status update", _do)
     print(f"[FIRESTORE] Agent '{agent_id}' status: {status} - {action}")
 
+
 def log_activity(agent_id: str, message: str, level: str = "info"):
     """Add activity log to Firestore for the activity feed."""
     db = get_firestore_client()
+
     def _do():
         db.collection('activity_logs').add({
             'agent_id': agent_id,
@@ -65,6 +72,7 @@ def log_activity(agent_id: str, message: str, level: str = "info"):
             'timestamp': firestore.SERVER_TIMESTAMP,
         })
     _retry_firestore(f"Activity log: {agent_id}", _do)
+
 
 def is_agent_enabled(agent_id: str) -> bool:
     """Check if agent is enabled (for pause/resume control from dashboard)."""
@@ -78,9 +86,11 @@ def is_agent_enabled(agent_id: str) -> bool:
     except Exception:
         return True
 
+
 def update_pipeline_status(running: bool, current_video: str = "", paused_by_user: bool = False):
     """Update overall pipeline status in Firestore."""
     db = get_firestore_client()
+
     def _do():
         doc_ref = db.collection('system').document('pipeline')
         data = {
@@ -94,9 +104,11 @@ def update_pipeline_status(running: bool, current_video: str = "", paused_by_use
         doc_ref.set(data, merge=True)
     _retry_firestore("Pipeline status update", _do)
 
+
 def add_video_record(video_id: str, title: str, format_type: str, status: str = "generating", r2_key: str = ""):
     """Add or update a video record in Firestore."""
     db = get_firestore_client()
+
     def _do():
         doc_ref = db.collection('videos').document(video_id)
         doc_ref.set({
@@ -111,9 +123,11 @@ def add_video_record(video_id: str, title: str, format_type: str, status: str = 
         }, merge=True)
     _retry_firestore(f"Video record '{video_id}'", _do)
 
+
 def update_video_record(video_id: str, data: dict):
     """Update specific fields on an existing video record."""
     db = get_firestore_client()
+
     def _do():
         doc_ref = db.collection('videos').document(video_id)
         merge_data = dict(data)
@@ -121,3 +135,34 @@ def update_video_record(video_id: str, data: dict):
         doc_ref.set(merge_data, merge=True)
     _retry_firestore(f"Video '{video_id}' update", _do)
     print(f"[FIRESTORE] Updated video '{video_id}' with: {list(data.keys())}")
+
+
+def log_pipeline_error(video_id: str, error: str, step: str = "unknown"):
+    """Log a pipeline error to both video record and activity log."""
+    db = get_firestore_client()
+    error_msg = str(error)[:500]
+    try:
+        def _do_video():
+            doc_ref = db.collection('videos').document(video_id)
+            doc_ref.set({
+                'status': 'failed',
+                'error': error_msg,
+                'failed_step': step,
+                'failed_at': datetime.utcnow().isoformat(),
+                'updated_at': firestore.SERVER_TIMESTAMP,
+            }, merge=True)
+        _retry_firestore(f"Error log for '{video_id}'", _do_video)
+    except Exception as e:
+        print(f"[FIRESTORE] Failed to log error for video '{video_id}': {e}")
+    try:
+        def _do_log():
+            db.collection('activity_logs').add({
+                'agent_id': 'pipeline',
+                'message': f'FAILED at {step}: {error_msg}',
+                'level': 'error',
+                'timestamp': firestore.SERVER_TIMESTAMP,
+            })
+        _retry_firestore("Error activity log", _do_log)
+    except Exception as e:
+        print(f"[FIRESTORE] Failed to log error activity: {e}")
+    print(f"[PIPELINE ERROR] Video '{video_id}' failed at {step}: {error_msg}")
