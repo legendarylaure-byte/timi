@@ -7,5 +7,6 @@
   "reportCallIssue": "warning",
   "reportAttributeAccessIssue": "warning",
   "reportOptionalOperand": "warning",
-  "reportOptionalSubscript": "warning"
+  "reportOptionalSubscript": "warning",
+  "reportMissingImports": "warning"
 }
