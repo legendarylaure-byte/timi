@@ -33,19 +33,35 @@ def get_firestore_client():
     global _db
     if _db is not None:
         return _db
+    sa_path = _service_account_path
+    if not os.path.exists(sa_path):
+        print(f"[FIRESTORE] Service account file not found: {sa_path}")
+        return None
     try:
-        cred = credentials.Certificate(_service_account_path)
+        cred = credentials.Certificate(sa_path)
         firebase_admin.initialize_app(cred, {
             'projectId': os.getenv('FIREBASE_PROJECT_ID', 'timi-childern-stories'),
         })
-    except ValueError:
-        pass
-    _db = firestore.client()
-    return _db
+    except ValueError as e:
+        print(f"[FIRESTORE] Firebase init failed: {e}")
+        return None
+    except Exception as e:
+        print(f"[FIRESTORE] Firebase init error: {e}")
+        return None
+    try:
+        _db = firestore.client()
+        return _db
+    except Exception as e:
+        print(f"[FIRESTORE] Failed to create Firestore client: {e}")
+        return None
 
 
 def update_agent_status(agent_id: str, status: str, action: str = "", error_message: str = ""):
     """Update agent status in Firestore for real-time dashboard updates."""
+    db = get_firestore_client()
+    if db is None:
+        return
+
     def _do():
         doc_ref = db.collection('agent_status').document(agent_id)
         doc_ref.set({
@@ -55,7 +71,6 @@ def update_agent_status(agent_id: str, status: str, action: str = "", error_mess
             'last_updated': firestore.SERVER_TIMESTAMP,
             'error_message': error_message,
         }, merge=True)
-    db = get_firestore_client()
     _retry_firestore(f"Agent '{agent_id}' status update", _do)
     print(f"[FIRESTORE] Agent '{agent_id}' status: {status} - {action}")
 
@@ -63,6 +78,8 @@ def update_agent_status(agent_id: str, status: str, action: str = "", error_mess
 def log_activity(agent_id: str, message: str, level: str = "info"):
     """Add activity log to Firestore for the activity feed."""
     db = get_firestore_client()
+    if db is None:
+        return
 
     def _do():
         db.collection('activity_logs').add({
@@ -90,6 +107,8 @@ def is_agent_enabled(agent_id: str) -> bool:
 def update_pipeline_status(running: bool, current_video: str = "", paused_by_user: bool = False):
     """Update overall pipeline status in Firestore."""
     db = get_firestore_client()
+    if db is None:
+        return
 
     def _do():
         doc_ref = db.collection('system').document('pipeline')
@@ -108,6 +127,8 @@ def update_pipeline_status(running: bool, current_video: str = "", paused_by_use
 def add_video_record(video_id: str, title: str, format_type: str, status: str = "generating", r2_key: str = ""):
     """Add or update a video record in Firestore."""
     db = get_firestore_client()
+    if db is None:
+        return
 
     def _do():
         doc_ref = db.collection('videos').document(video_id)
@@ -127,6 +148,8 @@ def add_video_record(video_id: str, title: str, format_type: str, status: str = 
 def update_video_record(video_id: str, data: dict):
     """Update specific fields on an existing video record."""
     db = get_firestore_client()
+    if db is None:
+        return
 
     def _do():
         doc_ref = db.collection('videos').document(video_id)
@@ -140,6 +163,8 @@ def update_video_record(video_id: str, data: dict):
 def log_pipeline_error(video_id: str, error: str, step: str = "unknown"):
     """Log a pipeline error to both video record and activity log."""
     db = get_firestore_client()
+    if db is None:
+        return
     error_msg = str(error)[:500]
     try:
         def _do_video():
