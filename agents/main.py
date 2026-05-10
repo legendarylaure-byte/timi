@@ -104,6 +104,9 @@ def run_agent_step(agent_id: str, agent_name: str, action: str, crew_factory, in
             log_event(agent_name, f"Completed: {action}")
             return result
         except Exception as e:
+            if "rate_limit" in str(e).lower():
+                os.environ['GROQ_RATE_LIMITED'] = '1'
+                print(f"[LLM] Groq rate-limited detected in agent step, flagging for Gemini fallback")
             if attempt < max_retries - 1:
                 log_event(agent_name, f"Failed (attempt {attempt + 1}/{max_retries}), retrying: {str(e)[:100]}")
                 time.sleep(2)

@@ -13,7 +13,6 @@ GEMINI_MODEL = os.getenv("GEMINI_MODEL", "gemini-2.0-flash")
 
 _consecutive_failures = 0
 _last_failure_time = 0
-GROQ_RATE_LIMITED = False
 
 
 def generate_completion(prompt: str, system_prompt: str = "", temperature: float = 0.7, max_tokens: int = 2000) -> str:
@@ -103,8 +102,7 @@ def _groq_completion(prompt: str, system_prompt: str = "", temperature: float = 
             wait = 10 * (2 ** attempt)
             print(f"[GROQ] Rate limited (attempt {attempt+1}/{max_retries}), waiting {wait}s")
             time.sleep(wait)
-    global GROQ_RATE_LIMITED
-    GROQ_RATE_LIMITED = True
+    os.environ['GROQ_RATE_LIMITED'] = '1'
     raise RateLimitError("Groq rate limited after max retries")
 
 

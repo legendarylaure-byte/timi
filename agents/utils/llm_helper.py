@@ -1,25 +1,16 @@
 import os
-import sys
 import httpx
 from crewai.llm import LLM
 
 
 def _groq_has_quota() -> bool:
-    """Check Groq rate limit state from groq_client module."""
+    """Check Groq rate limit state via process-global env var."""
     groq_key = os.getenv("GROQ_API_KEY", "")
     if not groq_key:
         return False
-    # Import the shared flag from groq_client to avoid wasting quota on probes
-    utils_dir = os.path.dirname(os.path.abspath(__file__))
-    if utils_dir not in sys.path:
-        sys.path.insert(0, utils_dir)
-    try:
-        from groq_client import GROQ_RATE_LIMITED
-        if GROQ_RATE_LIMITED:
-            print(f"[LLM] Groq previously rate-limited, skipping to Gemini")
-            return False
-    except ImportError:
-        pass
+    if os.environ.get('GROQ_RATE_LIMITED'):
+        print(f"[LLM] Groq previously rate-limited, skipping to Gemini")
+        return False
     return True
 
 
