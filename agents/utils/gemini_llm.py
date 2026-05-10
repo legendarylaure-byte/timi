@@ -5,7 +5,7 @@ from crewai.llm import LLM
 
 class GeminiLLM(LLM):
     def __init__(self, model=None, api_key=None, temperature=0.7, max_tokens=2000, **kwargs):
-        model = model or os.getenv("GEMINI_MODEL", "gemini-pro")
+        model = model or os.getenv("GEMINI_MODEL", "gemini-1.5-flash")
         api_key = api_key or os.getenv("GEMINI_API_KEY", "")
         genai.configure(api_key=api_key)
         self._model_name = model
