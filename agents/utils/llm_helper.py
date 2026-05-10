@@ -1,29 +1,26 @@
 import os
+import sys
 import httpx
 from crewai.llm import LLM
 
 
 def _groq_has_quota() -> bool:
-    """Probe Groq with a 1-token request to check if rate-limited."""
+    """Check Groq rate limit state from groq_client module."""
     groq_key = os.getenv("GROQ_API_KEY", "")
-    groq_model = os.getenv("GROQ_MODEL", "llama-3.3-70b-versatile")
     if not groq_key:
         return False
+    # Import the shared flag from groq_client to avoid wasting quota on probes
+    utils_dir = os.path.dirname(os.path.abspath(__file__))
+    if utils_dir not in sys.path:
+        sys.path.insert(0, utils_dir)
     try:
-        from groq import Groq
-        client = Groq(api_key=groq_key)
-        client.chat.completions.create(
-            model=groq_model,
-            messages=[{"role": "user", "content": "."}],
-            max_tokens=1,
-        )
-        return True
-    except Exception as e:
-        if "rate_limit" in str(e).lower():
-            print(f"[LLM] Groq rate-limited, skipping to Gemini")
+        from groq_client import GROQ_RATE_LIMITED
+        if GROQ_RATE_LIMITED:
+            print(f"[LLM] Groq previously rate-limited, skipping to Gemini")
             return False
-        # Non-rate-limit error (auth, network) — treat as available
-        return True
+    except ImportError:
+        pass
+    return True
 
 
 def get_llm(temperature: float = 0.7, max_tokens: int = 2000) -> LLM:
