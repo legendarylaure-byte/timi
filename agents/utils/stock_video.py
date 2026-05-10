@@ -246,7 +246,7 @@ def get_video_duration(file_path: str) -> float:
     try:
         result = subprocess.run(
             [_ffprobe_cmd(), "-v", "error", "-show_entries", "format=duration",
-             "-o", "default=noprint_wrappers=1:nokey=1", file_path],
+             "-of", "default=noprint_wrappers=1:nokey=1", file_path],
             capture_output=True, text=True, timeout=10
         )
         return float(result.stdout.strip())
