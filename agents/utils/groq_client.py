@@ -8,6 +8,8 @@ OLLAMA_MODEL = os.getenv("OLLAMA_MODEL", "qwen2.5:7b")
 OLLAMA_BASE_URL = os.getenv("OLLAMA_BASE_URL", "http://localhost:11434")
 GROQ_API_KEY = os.getenv("GROQ_API_KEY", "")
 GROQ_MODEL = os.getenv("GROQ_MODEL", "llama-3.3-70b-versatile")
+GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "")
+GEMINI_MODEL = os.getenv("GEMINI_MODEL", "gemini-2.0-flash")
 
 _consecutive_failures = 0
 _last_failure_time = 0
@@ -39,6 +41,14 @@ def generate_completion(prompt: str, system_prompt: str = "", temperature: float
                 return result
             except Exception as groq_e:
                 print(f"[GROQ] Failed: {groq_e}")
+                print(f"[LLM] Falling back to Gemini ({GEMINI_MODEL})")
+        if GEMINI_API_KEY:
+            try:
+                result = _gemini_completion(prompt, system_prompt, temperature, max_tokens)
+                _consecutive_failures = 0
+                return result
+            except Exception as gemini_e:
+                print(f"[GEMINI] Failed: {gemini_e}")
                 _consecutive_failures += 1
                 _last_failure_time = time.time()
                 raise
@@ -93,3 +103,21 @@ def _groq_completion(prompt: str, system_prompt: str = "", temperature: float = 
             print(f"[GROQ] Rate limited (attempt {attempt+1}/{max_retries}), waiting {wait}s")
             time.sleep(wait)
     raise RateLimitError("Groq rate limited after max retries")
+
+
+def _gemini_completion(prompt: str, system_prompt: str = "", temperature: float = 0.7, max_tokens: int = 2000) -> str:
+    import google.generativeai as genai
+
+    genai.configure(api_key=GEMINI_API_KEY)
+    model = genai.GenerativeModel(
+        model_name=GEMINI_MODEL,
+        system_instruction=system_prompt if system_prompt else None,
+    )
+    response = model.generate_content(
+        prompt,
+        generation_config=genai.types.GenerationConfig(
+            temperature=temperature,
+            max_output_tokens=max_tokens,
+        ),
+    )
+    return response.text if response.text else ""
