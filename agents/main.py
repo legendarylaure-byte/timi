@@ -114,6 +114,19 @@ def run_agent_step(agent_id: str, agent_name: str, action: str, crew_factory, in
                 raise
 
 
+def _clean_scene_keyword(raw: str) -> str:
+    cleaned = raw.strip()
+    cleaned = re.sub(r'^[#\*\s]+', '', cleaned)
+    cleaned = re.sub(r'[\*\#]+', '', cleaned)
+    m = re.match(r'(?:Scene\s+\d+[\s:.,-]*|Shot\s+\d+[\s:.,-]*|Chapter\s+\d+[\s:.,-]*)', cleaned, re.IGNORECASE)
+    if m:
+        cleaned = cleaned[m.end():].strip()
+    cleaned = re.sub(r'\([\d\s\-–—,]+(?:seconds?|secs?|s|ms|minutes?|mins?)\)', '', cleaned, flags=re.IGNORECASE)
+    cleaned = re.sub(r'\([\d\s\-–—,]+\)', '', cleaned)
+    cleaned = re.sub(r'\s+', ' ', cleaned).strip()
+    return cleaned[:60] if cleaned else "nature"
+
+
 def parse_scenes_from_storyboard(storyboard_text: str, format_type: str = "shorts") -> list[dict]:
     try:
         json_match = ""
@@ -137,7 +150,7 @@ def parse_scenes_from_storyboard(storyboard_text: str, format_type: str = "short
         if is_scene_header:
             in_scene = True
             scenes.append({
-                "keyword": stripped[:80],
+                "keyword": _clean_scene_keyword(stripped),
                 "target_duration": 8.0,
                 "description": stripped,
             })

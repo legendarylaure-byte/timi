@@ -87,6 +87,7 @@ def _handle_rate_limit(resp: requests.Response, source: str, max_retries: int = 
 
 def search_pexels(query: str, orientation: str = "landscape", per_page: int = 10) -> list[dict]:
     if not PEXELS_API_KEY:
+        print("[stock_video] PEXELS_API_KEY is empty — set it in GitHub secrets")
         return []
     headers = {"Authorization": PEXELS_API_KEY}
     params = {"query": query, "per_page": per_page, "orientation": orientation}
@@ -127,6 +128,7 @@ def search_pexels(query: str, orientation: str = "landscape", per_page: int = 10
 
 def search_pixabay(query: str, per_page: int = 10) -> list[dict]:
     if not PIXABAY_API_KEY:
+        print("[stock_video] PIXABAY_API_KEY is empty — set it in GitHub secrets")
         return []
     params = {
         "key": PIXABAY_API_KEY,
