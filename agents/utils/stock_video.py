@@ -14,6 +14,20 @@ PIXABAY_API_KEY = os.getenv("PIXABAY_API_KEY", "")
 CLIPS_DIR = Path(__file__).parent.parent / "tmp" / "clips"
 CLIPS_DIR.mkdir(parents=True, exist_ok=True)
 
+_API_CACHE = {}
+_PIXABAY_BLOCKED = False
+_API_LAST_CALL = 0.0
+
+
+def _rate_limit_delay():
+    global _API_LAST_CALL
+    now = time.time()
+    elapsed = now - _API_LAST_CALL
+    if elapsed < 0.35:
+        time.sleep(0.35 - elapsed)
+    _API_LAST_CALL = time.time()
+
+
 PEXELS_KEYWORD_MAP = {
     "bunny": ["rabbit", "bunny", "cute animal"],
     "bear": ["teddy bear", "bear cub", "cartoon bear"],
@@ -63,11 +77,16 @@ def _keyword_expand(base_keyword: str) -> list[str]:
     return [base, base + " cartoon", base + " animation", base + " kids"]
 
 
-def _handle_rate_limit(resp: requests.Response, source: str, max_retries: int = 2) -> requests.Response:
-    """Handle 429 rate limit by waiting and retrying."""
+def _handle_rate_limit(resp: requests.Response, source: str, max_retries: int = 1) -> requests.Response:
+    """Handle 429 rate limit. Sets circuit breaker for Pixabay, logs for Pexels."""
+    global _PIXABAY_BLOCKED
     if resp.status_code != 429:
         return resp
-    wait_time = 60
+    if source == "Pixabay":
+        print("[stock_video] Pixabay rate limited (429) — disabling Pixabay for this run")
+        _PIXABAY_BLOCKED = True
+        return resp
+    wait_time = 10
     retry_header = resp.headers.get('Retry-After')
     if retry_header:
         try:
@@ -77,7 +96,7 @@ def _handle_rate_limit(resp: requests.Response, source: str, max_retries: int = 
     for attempt in range(max_retries):
         print(f"[stock_video] {source} rate limited (429). Waiting {wait_time}s before retry {attempt+1}/{max_retries}")
         time.sleep(wait_time)
-        new_resp = resp.request.session.send(resp.request)
+        new_resp = requests.get(resp.url, headers=resp.request.headers, timeout=15)
         if new_resp.status_code != 429:
             return new_resp
         wait_time *= 2
@@ -85,15 +104,27 @@ def _handle_rate_limit(resp: requests.Response, source: str, max_retries: int = 
     return resp
 
 
-def search_pexels(query: str, orientation: str = "landscape", per_page: int = 10) -> list[dict]:
+def _search_cached(key: str, source: str, orientation: str) -> list[dict]:
+    cache_key = f"{source}:{key}:{orientation}"
+    if cache_key in _API_CACHE:
+        return _API_CACHE[cache_key]
+    if source == "pexels":
+        result = _search_pexels_uncached(key, orientation)
+    else:
+        result = _search_pixabay_uncached(key)
+    _API_CACHE[cache_key] = result
+    return result
+
+
+def _search_pexels_uncached(query: str, orientation: str = "landscape") -> list[dict]:
     if not PEXELS_API_KEY:
         print("[stock_video] PEXELS_API_KEY is empty — set it in GitHub secrets")
         return []
+    _rate_limit_delay()
     headers = {"Authorization": PEXELS_API_KEY}
-    params = {"query": query, "per_page": per_page, "orientation": orientation}
+    params = {"query": query, "per_page": 5, "orientation": orientation}
     try:
-        session = requests.Session()
-        resp = session.get("https://api.pexels.com/videos/search", headers=headers, params=params, timeout=15)
+        resp = requests.get("https://api.pexels.com/videos/search", headers=headers, params=params, timeout=15)
         resp = _handle_rate_limit(resp, "Pexels")
         if resp.status_code == 403:
             print("[stock_video] Pexels API key invalid (403)")
@@ -126,20 +157,22 @@ def search_pexels(query: str, orientation: str = "landscape", per_page: int = 10
         return []
 
 
-def search_pixabay(query: str, per_page: int = 10) -> list[dict]:
+def _search_pixabay_uncached(query: str) -> list[dict]:
     if not PIXABAY_API_KEY:
         print("[stock_video] PIXABAY_API_KEY is empty — set it in GitHub secrets")
         return []
+    if _PIXABAY_BLOCKED:
+        return []
+    _rate_limit_delay()
     params = {
         "key": PIXABAY_API_KEY,
         "q": query,
         "video_type": "all",
-        "per_page": per_page,
+        "per_page": 5,
         "safesearch": "true",
     }
     try:
-        session = requests.Session()
-        resp = session.get("https://pixabay.com/api/videos/", params=params, timeout=15)
+        resp = requests.get("https://pixabay.com/api/videos/", params=params, timeout=15)
         resp = _handle_rate_limit(resp, "Pixabay")
         if resp.status_code == 403:
             print("[stock_video] Pixabay API key invalid (403)")
@@ -221,6 +254,18 @@ def get_video_duration(file_path: str) -> float:
         return 0.0
 
 
+def _search_providers(keywords: list[str], orientation: str, per_page: int = 5) -> list[dict]:
+    all_results = []
+    for kw in keywords:
+        results = _search_cached(kw, "pexels", orientation)
+        all_results.extend(results)
+        if results:
+            continue
+        results = _search_cached(kw, "pixabay", orientation)
+        all_results.extend(results)
+    return all_results
+
+
 def search_and_download(
     scene_keyword: str,
     target_duration: float = 5.0,
@@ -228,29 +273,14 @@ def search_and_download(
     scene_idx: int = 0,
 ) -> Optional[dict]:
     expanded = _keyword_expand(scene_keyword)
-    all_candidates = []
-    for kw in expanded:
-        pexels_results = search_pexels(kw, orientation=orientation, per_page=8)
-        all_candidates.extend(pexels_results)
-        pixabay_results = search_pixabay(kw, per_page=8)
-        all_candidates.extend(pixabay_results)
-        if all_candidates:
-            break
+    all_candidates = _search_providers(expanded, orientation)
 
     if not all_candidates:
         fallback_kw = [scene_keyword, "nature", "colorful background"]
-        for kw in fallback_kw:
-            all_candidates.extend(search_pexels(kw, orientation=orientation, per_page=5))
-            all_candidates.extend(search_pixabay(kw, per_page=5))
-            if all_candidates:
-                break
+        all_candidates = _search_providers(fallback_kw, orientation, per_page=3)
 
     if not all_candidates:
-        for kw in UNIVERSAL_KEYWORDS:
-            all_candidates.extend(search_pexels(kw, orientation=orientation, per_page=3))
-            all_candidates.extend(search_pixabay(kw, per_page=3))
-            if all_candidates:
-                break
+        all_candidates = _search_providers(UNIVERSAL_KEYWORDS, orientation, per_page=3)
 
     seen_ids = set()
     unique = []
