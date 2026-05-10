@@ -107,8 +107,8 @@ jobs:
           EOF
 
           # Decode Firebase service account (use printf to avoid shell expansion issues)
-          mkdir -p firebase
-          printf '%s' "$FIREBASE_SERVICE_ACCOUNT" > firebase/serviceAccountKey.json
+          mkdir -p agents/firebase
+          printf '%s' "$FIREBASE_SERVICE_ACCOUNT" > agents/firebase/serviceAccountKey.json
 
           # Decode YouTube OAuth token if available
           if [ -n "$YOUTUBE_OAUTH_TOKEN" ]; then
