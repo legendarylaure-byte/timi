@@ -69,6 +69,7 @@ def _ollama_completion(prompt: str, system_prompt: str = "", temperature: float 
 
 def _groq_completion(prompt: str, system_prompt: str = "", temperature: float = 0.7, max_tokens: int = 2000) -> str:
     from groq import Groq
+    from groq import RateLimitError
 
     client = Groq(api_key=GROQ_API_KEY)
     messages = []
@@ -76,11 +77,19 @@ def _groq_completion(prompt: str, system_prompt: str = "", temperature: float = 
         messages.append({"role": "system", "content": system_prompt})
     messages.append({"role": "user", "content": prompt})
 
-    response = client.chat.completions.create(
-        model=GROQ_MODEL,
-        messages=messages,
-        temperature=temperature,
-        max_tokens=max_tokens,
-    )
-    content = response.choices[0].message.content
-    return content if content is not None else ""
+    max_retries = 3
+    for attempt in range(max_retries):
+        try:
+            response = client.chat.completions.create(
+                model=GROQ_MODEL,
+                messages=messages,
+                temperature=temperature,
+                max_tokens=max_tokens,
+            )
+            content = response.choices[0].message.content
+            return content if content is not None else ""
+        except RateLimitError as e:
+            wait = 10 * (2 ** attempt)
+            print(f"[GROQ] Rate limited (attempt {attempt+1}/{max_retries}), waiting {wait}s")
+            time.sleep(wait)
+    raise RateLimitError("Groq rate limited after max retries")
