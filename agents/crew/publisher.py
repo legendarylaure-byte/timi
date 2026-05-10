@@ -1,22 +1,14 @@
 import os
 import sys
 from crewai import Agent, Task, Crew
-from crewai.llm import LLM
+from utils.llm_helper import get_llm
 
 PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, PROJECT_ROOT)
 
-OLLAMA_MODEL = os.getenv("OLLAMA_MODEL", "qwen2.5:7b")
-OLLAMA_BASE = os.getenv("OLLAMA_BASE_URL", "http://localhost:11434")
-
 
 def create_publisher_crew(video: str = "", thumbnail: str = "", metadata: str = "", format: str = "shorts"):
-    llm = LLM(
-        model=f"ollama/{OLLAMA_MODEL}",
-        base_url=OLLAMA_BASE,
-        temperature=0.3,
-        max_tokens=2000,
-    )
+    llm = get_llm(temperature=0.3, max_tokens=2000)
 
     publisher = Agent(
         role="Social Media Publisher",

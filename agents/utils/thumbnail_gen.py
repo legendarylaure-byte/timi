@@ -3,7 +3,13 @@ import re
 from PIL import Image, ImageDraw, ImageFont, ImageFilter
 
 THUMBNAIL_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "tmp", "thumbnails")
-os.makedirs(THUMBNAIL_DIR, exist_ok=True)
+
+
+def _ensure_thumbnail_dir():
+    os.makedirs(THUMBNAIL_DIR, exist_ok=True)
+
+
+_ensure_thumbnail_dir()
 
 COLOR_SCHEMES = [
     {"bg1": (255, 107, 107), "bg2": (78, 205, 196), "accent": (255, 230, 109), "text": (255, 255, 255)},
@@ -90,15 +96,8 @@ def generate_thumbnail_image(topic: str, thumbnail_text: str, format_type: str =
         words = topic.split()[:4]
         text_overlay = " ".join(words)
 
-    try:
-        font_path = "/System/Library/Fonts/Supplemental/Arial Bold.ttf"
-        if not os.path.exists(font_path):
-            font_path = "/System/Library/Fonts/Helvetica.ttc"
-        title_font = ImageFont.truetype(font_path, 80 if format_type == "long" else 100)
-        subtitle_font = ImageFont.truetype(font_path, 40 if format_type == "long" else 50)
-    except Exception:
-        title_font = ImageFont.load_default()
-        subtitle_font = ImageFont.load_default()
+    title_font = _find_font(80 if format_type == "long" else 100)
+    subtitle_font = _find_font(40 if format_type == "long" else 50)
 
     if format_type == "long":
         text_y = height // 3
@@ -136,7 +135,17 @@ def generate_thumbnail_image(topic: str, thumbnail_text: str, format_type: str =
     if output_filename is None:
         output_filename = f"thumb_{format_type}_{hash(topic) % 100000}.png"
     output_path = os.path.join(THUMBNAIL_DIR, output_filename)
-    img.save(output_path, "PNG", quality=95)
+
+    _ensure_thumbnail_dir()
+    try:
+        img.save(output_path, "PNG", quality=95)
+    except Exception as e:
+        print(f"[THUMBNAIL] Failed to save thumbnail: {e}")
+        return {
+            "success": False,
+            "path": output_path,
+            "error": str(e),
+        }
 
     return {
         "success": True,
@@ -144,6 +153,24 @@ def generate_thumbnail_image(topic: str, thumbnail_text: str, format_type: str =
         "dimensions": f"{width}x{height}",
         "format": format_type,
     }
+
+
+def _find_font(size: int):
+    candidates = [
+        "/System/Library/Fonts/Supplemental/Arial Bold.ttf",
+        "/System/Library/Fonts/Helvetica.ttc",
+        "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf",
+        "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
+        "/usr/share/fonts/truetype/liberation/LiberationSans-Bold.ttf",
+        "/usr/share/fonts/truetype/liberation/LiberationSans-Regular.ttf",
+    ]
+    for path in candidates:
+        if os.path.exists(path):
+            try:
+                return ImageFont.truetype(path, size)
+            except Exception:
+                continue
+    return ImageFont.load_default()
 
 
 def _wrap_text(text: str, font, max_width: int) -> list:

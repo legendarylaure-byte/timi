@@ -1,18 +1,9 @@
-import os
 from crewai import Agent, Task, Crew
-from crewai.llm import LLM
-
-OLLAMA_MODEL = os.getenv("OLLAMA_MODEL", "qwen2.5:7b")
-OLLAMA_BASE = os.getenv("OLLAMA_BASE_URL", "http://localhost:11434")
+from utils.llm_helper import get_llm
 
 
 def create_composer_crew(category: str = "", duration: int = 60):
-    llm = LLM(
-        model=f"ollama/{OLLAMA_MODEL}",
-        base_url=OLLAMA_BASE,
-        temperature=0.4,
-        max_tokens=1000,
-    )
+    llm = get_llm(temperature=0.4, max_tokens=1000)
 
     composer = Agent(
         role="Children's Music Composer",

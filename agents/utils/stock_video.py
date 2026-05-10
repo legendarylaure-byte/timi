@@ -192,13 +192,25 @@ def download_clip(video_url: str, output_path: Path, timeout: int = 30) -> bool:
         return False
 
 
-FFPROBE_PATH = "/opt/homebrew/opt/ffmpeg-full/bin/ffprobe"
+def _ffprobe_cmd() -> str:
+    env_path = os.getenv("FFPROBE_PATH", "")
+    if env_path and os.path.exists(env_path):
+        return env_path
+    candidates = [
+        "/opt/homebrew/opt/ffmpeg-full/bin/ffprobe",
+        "/usr/local/bin/ffprobe",
+        "/usr/bin/ffprobe",
+    ]
+    for p in candidates:
+        if os.path.exists(p):
+            return p
+    return "ffprobe"
 
 
 def get_video_duration(file_path: str) -> float:
     try:
         result = subprocess.run(
-            [FFPROBE_PATH, "-v", "error", "-show_entries", "format=duration",
+            [_ffprobe_cmd(), "-v", "error", "-show_entries", "format=duration",
              "-o", "default=noprint_wrappers=1:nokey=1", file_path],
             capture_output=True, text=True, timeout=10
         )

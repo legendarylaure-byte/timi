@@ -106,9 +106,9 @@ jobs:
           PATH=/usr/bin:/bin
           EOF
 
-          # Decode Firebase service account
+          # Decode Firebase service account (use printf to avoid shell expansion issues)
           mkdir -p firebase
-          echo "$FIREBASE_SERVICE_ACCOUNT" > firebase/serviceAccountKey.json
+          printf '%s' "$FIREBASE_SERVICE_ACCOUNT" > firebase/serviceAccountKey.json
 
           # Decode YouTube OAuth token if available
           if [ -n "$YOUTUBE_OAUTH_TOKEN" ]; then

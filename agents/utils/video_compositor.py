@@ -6,41 +6,40 @@ import subprocess
 from pathlib import Path
 from typing import Optional
 
-_FFMPEG_BIN = "/opt/homebrew/opt/ffmpeg-full/bin"
-if _FFMPEG_BIN not in os.environ.get("PATH", ""):
-    os.environ["PATH"] = _FFMPEG_BIN + ":" + os.environ.get("PATH", "")
-
-
 load_dotenv()
-
-FFMPEG_PATH = os.getenv("FFMPEG_PATH", "")
-FFPROBE_PATH = os.getenv("FFPROBE_PATH", "")
 
 
 def _get_env():
-    env = os.environ.copy()
-    env_path = os.getenv("PATH", "/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin")
-    if "/opt/homebrew/opt/ffmpeg-full/bin" not in env_path:
-        env_path = "/opt/homebrew/opt/ffmpeg-full/bin:" + env_path
-    env["PATH"] = env_path
-    return env
+    return os.environ.copy()
 
 
-def _ffmpeg_cmd():
-    if FFMPEG_PATH and os.path.exists(FFMPEG_PATH):
-        return FFMPEG_PATH
-    full_path = "/opt/homebrew/opt/ffmpeg-full/bin/ffmpeg"
-    if os.path.exists(full_path):
-        return full_path
+def _ffmpeg_cmd() -> str:
+    env_path = os.getenv("FFMPEG_PATH", "")
+    if env_path and os.path.exists(env_path):
+        return env_path
+    candidates = [
+        "/opt/homebrew/opt/ffmpeg-full/bin/ffmpeg",
+        "/usr/local/bin/ffmpeg",
+        "/usr/bin/ffmpeg",
+    ]
+    for p in candidates:
+        if os.path.exists(p):
+            return p
     return "ffmpeg"
 
 
-def _ffprobe_cmd():
-    if FFPROBE_PATH and os.path.exists(FFPROBE_PATH):
-        return FFPROBE_PATH
-    full_path = "/opt/homebrew/opt/ffmpeg-full/bin/ffprobe"
-    if os.path.exists(full_path):
-        return full_path
+def _ffprobe_cmd() -> str:
+    env_path = os.getenv("FFPROBE_PATH", "")
+    if env_path and os.path.exists(env_path):
+        return env_path
+    candidates = [
+        "/opt/homebrew/opt/ffmpeg-full/bin/ffprobe",
+        "/usr/local/bin/ffprobe",
+        "/usr/bin/ffprobe",
+    ]
+    for p in candidates:
+        if os.path.exists(p):
+            return p
     return "ffprobe"
 
 

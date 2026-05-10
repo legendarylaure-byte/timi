@@ -6,8 +6,12 @@ import os
 import random
 from pathlib import Path
 
-_FFMPEG_BIN = "/opt/homebrew/opt/ffmpeg-full/bin"
-if _FFMPEG_BIN not in os.environ.get("PATH", ""):
+_FFMPEG_BIN = None
+for _candidate in ["/opt/homebrew/opt/ffmpeg-full/bin", "/usr/local/bin", "/usr/bin"]:
+    if os.path.exists(os.path.join(_candidate, "ffmpeg")):
+        _FFMPEG_BIN = _candidate
+        break
+if _FFMPEG_BIN and _FFMPEG_BIN not in os.environ.get("PATH", ""):
     os.environ["PATH"] = _FFMPEG_BIN + ":" + os.environ.get("PATH", "")
 
 

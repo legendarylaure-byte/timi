@@ -1,21 +1,12 @@
-import os
 from crewai import Agent, Task, Crew
-from crewai.llm import LLM
-
-OLLAMA_MODEL = os.getenv("OLLAMA_MODEL", "qwen2.5:7b")
-OLLAMA_BASE = os.getenv("OLLAMA_BASE_URL", "http://localhost:11434")
+from utils.llm_helper import get_llm
 
 
 def create_scriptwriter_crew(topic: str = "", category: str = "", format: str = "shorts", max_duration: int = 120):
     is_long = format == "long"
     max_tokens = 8000 if is_long else 4000
 
-    llm = LLM(
-        model=f"ollama/{OLLAMA_MODEL}",
-        base_url=OLLAMA_BASE,
-        temperature=0.7 if is_long else 0.8,
-        max_tokens=max_tokens,
-    )
+    llm = get_llm(temperature=0.7 if is_long else 0.8, max_tokens=max_tokens)
 
     scriptwriter = Agent(
         role="Kids Content Scriptwriter",
