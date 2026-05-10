@@ -19,8 +19,10 @@ def generate_completion(prompt: str, system_prompt: str = "", temperature: float
     if _consecutive_failures >= 3:
         time_since_failure = time.time() - _last_failure_time
         if time_since_failure < 60:
+            remaining = 60 - time_since_failure
             print(
-                f"[LLM] Consecutive failures ({_consecutive_failures}), waiting {60 - time_since_failure:.0f}s before retry")
+                f"[LLM] Consecutive failures ({_consecutive_failures}),"
+                f" waiting {remaining:.0f}s before retry")
             time.sleep(60 - time_since_failure)
 
     try:
