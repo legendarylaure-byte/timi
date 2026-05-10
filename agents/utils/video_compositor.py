@@ -70,9 +70,9 @@ def apply_ken_burns(input_path: str, output_path: str, target_w: int, target_h: 
     kb = KEN_BURNS_PRESETS[preset_idx % len(KEN_BURNS_PRESETS)]
     cmd = [
         _ffmpeg_cmd(), "-y", "-i", input_path,
-        "-v", f"scale={target_w}*2:{target_h}*2,zoompan='{kb}':d={int(duration*30)}:s={target_w}x{target_h}:fps=30",
+        "-vf", f"scale={target_w}*2:{target_h}*2,zoompan='{kb}':d={int(duration*30)}:s={target_w}x{target_h}:fps=30",
         "-t", str(duration),
-        "-c:v", "libx264", "-preset", "fast", "-cr", "23",
+        "-c:v", "libx264", "-preset", "fast", "-crf", "23",
         "-an", "-pix_fmt", "yuv420p", output_path,
     ]
     try:
@@ -86,7 +86,7 @@ def apply_ken_burns(input_path: str, output_path: str, target_w: int, target_h: 
 def trim_clip(input_path: str, output_path: str, start: float = 0, duration: float = 5) -> bool:
     cmd = [
         _ffmpeg_cmd(), "-y", "-i", input_path, "-ss", str(start), "-t", str(duration),
-        "-c:v", "libx264", "-preset", "fast", "-cr", "23", "-an", "-pix_fmt", "yuv420p", output_path,
+        "-c:v", "libx264", "-preset", "fast", "-crf", "23", "-an", "-pix_fmt", "yuv420p", output_path,
     ]
     try:
         return subprocess.run(cmd, capture_output=True, text=True, timeout=120, env=_get_env()).returncode == 0
@@ -98,8 +98,8 @@ def trim_clip(input_path: str, output_path: str, start: float = 0, duration: flo
 def resize_to_target(input_path: str, output_path: str, target_w: int, target_h: int) -> bool:
     cmd = [
         _ffmpeg_cmd(), "-y", "-i", input_path,
-        "-v", f"scale={target_w}:{target_h}:force_original_aspect_ratio=increase,crop={target_w}:{target_h}",
-        "-c:v", "libx264", "-preset", "fast", "-cr", "23", "-an", "-pix_fmt", "yuv420p", output_path,
+        "-vf", f"scale={target_w}:{target_h}:force_original_aspect_ratio=increase,crop={target_w}:{target_h}",
+        "-c:v", "libx264", "-preset", "fast", "-crf", "23", "-an", "-pix_fmt", "yuv420p", output_path,
     ]
     try:
         return subprocess.run(cmd, capture_output=True, text=True, timeout=120, env=_get_env()).returncode == 0
@@ -131,8 +131,8 @@ def add_text_overlay(video_path: str, text: str, output_path: str, fontsize: int
     escaped_text = text.replace("'", "\\'").replace(":", "\\:").replace("-", "\\-")
     cmd = [
         _ffmpeg_cmd(), "-y", "-i", video_path,
-        "-v", f"drawtext=text='{escaped_text}':fontsize={fontsize}:fontcolor={color}:x={pos}:enable='between(t,{start_time},{start_time+duration})'",  # noqa: E501
-        "-c:v", "libx264", "-preset", "fast", "-cr", "23", "-c:a", "copy", "-pix_fmt", "yuv420p", output_path,
+        "-vf", f"drawtext=text='{escaped_text}':fontsize={fontsize}:fontcolor={color}:x={pos}:enable='between(t,{start_time},{start_time+duration})'",  # noqa: E501
+        "-c:v", "libx264", "-preset", "fast", "-crf", "23", "-c:a", "copy", "-pix_fmt", "yuv420p", output_path,
     ]
     try:
         return subprocess.run(cmd, capture_output=True, text=True, timeout=120, env=_get_env()).returncode == 0
@@ -162,7 +162,7 @@ def burn_subtitles(video_path: str, subtitle_path: str, output_path: str, fontsi
     cmd = [
         _ffmpeg_cmd(), "-y", "-i", video_path,
         "-vf", vf,
-        "-c:v", "libx264", "-preset", "fast", "-cr", "23",
+        "-c:v", "libx264", "-preset", "fast", "-crf", "23",
         "-c:a", "copy", "-pix_fmt", "yuv420p", output_path,
     ]
     try:
@@ -174,8 +174,8 @@ def burn_subtitles(video_path: str, subtitle_path: str, output_path: str, fontsi
             print(f"[compositor] Subtitle burn error: {result.stderr[-300:]}")
             cmd_fallback = [
                 _ffmpeg_cmd(), "-y", "-i", video_path,
-                "-v", f"subtitles=filename='{abs_subtitle}':force_style='FontSize={fontsize},PrimaryColour=&HFFFFFF&,OutlineColour=&H000000&,Outline=2,Shadow=1'",  # noqa: E501
-                "-c:v", "libx264", "-preset", "fast", "-cr", "23",
+                "-vf", f"subtitles=filename='{abs_subtitle}':force_style='FontSize={fontsize},PrimaryColour=&HFFFFFF&,OutlineColour=&H000000&,Outline=2,Shadow=1'",  # noqa: E501
+                "-c:v", "libx264", "-preset", "fast", "-crf", "23",
                 "-c:a", "copy", "-pix_fmt", "yuv420p", output_path,
             ]
             result2 = subprocess.run(cmd_fallback, capture_output=True, text=True, timeout=300, env=_get_env())
@@ -298,8 +298,8 @@ def composite_video(clips: list[dict], voice_path: str, music_path: Optional[str
             f.write(f"file '{p}'\n")
 
     combined_video = str(TEMP_DIR / "combined_video.mp4")
-    cmd = [_ffmpeg_cmd(), "-y", "-", "concat", "-safe", "0", "-i", concat_list_path,
-           "-c:v", "libx264", "-preset", "fast", "-cr", "23", "-pix_fmt", "yuv420p", combined_video]
+    cmd = [_ffmpeg_cmd(), "-y", "-f", "concat", "-safe", "0", "-i", concat_list_path,
+           "-c:v", "libx264", "-preset", "fast", "-crf", "23", "-pix_fmt", "yuv420p", combined_video]
     try:
         result = subprocess.run(cmd, capture_output=True, text=True, timeout=300, env=_get_env())
         if result.returncode != 0:
@@ -331,7 +331,7 @@ def composite_video(clips: list[dict], voice_path: str, music_path: Optional[str
 
     final_path = str(OUTPUT_DIR / f"{video_id}_{format_type}.mp4")
     cmd = [_ffmpeg_cmd(), "-y", "-i", combined_video, "-i", mixed_audio_path,
-           "-c:v", "libx264", "-preset", "fast", "-cr", "23",
+           "-c:v", "libx264", "-preset", "fast", "-crf", "23",
            "-c:a", "aac", "-b:a", "128k", "-shortest", "-pix_fmt", "yuv420p", final_path]
     try:
         result = subprocess.run(cmd, capture_output=True, text=True, timeout=300, env=_get_env())
