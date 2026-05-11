@@ -25,8 +25,11 @@ def get_youtube_credentials():
 
     if not creds or not creds.valid:
         if creds and creds.expired and creds.refresh_token:
+            print("[YOUTUBE] Refreshing expired token...")
             creds.refresh(Request())
+            print("[YOUTUBE] Token refreshed successfully")
         else:
+            print("[YOUTUBE] No valid token found, starting OAuth flow...")
             client_config = {
                 "installed": {
                     "client_id": CLIENT_ID,
@@ -54,8 +57,21 @@ def upload_video_to_youtube(
     is_shorts: bool = False,
     publish_at: str = None,
 ) -> dict:
+    if not os.path.exists(video_file):
+        print(f"[YOUTUBE] Video file not found: {video_file}")
+        return {"success": False, "error": f"Video file not found: {video_file}"}
+    print(f"[YOUTUBE] Uploading: {title} ({os.path.getsize(video_file) / 1e6:.1f} MB)")
     creds = get_youtube_credentials()
     youtube = build("youtube", "v3", credentials=creds)
+
+    if publish_at:
+        try:
+            pub_dt = datetime.strptime(publish_at.replace("Z", "").replace("z", ""), "%Y-%m-%dT%H:%M:%S")
+            if pub_dt < datetime.utcnow():
+                print(f"[YOUTUBE] publish_at {publish_at} is in the past, uploading as public instead")
+                publish_at = None
+        except ValueError:
+            print(f"[YOUTUBE] Could not parse publish_at: {publish_at}")
 
     privacy_status = "public"
     if publish_at:

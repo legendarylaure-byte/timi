@@ -72,6 +72,7 @@ def _upload_youtube(title: str, description: str, video_path: str, thumbnail_pat
 
         tags = coppa_meta.get("tags", []) + [format_type, "vyom ai cloud"]
 
+        print(f"[PUBLISHER] Uploading YouTube video: {title} (format={format_type}, publish_at={publish_at})")
         result = upload_video_to_youtube(
             video_file=video_path,
             title=title,
@@ -86,9 +87,15 @@ def _upload_youtube(title: str, description: str, video_path: str, thumbnail_pat
         result["made_for_kids"] = True
         result["coppa_compliant"] = True
 
-        log_activity('publisher', f"YouTube upload complete: {result.get('video_url', 'unknown')}", 'success')
+        if result.get('success'):
+            print(f"[PUBLISHER] YouTube upload successful: {result.get('video_url', 'unknown')}")
+            log_activity('publisher', f"YouTube upload complete: {result.get('video_url', 'unknown')}", 'success')
+        else:
+            print(f"[PUBLISHER] YouTube upload failed: {result.get('error', 'unknown error')}")
+            log_activity('publisher', f"YouTube upload FAILED: {result.get('error', 'unknown error')}", 'error')
         return result
     except Exception as e:
+        print(f"[PUBLISHER] YouTube upload exception: {e}")
         log_activity('publisher', f"YouTube upload FAILED: {e}", 'error')
         return {
             'success': False,
