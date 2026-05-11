@@ -1,6 +1,4 @@
-import os
 import re
-from datetime import datetime
 from utils.youtube_upload import get_youtube_credentials, fetch_video_stats
 from utils.firebase_status import get_firestore_client, update_video_analytics, log_activity
 
