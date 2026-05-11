@@ -160,6 +160,25 @@ def upload_video_to_youtube(
     return result
 
 
+def fetch_video_stats(video_id: str) -> dict:
+    creds = get_youtube_credentials()
+    youtube = build("youtube", "v3", credentials=creds)
+    try:
+        response = youtube.videos().list(part="statistics", id=video_id).execute()
+        if not response.get("items"):
+            return {"error": f"Video {video_id} not found"}
+        stats = response["items"][0]["statistics"]
+        return {
+            "views": int(stats.get("viewCount", 0)),
+            "likes": int(stats.get("likeCount", 0)),
+            "comments": int(stats.get("commentCount", 0)),
+            "favorites": int(stats.get("favoriteCount", 0)),
+        }
+    except HttpError as e:
+        print(f"[YOUTUBE] Failed to fetch stats for video {video_id}: {e}")
+        return {"error": str(e)}
+
+
 def get_channel_stats() -> dict:
     creds = get_youtube_credentials()
     youtube = build("youtube", "v3", credentials=creds)

@@ -18,13 +18,27 @@ interface PredictionResult {
   reasoning: string;
 }
 
-interface QualityBreakdown {
-  age_appropriateness: number;
-  educational_value: number;
-  engagement_potential: number;
-  language_safety: number;
-  creativity: number;
-  pacing: number;
+interface VideoAnalytics {
+  id: string;
+  video_id: string;
+  title: string;
+  format: string;
+  status: string;
+  views: number;
+  likes: number;
+  comments: number;
+  youtube_id: string | null;
+  created_at: string | null;
+  analytics_updated_at: string | null;
+}
+
+interface AnalyticsSummary {
+  total_videos: number;
+  published_videos: number;
+  total_views: number;
+  total_likes: number;
+  total_comments: number;
+  last_updated: string;
 }
 
 const categories = ['Self-Learning', 'Bedtime Stories', 'Mythology Stories', 'Animated Fables', 'Science for Kids', 'Rhymes & Songs', 'Colors & Shapes'];
@@ -37,6 +51,10 @@ export default function AnalyticsPage() {
   const [loading, setLoading] = useState(false);
   const [prediction, setPrediction] = useState<PredictionResult | null>(null);
   const [history, setHistory] = useState<any[]>([]);
+  const [analytics, setAnalytics] = useState<VideoAnalytics[]>([]);
+  const [summary, setSummary] = useState<AnalyticsSummary | null>(null);
+  const [analyticsLoading, setAnalyticsLoading] = useState(true);
+  const [sortBy, setSortBy] = useState<'views' | 'likes' | 'comments' | 'created_at'>('views');
 
   useEffect(() => {
     const loadHistory = async () => {
@@ -49,13 +67,36 @@ export default function AnalyticsPage() {
     loadHistory();
   }, []);
 
+  useEffect(() => {
+    const loadAnalytics = async () => {
+      setAnalyticsLoading(true);
+      try {
+        const res = await fetch('/api/youtube/analytics?limit=50');
+        const data = await res.json();
+        if (data.success) {
+          setSummary(data.summary);
+          setAnalytics(data.videos);
+        }
+      } catch (e) {
+        console.error('[ANALYTICS] Failed to load:', e);
+      } finally {
+        setAnalyticsLoading(false);
+      }
+    };
+    loadAnalytics();
+  }, []);
+
+  const sortedAnalytics = [...analytics].sort((a, b) => {
+    if (sortBy === 'created_at') return new Date(b.created_at || 0).getTime() - new Date(a.created_at || 0).getTime();
+    return (b[sortBy] || 0) - (a[sortBy] || 0);
+  });
+
   const runPrediction = async () => {
     if (!title.trim()) return;
     setLoading(true);
     setPrediction(null);
 
     try {
-      // Call the prediction via Firestore trigger or use fallback
       const fallback = generateLocalPrediction(title, selectedCategory, format);
       setPrediction(fallback);
 
@@ -67,7 +108,6 @@ export default function AnalyticsPage() {
         created_at: serverTimestamp(),
       });
 
-      // Refresh history
       const q = query(collection(db, 'predictions'), orderBy('created_at', 'desc'), limit(10));
       const snap = await getDocs(q);
       setHistory(snap.docs.map(d => ({ id: d.id, ...d.data() })));
@@ -82,6 +122,120 @@ export default function AnalyticsPage() {
     <div className="space-y-6">
       <motion.div initial={{ opacity: 0, y: -20 }} animate={{ opacity: 1, y: 0 }}>
         <div className="flex items-center gap-4 mb-2">
+          <div className="w-12 h-12 rounded-2xl bg-gradient-to-br from-purple-500/20 to-blue-500/20 flex items-center justify-center">
+            <span className="text-2xl">📊</span>
+          </div>
+          <div>
+            <h1 className="text-3xl font-bold text-light-text dark:text-dark-text">YouTube Analytics</h1>
+            <p className="text-light-muted dark:text-dark-muted mt-1">Real performance data from your YouTube channel</p>
+          </div>
+        </div>
+      </motion.div>
+
+      {analyticsLoading ? (
+        <div className="relative rounded-2xl overflow-hidden glass-strong border border-light-border/50 dark:border-white/10 p-12 text-center">
+          <p className="text-light-muted dark:text-dark-muted">Loading analytics...</p>
+        </div>
+      ) : summary && (
+        <>
+          <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+            {[
+              { label: 'Total Views', value: formatNumber(summary.total_views), icon: '👁️', color: 'from-blue-500 to-purple-500' },
+              { label: 'Total Likes', value: formatNumber(summary.total_likes), icon: '👍', color: 'from-green-500 to-teal-500' },
+              { label: 'Total Comments', value: formatNumber(summary.total_comments), icon: '💬', color: 'from-yellow-500 to-orange-500' },
+              { label: 'Published Videos', value: `${summary.published_videos}`, icon: '🎬', color: 'from-pink-500 to-rose-500' },
+            ].map((stat, i) => (
+              <motion.div
+                key={stat.label}
+                initial={{ opacity: 0, y: 20 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ delay: 0.05 * i }}
+                className="relative rounded-2xl overflow-hidden glass-strong border border-light-border/50 dark:border-white/10 p-5"
+              >
+                <div className="flex items-center justify-between mb-3">
+                  <span className="text-2xl">{stat.icon}</span>
+                  <span className={`text-xs font-medium px-2 py-0.5 rounded-full bg-gradient-to-r ${stat.color} text-white`}>YouTube</span>
+                </div>
+                <p className="text-2xl font-bold text-light-text dark:text-dark-text">{stat.value}</p>
+                <p className="text-sm text-light-muted dark:text-dark-muted mt-1">{stat.label}</p>
+              </motion.div>
+            ))}
+          </motion.div>
+
+          <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.2 }}>
+            <div className="relative rounded-2xl overflow-hidden glass-strong border border-light-border/50 dark:border-white/10 p-6">
+              <div className="flex items-center justify-between mb-4">
+                <h2 className="text-lg font-bold text-light-text dark:text-dark-text">Video Performance</h2>
+                <div className="flex gap-2">
+                  {(['views', 'likes', 'comments', 'created_at'] as const).map(s => (
+                    <button
+                      key={s}
+                      onClick={() => setSortBy(s)}
+                      className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-all ${
+                        sortBy === s
+                          ? 'bg-gradient-to-r from-purple-500 to-blue-500 text-white'
+                          : 'bg-light-bg dark:bg-dark-bg text-light-muted dark:text-dark-muted border border-light-border/30 dark:border-white/10'
+                      }`}
+                    >
+                      {s === 'created_at' ? 'Newest' : s.charAt(0).toUpperCase() + s.slice(1)}
+                    </button>
+                  ))}
+                </div>
+              </div>
+              {sortedAnalytics.length === 0 ? (
+                <p className="text-center text-light-muted dark:text-dark-muted py-8">No published videos with analytics data yet. Videos will appear after the next analytics pull.</p>
+              ) : (
+                <div className="overflow-x-auto">
+                  <table className="w-full text-sm">
+                    <thead>
+                      <tr className="border-b border-light-border/30 dark:border-white/5">
+                        <th className="text-left py-2.5 px-3 text-light-muted dark:text-dark-muted font-medium">Title</th>
+                        <th className="text-left py-2.5 px-3 text-light-muted dark:text-dark-muted font-medium">Type</th>
+                        <th className="text-right py-2.5 px-3 text-light-muted dark:text-dark-muted font-medium">Views</th>
+                        <th className="text-right py-2.5 px-3 text-light-muted dark:text-dark-muted font-medium">Likes</th>
+                        <th className="text-right py-2.5 px-3 text-light-muted dark:text-dark-muted font-medium">Comments</th>
+                        <th className="text-right py-2.5 px-3 text-light-muted dark:text-dark-muted font-medium">Engagement</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {sortedAnalytics.map(v => {
+                        const engagement = v.views > 0 ? ((v.likes + v.comments) / v.views * 100).toFixed(1) : '0.0';
+                        return (
+                          <tr key={v.id} className="border-b border-light-border/20 dark:border-white/5 hover:bg-light-bg/30 dark:hover:bg-dark-bg/30">
+                            <td className="py-2.5 px-3 text-light-text dark:text-dark-text font-medium truncate max-w-[250px]">{v.title}</td>
+                            <td className="py-2.5 px-3">
+                              <span className={`px-2 py-0.5 rounded text-xs font-bold ${
+                                v.format === 'shorts' ? 'bg-red-500/20 text-red-400' : 'bg-blue-500/20 text-blue-400'
+                              }`}>{v.format}</span>
+                            </td>
+                            <td className="py-2.5 px-3 text-right text-light-text dark:text-dark-text font-mono">{formatNumber(v.views)}</td>
+                            <td className="py-2.5 px-3 text-right text-light-text dark:text-dark-text font-mono">{formatNumber(v.likes)}</td>
+                            <td className="py-2.5 px-3 text-right text-light-text dark:text-dark-text font-mono">{v.comments}</td>
+                            <td className="py-2.5 px-3 text-right font-mono">
+                              <span className={`${
+                                parseFloat(engagement) >= 5 ? 'text-green-400' : parseFloat(engagement) >= 2 ? 'text-yellow-400' : 'text-gray-400'
+                              }`}>{engagement}%</span>
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+              {summary.last_updated && (
+                <p className="text-xs text-light-muted dark:text-dark-muted mt-4 text-right">
+                  Last updated: {new Date(summary.last_updated).toLocaleString()}
+                </p>
+              )}
+            </div>
+          </motion.div>
+        </>
+      )}
+
+      {/* Prediction Section */}
+      <motion.div initial={{ opacity: 0, y: -20 }} animate={{ opacity: 1, y: 0 }}>
+        <div className="flex items-center gap-4 mb-2 mt-8">
           <div className="w-12 h-12 rounded-2xl bg-gradient-to-br from-purple-500/20 to-blue-500/20 flex items-center justify-center">
             <span className="text-2xl">🚀</span>
           </div>
@@ -157,7 +311,6 @@ export default function AnalyticsPage() {
       {/* Results */}
       {prediction && (
         <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} className="space-y-4">
-          {/* Virality Score */}
           <div className="relative rounded-2xl overflow-hidden glass-strong border border-light-border/50 dark:border-white/10 p-6">
             <div className="flex items-center justify-between mb-4">
               <h2 className="text-lg font-bold text-light-text dark:text-dark-text">Virality Score</h2>
@@ -205,7 +358,6 @@ export default function AnalyticsPage() {
             </div>
           </div>
 
-          {/* Suggestions */}
           <div className="relative rounded-2xl overflow-hidden glass-strong border border-light-border/50 dark:border-white/10 p-6">
             <h2 className="text-lg font-bold text-light-text dark:text-dark-text mb-4">AI Suggestions</h2>
             <div className="space-y-2">

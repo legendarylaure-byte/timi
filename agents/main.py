@@ -68,6 +68,7 @@ AGENT_MAP = {
     'thumbnail': 'thumbnail',
     'metadata': 'metadata',
     'publisher': 'publisher',
+    'analytics': 'analytics',
 }
 
 control_listener = AgentControlListener(check_interval=60)
@@ -664,6 +665,19 @@ def daily_repurpose_job():
         "REPURPOSE", f"Repurposed {result['processed']} videos into {sum(v.get('clips', 0) for v in result.get('videos', []))} clips")  # noqa: E501
 
 
+def daily_analytics_job():
+    log_event("ANALYTICS", "Starting YouTube analytics pull for published videos")
+    update_agent_status("analytics", "working", "Fetching video stats from YouTube")
+    try:
+        from utils.youtube_analytics import pull_all_video_analytics
+        result = pull_all_video_analytics(max_videos=50)
+        update_agent_status("analytics", "completed", f"Processed {result['processed']} videos")
+        log_event("ANALYTICS", f"YouTube analytics pull: {result['processed']} updated, {result['failed']} failed")
+    except Exception as e:
+        update_agent_status("analytics", "error", str(e))
+        log_event("ANALYTICS", f"Analytics pull failed: {e}", "error")
+
+
 def daily_cleanup_job():
     log_event("CLEANUP", "Starting auto-cleanup of uploaded videos")
     run_cleanup()
@@ -778,10 +792,12 @@ if __name__ == "__main__":
 
     scheduler = BlockingScheduler()
     scheduler.add_job(daily_content_job, "cron", hour=6, minute=0)
+    scheduler.add_job(daily_analytics_job, "cron", hour=8, minute=0)
     scheduler.add_job(daily_repurpose_job, "cron", hour=14, minute=0)
     scheduler.add_job(daily_cleanup_job, "cron", hour=4, minute=0)
     scheduler.add_job(scheduled_publish_job, "interval", minutes=15)
     log_event("SCHEDULER", "Daily content job scheduled at 06:00 UTC")
+    log_event("SCHEDULER", "Daily analytics pull scheduled at 08:00 UTC")
     log_event("SCHEDULER", "Daily repurpose job scheduled at 14:00 UTC")
     log_event("SCHEDULER", "Daily cleanup job scheduled at 04:00 UTC")
     log_event("SCHEDULER", "Scheduled publish check every 15 minutes")

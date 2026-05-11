@@ -160,6 +160,28 @@ def update_video_record(video_id: str, data: dict):
     print(f"[FIRESTORE] Updated video '{video_id}' with: {list(data.keys())}")
 
 
+def update_video_analytics(video_id: str, stats: dict):
+    db = get_firestore_client()
+    if db is None:
+        return
+
+    def _do():
+        doc_ref = db.collection('videos').document(video_id)
+        doc_ref.set({
+            'views': stats.get('views', 0),
+            'likes': stats.get('likes', 0),
+            'comments': stats.get('comments', 0),
+            'analytics_updated_at': firestore.SERVER_TIMESTAMP,
+            'updated_at': firestore.SERVER_TIMESTAMP,
+        }, merge=True)
+        db.collection('videos').document(video_id).collection('analytics_history').add({
+            **stats,
+            'recorded_at': firestore.SERVER_TIMESTAMP,
+        })
+    _retry_firestore(f"Video analytics '{video_id}'", _do)
+    print(f"[FIRESTORE] Analytics updated for video '{video_id}': {stats.get('views', 0)} views")
+
+
 def log_pipeline_error(video_id: str, error: str, step: str = "unknown"):
     """Log a pipeline error to both video record and activity log."""
     db = get_firestore_client()

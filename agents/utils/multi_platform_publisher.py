@@ -171,10 +171,14 @@ def multi_platform_publish(video_id: str, title: str, description: str, video_pa
             results['all_success'] = False
 
     # Update video record
-    update_video_record(video_id, {
+    update_data = {
         'published_platforms': list(results['platforms'].keys()),
         'publish_urls': {p: r.get('url', r.get('video_url', '')) for p, r in results['platforms'].items() if r.get('success')},  # noqa: E501
-    })
+    }
+    yt_result = results['platforms'].get('youtube', {})
+    if yt_result.get('success') and yt_result.get('video_id'):
+        update_data['youtube_id'] = yt_result['video_id']
+    update_video_record(video_id, update_data)
 
     # Send Telegram notification
     _send_telegram_notification(results)
