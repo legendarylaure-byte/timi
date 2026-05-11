@@ -106,7 +106,7 @@ def run_agent_step(agent_id: str, agent_name: str, action: str, crew_factory, in
         except Exception as e:
             if "rate_limit" in str(e).lower():
                 os.environ['GROQ_RATE_LIMITED'] = '1'
-                print(f"[LLM] Groq rate-limited detected in agent step, flagging for Gemini fallback")
+                print("[LLM] Groq rate-limited detected in agent step, flagging for Gemini fallback")
             if attempt < max_retries - 1:
                 log_event(agent_name, f"Failed (attempt {attempt + 1}/{max_retries}), retrying: {str(e)[:100]}")
                 time.sleep(2)
@@ -543,6 +543,14 @@ def generate_long_video(topic: str, category: str, video_id: str, publish_at: st
         return False
 
 
+def _next_schedule_time(hour: int) -> str:
+    now = datetime.utcnow()
+    scheduled = now.replace(hour=hour, minute=0, second=0, microsecond=0)
+    if scheduled <= now:
+        scheduled = scheduled.replace(day=scheduled.day + 1)
+    return scheduled.strftime("%Y-%m-%dT%H:%M:%SZ")
+
+
 def daily_content_job():
     update_pipeline_status(True)
     log_event("SCHEDULER", "Starting daily content generation")
@@ -585,7 +593,7 @@ def daily_content_job():
         if is_blacklisted(trend['title']):
             log_event("SCHEDULER", f"Skipping blacklisted topic: {trend['title']}")
             continue
-        publish_time = f"{datetime.now().strftime('%Y-%m-%d')}T{6 + i * 2}:00:00Z"
+        publish_time = _next_schedule_time(6 + i * 2)
         try:
             success = generate_short_video(trend['title'], trend['category'],
                                            f"short-{datetime.now().strftime('%Y%m%d')}-{i+1}", publish_at=publish_time)
@@ -611,7 +619,7 @@ def daily_content_job():
         if is_blacklisted(trend['title']):
             log_event("SCHEDULER", f"Skipping blacklisted topic: {trend['title']}")
             continue
-        publish_time = f"{datetime.now().strftime('%Y-%m-%d')}T{10 + i * 4}:00:00Z"
+        publish_time = _next_schedule_time(10 + i * 4)
         try:
             success = generate_long_video(trend['title'], trend['category'],
                                           f"long-{datetime.now().strftime('%Y%m%d')}-{i+1}", publish_at=publish_time)

@@ -48,8 +48,9 @@ jobs:
           echo "$HOME/.local/bin" >> $GITHUB_PATH
       - run: uv pip install --system -r requirements.txt
       - run: pip install flake8 pyright
-      - run: flake8 crew/ utils/ main.py --max-line-length=120
+      - run: flake8 crew/ utils/ main.py tests/ --max-line-length=120
       - run: pyright .
+      - run: python -m pytest tests/ -v
 
   bot-lint:
     name: Bot Lint & Test

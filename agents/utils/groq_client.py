@@ -98,7 +98,7 @@ def _groq_completion(prompt: str, system_prompt: str = "", temperature: float = 
             )
             content = response.choices[0].message.content
             return content if content is not None else ""
-        except RateLimitError as e:
+        except RateLimitError:
             wait = 10 * (2 ** attempt)
             print(f"[GROQ] Rate limited (attempt {attempt+1}/{max_retries}), waiting {wait}s")
             time.sleep(wait)

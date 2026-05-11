@@ -9,7 +9,7 @@ def _groq_has_quota() -> bool:
     if not groq_key:
         return False
     if os.environ.get('GROQ_RATE_LIMITED'):
-        print(f"[LLM] Groq previously rate-limited, skipping to Gemini")
+        print("[LLM] Groq previously rate-limited, skipping to Gemini")
         return False
     return True
 
