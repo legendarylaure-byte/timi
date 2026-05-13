@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from 'react';
 import { motion } from 'framer-motion';
-import { db } from '@/lib/firebase';
+import { db, auth } from '@/lib/firebase';
 import { collection, query, orderBy, limit, getDocs, doc, setDoc, addDoc, serverTimestamp } from 'firebase/firestore';
 
 interface PredictionResult {
@@ -41,6 +41,15 @@ interface AnalyticsSummary {
   last_updated: string;
 }
 
+interface ChannelStats {
+  channel_name: string;
+  subscribers: string;
+  total_views: string;
+  video_count: string;
+  thumbnail: string;
+  last_updated: string | null;
+}
+
 const categories = ['Self-Learning', 'Bedtime Stories', 'Mythology Stories', 'Animated Fables', 'Science for Kids', 'Rhymes & Songs', 'Colors & Shapes'];
 
 export default function AnalyticsPage() {
@@ -54,6 +63,8 @@ export default function AnalyticsPage() {
   const [analytics, setAnalytics] = useState<VideoAnalytics[]>([]);
   const [summary, setSummary] = useState<AnalyticsSummary | null>(null);
   const [analyticsLoading, setAnalyticsLoading] = useState(true);
+  const [analyticsRefreshing, setAnalyticsRefreshing] = useState(false);
+  const [channelStats, setChannelStats] = useState<ChannelStats | null>(null);
   const [sortBy, setSortBy] = useState<'views' | 'likes' | 'comments' | 'created_at'>('views');
 
   useEffect(() => {
@@ -67,22 +78,36 @@ export default function AnalyticsPage() {
     loadHistory();
   }, []);
 
-  useEffect(() => {
-    const loadAnalytics = async () => {
-      setAnalyticsLoading(true);
-      try {
-        const res = await fetch('/api/youtube/analytics?limit=50');
-        const data = await res.json();
-        if (data.success) {
-          setSummary(data.summary);
-          setAnalytics(data.videos);
-        }
-      } catch (e) {
-        console.error('[ANALYTICS] Failed to load:', e);
-      } finally {
-        setAnalyticsLoading(false);
+  const loadAnalytics = async (isRefresh = false) => {
+    if (isRefresh) setAnalyticsRefreshing(true);
+    else setAnalyticsLoading(true);
+    try {
+      const token = auth.currentUser ? await auth.currentUser.getIdToken() : '';
+      const headers: Record<string, string> = {};
+      if (token) headers['Authorization'] = `Bearer ${token}`;
+
+      const [analyticsRes, channelRes] = await Promise.all([
+        fetch('/api/youtube/analytics?limit=50', { headers }),
+        fetch('/api/youtube/channel', { headers }),
+      ]);
+      const analyticsData = await analyticsRes.json();
+      if (analyticsData.success) {
+        setSummary(analyticsData.summary);
+        setAnalytics(analyticsData.videos);
       }
-    };
+      const channelData = await channelRes.json();
+      if (channelData.success && channelData.channel) {
+        setChannelStats(channelData.channel);
+      }
+    } catch (e) {
+      console.error('[ANALYTICS] Failed to load:', e);
+    } finally {
+      setAnalyticsLoading(false);
+      setAnalyticsRefreshing(false);
+    }
+  };
+
+  useEffect(() => {
     loadAnalytics();
   }, []);
 
@@ -97,14 +122,31 @@ export default function AnalyticsPage() {
     setPrediction(null);
 
     try {
-      const fallback = generateLocalPrediction(title, selectedCategory, format);
-      setPrediction(fallback);
+      const token = auth.currentUser ? await auth.currentUser.getIdToken() : '';
+      const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+      if (token) headers['Authorization'] = `Bearer ${token}`;
+
+      const res = await fetch('/api/predict', {
+        method: 'POST',
+        headers,
+        body: JSON.stringify({ title, category: selectedCategory, format, script: scriptPreview }),
+      });
+      const data = await res.json();
+
+      let result: PredictionResult;
+      if (data.success && data.prediction) {
+        result = data.prediction;
+      } else {
+        result = generateLocalPrediction(title, selectedCategory, format);
+      }
+
+      setPrediction(result);
 
       await addDoc(collection(db, 'predictions'), {
         title,
         category: selectedCategory,
         format,
-        ...fallback,
+        ...result,
         created_at: serverTimestamp(),
       });
 
@@ -113,6 +155,8 @@ export default function AnalyticsPage() {
       setHistory(snap.docs.map(d => ({ id: d.id, ...d.data() })));
     } catch (e) {
       console.error(e);
+      const fallback = generateLocalPrediction(title, selectedCategory, format);
+      setPrediction(fallback);
     } finally {
       setLoading(false);
     }
@@ -138,6 +182,33 @@ export default function AnalyticsPage() {
         </div>
       ) : summary && (
         <>
+          {channelStats && (
+            <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} className="relative rounded-2xl overflow-hidden glass-strong border border-light-border/50 dark:border-white/10 p-5">
+              <div className="flex items-center gap-4">
+                {channelStats.thumbnail && (
+                  <img src={channelStats.thumbnail} alt="" className="w-16 h-16 rounded-xl" />
+                )}
+                <div className="flex-1 min-w-0">
+                  <h2 className="text-lg font-bold text-light-text dark:text-dark-text truncate">{channelStats.channel_name}</h2>
+                  <div className="flex gap-4 mt-2 text-sm">
+                    <div>
+                      <span className="text-light-muted dark:text-dark-muted">Subscribers </span>
+                      <span className="font-semibold text-light-text dark:text-dark-text">{formatNumber(Number(channelStats.subscribers))}</span>
+                    </div>
+                    <div>
+                      <span className="text-light-muted dark:text-dark-muted">Total Views </span>
+                      <span className="font-semibold text-light-text dark:text-dark-text">{formatNumber(Number(channelStats.total_views))}</span>
+                    </div>
+                    <div>
+                      <span className="text-light-muted dark:text-dark-muted">Videos </span>
+                      <span className="font-semibold text-light-text dark:text-dark-text">{channelStats.video_count}</span>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </motion.div>
+          )}
+
           <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} className="grid grid-cols-2 lg:grid-cols-4 gap-4">
             {[
               { label: 'Total Views', value: formatNumber(summary.total_views), icon: '👁️', color: 'from-blue-500 to-purple-500' },
@@ -224,9 +295,18 @@ export default function AnalyticsPage() {
                 </div>
               )}
               {summary.last_updated && (
-                <p className="text-xs text-light-muted dark:text-dark-muted mt-4 text-right">
-                  Last updated: {new Date(summary.last_updated).toLocaleString()}
-                </p>
+                <div className="flex items-center justify-end gap-3 mt-4">
+                  <p className="text-xs text-light-muted dark:text-dark-muted">
+                    Last updated: {new Date(summary.last_updated).toLocaleString()}
+                  </p>
+                  <button
+                    onClick={() => loadAnalytics(true)}
+                    disabled={analyticsRefreshing}
+                    className="px-3 py-1.5 rounded-lg text-xs font-medium bg-light-bg dark:bg-dark-bg border border-light-border/30 dark:border-white/10 text-light-text dark:text-dark-text hover:bg-light-border/50 dark:hover:bg-dark-border/50 transition-all disabled:opacity-50"
+                  >
+                    {analyticsRefreshing ? 'Refreshing...' : 'Refresh'}
+                  </button>
+                </div>
               )}
             </div>
           </motion.div>

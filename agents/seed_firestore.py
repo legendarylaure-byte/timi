@@ -1,11 +1,13 @@
 """Seed Firestore with initial pipeline data for dashboard monitoring."""
+import os
 import firebase_admin
 from firebase_admin import credentials, firestore
 from datetime import datetime, timezone
 
 cred = credentials.Certificate('firebase/serviceAccountKey.json')
+project_id = os.getenv('FIREBASE_PROJECT_ID', 'timi-children-stories')
 firebase_admin.initialize_app(cred, {
-    'projectId': 'timi-childern-stories',
+    'projectId': project_id,
 })
 db = firestore.client()
 
@@ -22,6 +24,7 @@ AGENT_ROLES = [
     ('quality_scorer', 'Quality Scorer', '#10B981', 'idle', 'Waiting for next task'),
     ('trend_discovery', 'Trend Scout', '#F97316', 'idle', 'Scanning for trending topics'),
     ('repurposer', 'Content Repurposer', '#06B6D4', 'idle', 'Waiting for videos to repurpose'),
+    ('scheduler', 'Scheduler AI', '#06D6A0', 'idle', 'Planning daily content schedule'),
 ]
 
 print('Seeding agent_status...')

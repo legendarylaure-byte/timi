@@ -1,5 +1,10 @@
 export const APP_NAME = process.env.NEXT_PUBLIC_APP_NAME || 'Vyom Ai Cloud';
-export const APP_URL = process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000';
+export const APP_URL = process.env.NEXT_PUBLIC_APP_URL || (() => {
+  if (typeof window !== 'undefined') {
+    console.warn('NEXT_PUBLIC_APP_URL not set — falling back to localhost. YouTube OAuth redirects will break in production.');
+  }
+  return 'http://localhost:3000';
+})();
 
 export const AGENT_ROLES = [
   { id: 'scriptwriter', name: 'Scriptwriter', emoji: 'writer', color: '#FF6B6B' },
@@ -14,6 +19,7 @@ export const AGENT_ROLES = [
   { id: 'quality_scorer', name: 'Quality Scorer', emoji: 'quality', color: '#10B981' },
   { id: 'trend_discovery', name: 'Trend Scout', emoji: 'trends', color: '#F97316' },
   { id: 'repurposer', name: 'Content Repurposer', emoji: 'repurpose', color: '#06B6D4' },
+  { id: 'scheduler', name: 'Scheduler AI', emoji: 'scheduler', color: '#06D6A0' },
 ];
 
 export const AGENT_STATUS = {
@@ -72,4 +78,5 @@ export const HUMAN_READABLE_ACTIONS: Record<string, string> = {
   scoring: 'evaluating content quality',
   discovering_trends: 'finding trending topics',
   repurposing: 'splitting videos into shorts',
+  planning: 'planning daily content schedule',
 };
