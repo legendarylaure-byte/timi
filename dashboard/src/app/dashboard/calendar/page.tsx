@@ -1,9 +1,9 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { db } from '@/lib/firebase';
-import { collection, onSnapshot, doc, query, where, orderBy, getDocs } from 'firebase/firestore';
+import { collection, onSnapshot, doc, query, where, orderBy } from 'firebase/firestore';
 import Image from 'next/image';
 
 interface VideoDoc {
@@ -75,37 +75,13 @@ export default function CalendarPage() {
   const [loading, setLoading] = useState(true);
   const [selectedItem, setSelectedItem] = useState<VideoDoc | null>(null);
 
+  const [videos, setVideos] = useState<VideoDoc[]>([]);
+  const [triggers, setTriggers] = useState<VideoDoc[]>([]);
+  const [planVideos, setPlanVideos] = useState<VideoDoc[]>([]);
+
+  const weekEnd = useMemo(() => getWeekEnd(weekStart), [weekStart]);
+
   useEffect(() => {
-    const weekEnd = getWeekEnd(weekStart);
-
-    const buildDays = (videos: VideoDoc[], triggers: VideoDoc[], planVideos: VideoDoc[]) => {
-      const days: CalendarDay[] = [];
-      for (let i = 0; i < 7; i++) {
-        const date = new Date(weekStart);
-        date.setDate(date.getDate() + i);
-        days.push({ date, items: [] });
-      }
-
-      const seen = new Set<string>();
-
-      const addItem = (item: VideoDoc) => {
-        const key = `${item._source}-${item.id}`;
-        if (seen.has(key)) return;
-        seen.add(key);
-        const dateStr = extractDateStr(item);
-        if (!dateStr) return;
-        const day = days.find((d) => d.date.toISOString().slice(0, 10) === dateStr);
-        if (day) day.items.push(item);
-      };
-
-      videos.forEach(addItem);
-      triggers.forEach(addItem);
-      planVideos.forEach(addItem);
-
-      days.forEach((d) => d.items.sort((a, b) => (b.priority || 50) - (a.priority || 50)));
-      return days;
-    };
-
     const unsubVideo = onSnapshot(
       query(
         collection(db, 'videos'),
@@ -114,91 +90,114 @@ export default function CalendarPage() {
         orderBy('created_at', 'asc'),
       ),
       (snapshot) => {
-        const videos = snapshot.docs.map((d) => ({ id: d.id, ...d.data(), _source: 'video' } as VideoDoc));
-
-        getDocs(query(
-          collection(db, 'pipeline_triggers'),
-          where('created_at', '>=', weekStart.toISOString()),
-          where('created_at', '<=', weekEnd.toISOString()),
-          orderBy('created_at', 'asc'),
-        )).catch(() => ({ docs: [] } as any)).then((triggerSnap: any) => {
-          const triggers = (triggerSnap.docs || []).map((d: any) => {
-            const data = d.data() as any;
-            return {
-              id: d.id,
-              title: data.topic || data.title || 'Untitled',
-              format: data.format || 'shorts',
-              status: data.status || 'pending',
-              category: data.category || 'General',
-              publish_at: data.publish_at || (data.created_at?.toDate?.()?.toISOString() || ''),
-              created_at: data.created_at,
-              _source: 'trigger',
-              priority: 80,
-            } as VideoDoc;
-          });
-
-          const days = buildDays(videos, triggers, []);
-          setCalendarData(days);
-          setLoading(false);
-        });
+        setVideos(snapshot.docs.map((d) => ({ id: d.id, ...d.data(), _source: 'video' } as VideoDoc)));
+        setLoading(false);
+      },
+      (err) => {
+        console.error('Videos snapshot error:', err);
+        setLoading(false);
       },
     );
 
-    const unsubPlan = onSnapshot(doc(db, 'system', 'content_plan'), (docSnap) => {
-      if (!docSnap.exists()) return;
-      const planData = docSnap.data();
-      if (!planData?.videos?.length) return;
-
-      const planVideos: VideoDoc[] = (planData.videos || [])
-        .filter((v: any) => {
-          const pd = planData.plan_date;
-          if (!pd) return true;
-          const d = new Date(pd + 'T00:00:00');
-          const now = new Date();
-          const weekAgo = new Date(now.getTime() - 7 * 86400000);
-          const planEnd = new Date(now.getTime() + 7 * 86400000);
-          return d >= weekAgo && d <= planEnd;
-        })
-        .map((v: any, i: number) => ({
-          id: `plan-${i}`,
-          title: v.title,
-          format: v.format || 'shorts',
-          status: 'planned',
-          category: v.category,
-          character: v.character,
-          priority: v.priority || 50,
-          reasoning: v.reasoning || '',
-          publish_at: planData.plan_date || new Date().toISOString(),
-          _source: 'plan',
+    const unsubTrigger = onSnapshot(
+      query(
+        collection(db, 'pipeline_triggers'),
+        where('created_at', '>=', weekStart.toISOString()),
+        where('created_at', '<=', weekEnd.toISOString()),
+        orderBy('created_at', 'asc'),
+      ),
+      (snapshot) => {
+        setTriggers(snapshot.docs.map((d) => {
+          const data = d.data() as any;
+          return {
+            id: d.id,
+            title: data.topic || data.title || 'Untitled',
+            format: data.format || 'shorts',
+            status: data.status || 'pending',
+            category: data.category || 'General',
+            publish_at: data.publish_at || (data.created_at?.toDate?.()?.toISOString() || ''),
+            created_at: data.created_at,
+            _source: 'trigger',
+            priority: 80,
+          } as VideoDoc;
         }));
+      },
+      (err) => console.error('Triggers snapshot error:', err),
+    );
 
-      setCalendarData((prev) => {
-        const days: CalendarDay[] = [];
-        for (let i = 0; i < 7; i++) {
-          const date = new Date(weekStart);
-          date.setDate(date.getDate() + i);
-          days.push({ date, items: [...(prev[i]?.items || [])] });
+    const unsubPlan = onSnapshot(
+      doc(db, 'system', 'content_plan'),
+      (docSnap) => {
+        if (!docSnap.exists()) {
+          setPlanVideos([]);
+          return;
         }
-        const seen = new Set(days.flatMap((d) => d.items.map((it) => `${it._source}-${it.id}`)));
-        planVideos.forEach((pv) => {
-          if (seen.has(`plan-${pv.id}`)) return;
-          const ds = extractDateStr(pv);
-          if (!ds) return;
-          const day = days.find((d) => d.date.toISOString().slice(0, 10) === ds);
-          if (day) {
-            day.items.push(pv);
-            seen.add(`plan-${pv.id}`);
-          }
-        });
-        return days;
-      });
-    });
+        const planData = docSnap.data();
+        if (!planData?.videos?.length) {
+          setPlanVideos([]);
+          return;
+        }
+        const items: VideoDoc[] = (planData.videos || [])
+          .filter((v: any) => {
+            const pd = planData.plan_date;
+            if (!pd) return true;
+            const d = new Date(pd + 'T00:00:00');
+            const now = new Date();
+            const weekAgo = new Date(now.getTime() - 7 * 86400000);
+            const planEnd = new Date(now.getTime() + 7 * 86400000);
+            return d >= weekAgo && d <= planEnd;
+          })
+          .map((v: any, i: number) => ({
+            id: `plan-${i}`,
+            title: v.title,
+            format: v.format || 'shorts',
+            status: 'planned',
+            category: v.category,
+            character: v.character,
+            priority: v.priority || 50,
+            reasoning: v.reasoning || '',
+            publish_at: planData.plan_date || new Date().toISOString(),
+            _source: 'plan',
+          }));
+        setPlanVideos(items);
+      },
+      (err) => console.error('Content plan snapshot error:', err),
+    );
 
     return () => {
       unsubVideo();
+      unsubTrigger();
       unsubPlan();
     };
-  }, [weekStart]);
+  }, [weekStart, weekEnd]);
+
+  useEffect(() => {
+    const days: CalendarDay[] = [];
+    for (let i = 0; i < 7; i++) {
+      const date = new Date(weekStart);
+      date.setDate(date.getDate() + i);
+      days.push({ date, items: [] });
+    }
+
+    const seen = new Set<string>();
+
+    const addItem = (item: VideoDoc) => {
+      const key = `${item._source}-${item.id}`;
+      if (seen.has(key)) return;
+      seen.add(key);
+      const dateStr = extractDateStr(item);
+      if (!dateStr) return;
+      const day = days.find((d) => d.date.toISOString().slice(0, 10) === dateStr);
+      if (day) day.items.push(item);
+    };
+
+    videos.forEach(addItem);
+    triggers.forEach(addItem);
+    planVideos.forEach(addItem);
+
+    days.forEach((d) => d.items.sort((a, b) => (b.priority || 50) - (a.priority || 50)));
+    setCalendarData(days);
+  }, [weekStart, videos, triggers, planVideos]);
 
   const dayNames = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
 
@@ -238,6 +237,9 @@ export default function CalendarPage() {
           <span className="text-sm font-semibold text-light-text dark:text-dark-text">{weekLabel}</span>
           <button onClick={nextWeek} className="px-4 py-2 rounded-xl bg-light-border/50 dark:bg-dark-border/50 text-light-text dark:text-dark-text hover:bg-light-border dark:hover:bg-dark-border transition-colors text-sm">Next &rarr;</button>
         </div>
+        {loading && (
+          <span className="text-xs text-light-muted dark:text-dark-muted animate-pulse">Loading...</span>
+        )}
         <div className="flex items-center gap-4 text-xs">
           <div className="flex items-center gap-1.5">
             <div className="w-3 h-3 rounded-full bg-gradient-to-r from-light-primary to-light-secondary" />
@@ -258,71 +260,82 @@ export default function CalendarPage() {
         </div>
       </div>
 
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 xl:grid-cols-7 gap-3">
-        {calendarData.map((day, dayIdx) => {
-          const isToday = day.date.toDateString() === new Date().toDateString();
-          const isPast = day.date < new Date(new Date().toDateString());
+      {calendarData.length === 0 && !loading ? (
+        <motion.div
+          initial={{ opacity: 0 }}
+          animate={{ opacity: 1 }}
+          className="text-center py-16 text-light-muted dark:text-dark-muted"
+        >
+          <p className="text-lg mb-2">No data available</p>
+          <p className="text-sm opacity-60">Check browser console for Firestore errors, or ensure the planner has generated content.</p>
+        </motion.div>
+      ) : (
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 xl:grid-cols-7 gap-3">
+          {calendarData.map((day, dayIdx) => {
+            const isToday = day.date.toDateString() === new Date().toDateString();
+            const isPast = day.date < new Date(new Date().toDateString());
 
-          return (
-            <motion.div
-              key={day.date.toISOString()}
-              initial={{ opacity: 0, y: 20 }}
-              animate={{ opacity: 1, y: 0 }}
-              transition={{ delay: dayIdx * 0.05 }}
-              className={`rounded-2xl border p-4 min-h-48 transition-all ${
-                isToday
-                  ? 'border-light-primary/50 bg-light-primary/5 dark:bg-light-primary/10'
-                  : 'border-light-border/30 dark:border-white/5 glass-strong'
-              } ${isPast ? 'opacity-60' : ''}`}
-            >
-              <div className="flex items-center justify-between mb-3">
-                <div className="flex items-center gap-2">
-                  <span className="text-xs font-semibold text-light-muted dark:text-dark-muted">{dayNames[dayIdx]}</span>
-                  {isToday && (
-                    <div className="w-2 h-2 rounded-full bg-light-primary animate-pulse" />
+            return (
+              <motion.div
+                key={day.date.toISOString()}
+                initial={{ opacity: 0, y: 20 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ delay: dayIdx * 0.05 }}
+                className={`rounded-2xl border p-4 min-h-48 transition-all ${
+                  isToday
+                    ? 'border-light-primary/50 bg-light-primary/5 dark:bg-light-primary/10'
+                    : 'border-light-border/30 dark:border-white/5 glass-strong'
+                } ${isPast ? 'opacity-60' : ''}`}
+              >
+                <div className="flex items-center justify-between mb-3">
+                  <div className="flex items-center gap-2">
+                    <span className="text-xs font-semibold text-light-muted dark:text-dark-muted">{dayNames[dayIdx]}</span>
+                    {isToday && (
+                      <div className="w-2 h-2 rounded-full bg-light-primary animate-pulse" />
+                    )}
+                  </div>
+                  <span className="text-lg font-bold text-light-text dark:text-dark-text">{day.date.getDate()}</span>
+                </div>
+
+                <div className="space-y-2">
+                  {day.items.length === 0 ? (
+                    <p className="text-xs text-light-muted dark:text-dark-muted/50 text-center py-4">No content planned</p>
+                  ) : (
+                    day.items.map((item) => {
+                      const fmt = (item.format || 'shorts') as string;
+                      const displayStatus = item.status || 'planned';
+
+                      return (
+                        <motion.button
+                          key={`${item._source}-${item.id}`}
+                          onClick={() => setSelectedItem(item)}
+                          whileHover={{ scale: 1.02 }}
+                          whileTap={{ scale: 0.98 }}
+                          className={`w-full text-left p-2.5 rounded-xl border bg-gradient-to-br ${formatColors[fmt]} transition-all ${statusColors[displayStatus]}`}
+                        >
+                          <div className="flex items-center justify-between mb-1">
+                            <span className="text-xs font-semibold text-light-text dark:text-dark-text truncate pr-1">
+                              {fmt === 'shorts' ? '\uD83D\uDCF1' : '\uD83C\uDFAC'} {item.title || 'Untitled'}
+                            </span>
+                          </div>
+                          <div className="flex items-center gap-1.5">
+                            <span className={`text-[10px] px-1.5 py-0.5 rounded-full border ${statusColors[displayStatus]}`}>
+                              {displayStatus}
+                            </span>
+                            {item.character && (
+                              <span className="text-[10px] text-light-muted dark:text-dark-muted">{item.character}</span>
+                            )}
+                          </div>
+                        </motion.button>
+                      );
+                    })
                   )}
                 </div>
-                <span className="text-lg font-bold text-light-text dark:text-dark-text">{day.date.getDate()}</span>
-              </div>
-
-              <div className="space-y-2">
-                {day.items.length === 0 ? (
-                  <p className="text-xs text-light-muted dark:text-dark-muted/50 text-center py-4">No content planned</p>
-                ) : (
-                  day.items.map((item) => {
-                    const fmt = (item.format || 'shorts') as string;
-                    const displayStatus = item.status || 'planned';
-
-                    return (
-                      <motion.button
-                        key={`${item._source}-${item.id}`}
-                        onClick={() => setSelectedItem(item)}
-                        whileHover={{ scale: 1.02 }}
-                        whileTap={{ scale: 0.98 }}
-                        className={`w-full text-left p-2.5 rounded-xl border bg-gradient-to-br ${formatColors[fmt]} transition-all ${statusColors[displayStatus]}`}
-                      >
-                        <div className="flex items-center justify-between mb-1">
-                          <span className="text-xs font-semibold text-light-text dark:text-dark-text truncate pr-1">
-                            {fmt === 'shorts' ? '\uD83D\uDCF1' : '\uD83C\uDFAC'} {item.title || 'Untitled'}
-                          </span>
-                        </div>
-                        <div className="flex items-center gap-1.5">
-                          <span className={`text-[10px] px-1.5 py-0.5 rounded-full border ${statusColors[displayStatus]}`}>
-                            {displayStatus}
-                          </span>
-                          {item.character && (
-                            <span className="text-[10px] text-light-muted dark:text-dark-muted">{item.character}</span>
-                          )}
-                        </div>
-                      </motion.button>
-                    );
-                  })
-                )}
-              </div>
-            </motion.div>
-          );
-        })}
-      </div>
+              </motion.div>
+            );
+          })}
+        </div>
+      )}
 
       <AnimatePresence>
         {selectedItem && (
