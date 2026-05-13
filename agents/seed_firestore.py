@@ -5,7 +5,7 @@ from firebase_admin import credentials, firestore
 from datetime import datetime, timezone
 
 cred = credentials.Certificate('firebase/serviceAccountKey.json')
-project_id = os.getenv('FIREBASE_PROJECT_ID', 'timi-children-stories')
+project_id = os.getenv('FIREBASE_PROJECT_ID', 'timi-childern-stories')
 firebase_admin.initialize_app(cred, {
     'projectId': project_id,
 })
