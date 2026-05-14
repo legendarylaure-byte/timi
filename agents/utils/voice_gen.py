@@ -132,7 +132,7 @@ def extract_narration_text(script: str, is_long_form: bool = False) -> str:
     result = re.sub(r'\s+', ' ', result).strip()
     result = re.sub(r'[^\w\s.,!?\'\-:;()&%$#@+=]', '', result)
     result = re.sub(r'\s+', ' ', result).strip()
-    if not result or len(result) < 20:
+    if not result or len(result) < 100:
         print("[voice_gen] WARNING: Narration extraction produced empty/short text, using fallback")
         fallback_lines = []
         for line in lines:
@@ -282,6 +282,7 @@ def concatenate_audio(segment_files: list[str], output_path: str) -> bool:
 
 
 async def generate_voiceover(script: str, voice: str = DEFAULT_VOICE, output_filename: str = "voiceover.wav", content_type: str = "general", is_long_form: bool = False) -> dict:  # noqa: E501
+    VOICE_DIR.mkdir(parents=True, exist_ok=True)
     narration_text = extract_narration_text(script, is_long_form=is_long_form)
     print(f"[voice_gen] Original script: {len(script)} chars -> Narration: {len(narration_text)} chars")
     if not narration_text.strip():

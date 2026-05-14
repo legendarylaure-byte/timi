@@ -1,5 +1,6 @@
 import os
 import subprocess
+import shutil
 from pathlib import Path
 from datetime import datetime
 from typing import Optional
@@ -11,6 +12,27 @@ TEMP_DIR = Path(__file__).parent.parent / "tmp" / "compilation"
 TEMP_DIR.mkdir(parents=True, exist_ok=True)
 
 
+def _find_executable(name: str) -> str:
+    """Locate ffmpeg/ffprobe, checking env var override first, then common paths."""
+    env_key = name.upper() + "_PATH"
+    override = os.getenv(env_key)
+    if override and os.path.isfile(override) and os.access(override, os.X_OK):
+        return override
+    resolved = shutil.which(name)
+    if resolved:
+        return resolved
+    common = ["/usr/bin", "/usr/local/bin", "/opt/homebrew/bin", "/opt/homebrew/opt/ffmpeg/bin"]
+    for d in common:
+        candidate = os.path.join(d, name)
+        if os.path.isfile(candidate) and os.access(candidate, os.X_OK):
+            return candidate
+    return name
+
+
+_FFMPEG = _find_executable("ffmpeg")
+_FFPROBE = _find_executable("ffprobe")
+
+
 def create_compilation(
     video_paths: list[str],
     titles: list[str],
@@ -19,6 +41,7 @@ def create_compilation(
     outro_text: str = "",
     target_format: str = "long",
 ) -> dict:
+    TEMP_DIR.mkdir(parents=True, exist_ok=True)
     if not video_paths:
         return {"success": False, "error": "No video paths provided"}
 
@@ -60,7 +83,7 @@ def create_compilation(
         output_filename = f"compilation_{timestamp}.mp4"
 
     output_path = str(COMPILATION_DIR / output_filename)
-    cmd = ["ffmpeg", "-y", "-f", "concat", "-safe", "0", "-i", concat_list,
+    cmd = [_FFMPEG, "-y", "-f", "concat", "-safe", "0", "-i", concat_list,
            "-c:v", "libx264", "-preset", "fast", "-crf", "23",
            "-pix_fmt", "yuv420p", "-c:a", "aac", "-b:a", "128k", output_path]
 
@@ -90,7 +113,7 @@ def create_compilation(
 def _get_duration(file_path: str) -> float:
     try:
         result = subprocess.run(
-            ["ffprobe", "-v", "error", "-show_entries", "format=duration",
+            [_FFPROBE, "-v", "error", "-show_entries", "format=duration",
              "-of", "default=noprint_wrappers=1:nokey=1", file_path],
             capture_output=True, text=True, timeout=10
         )
@@ -103,7 +126,7 @@ def _ensure_format(input_path: str, output_path: str, target_format: str) -> boo
     target = {"long": ("1920", "1080"), "shorts": ("1080", "1920")}
     w, h = target.get(target_format, ("1920", "1080"))
     cmd = [
-        "ffmpeg", "-y", "-i", input_path,
+        _FFMPEG, "-y", "-i", input_path,
         "-vf", f"scale={w}:{h}:force_original_aspect_ratio=increase,crop={w}:{h}",
         "-c:v", "libx264", "-preset", "fast", "-crf", "23",
         "-c:a", "aac", "-b:a", "128k", "-pix_fmt", "yuv420p", output_path,
@@ -117,7 +140,7 @@ def _ensure_format(input_path: str, output_path: str, target_format: str) -> boo
 def _generate_transition(temp_dir: Path, idx: int) -> str:
     transition_path = str(temp_dir / f"transition_{idx:03d}.mp4")
     cmd = [
-        "ffmpeg", "-y", "-f", "lavfi", "-i", "color=c=black:s=1920x1080:d=0.5",
+        _FFMPEG, "-y", "-f", "lavfi", "-i", "color=c=black:s=1920x1080:d=0.5",
         "-c:v", "libx264", "-preset", "fast", "-crf", "23",
         "-pix_fmt", "yuv420p", "-an", transition_path,
     ]
@@ -136,6 +159,7 @@ def create_compilation_from_shorts(
     title: str = "",
     min_duration_seconds: int = 480,
 ) -> dict:
+    TEMP_DIR.mkdir(parents=True, exist_ok=True)
     eligible = [s for s in shorts_data if os.path.exists(s.get("path", ""))]
 
     if not eligible:

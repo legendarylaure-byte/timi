@@ -75,6 +75,7 @@ def generate_melody(duration_seconds: float, mood: str = "playful", output_path:
 
 
 def generate_background_music(category: str, duration: float = 60, output_filename: Optional[str] = None) -> dict:
+    MUSIC_DIR.mkdir(parents=True, exist_ok=True)
     mood = detect_mood(category)
     if output_filename is None:
         output_filename = f"bg_{mood}.wav"

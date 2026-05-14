@@ -27,6 +27,7 @@ def load_word_timing(timing_file: str) -> list[dict]:
 
 
 def generate_srt(timing_file: str, full_text: str, output_path: Optional[str] = None, language: str = "en") -> str:
+    SUBTITLE_DIR.mkdir(parents=True, exist_ok=True)
     phrases = load_phrase_timing(timing_file)
 
     if not phrases:
@@ -55,6 +56,7 @@ def generate_srt(timing_file: str, full_text: str, output_path: Optional[str] = 
 
 
 def generate_vtt(timing_file: str, full_text: str, output_path: Optional[str] = None, language: str = "en") -> str:
+    SUBTITLE_DIR.mkdir(parents=True, exist_ok=True)
     phrases = load_phrase_timing(timing_file)
 
     if not phrases:

@@ -141,7 +141,17 @@ def add_text_overlay(video_path: str, text: str, output_path: str, fontsize: int
         return False
 
 
-KIDS_FONT = "Marker Felt"
+import shutil
+
+KIDS_FONT = os.getenv("KIDS_FONT", "")
+if not KIDS_FONT:
+    candidates = ["Marker Felt", "Comic Sans MS", "Chalkboard SE", "Arial Rounded MT Bold", "DejaVu Sans", "Liberation Sans"]
+    for c in candidates:
+        if shutil.which(c) or os.path.exists(f"/System/Library/Fonts/{c}.ttf"):
+            KIDS_FONT = c
+            break
+    if not KIDS_FONT:
+        KIDS_FONT = "Arial"
 KIDS_SUB_COLORS = [
     {"primary": "&H00FFFF&", "outline": "&H0000FF&"},
     {"primary": "&HFF00FF&", "outline": "&H000080&"},
@@ -152,6 +162,7 @@ KIDS_SUB_COLORS = [
 
 
 def burn_subtitles(video_path: str, subtitle_path: str, output_path: str, fontsize: int = 24, is_kids: bool = True) -> bool:  # noqa: E501
+    TEMP_DIR.mkdir(parents=True, exist_ok=True)
     abs_subtitle = os.path.abspath(subtitle_path)
     if is_kids:
         temp_ass = str(TEMP_DIR / "kids_subtitles.ass")
@@ -244,6 +255,7 @@ def _convert_srt_to_kids_ass(srt_path: str, ass_path: str, base_fontsize: int = 
 
 
 def add_chapter_markers(video_path: str, chapters: list[dict], output_path: str) -> bool:
+    TEMP_DIR.mkdir(parents=True, exist_ok=True)
     metadata_path = str(TEMP_DIR / "chapters_metadata.txt")
     with open(metadata_path, "w") as f:
         f.write(";FFMETADATA1\n")
@@ -270,6 +282,7 @@ def add_chapter_markers(video_path: str, chapters: list[dict], output_path: str)
 
 
 def composite_video(clips: list[dict], voice_path: str, music_path: Optional[str] = None, format_type: str = "shorts", video_id: str = "output", subtitle_path: Optional[str] = None, chapters: Optional[list] = None, category: str = "") -> Optional[str]:  # noqa: E501
+    TEMP_DIR.mkdir(parents=True, exist_ok=True)
     target = ASPECT_RATIOS.get(format_type, ASPECT_RATIOS["long"])
     tw, th = target["w"], target["h"]
 

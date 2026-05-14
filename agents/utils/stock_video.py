@@ -1,5 +1,7 @@
 import os
 import time
+import threading
+import shutil
 import requests
 import subprocess
 from pathlib import Path
@@ -16,6 +18,7 @@ CLIPS_DIR.mkdir(parents=True, exist_ok=True)
 
 _API_CACHE = {}
 _PIXABAY_BLOCKED = False
+_PIXABAY_LOCK = threading.Lock()
 _API_LAST_CALL = 0.0
 
 
@@ -84,7 +87,8 @@ def _handle_rate_limit(resp: requests.Response, source: str, max_retries: int = 
         return resp
     if source == "Pixabay":
         print("[stock_video] Pixabay rate limited (429) — disabling Pixabay for this run")
-        _PIXABAY_BLOCKED = True
+        with _PIXABAY_LOCK:
+            _PIXABAY_BLOCKED = True
         return resp
     wait_time = 10
     retry_header = resp.headers.get('Retry-After')
@@ -161,8 +165,9 @@ def _search_pixabay_uncached(query: str) -> list[dict]:
     if not PIXABAY_API_KEY:
         print("[stock_video] PIXABAY_API_KEY is empty — set it in GitHub secrets")
         return []
-    if _PIXABAY_BLOCKED:
-        return []
+    with _PIXABAY_LOCK:
+        if _PIXABAY_BLOCKED:
+            return []
     _rate_limit_delay()
     params = {
         "key": PIXABAY_API_KEY,
@@ -272,6 +277,7 @@ def search_and_download(
     orientation: str = "landscape",
     scene_idx: int = 0,
 ) -> Optional[dict]:
+    CLIPS_DIR.mkdir(parents=True, exist_ok=True)
     expanded = _keyword_expand(scene_keyword)
     all_candidates = _search_providers(expanded, orientation)
 
@@ -345,8 +351,13 @@ def search_videos_for_scenes(scenes: list[dict], orientation: str = "landscape")
             print(f"[stock_video] -> FAILED for '{keyword}' after {max_retries_per_scene} attempts")
             if clips:
                 prev_clip = clips[-1]
+                fallback_path = str(CLIPS_DIR / f"fallback_{keyword[:20]}_{int(time.time())}.mp4")
+                try:
+                    shutil.copy2(prev_clip["path"], fallback_path)
+                except Exception:
+                    fallback_path = prev_clip["path"]
                 clips.append({
-                    "path": prev_clip["path"],
+                    "path": fallback_path,
                     "duration": prev_clip["duration"] * 0.5,
                     "width": prev_clip["width"],
                     "height": prev_clip["height"],
