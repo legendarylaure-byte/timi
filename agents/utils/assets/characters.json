@@ -1,0 +1,143 @@
+{
+  "pixel": {
+    "name": "Pixel",
+    "title": "The Curious Robot",
+    "tagline": "What shall we learn today?",
+    "colors": {
+      "body": "#FF69B4",
+      "body_secondary": "#FF1493",
+      "face": "#FFE4E1",
+      "eyes": "#FFFFFF",
+      "pupils": "#4B0082",
+      "screen": "#E6E6FA",
+      "screen_glow": "#9370DB",
+      "antenna": "#C0C0C0",
+      "antenna_light": "#FF69B4"
+    },
+    "size_default": 1.0,
+    "animations": {
+      "bounce": {"amplitude": 15, "frequency": 2.0},
+      "float": {"amplitude": 8, "period": 3.0},
+      "wave": {"max_angle": 25, "frequency": 2.5},
+      "grow": {"scale_min": 0.8, "scale_max": 1.15, "frequency": 1.5},
+      "wiggle": {"amplitude": 5, "frequency": 4.0},
+      "slide_in": {"direction": "left", "duration": 0.5},
+      "thinking": {"angle_range": 15, "frequency": 0.5}
+    },
+    "poses": ["idle", "happy", "wave", "point", "surprised", "thinking", "sleep"],
+    "expressions": ["neutral", "happy", "excited", "curious"],
+    "categories": ["Self-Learning", "Science for Kids", "Tech & AI"]
+  },
+  "nova": {
+    "name": "Nova",
+    "title": "The Dreamy Star",
+    "tagline": "Close your eyes and dream with me...",
+    "colors": {
+      "body": "#FFD700",
+      "body_secondary": "#FFA500",
+      "glow": "#FFF8DC",
+      "glow_inner": "#FFEFD5",
+      "eyes": "#FFFFFF",
+      "pupils": "#8B4513",
+      "cheeks": "#FFB6C1",
+      "sparkles": "#FFE4B5"
+    },
+    "size_default": 0.9,
+    "animations": {
+      "bounce": {"amplitude": 12, "frequency": 1.5},
+      "float": {"amplitude": 10, "period": 4.0},
+      "twinkle": {"scale_min": 0.85, "scale_max": 1.1, "frequency": 0.8},
+      "slide_in": {"direction": "top", "duration": 0.7},
+      "spin": {"speed": 30, "direction": "cw"},
+      "glide": {"amplitude": 6, "period": 2.5}
+    },
+    "poses": ["idle", "happy", "wave", "point", "surprised", "thinking", "sleep"],
+    "expressions": ["neutral", "happy", "calm", "dreamy"],
+    "categories": ["Bedtime Stories", "Mythology Stories", "Animated Fables"]
+  },
+  "ziggy": {
+    "name": "Ziggy",
+    "title": "The Rainbow Shapeshifter",
+    "tagline": "Let's color the world!",
+    "colors": {
+      "body_1": "#FF0000",
+      "body_2": "#FF8C00",
+      "body_3": "#FFD700",
+      "body_4": "#00FF00",
+      "body_5": "#4169E1",
+      "body_6": "#9932CC",
+      "eyes": "#FFFFFF",
+      "pupils": "#000000",
+      "cheeks": "#FFB6C1",
+      "aura": "#FFE4B5"
+    },
+    "size_default": 1.1,
+    "animations": {
+      "bounce": {"amplitude": 20, "frequency": 2.5},
+      "float": {"amplitude": 12, "period": 2.0},
+      "morph": {"shape_cycle": ["circle", "star", "heart", "diamond"], "interval": 2.0},
+      "slide_in": {"direction": "right", "duration": 0.4},
+      "wiggle": {"amplitude": 8, "frequency": 5.0},
+      "dance": {"amplitude": 18, "frequency": 3.0}
+    },
+    "poses": ["idle", "happy", "wave", "point", "surprised", "thinking", "dance"],
+    "expressions": ["neutral", "happy", "excited", "silly"],
+    "categories": ["Rhymes & Songs", "Colors & Shapes", "DIY & Crafts"]
+  },
+  "boop": {
+    "name": "Boop",
+    "title": "The Friendly Blob",
+    "tagline": "It's okay to make mistakes!",
+    "colors": {
+      "body": "#87CEEB",
+      "body_secondary": "#4682B4",
+      "belly": "#B0E0E6",
+      "eyes": "#FFFFFF",
+      "pupils": "#191970",
+      "cheeks": "#FFB6C1",
+      "blush": "#FF69B4",
+      "mouth": "#8B4513"
+    },
+    "size_default": 0.85,
+    "animations": {
+      "bounce": {"amplitude": 18, "frequency": 2.0},
+      "squish": {"scale_x_min": 0.7, "scale_x_max": 1.2, "frequency": 1.0},
+      "float": {"amplitude": 6, "period": 3.5},
+      "slide_in": {"direction": "bottom", "duration": 0.6},
+      "wiggle": {"amplitude": 10, "frequency": 6.0},
+      "cry": {"amplitude": 8, "frequency": 1.5},
+      "hug": {"scale_min": 0.9, "scale_max": 1.05, "frequency": 1.0}
+    },
+    "poses": ["idle", "happy", "wave", "surprised", "sad", "thinking", "sleep"],
+    "expressions": ["neutral", "happy", "sad", "surprised"],
+    "categories": ["Self-Learning", "Animated Fables"]
+  },
+  "sprout": {
+    "name": "Sprout",
+    "title": "The Nature Sprite",
+    "tagline": "Let's grow and explore!",
+    "colors": {
+      "body": "#90EE90",
+      "body_secondary": "#228B22",
+      "flower": "#FF69B4",
+      "flower_center": "#FFD700",
+      "leaves": "#32CD32",
+      "eyes": "#FFFFFF",
+      "pupils": "#006400",
+      "cheeks": "#FFB6C1",
+      "stem": "#228B22"
+    },
+    "size_default": 0.9,
+    "animations": {
+      "bounce": {"amplitude": 10, "frequency": 1.8},
+      "float": {"amplitude": 8, "period": 3.0},
+      "grow": {"scale_min": 0.7, "scale_max": 1.2, "frequency": 0.5},
+      "sway": {"amplitude": 12, "frequency": 1.2},
+      "slide_in": {"direction": "top", "duration": 0.5},
+      "bloom": {"petal_count": 6, "duration": 1.0}
+    },
+    "poses": ["idle", "happy", "wave", "point", "surprised", "growing", "sleep"],
+    "expressions": ["neutral", "happy", "curious", "peaceful"],
+    "categories": ["Science for Kids", "Animated Fables"]
+  }
+}

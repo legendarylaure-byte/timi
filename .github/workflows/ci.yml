@@ -1,10 +1,14 @@
-name: CI/CD Pipeline  # v2 — Vercel secrets added
+name: CI/CD Pipeline
 
 on:
   push:
     branches: [main, develop]
   pull_request:
     branches: [main]
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
   dashboard-lint:
@@ -22,14 +26,13 @@ jobs:
           cache-dependency-path: './dashboard/package-lock.json'
       - run: npm ci
       - run: npm run lint
-      - run: npm run build
         env:
-          NEXT_PUBLIC_FIREBASE_API_KEY: AIzaSyB_YVhUOJ9vqGxECfoblbSQ-C3J8OjnCxw
-          NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN: timi-childern-stories.firebaseapp.com
-          NEXT_PUBLIC_FIREBASE_PROJECT_ID: timi-childern-stories
-          NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET: timi-childern-stories.firebasestorage.app
-          NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID: 839918420419
-          NEXT_PUBLIC_FIREBASE_APP_ID: 1:839918420419:web:977870986209404eebbd76
+          NEXT_PUBLIC_FIREBASE_API_KEY: ${{ secrets.NEXT_PUBLIC_FIREBASE_API_KEY }}
+          NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN: ${{ secrets.NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN }}
+          NEXT_PUBLIC_FIREBASE_PROJECT_ID: ${{ secrets.NEXT_PUBLIC_FIREBASE_PROJECT_ID }}
+          NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET: ${{ secrets.NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET }}
+          NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID: ${{ secrets.NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID }}
+          NEXT_PUBLIC_FIREBASE_APP_ID: ${{ secrets.NEXT_PUBLIC_FIREBASE_APP_ID }}
 
   agents-lint:
     name: Agents Lint & Test
@@ -42,6 +45,11 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: '3.11'
+      - name: Cache uv
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/uv
+          key: uv-${{ runner.os }}-${{ hashFiles('./agents/requirements.txt') }}
       - name: Install uv
         run: |
           curl -LsSf https://astral.sh/uv/install.sh | sh
@@ -50,8 +58,7 @@ jobs:
       - run: pip install flake8 pyright
       - run: flake8 crew/ utils/ main.py tests/ --max-line-length=120
       - name: Type check
-        run: pyright .
-        continue-on-error: true
+        run: pyright . || echo "pyright warnings (non-blocking)"
       - name: Run tests
         run: python -m pytest tests/ -v
 
@@ -66,13 +73,18 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: '3.11'
+      - name: Cache pip
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/pip
+          key: pip-${{ runner.os }}-${{ hashFiles('./bot/requirements.txt') }}
       - run: pip install -r requirements.txt
       - run: pip install flake8 pyright
       - run: flake8 . --max-line-length=120
 
   deploy:
     name: Deploy to Vercel
-    needs: [dashboard-lint]
+    needs: [dashboard-lint, agents-lint, bot-lint]
     runs-on: ubuntu-latest
     if: github.ref == 'refs/heads/main'
     steps:

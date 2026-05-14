@@ -115,16 +115,26 @@ def _get_fallback_response(prompt: str, system_prompt: str = "") -> str:
 
 
 def write_heartbeat():
-    """Write heartbeat to Firestore to indicate agent is alive."""
-    try:
-        db = get_firestore_client()
-        db.collection('system').document('heartbeat').set({
-            'last_heartbeat': datetime.utcnow().isoformat(),
-            'pid': os.getpid(),
-            'uptime_minutes': (time.time() - _start_time) / 60,
-        }, merge=True)
-    except Exception as e:
-        print(f"[HEARTBEAT] Failed to write: {e}")
+    """Write heartbeat to Firestore to indicate agent is alive. Retries on 504."""
+    import random
+    max_attempts = 3
+    for attempt in range(max_attempts):
+        try:
+            db = get_firestore_client()
+            db.collection('system').document('heartbeat').set({
+                'last_heartbeat': datetime.utcnow().isoformat(),
+                'pid': os.getpid(),
+                'uptime_minutes': (time.time() - _start_time) / 60,
+            }, merge=True)
+            return
+        except Exception as e:
+            if "504" in str(e) and attempt < max_attempts - 1:
+                wait = (2 ** attempt) * 2 + random.uniform(0, 1)
+                print(f"[HEARTBEAT] 504, retrying in {wait:.1f}s (attempt {attempt + 2}/{max_attempts})")
+                time.sleep(wait)
+            else:
+                print(f"[HEARTBEAT] Failed to write: {e}")
+                return
 
 
 _start_time = time.time()

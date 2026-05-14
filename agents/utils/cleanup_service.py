@@ -140,8 +140,10 @@ def run_cleanup():
     try:
         from bot.notifications import send_telegram_message
         send_telegram_message(message)
-    except Exception:
-        print("Failed to send cleanup notification to Telegram")
+    except ImportError:
+        print("[cleanup] bot.notifications not available (cross-module import skipped — run from project root)")
+    except Exception as e:
+        print(f"[cleanup] Failed to send Telegram notification: {e}")
 
     return {
         "r2": r2_result,

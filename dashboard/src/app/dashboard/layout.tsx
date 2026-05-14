@@ -69,7 +69,14 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
     router.push('/login');
   };
 
-  if (!user) return null;
+  if (!user) return (
+    <div className="flex items-center justify-center min-h-screen bg-light-bg dark:bg-dark-bg">
+      <div className="flex flex-col items-center gap-4">
+        <div className="w-10 h-10 border-4 border-purple-500/30 border-t-purple-500 rounded-full animate-spin" />
+        <p className="text-sm text-light-muted dark:text-dark-muted">Loading...</p>
+      </div>
+    </div>
+  );
 
   const miniStats = [
     { icon: '🎬', value: '3' },
@@ -157,7 +164,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
           <div className="flex items-center gap-3 px-3 py-2">
             {user.photoURL && (
               <div className="w-8 h-8 rounded-full relative ring-2 ring-light-primary/30 shrink-0">
-                <img src={user.photoURL} alt="" className="w-full h-full rounded-full object-cover" />
+                <img src={user.photoURL} alt={user.displayName || 'User avatar'} className="w-full h-full rounded-full object-cover" />
               </div>
             )}
             {sidebarOpen && (
@@ -238,7 +245,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
                     <p className="text-xs text-light-muted dark:text-dark-muted">Timi</p>
                   </div>
                 </div>
-                <button onClick={() => setMobileMenuOpen(false)} className="text-light-muted text-2xl">✕</button>
+                <button onClick={() => setMobileMenuOpen(false)} className="text-light-muted text-2xl" aria-label="Close mobile menu">✕</button>
               </div>
 
               <nav className="flex-1 space-y-1">
@@ -301,14 +308,14 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
         {/* Mobile Header */}
         {isMobile && (
           <div className="md:hidden flex items-center justify-between p-4 glass-strong sticky top-0 z-30">
-            <button onClick={() => setMobileMenuOpen(true)} className="text-light-text dark:text-dark-text text-2xl">☰</button>
+            <button onClick={() => setMobileMenuOpen(true)} className="text-light-text dark:text-dark-text text-2xl" aria-label="Open mobile menu">☰</button>
             <div className="flex items-center gap-3">
               <span className="text-sm font-medium text-light-muted dark:text-dark-muted tabular-nums">{currentTime}</span>
               <NotificationCenter />
               <ThemeToggle />
             </div>
             <div className="w-8 h-8 rounded-full overflow-hidden ring-2 ring-light-primary/30">
-              {user.photoURL && <img src={user.photoURL} alt="" className="w-full h-full object-cover" />}
+              {user.photoURL && <img src={user.photoURL} alt={user.displayName || 'User avatar'} className="w-full h-full object-cover" />}
             </div>
           </div>
         )}

@@ -1,0 +1,50 @@
+{
+  "pixels_lab": {
+    "name": "Pixel's Lab",
+    "description": "Join Pixel the robot for fun science experiments and learning adventures!",
+    "host": "pixel",
+    "host_pose": "wave",
+    "host_expression": "excited",
+    "intro_duration": 3.0,
+    "outro_duration": 3.0,
+    "color_palette": ["#FF69B4", "#4B0082", "#E6E6FA"],
+    "categories": ["Self-Learning", "Science for Kids", "Tech & AI"],
+    "character_placement": {"x": 0.5, "y": 0.55},
+    "intro_text": "Welcome to Pixel's Lab!",
+    "outro_text": "See you next time, little scientist!",
+    "background": "gradient_classroom",
+    "music_mood": "playful"
+  },
+  "novas_bedtime": {
+    "name": "Nova's Bedtime Stories",
+    "description": "Drift off to dreamland with Nova the star as she tells magical bedtime stories.",
+    "host": "nova",
+    "host_pose": "idle",
+    "host_expression": "calm",
+    "intro_duration": 3.0,
+    "outro_duration": 3.0,
+    "color_palette": ["#FFD700", "#191970", "#FFF8DC"],
+    "categories": ["Bedtime Stories", "Mythology Stories", "Animated Fables"],
+    "character_placement": {"x": 0.5, "y": 0.5},
+    "intro_text": "It's time for a story...",
+    "outro_text": "Sweet dreams, little one!",
+    "background": "gradient_night",
+    "music_mood": "dreamy"
+  },
+  "ziggys_art_party": {
+    "name": "Ziggy's Art Party",
+    "description": "Dance, sing, and create with Ziggy the rainbow shapeshifter!",
+    "host": "ziggy",
+    "host_pose": "dance",
+    "host_expression": "silly",
+    "intro_duration": 3.0,
+    "outro_duration": 3.0,
+    "color_palette": ["#FF0000", "#FFD700", "#00FF00", "#4169E1", "#9932CC"],
+    "categories": ["Rhymes & Songs", "Colors & Shapes", "DIY & Crafts"],
+    "character_placement": {"x": 0.5, "y": 0.55},
+    "intro_text": "Let's make something amazing!",
+    "outro_text": "Keep creating and smiling!",
+    "background": "gradient_sunset",
+    "music_mood": "playful"
+  }
+}

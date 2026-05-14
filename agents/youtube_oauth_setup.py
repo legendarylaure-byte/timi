@@ -4,16 +4,22 @@ from urllib.parse import urlparse, parse_qs
 from google.oauth2.credentials import Credentials
 from googleapiclient.discovery import build
 
-CLIENT_ID = "839918420419-88cjde4sjnt3s18stnaehoaggtdcp617.apps.googleusercontent.com"
-CLIENT_SECRET = "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"
+import os
+
+CLIENT_ID = os.environ.get("YOUTUBE_CLIENT_ID", "")
+CLIENT_SECRET = os.environ.get("YOUTUBE_CLIENT_SECRET", "")
 TOKEN_FILE = "./youtube_token.json"
+
+if not CLIENT_ID or not CLIENT_SECRET:
+    print("ERROR: YOUTUBE_CLIENT_ID and YOUTUBE_CLIENT_SECRET must be set in environment")
+    exit(1)
 
 auth_url = (
     "https://accounts.google.com/o/oauth2/auth?"
     "response_type=code"
     f"&client_id={CLIENT_ID}"
     "&redirect_uri=http://localhost:8080"
-    "&scope=https://www.googleapis.com/auth/youtube.upload+https://www.googleapis.com/auth/youtube"
+    "&scope=https://www.googleapis.com/auth/youtube.upload+https://www.googleapis.com/auth/youtube+https://www.googleapis.com/auth/yt-analytics.readonly"
     "&access_type=offline&prompt=consent"
 )
 
@@ -63,6 +69,7 @@ if resp.status_code == 200:
         scopes=[
             "https://www.googleapis.com/auth/youtube.upload",
             "https://www.googleapis.com/auth/youtube",
+            "https://www.googleapis.com/auth/yt-analytics.readonly",
         ],
     )
 

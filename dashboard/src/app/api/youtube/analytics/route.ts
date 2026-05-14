@@ -1,35 +1,37 @@
 import { NextResponse } from 'next/server';
-import { getFirestore, collection, query, orderBy, getDocs, limit as firestoreLimit } from 'firebase/firestore';
-import { initializeApp, getApps } from 'firebase/app';
+import { getAdminFirestore, getAdminAuth } from '@/lib/firebase-admin';
 
-const firebaseConfig = {
-  apiKey: process.env.NEXT_PUBLIC_FIREBASE_API_KEY,
-  authDomain: process.env.NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN,
-  projectId: process.env.NEXT_PUBLIC_FIREBASE_PROJECT_ID,
-  storageBucket: process.env.NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET,
-  messagingSenderId: process.env.NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID,
-  appId: process.env.NEXT_PUBLIC_FIREBASE_APP_ID,
-};
-
-function getFirestoreAdmin() {
-  if (!getApps().length) {
-    initializeApp(firebaseConfig);
+async function verifyAuth(request: Request): Promise<{ uid: string } | null> {
+  const authHeader = request.headers.get('authorization');
+  if (!authHeader?.startsWith('Bearer ')) return null;
+  try {
+    const token = authHeader.slice(7);
+    const decoded = await getAdminAuth().verifyIdToken(token);
+    return { uid: decoded.uid };
+  } catch {
+    return null;
   }
-  return getFirestore();
 }
 
 export async function GET(request: Request) {
   try {
+    const user = await verifyAuth(request);
+    if (!user) {
+      return NextResponse.json(
+        { success: false, error: 'Unauthorized' },
+        { status: 401 }
+      );
+    }
+
     const { searchParams } = new URL(request.url);
     const limitParam = parseInt(searchParams.get('limit') || '20');
 
-    const db = getFirestoreAdmin();
-    const q = query(
-      collection(db, 'videos'),
-      orderBy('created_at', 'desc'),
-      firestoreLimit(limitParam)
-    );
-    const snapshot = await getDocs(q);
+    const db = getAdminFirestore();
+    const snapshot = await db
+      .collection('videos')
+      .orderBy('created_at', 'desc')
+      .limit(limitParam)
+      .get();
 
     const videos = snapshot.docs.map(doc => {
       const data = doc.data();

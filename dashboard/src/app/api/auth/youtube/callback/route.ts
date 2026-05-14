@@ -1,8 +1,9 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { APP_URL } from '@/lib/constants';
 
-const YOUTUBE_CLIENT_ID = '839918420419-88cjde4sjnt3s18stnaehoaggtdcp617.apps.googleusercontent.com';
-const YOUTUBE_CLIENT_SECRET = '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';
-const YOUTUBE_REDIRECT_URI = process.env.YOUTUBE_REDIRECT_URI || 'http://localhost:3000/api/auth/youtube/callback';
+const YOUTUBE_CLIENT_ID = process.env.YOUTUBE_CLIENT_ID || '';
+const YOUTUBE_CLIENT_SECRET = process.env.YOUTUBE_CLIENT_SECRET || '';
+const YOUTUBE_REDIRECT_URI = process.env.YOUTUBE_REDIRECT_URI || `${APP_URL}/api/auth/youtube/callback`;
 
 export async function GET(request: NextRequest) {
   const searchParams = request.nextUrl.searchParams;
@@ -11,13 +12,19 @@ export async function GET(request: NextRequest) {
 
   if (error) {
     return NextResponse.redirect(
-      `${process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000'}/dashboard/settings?error=${error}`
+      `${APP_URL}/dashboard/settings?error=${error}`
     );
   }
 
   if (!code) {
     return NextResponse.redirect(
-      `${process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000'}/dashboard/settings?error=missing_code`
+      `${APP_URL}/dashboard/settings?error=missing_code`
+    );
+  }
+
+  if (!YOUTUBE_CLIENT_ID || !YOUTUBE_CLIENT_SECRET) {
+    return NextResponse.redirect(
+      `${APP_URL}/dashboard/settings?error=missing_oauth_config`
     );
   }
 
@@ -41,11 +48,11 @@ export async function GET(request: NextRequest) {
     const tokens = await tokenResponse.json();
 
     return NextResponse.redirect(
-      `${process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000'}/dashboard/settings?youtube_connected=true&token=${tokens.access_token}`
+      `${APP_URL}/dashboard/settings?youtube_connected=true`
     );
   } catch (error) {
     return NextResponse.redirect(
-      `${process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000'}/dashboard/settings?error=token_exchange_failed`
+      `${APP_URL}/dashboard/settings?error=token_exchange_failed`
     );
   }
 }

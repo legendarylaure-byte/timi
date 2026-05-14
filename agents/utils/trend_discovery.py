@@ -29,15 +29,118 @@ Return ONLY a valid JSON array of objects with this exact structure:
 Return 15 trending topics. Mix children's content (ages 1-9) with global trending categories. Consider seasonal events, viral patterns, and content gaps."""  # noqa: E501
 
 
+def fetch_youtube_trending(max_results: int = 20, region_code: str = "US") -> list:
+    """Fetch real trending videos from YouTube's Most Popular chart."""
+    try:
+        from utils.youtube_upload import get_youtube_credentials
+        from googleapiclient.discovery import build
+
+        creds = get_youtube_credentials()
+        if not creds:
+            print("[TRENDS] No YouTube credentials for trending fetch")
+            return []
+
+        youtube = build("youtube", "v3", credentials=creds)
+
+        response = youtube.videos().list(
+            part="snippet,statistics",
+            chart="mostPopular",
+            regionCode=region_code,
+            maxResults=max_results,
+        ).execute()
+
+        items = response.get("items", [])
+        trends = []
+        seen_titles = set()
+
+        for item in items:
+            snippet = item.get("snippet", {})
+            title = snippet.get("title", "")
+            if not title or title.lower() in seen_titles:
+                continue
+            seen_titles.add(title.lower())
+
+            category_id = snippet.get("categoryId", "")
+            tags = snippet.get("tags", [])
+            view_count = int(item.get("statistics", {}).get("viewCount", 0))
+
+            category_map = {
+                "1": "Music & Dance", "2": "Comedy & Entertainment", "10": "Music & Dance",
+                "15": "Gaming", "17": "Comedy & Entertainment", "18": "Comedy & Entertainment",
+                "19": "Travel & Adventure", "20": "Gaming", "22": "Comedy & Entertainment",
+                "23": "Comedy & Entertainment", "24": "Comedy & Entertainment", "25": "Tech & AI",
+                "26": "DIY & Crafts", "27": "Self-Learning", "28": "Science for Kids",
+                "29": "Health & Wellness", "30": "Comedy & Entertainment",
+            }
+            category = category_map.get(category_id, "Comedy & Entertainment")
+
+            is_kids = category in ("Self-Learning", "Science for Kids", "Bedtime Stories",
+                                   "Rhymes & Songs", "Colors & Shapes", "Animated Fables")
+            predicted_search_volume = max(view_count // 10, 50000) if is_kids else max(view_count // 5, 100000)
+
+            trends.append({
+                "title": title,
+                "category": category,
+                "search_volume": predicted_search_volume,
+                "growth": round((view_count % 100) * 0.5 + 20, 1),
+                "competition": "high" if view_count > 500000 else "medium" if view_count > 100000 else "low",
+                "suggested_format": "shorts" if len(title) < 40 else "long",
+                "score": min(98, 50 + int(view_count / 20000)),
+                "keywords": tags[:5] if tags else [title.lower().replace(" ", "_")],
+                "source": "youtube_trending",
+            })
+
+        print(f"[TRENDS] Fetched {len(trends)} trending videos from YouTube (region: {region_code})")
+        return trends
+
+    except Exception as e:
+        print(f"[TRENDS] YouTube trending fetch failed: {e}")
+        return []
+
+
+def _get_character_engagement_data() -> str:
+    """Fetch character performance data for trend prompt context."""
+    try:
+        from utils.analytics_tracker import get_character_performance_summary
+        chars = get_character_performance_summary()
+        if not chars:
+            return ""
+        lines = ["Character Engagement (last 30 days):"]
+        for char, stats in chars.items():
+            cats = ", ".join(c for c, _ in stats.get("top_categories", []))
+            lines.append(f"  - {char}: {stats['total_views']} views ({stats['share_pct']}% share), "
+                         f"{stats['video_count']} videos, top categories: {cats or 'N/A'}")
+        return "\n".join(lines)
+    except Exception as e:
+        print(f"[TRENDS] Character data fetch error: {e}")
+        return ""
+
+
 def discover_trends() -> list:
     """Discover trending topics for children's content."""
     log_activity("trend_discovery", "Starting trend discovery scan", "info")
 
+    youtube_trends = fetch_youtube_trending(max_results=15)
+
+    char_data = _get_character_engagement_data()
+
     prompt = f"""Discover current trending topics for children's video content.
 Today's date: {datetime.now().strftime('%B %Y')}
 Focus on content for ages 1-9.
-Consider seasonal trends, educational gaps, and viral patterns."""
+Consider seasonal trends, educational gaps, and viral patterns.
+Prioritize characters that have higher engagement.
 
+{char_data}
+
+When suggesting topics, consider which characters perform best.
+Characters map to categories as follows:
+- Pixel (robot): Self-Learning, Science for Kids, Tech & AI
+- Nova (star): Bedtime Stories, Mythology Stories, Animated Fables
+- Ziggy (rainbow): Rhymes & Songs, Colors & Shapes, DIY & Crafts
+- Boop (blob): emotions, friendship, social skills
+- Sprout (plant): nature, growing, science"""
+
+    llm_trends = []
     try:
         response = generate_completion(
             prompt=prompt,
@@ -49,17 +152,31 @@ Consider seasonal trends, educational gaps, and viral patterns."""
         json_start = response.find("[")
         json_end = response.rfind("]") + 1
         if json_start >= 0 and json_end > json_start:
-            trends = json.loads(response[json_start:json_end])
+            llm_trends = json.loads(response[json_start:json_end])
         else:
-            trends = _fallback_trends()
-
-        _save_trends(trends)
-        log_activity("trend_discovery", f"Discovered {len(trends)} trending topics", "success")
-        return trends
+            llm_trends = _fallback_trends()
 
     except Exception as e:
         log_activity("trend_discovery", f"Trend discovery failed: {str(e)}", "error")
-        return _fallback_trends()
+        llm_trends = _fallback_trends()
+
+    all_trends = youtube_trends + llm_trends
+    seen = set()
+    deduped = []
+    for t in all_trends:
+        key = t.get("title", "").lower().strip()
+        if key and key not in seen:
+            seen.add(key)
+            deduped.append(t)
+
+    deduped.sort(key=lambda t: t.get("score", 0), reverse=True)
+    trends = deduped[:20]
+
+    _save_trends(trends)
+    source_summary = f"({len(youtube_trends)} YouTube, {len(llm_trends)} LLM)"
+    log_activity("trend_discovery", f"Discovered {len(trends)} trending topics {source_summary}", "success")
+    print(f"[TRENDS] {len(trends)} trends discovered {source_summary}")
+    return trends
 
 
 def _fallback_trends() -> list:
@@ -83,7 +200,7 @@ def _fallback_trends() -> list:
     topics = seasonal_topics.get(seasonal, ["Fun Learning Adventures", "Bedtime Dreams"])
 
     global_trends = [
-        {"title": "AI Tools That Will Change 2025", "category": "Tech & AI", "search_volume": 890000, "growth": 120,
+        {"title": f"AI Tools That Will Change {datetime.now().year}", "category": "Tech & AI", "search_volume": 890000, "growth": 120,
             "competition": "medium", "suggested_format": "long", "score": 96, "keywords": ["AI", "tools", "future", "technology"]},  # noqa: E501
         {"title": "5-Minute Healthy Breakfast Ideas", "category": "Cooking & Food", "search_volume": 650000, "growth": 45,  # noqa: E501
             "competition": "low", "suggested_format": "shorts", "score": 88, "keywords": ["breakfast", "healthy", "quick", "recipes"]},  # noqa: E501
@@ -196,7 +313,7 @@ def _fallback_category_analysis(category: str) -> dict:
         **base,
         "category": category,
         "top_keywords": [category.lower().replace(" ", "_"), "trending", "viral"],
-        "recommended_topics": [f"Beginner's Guide to {category}", f"Top 10 {category} Tips", f"{category} Trends 2025"],
+        "recommended_topics": [f"Beginner's Guide to {category}", f"Top 10 {category} Tips", f"{category} Trends {datetime.now().year}"],
         "best_posting_time": "18:00",
         "average_views": random.randint(50000, 500000),
     }
@@ -206,7 +323,7 @@ def generate_monthly_plan(month: int = None, year: int = None, focus_categories:
     """Generate a monthly content plan with diversified categories."""
     from datetime import datetime
     month = month or datetime.now().month
-    year = year or datetime.now().month
+    year = year or datetime.now().year
 
     if focus_categories is None:
         focus_categories = ["Self-Learning", "Bedtime Stories",

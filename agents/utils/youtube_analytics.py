@@ -23,8 +23,7 @@ def _extract_youtube_id(video_data: dict) -> str:
 
 
 def pull_all_video_analytics(max_videos: int = 50):
-    creds = get_youtube_credentials()
-    if not creds:
+    if not get_youtube_credentials():
         print("[ANALYTICS] No YouTube credentials available")
         return {"processed": 0, "failed": 0}
 

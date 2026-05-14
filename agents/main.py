@@ -332,15 +332,17 @@ def run_video_pipeline(script_text: str, storyboard_text: str, category: str, fo
     if use_animation:
         from utils.animation_engine import render_scenes
         final_path = render_scenes(scenes, voice_path=voice_result["path"], music_path=music_path, video_id=video_id, format_type=format_type, phrase_timings=voice_result.get("phrase_timings"))
-        if subtitle_path and final_path:
-            log_event("PIPELINE", "Burning subtitles into animated video")
-            from utils.video_compositor import TEMP_DIR as COMPOSITOR_TEMP_DIR
-            subs_out = str(COMPOSITOR_TEMP_DIR / f"anim_{video_id}_subs.mp4")
-            is_kids = any(kw in category.lower() for kw in ["kids", "children", "bedtime", "fable", "rhyme", "story", "nursery", "baby", "toddler"])
-            sub_fs = 52 if format_type == "shorts" else 36
-            from utils.video_compositor import burn_subtitles
-            if burn_subtitles(final_path, subtitle_path, subs_out, fontsize=sub_fs, is_kids=is_kids):
-                final_path = subs_out
+        if final_path:
+            has_text_overlays = any(s.get("text") for s in (scenes or []))
+            if subtitle_path and not has_text_overlays:
+                log_event("PIPELINE", "Burning subtitles into animated video")
+                from utils.video_compositor import TEMP_DIR as COMPOSITOR_TEMP_DIR
+                subs_out = str(COMPOSITOR_TEMP_DIR / f"anim_{video_id}_subs.mp4")
+                is_kids = any(kw in category.lower() for kw in ["kids", "children", "bedtime", "fable", "rhyme", "story", "nursery", "baby", "toddler"])
+                sub_fs = 52 if format_type == "shorts" else 36
+                from utils.video_compositor import burn_subtitles
+                if burn_subtitles(final_path, subtitle_path, subs_out, fontsize=sub_fs, is_kids=is_kids):
+                    final_path = subs_out
     else:
         final_path = composite_video(clips=clips, voice_path=voice_result["path"], music_path=music_path, format_type=format_type, video_id=video_id, subtitle_path=subtitle_path, chapters=chapters, category=category)
 

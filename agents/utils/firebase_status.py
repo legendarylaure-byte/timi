@@ -165,21 +165,49 @@ def update_video_analytics(video_id: str, stats: dict):
     if db is None:
         return
 
+    duration_sec = stats.get('duration_seconds', 0)
+    views = stats.get('views', 0)
+    estimated_watch_hours = (views * duration_sec) / 3600 if duration_sec > 0 else 0
+
     def _do():
         doc_ref = db.collection('videos').document(video_id)
         doc_ref.set({
-            'views': stats.get('views', 0),
+            'views': views,
             'likes': stats.get('likes', 0),
             'comments': stats.get('comments', 0),
+            'duration_seconds': duration_sec,
+            'estimated_watch_hours': estimated_watch_hours,
             'analytics_updated_at': firestore.SERVER_TIMESTAMP,
             'updated_at': firestore.SERVER_TIMESTAMP,
         }, merge=True)
         db.collection('videos').document(video_id).collection('analytics_history').add({
             **stats,
+            'estimated_watch_hours': estimated_watch_hours,
             'recorded_at': firestore.SERVER_TIMESTAMP,
         })
     _retry_firestore(f"Video analytics '{video_id}'", _do)
-    print(f"[FIRESTORE] Analytics updated for video '{video_id}': {stats.get('views', 0)} views")
+    print(f"[FIRESTORE] Analytics updated for video '{video_id}': {views} views, {estimated_watch_hours:.1f} watch hours")
+
+
+def update_channel_stats(stats: dict):
+    db = get_firestore_client()
+    if db is None:
+        return
+
+    try:
+        videos = list(db.collection('videos').where('estimated_watch_hours', '>', 0).stream())
+        total_watch_hours = sum(v.to_dict().get('estimated_watch_hours', 0) for v in videos)
+    except Exception:
+        total_watch_hours = 0
+
+    def _do():
+        db.collection('system').document('channel_stats').set({
+            **stats,
+            'total_watch_hours': total_watch_hours,
+            'last_updated': firestore.SERVER_TIMESTAMP,
+        }, merge=True)
+    _retry_firestore("Channel stats update", _do)
+    print(f"[FIRESTORE] Channel stats updated: {stats.get('subscribers', '?')} subs, {total_watch_hours:.1f} watch hours")
 
 
 def log_pipeline_error(video_id: str, error: str, step: str = "unknown"):

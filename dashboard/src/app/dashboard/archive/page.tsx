@@ -245,7 +245,7 @@ export default function ArchivePage() {
                   <h3 className="text-lg font-bold text-light-text dark:text-dark-text">{selectedVideo.title}</h3>
                   <p className="text-xs text-light-muted dark:text-dark-muted mt-0.5">{selectedVideo.id}</p>
                 </div>
-                <button onClick={() => setSelectedVideo(null)} className="text-light-muted text-xl hover:text-light-text dark:hover:text-dark-text">✕</button>
+                <button onClick={() => setSelectedVideo(null)} className="text-light-muted text-xl hover:text-light-text dark:hover:text-dark-text" aria-label="Close video details">✕</button>
               </div>
 
               <div className="space-y-3">

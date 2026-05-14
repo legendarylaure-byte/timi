@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 
-const YOUTUBE_CLIENT_ID = '839918420419-88cjde4sjnt3s18stnaehoaggtdcp617.apps.googleusercontent.com';
+const YOUTUBE_CLIENT_ID = process.env.YOUTUBE_CLIENT_ID || '';
 const YOUTUBE_REDIRECT_URI = process.env.YOUTUBE_REDIRECT_URI || 'http://localhost:3000/api/auth/youtube/callback';
 
 export async function GET(request: NextRequest) {
@@ -8,6 +8,9 @@ export async function GET(request: NextRequest) {
   const action = searchParams.get('action');
 
   if (action === 'connect') {
+    if (!YOUTUBE_CLIENT_ID) {
+      return NextResponse.json({ success: false, error: 'YouTube OAuth not configured' }, { status: 500 });
+    }
     const authUrl = new URL('https://accounts.google.com/o/oauth2/v2/auth');
     authUrl.searchParams.set('client_id', YOUTUBE_CLIENT_ID);
     authUrl.searchParams.set('redirect_uri', YOUTUBE_REDIRECT_URI);

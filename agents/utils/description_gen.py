@@ -1,5 +1,5 @@
-import json
 from utils.groq_client import generate_completion
+from utils.json_utils import extract_json
 
 SYSTEM_PROMPT = """You are an expert YouTube SEO specialist for children's content.
 Generate optimized video descriptions that:
@@ -13,44 +13,6 @@ Generate optimized video descriptions that:
 The description should be professional, parent-friendly, and optimized for YouTube's algorithm for kids' content."""
 
 
-def _extract_json(response: str) -> dict:
-    """Robustly extract JSON from LLM response, handling control characters."""
-    json_start = response.find("{")
-    json_end = response.rfind("}") + 1
-    if json_start < 0 or json_end <= json_start:
-        return None
-
-    raw = response[json_start:json_end]
-
-    for depth in range(3):
-        try:
-            return json.loads(raw)
-        except json.JSONDecodeError:
-            pass
-
-        cleaned = ""
-        in_string = False
-        escaped = False
-        for c in raw:
-            if escaped:
-                cleaned += c
-                escaped = False
-                continue
-            if c == '\\' and in_string:
-                cleaned += c
-                escaped = True
-                continue
-            if c == '"':
-                in_string = not in_string
-                cleaned += c
-                continue
-            if in_string and ord(c) < 32 and c not in '\n\r\t':
-                cleaned += ' '
-                continue
-            cleaned += c
-        raw = cleaned
-
-    return None
 
 
 def generate_description(
@@ -119,7 +81,7 @@ Return ONLY a JSON object:
             max_tokens=1000,
         )
 
-        result = _extract_json(response)
+        result = extract_json(response)
         if result is None:
             result = _fallback_description(title, category, format_type, hook)
 

@@ -28,29 +28,7 @@ interface RepurposeClip {
   status: 'ready' | 'processing' | 'failed';
 }
 
-const mockJobs: RepurposeJob[] = [
-  {
-    id: 'job-1', source_video_id: 'v-001', source_title: 'The Solar System Adventure - Full Episode',
-    source_duration: 480, clips_generated: 5, status: 'completed',
-    clips: [
-      { id: 'c1', title: 'Why Planets Spin', start_time: 45, end_time: 98, duration: 53, hook_score: 88, thumbnail_ready: true, status: 'ready' },
-      { id: 'c2', title: 'Jupiter is HUGE', start_time: 150, end_time: 200, duration: 50, hook_score: 92, thumbnail_ready: true, status: 'ready' },
-      { id: 'c3', title: 'Saturn Rings Explained', start_time: 260, end_time: 315, duration: 55, hook_score: 85, thumbnail_ready: true, status: 'ready' },
-      { id: 'c4', title: 'Mars Has the Tallest Mountain', start_time: 340, end_time: 395, duration: 55, hook_score: 90, thumbnail_ready: false, status: 'processing' },
-      { id: 'c5', title: 'Can We Live on the Moon?', start_time: 410, end_time: 465, duration: 55, hook_score: 94, thumbnail_ready: false, status: 'processing' },
-    ],
-  },
-  {
-    id: 'job-2', source_video_id: 'v-002', source_title: 'Greek Myths: Hercules and the 12 Labors',
-    source_duration: 600, clips_generated: 4, status: 'completed',
-    clips: [
-      { id: 'c6', title: 'Hercules vs the Lion', start_time: 60, end_time: 115, duration: 55, hook_score: 86, thumbnail_ready: true, status: 'ready' },
-      { id: 'c7', title: 'The Hydra Battle', start_time: 180, end_time: 240, duration: 60, hook_score: 91, thumbnail_ready: true, status: 'ready' },
-      { id: 'c8', title: 'Cleaning the Stables', start_time: 300, end_time: 350, duration: 50, hook_score: 72, thumbnail_ready: true, status: 'ready' },
-      { id: 'c9', title: 'Hercules Becomes a God', start_time: 540, end_time: 595, duration: 55, hook_score: 95, thumbnail_ready: false, status: 'processing' },
-    ],
-  },
-];
+
 
 export default function RepurposePage() {
   const [jobs, setJobs] = useState<RepurposeJob[]>([]);
@@ -62,7 +40,7 @@ export default function RepurposePage() {
       if (!snap.empty) {
         setJobs(snap.docs.map(d => ({ id: d.id, ...d.data() } as RepurposeJob)));
       } else {
-        setJobs(mockJobs);
+        setJobs([]);
       }
       setLoading(false);
     });
@@ -87,6 +65,17 @@ export default function RepurposePage() {
         </div>
       </motion.div>
 
+      {/* Empty state */}
+      {!loading && jobs.length === 0 ? (
+        <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} className="relative rounded-2xl overflow-hidden glass-strong border border-light-border/50 dark:border-white/10 p-12 text-center">
+          <span className="text-4xl mb-4 block">✂️</span>
+          <h2 className="text-xl font-bold text-light-text dark:text-dark-text mb-2">No Repurpose Jobs Yet</h2>
+          <p className="text-light-muted dark:text-dark-muted max-w-md mx-auto">
+            Repurpose jobs appear here after you upload long-form videos. The AI will automatically extract high-engagement clips from your content.
+          </p>
+        </motion.div>
+      ) : (
+      <>
       {/* Stats */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
         {[
@@ -227,6 +216,8 @@ export default function RepurposePage() {
           </motion.div>
         ))}
       </div>
+      </>
+      )}
 
       {/* How it works */}
       <div className="rounded-2xl glass-strong border border-light-border/30 dark:border-white/5 p-6">

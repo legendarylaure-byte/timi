@@ -4,14 +4,19 @@ import urllib.parse
 from google.oauth2.credentials import Credentials
 from googleapiclient.discovery import build
 
-CLIENT_ID = os.getenv("YOUTUBE_CLIENT_ID", "839918420419-88cjde4sjnt3s18stnaehoaggtdcp617.apps.googleusercontent.com")
-CLIENT_SECRET = os.getenv("YOUTUBE_CLIENT_SECRET", "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")
+CLIENT_ID = os.environ.get("YOUTUBE_CLIENT_ID", "")
+CLIENT_SECRET = os.environ.get("YOUTUBE_CLIENT_SECRET", "")
+
+if not CLIENT_ID or not CLIENT_SECRET:
+    print("ERROR: YOUTUBE_CLIENT_ID and YOUTUBE_CLIENT_SECRET must be set in environment")
+    exit(1)
 TOKEN_FILE = "./youtube_token.json"
 
 SCOPES = [
     "https://www.googleapis.com/auth/youtube.upload",
     "https://www.googleapis.com/auth/youtube",
     "https://www.googleapis.com/auth/youtubepartner",
+    "https://www.googleapis.com/auth/yt-analytics.readonly",
 ]
 
 

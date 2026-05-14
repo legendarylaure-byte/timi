@@ -106,30 +106,302 @@ def _upload_youtube(title: str, description: str, video_path: str, thumbnail_pat
 
 
 def _upload_tiktok(title: str, video_path: str, format_type: str) -> dict:
-    """Upload to TikTok via Content Posting API."""
-    return {
-        'success': False,
-        'platform': 'tiktok',
-        'error': 'TikTok upload not yet implemented. API integration required.',
-    }
+    """Upload to TikTok via Content Posting API v2."""
+    access_token = os.getenv('TIKTOK_ACCESS_TOKEN')
+    open_id = os.getenv('TIKTOK_OPEN_ID')
+    if not access_token or not open_id:
+        return {
+            'success': False,
+            'platform': 'tiktok',
+            'error': 'TikTok upload not configured. Set TIKTOK_ACCESS_TOKEN and TIKTOK_OPEN_ID env vars.',
+        }
+
+    if not os.path.exists(video_path):
+        return {'success': False, 'platform': 'tiktok', 'error': f'Video file not found: {video_path}'}
+
+    try:
+        import requests
+
+        file_size = os.path.getsize(video_path)
+
+        init_resp = requests.post(
+            'https://open.tiktokapis.com/v2/post/publish/video/init/',
+            headers={'Authorization': f'Bearer {access_token}', 'Content-Type': 'application/json'},
+            json={
+                'source_info': {
+                    'source': 'FILE_UPLOAD',
+                    'video_size': file_size,
+                    'chunk_size': file_size,
+                    'total_chunk_count': 1,
+                }
+            },
+            timeout=30,
+        )
+
+        if init_resp.status_code != 200:
+            return {
+                'success': False, 'platform': 'tiktok',
+                'error': f'Init failed: {init_resp.status_code} {init_resp.text}',
+            }
+
+        init_data = init_resp.json()
+        upload_url = init_data.get('data', {}).get('upload_url')
+        publish_id = init_data.get('data', {}).get('publish_id')
+
+        if not upload_url:
+            return {
+                'success': False, 'platform': 'tiktok',
+                'error': 'No upload URL in init response',
+            }
+
+        with open(video_path, 'rb') as f:
+            upload_resp = requests.put(upload_url, data=f, timeout=300)
+
+        if upload_resp.status_code not in (200, 201):
+            return {
+                'success': False, 'platform': 'tiktok',
+                'error': f'Upload failed: {upload_resp.status_code}',
+            }
+
+        publish_resp = requests.post(
+            'https://open.tiktokapis.com/v2/post/publish/video/publish/',
+            headers={'Authorization': f'Bearer {access_token}', 'Content-Type': 'application/json'},
+            json={
+                'publish_id': publish_id,
+                'post_info': {
+                    'title': title,
+                    'privacy_level': 'PUBLIC_TO_EVERYONE',
+                    'disable_duet': False,
+                    'disable_comment': False,
+                    'disable_stitch': False,
+                },
+            },
+            timeout=30,
+        )
+
+        if publish_resp.status_code == 200:
+            return {
+                'success': True,
+                'platform': 'tiktok',
+                'video_id': publish_id,
+                'url': f'https://www.tiktok.com/@{open_id}/video/{publish_id}' if publish_id else '',
+                'title': title,
+                'status': 'published',
+            }
+        else:
+            return {
+                'success': False, 'platform': 'tiktok',
+                'error': f'Publish failed: {publish_resp.status_code} {publish_resp.text}',
+            }
+
+    except ImportError:
+        return {'success': False, 'platform': 'tiktok', 'error': 'Missing requests library'}
+    except Exception as e:
+        return {'success': False, 'platform': 'tiktok', 'error': str(e)}
 
 
 def _upload_instagram(title: str, video_path: str, format_type: str) -> dict:
     """Upload to Instagram via Graph API."""
-    return {
-        'success': False,
-        'platform': 'instagram',
-        'error': 'Instagram upload not yet implemented. API integration required.',
-    }
+    access_token = os.getenv('FACEBOOK_ACCESS_TOKEN')
+    ig_account_id = os.getenv('INSTAGRAM_ACCOUNT_ID')
+    if not access_token or not ig_account_id:
+        return {
+            'success': False,
+            'platform': 'instagram',
+            'error': 'Instagram upload not configured. Set FACEBOOK_ACCESS_TOKEN and INSTAGRAM_ACCOUNT_ID env vars.',
+        }
+
+    if not os.path.exists(video_path):
+        return {'success': False, 'platform': 'instagram', 'error': f'Video file not found: {video_path}'}
+
+    try:
+        import requests
+
+        media_type = 'REELS' if format_type == 'shorts' else 'VIDEO'
+
+        create_resp = requests.post(
+            f'https://graph.facebook.com/v18.0/{ig_account_id}/media',
+            params={
+                'access_token': access_token,
+                'media_type': media_type,
+                'video_url': '',  # Requires a publicly accessible URL
+                'caption': title,
+                'share_to_feed': 'true' if format_type == 'long' else 'false',
+            },
+            timeout=30,
+        )
+
+        if create_resp.status_code != 200:
+            return {
+                'success': False, 'platform': 'instagram',
+                'error': f'Media creation failed: {create_resp.status_code} {create_resp.text}',
+            }
+
+        creation_id = create_resp.json().get('id')
+        if not creation_id:
+            return {
+                'success': False, 'platform': 'instagram',
+                'error': 'No media creation ID returned',
+            }
+
+        import time
+        max_retries = 12
+        for attempt in range(max_retries):
+            status_resp = requests.get(
+                f'https://graph.facebook.com/v18.0/{creation_id}',
+                params={'access_token': access_token, 'fields': 'status_code'},
+                timeout=15,
+            )
+            if status_resp.status_code == 200:
+                status_code = status_resp.json().get('status_code')
+                if status_code == 'FINISHED':
+                    break
+                elif status_code == 'ERROR':
+                    return {
+                        'success': False, 'platform': 'instagram',
+                        'error': 'Media processing failed on Instagram',
+                    }
+            time.sleep(2)
+
+        publish_resp = requests.post(
+            f'https://graph.facebook.com/v18.0/{ig_account_id}/media_publish',
+            params={'access_token': access_token, 'creation_id': creation_id},
+            timeout=30,
+        )
+
+        if publish_resp.status_code == 200:
+            media_id = publish_resp.json().get('id', creation_id)
+            return {
+                'success': True,
+                'platform': 'instagram',
+                'video_id': media_id,
+                'url': f'https://www.instagram.com/reel/{media_id}/' if format_type == 'shorts' else f'https://www.instagram.com/p/{media_id}/',
+                'title': title,
+                'status': 'published',
+            }
+        else:
+            return {
+                'success': False, 'platform': 'instagram',
+                'error': f'Publish failed: {publish_resp.status_code} {publish_resp.text}',
+            }
+
+    except ImportError:
+        return {'success': False, 'platform': 'instagram', 'error': 'Missing requests library'}
+    except Exception as e:
+        return {'success': False, 'platform': 'instagram', 'error': str(e)}
 
 
 def _upload_facebook(title: str, description: str, video_path: str) -> dict:
     """Upload to Facebook via Graph API."""
-    return {
-        'success': False,
-        'platform': 'facebook',
-        'error': 'Facebook upload not yet implemented. API integration required.',
-    }
+    access_token = os.getenv('FACEBOOK_ACCESS_TOKEN')
+    page_id = os.getenv('FACEBOOK_PAGE_ID')
+    if not access_token or not page_id:
+        return {
+            'success': False,
+            'platform': 'facebook',
+            'error': 'Facebook upload not configured. Set FACEBOOK_ACCESS_TOKEN and FACEBOOK_PAGE_ID env vars.',
+        }
+
+    if not os.path.exists(video_path):
+        return {'success': False, 'platform': 'facebook', 'error': f'Video file not found: {video_path}'}
+
+    try:
+        import requests
+
+        file_size = os.path.getsize(video_path)
+        if file_size > 100 * 1024 * 1024:
+            upload_method = 'resumable'
+        else:
+            upload_method = 'direct'
+
+        if upload_method == 'direct':
+            with open(video_path, 'rb') as f:
+                upload_resp = requests.post(
+                    f'https://graph.facebook.com/v18.0/{page_id}/videos',
+                    params={'access_token': access_token},
+                    files={'source': f},
+                    data={
+                        'title': title,
+                        'description': description,
+                        'published': 'true',
+                    },
+                    timeout=600,
+                )
+
+            if upload_resp.status_code == 200:
+                video_id = upload_resp.json().get('id')
+                return {
+                    'success': True,
+                    'platform': 'facebook',
+                    'video_id': video_id,
+                    'url': f'https://www.facebook.com/watch/?v={video_id}' if video_id else '',
+                    'title': title,
+                    'status': 'published',
+                }
+            else:
+                return {
+                    'success': False, 'platform': 'facebook',
+                    'error': f'Upload failed: {upload_resp.status_code} {upload_resp.text}',
+                }
+        else:
+            init_resp = requests.post(
+                f'https://graph.facebook.com/v18.0/{page_id}/videos',
+                params={
+                    'access_token': access_token,
+                    'title': title,
+                    'description': description,
+                    'upload_phase': 'start',
+                    'file_size': file_size,
+                },
+                timeout=30,
+            )
+
+            if init_resp.status_code != 200:
+                return {
+                    'success': False, 'platform': 'facebook',
+                    'error': f'Resumable init failed: {init_resp.status_code} {init_resp.text}',
+                }
+
+            upload_session_id = init_resp.json().get('upload_session_id')
+            if not upload_session_id:
+                return {
+                    'success': False, 'platform': 'facebook',
+                    'error': 'No upload session ID returned',
+                }
+
+            with open(video_path, 'rb') as f:
+                chunk_resp = requests.post(
+                    f'https://graph.facebook.com/v18.0/{page_id}/videos',
+                    params={
+                        'access_token': access_token,
+                        'upload_phase': 'transfer',
+                        'upload_session_id': upload_session_id,
+                        'start_offset': '0',
+                    },
+                    files={'source': f},
+                    timeout=600,
+                )
+
+            if chunk_resp.status_code == 200:
+                video_id = chunk_resp.json().get('id')
+                return {
+                    'success': True,
+                    'platform': 'facebook',
+                    'video_id': video_id,
+                    'url': f'https://www.facebook.com/watch/?v={video_id}' if video_id else '',
+                    'title': title,
+                    'status': 'published',
+                }
+            else:
+                return {
+                    'success': False, 'platform': 'facebook',
+                    'error': f'Resumable upload failed: {chunk_resp.status_code} {chunk_resp.text}',
+                }
+
+    except ImportError:
+        return {'success': False, 'platform': 'facebook', 'error': 'Missing requests library'}
+    except Exception as e:
+        return {'success': False, 'platform': 'facebook', 'error': str(e)}
 
 
 def multi_platform_publish(video_id: str, title: str, description: str, video_path: str,

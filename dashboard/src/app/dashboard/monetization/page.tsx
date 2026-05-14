@@ -58,6 +58,20 @@ export default function MonetizationPage() {
       setLoading(false);
     });
 
+    const unsubChannel = onSnapshot(doc(db, 'system', 'channel_stats'), (snap) => {
+      if (snap.exists()) {
+        const d = snap.data();
+        setMilestones(prev => {
+          const m = [...prev];
+          const subsIdx = m.findIndex(x => x.label.startsWith('1,000 Subscribers'));
+          if (subsIdx >= 0) m[subsIdx] = { ...m[subsIdx], current: Number(d.subscribers) || 0, achieved: (Number(d.subscribers) || 0) >= 1000 };
+          const whIdx = m.findIndex(x => x.label.startsWith('4,000 Watch Hours'));
+          if (whIdx >= 0) m[whIdx] = { ...m[whIdx], current: Math.round(Number(d.total_watch_hours) || 0), achieved: (Number(d.total_watch_hours) || 0) >= 4000 };
+          return m;
+        });
+      }
+    });
+
     const unsubVideos = onSnapshot(collection(db, 'videos'), (snap) => {
       let totalViews = 0;
       let uploadedCount = 0;
@@ -75,12 +89,13 @@ export default function MonetizationPage() {
 
     return () => {
       unsubRevenue();
+      unsubChannel();
       unsubVideos();
     };
   }, []);
 
   useEffect(() => {
-    if (revenue && videoStats) {
+    if (videoStats) {
       const subsTarget = 1000;
       const watchHoursTarget = 4000;
       const viewsTarget = 100000;
@@ -88,13 +103,16 @@ export default function MonetizationPage() {
       const revenue1kTarget = 1000;
       const totalRevTarget = 10000;
 
+      const currentMonth = revenue?.currentMonth || 0;
+      const totalRevenue = revenue?.totalRevenue || 0;
+
       setMilestones([
         { label: '1,000 Subscribers', target: subsTarget, current: 0, icon: '👥', achieved: false },
         { label: '4,000 Watch Hours', target: watchHoursTarget, current: 0, icon: '⏰', achieved: false },
         { label: '100K Total Views', target: viewsTarget, current: videoStats.totalViews, icon: '👁️', achieved: videoStats.totalViews >= viewsTarget },
-        { label: '$100/month', target: revenue100Target, current: revenue.currentMonth, icon: '💵', achieved: revenue.currentMonth >= revenue100Target },
-        { label: '$1,000/month', target: revenue1kTarget, current: revenue.currentMonth, icon: '💰', achieved: revenue.currentMonth >= revenue1kTarget },
-        { label: '$10,000 Total', target: totalRevTarget, current: revenue.totalRevenue, icon: '🏆', achieved: revenue.totalRevenue >= totalRevTarget },
+        { label: '$100/month', target: revenue100Target, current: currentMonth, icon: '💵', achieved: currentMonth >= revenue100Target },
+        { label: '$1,000/month', target: revenue1kTarget, current: currentMonth, icon: '💰', achieved: currentMonth >= revenue1kTarget },
+        { label: '$10,000 Total', target: totalRevTarget, current: totalRevenue, icon: '🏆', achieved: totalRevenue >= totalRevTarget },
       ]);
     }
   }, [revenue, videoStats]);

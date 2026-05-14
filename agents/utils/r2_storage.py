@@ -8,23 +8,27 @@ ACCESS_KEY = os.getenv("CLOUDFLARE_R2_ACCESS_KEY_ID")
 SECRET_KEY = os.getenv("CLOUDFLARE_R2_SECRET_ACCESS_KEY")
 BUCKET = os.getenv("CLOUDFLARE_R2_BUCKET", "vyom-ai-videos")
 
-if ACCOUNT_ID and ACCESS_KEY and SECRET_KEY:
-    R2_ENDPOINT = f"https://{ACCOUNT_ID}.r2.cloudflarestorage.com"
-    r2_client = boto3.client(
-        "s3",
-        endpoint_url=R2_ENDPOINT,
-        aws_access_key_id=ACCESS_KEY,
-        aws_secret_access_key=SECRET_KEY,
-        config=Config(signature_version="s3v4"),
-    )
-else:
-    r2_client = None
+_r2_client = None
 
 
 def get_r2_client():
-    if r2_client is None:
-        raise ValueError("Cloudflare R2 credentials not configured")
-    return r2_client
+    global _r2_client
+    if _r2_client is not None:
+        return _r2_client
+    account_id = os.getenv("CLOUDFLARE_ACCOUNT_ID")
+    access_key = os.getenv("CLOUDFLARE_R2_ACCESS_KEY_ID")
+    secret_key = os.getenv("CLOUDFLARE_R2_SECRET_ACCESS_KEY")
+    if not (account_id and access_key and secret_key):
+        raise ValueError("Cloudflare R2 credentials not configured (set CLOUDFLARE_ACCOUNT_ID, CLOUDFLARE_R2_ACCESS_KEY_ID, CLOUDFLARE_R2_SECRET_ACCESS_KEY)")
+    endpoint = f"https://{account_id}.r2.cloudflarestorage.com"
+    _r2_client = boto3.client(
+        "s3",
+        endpoint_url=endpoint,
+        aws_access_key_id=access_key,
+        aws_secret_access_key=secret_key,
+        config=Config(signature_version="s3v4"),
+    )
+    return _r2_client
 
 
 def upload_video(file_path: str, video_id: str, format_type: str = "long") -> str:
@@ -127,9 +131,10 @@ def cleanup_old_videos() -> dict:
     pending_keys = list_pending_deletion()
     deleted = {"success": 0, "failed": 0, "errors": []}
 
+    client = get_r2_client()
     for key in pending_keys:
         try:
-            r2_client.delete_object(Bucket=BUCKET, Key=key)
+            client.delete_object(Bucket=BUCKET, Key=key)
             print(f"Auto-deleted: {key}")
             deleted["success"] += 1
         except Exception as e:

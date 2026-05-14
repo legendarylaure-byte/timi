@@ -6,6 +6,7 @@ import { db } from '@/lib/firebase';
 import { doc, updateDoc, getDoc, setDoc, collection, onSnapshot } from 'firebase/firestore';
 import { useToast } from '@/components/ui/Toast';
 import { GradientCard } from '@/components/ui/GradientCard';
+import { toggleTheme as toggleAppTheme } from '@/lib/theme';
 import { DAILY_QUOTA, CONTENT_CATEGORIES, PLATFORMS } from '@/lib/constants';
 
 export default function SettingsPage() {
@@ -72,9 +73,7 @@ export default function SettingsPage() {
   }, []);
 
   const toggleTheme = () => {
-    const next = theme === 'light' ? 'dark' : 'light';
-    document.documentElement.classList.toggle('dark', next === 'dark');
-    localStorage.setItem('theme', next);
+    const next = toggleAppTheme();
     setTheme(next);
     addToast(`Switched to ${next} mode`, 'info');
   };
@@ -130,32 +129,14 @@ export default function SettingsPage() {
           </div>
           <div className="flex gap-2">
             <button
-              onClick={() => {
-                document.documentElement.classList.remove('dark');
-                localStorage.setItem('theme', 'light');
-                setTheme('light');
-              }}
+              onClick={() => { toggleAppTheme(); setTheme(theme === 'light' ? 'dark' : 'light'); }}
               className={`px-4 py-2 rounded-xl text-sm font-medium transition-all ${
                 theme === 'light'
                   ? 'bg-light-primary text-white'
                   : 'bg-light-border dark:bg-dark-border text-light-muted dark:text-dark-muted'
               }`}
             >
-              ☀️ Light
-            </button>
-            <button
-              onClick={() => {
-                document.documentElement.classList.add('dark');
-                localStorage.setItem('theme', 'dark');
-                setTheme('dark');
-              }}
-              className={`px-4 py-2 rounded-xl text-sm font-medium transition-all ${
-                theme === 'dark'
-                  ? 'bg-light-secondary text-white'
-                  : 'bg-light-border dark:bg-dark-border text-light-muted dark:text-dark-muted'
-              }`}
-            >
-              🌙 Dark
+              {theme === 'light' ? '☀️ Light' : '🌙 Dark'}
             </button>
           </div>
         </div>
