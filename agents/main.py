@@ -51,7 +51,7 @@ os.environ["GLOG_minloglevel"] = "2"
 def _run_async(coro):
     """Run an async coroutine safely, even from a threaded context with a running loop."""
     try:
-        loop = asyncio.get_running_loop()
+        asyncio.get_running_loop()
     except RuntimeError:
         return asyncio.run(coro)
     import concurrent.futures

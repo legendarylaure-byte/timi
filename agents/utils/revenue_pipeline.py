@@ -1,4 +1,4 @@
-import os
+import json
 from datetime import datetime, timezone
 from utils.firebase_status import get_firestore_client, log_activity
 
@@ -8,7 +8,7 @@ def daily_revenue_job():
     print("[REVENUE] Starting daily revenue computation")
 
     try:
-        from utils.youtube_analytics_v2 import fetch_revenue_data, _convert_revenue_result
+        from utils.youtube_analytics_v2 import fetch_revenue_data
 
         result = fetch_revenue_data(days=30)
 
@@ -22,26 +22,25 @@ def daily_revenue_job():
             print("[REVENUE] No Firestore client available")
             return False
 
+        total_rev = round(result.get("totalRevenue", 0), 2)
+        rpm = round(result.get("rpm", 0), 2)
         revenue_data = {
-            "totalRevenue": result["totalRevenue"],
             "currentMonth": result["currentMonth"],
-            "lastMonth": result["lastMonth"],
-            "rpm": result["rpm"],
-            "cpm": result["cpm"],
-            "estimatedYearly": result["estimatedYearly"],
-            "dailyRevenue": result.get("dailyRevenue", []),
-            "platformBreakdown": result.get("platformBreakdown", [
-                {"platform": "YouTube Shorts", "icon": "🔴", "revenue": round(result["totalRevenue"] * 0.7, 2), "percentage": 70, "rpm": round(result["rpm"] * 0.8, 2)},
-                {"platform": "YouTube Long", "icon": "🔴", "revenue": round(result["totalRevenue"] * 0.3, 2), "percentage": 30, "rpm": round(result["rpm"] * 1.2, 2)},
+            "estimatedYearly": result["currentMonth"] * 12,
+            "totalRevenue": total_rev,
+            "rpm": rpm,
+            "platforms": json.dumps([
+                {"platform": "YouTube Shorts", "icon": "🔴", "revenue": round(total_rev * 0.7, 2), "percentage": 70, "rpm": round(rpm * 0.8, 2)},  # noqa: E501
+                {"platform": "YouTube Long", "icon": "🔴", "revenue": round(total_rev * 0.3, 2), "percentage": 30, "rpm": round(rpm * 1.2, 2)},  # noqa: E501
             ]),
             "dataSource": result.get("dataSource", "estimated"),
             "lastUpdated": datetime.now(timezone.utc).isoformat(),
         }
 
-        from firebase_admin import firestore
         db.collection("monetization").document("revenue").set(revenue_data, merge=True)
 
-        data_source_label = "YouTube Analytics API" if revenue_data["dataSource"] == "youtube_analytics_api" else "estimated (CPM-based)"
+        ds = revenue_data["dataSource"]
+        data_source_label = "YouTube Analytics API" if ds == "youtube_analytics_api" else "estimated (CPM-based)"
         msg = (
             f"Revenue data saved: ${revenue_data['totalRevenue']} total, "
             f"${revenue_data['currentMonth']} this month, "

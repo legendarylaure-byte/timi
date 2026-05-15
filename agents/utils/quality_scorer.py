@@ -43,7 +43,6 @@ IMPORTANT: AI-generated educational scripts for kids are inherently well-structu
 Only flag genuinely harmful content (violence, scary themes, inappropriate language)."""
 
 
-
 def score_content(script: str, title: str, category: str, format_type: str = "shorts") -> dict:
     """Score video content using Groq AI and return quality metrics."""
     update_agent_status("quality_scorer", "working", f"Evaluating: {title}")

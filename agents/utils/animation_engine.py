@@ -2,14 +2,11 @@ import os
 import math
 import json
 import subprocess
-import tempfile
 import random
 from pathlib import Path
 from collections import OrderedDict
 from PIL import Image, ImageDraw, ImageFont
-from datetime import datetime
 
-from utils.firebase_status import log_activity
 from utils.animation_math import ANIMATION_FUNCTIONS, none_anim
 from utils.assets import get_asset_path, ensure_dirs
 
@@ -59,7 +56,9 @@ def _load_background(name: str, format_type: str) -> Image.Image:
     return img
 
 
-def _load_character_sprite(char_name: str, pose: str = "idle", expression: str = "neutral", mouth: str = "closed") -> Image.Image:
+def _load_character_sprite(
+    char_name: str, pose: str = "idle", expression: str = "neutral", mouth: str = "closed"
+) -> Image.Image:
     cache_key = f"{char_name}_{pose}_{expression}_{mouth}"
     if cache_key in CHAR_CACHE:
         CHAR_CACHE.move_to_end(cache_key)
@@ -136,7 +135,9 @@ def _compute_character_transform(char_config: dict, frame_idx: int, total_frames
     elif anim_name == "wave":
         result = anim_fn(t, max_angle=anim_params.get("max_angle", 25), frequency=anim_params.get("frequency", 2.5))
     elif anim_name == "grow":
-        result = anim_fn(t, scale_min=anim_params.get("scale_min", 0.8), scale_max=anim_params.get("scale_max", 1.15), frequency=anim_params.get("frequency", 1.5))
+        result = anim_fn(t, scale_min=anim_params.get("scale_min", 0.8),
+                         scale_max=anim_params.get("scale_max", 1.15),
+                         frequency=anim_params.get("frequency", 1.5))
     elif anim_name == "wiggle":
         result = anim_fn(t, amplitude=anim_params.get("amplitude", 5), frequency=anim_params.get("frequency", 4.0))
     else:
@@ -156,7 +157,8 @@ def _render_text(draw: ImageDraw, text_cfg: dict, frame_w: int, frame_h: int, fr
     font_sizes = {"title": 72, "emphasis": 56, "dialogue": 48, "narration": 40}
     font_size = font_sizes.get(style, 40)
 
-    colors = {"title": (255, 215, 0), "emphasis": (255, 105, 180), "dialogue": (255, 255, 255), "narration": (255, 255, 255)}
+    colors = {"title": (255, 215, 0), "emphasis": (255, 105, 180),
+              "dialogue": (255, 255, 255), "narration": (255, 255, 255)}
     color = colors.get(style, (255, 255, 255))
 
     positions = {
@@ -176,7 +178,6 @@ def _render_text(draw: ImageDraw, text_cfg: dict, frame_w: int, frame_h: int, fr
         tw, th = len(text) * font_size * 0.6, font_size
         font = ImageFont.load_default()
 
-    frame_progress = frame_idx / max(total_frames - 1, 1)
     fade_in_frames = int(FPS * 0.3)
     alpha_factor = min(1.0, frame_idx / max(fade_in_frames, 1)) if style == "title" else 1.0
     if alpha_factor < 1.0:
@@ -296,9 +297,6 @@ def render_scenes(scene_configs: list[dict], voice_path: str = None, music_path:
     with open(os.path.join(ASSETS_DIR, "characters.json")) as f:
         characters_config = json.load(f)
 
-    total_duration = sum(s.get("duration", 5) for s in scene_configs)
-    total_frames_global = int(total_duration * FPS)
-
     frames_dir = TEMP_DIR / f"frames_{video_id}"
     frames_dir.mkdir(parents=True, exist_ok=True)
 
@@ -402,7 +400,6 @@ def render_scenes(scene_configs: list[dict], voice_path: str = None, music_path:
             global_frame += 1
 
         scene_frame_offset += scene_frames
-        total = sum(s.get("duration", 5) for s in scene_configs)
         pct = (si + 1) / len(scene_configs) * 100
         print(f"[ANIMATION] Scene {si + 1}/{len(scene_configs)} rendered ({pct:.0f}%)")
 

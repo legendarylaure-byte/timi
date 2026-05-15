@@ -2,7 +2,7 @@ import json
 import math
 import os
 import re
-from typing import Optional
+
 from PIL import ImageDraw, ImageFont
 
 FPS = 30
@@ -119,7 +119,9 @@ def extract_spotlight_events(timing_file: str, narration_text: str, fps: int = F
     return merged
 
 
-def assign_spotlights_to_scenes(spotlights: list[dict], scene_durations: list[float], fps: int = FPS) -> list[list[dict]]:
+def assign_spotlights_to_scenes(
+    spotlights: list[dict], scene_durations: list[float], fps: int = FPS
+) -> list[list[dict]]:
     scene_frames = [int(d * fps) for d in scene_durations]
     cumulative = [sum(scene_frames[:i]) for i in range(len(scene_frames) + 1)]
 

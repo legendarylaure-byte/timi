@@ -1,27 +1,22 @@
 import json
 import re
-import os
-from datetime import datetime
 from utils.groq_client import generate_completion
 from utils.firebase_status import log_activity
-from utils.scene_schema import (
-    validate_scenes, ValidationError, load_characters,
-    ANIMATION_TYPES, BACKGROUND_TYPES, VALID_EFFECTS,
-)
+from utils.scene_schema import ValidationError
 
 SYSTEM_PROMPT = """You are a scene director for children's animated videos. Convert the given script into structured scene descriptions.
 
 Return ONLY a valid JSON array of scene objects. Each scene object has this exact structure:
 
 {
-  "background": "gradient_sky|gradient_forest|gradient_ocean|gradient_space|gradient_sunset|gradient_night|gradient_garden|gradient_classroom|gradient_bedroom|gradient_underwater|color_solid",
+  "background": "gradient_sky|gradient_forest|gradient_ocean|gradient_space|gradient_sunset|gradient_night|gradient_garden|gradient_classroom|gradient_bedroom|gradient_underwater|color_solid",  # noqa: E501
   "duration": 8.0,
   "characters": [
     {
       "name": "pixel|nova|ziggy|boop|sprout",
-      "pose": "idle|happy|wave|point|surprised|thinking|sleep|dance|growing|sad",
-      "expression": "neutral|happy|excited|curious|calm|dreamy|silly|sad|surprised|peaceful",
-      "animation": "bounce|float|wave|grow|wiggle|slide_in|thinking|twinkle|spin|glide|morph|dance|squish|cry|hug|sway|bloom|none",
+      "pose": "idle|happy|wave|point|surprised|thinking|sleep|dance|growing|sad",  # noqa: E501
+      "expression": "neutral|happy|excited|curious|calm|dreamy|silly|sad|surprised|peaceful",  # noqa: E501
+      "animation": "bounce|float|wave|grow|wiggle|slide_in|thinking|twinkle|spin|glide|morph|dance|squish|cry|hug|sway|bloom|none",  # noqa: E501
       "x": 0.5,
       "y": 0.6
     }
@@ -54,10 +49,13 @@ RULES:
 - camera.zoom of 1.0 means no zoom, >1 zooms in
 - Include text overlays for key spoken phrases
 
-Generate scenes that follow the narrative arc of the script. Maintain consistent character placement across consecutive scenes."""
+Generate scenes that follow the narrative arc of the script. Maintain consistent character placement across consecutive scenes."""  # noqa: E501
 
 
-def parse_script_to_scenes(script_text: str, title: str = "", category: str = "", format_type: str = "shorts", storyboard_text: str = "") -> list[dict]:
+def parse_script_to_scenes(
+    script_text: str, title: str = "", category: str = "",
+    format_type: str = "shorts", storyboard_text: str = ""
+) -> list[dict]:
     log_activity("scene_parser", f"Parsing script: {title}", "info")
     print(f"[SCENE_PARSER] Parsing script for '{title}' ({format_type})")
 
@@ -75,7 +73,9 @@ def parse_script_to_scenes(script_text: str, title: str = "", category: str = ""
     return scenes
 
 
-def _llm_scene_parse(script_text: str, title: str, category: str, format_type: str, storyboard_text: str) -> list[dict] | None:
+def _llm_scene_parse(
+    script_text: str, title: str, category: str, format_type: str, storyboard_text: str
+) -> list[dict] | None:
     if len(script_text) > 6000:
         script_text = script_text[:6000] + "\n...[truncated]"
 
@@ -189,7 +189,8 @@ def _minimal_fallback(title: str, category: str, format_type: str) -> list[dict]
         scenes.append({
             "background": "gradient_sky",
             "duration": 6.0 if format_type == "shorts" else 10.0,
-            "characters": [{"name": char_name, "pose": "idle", "expression": "neutral", "animation": "float", "x": 0.5, "y": 0.5}],
+            "characters": [{"name": char_name, "pose": "idle", "expression": "neutral",
+                            "animation": "float", "x": 0.5, "y": 0.5}],
             "text": [{"text": title[:50], "style": "title", "position": "center"}],
             "effects": ["sparkle"],
             "transition": "fade" if i > 0 else "cut",
@@ -294,7 +295,9 @@ def _infer_characters(text: str) -> list[dict]:
             characters.append({
                 "name": char_name,
                 "pose": poses[len(characters) % len(poses)],
-                "expression": "happy" if any(w in text_lower for w in ["happy", "fun", "great", "yay", "celebrate"]) else "neutral",
+                "expression": "happy" if any(
+                    w in text_lower for w in ["happy", "fun", "great", "yay", "celebrate"]
+                ) else "neutral",
                 "animation": char_anims.get(char_name, "float"),
                 "x": 0.3 + len(characters) * 0.4,
                 "y": 0.55,
@@ -326,7 +329,9 @@ def _infer_text(text: str) -> list[dict]:
         cleaned = re.sub(r'^[A-Z][a-z]+\s*:\s*', '', cleaned).strip()
         cleaned = re.sub(r'[<>]', '', cleaned)
 
-        if cleaned and 15 < len(cleaned) < 100 and not any(kw in cleaned.lower() for kw in ["scene", "camera", "angle", "color palette", "background"]):
+        if cleaned and 15 < len(cleaned) < 100 and not any(
+            kw in cleaned.lower() for kw in ["scene", "camera", "angle", "color palette", "background"]
+        ):
             texts.append({
                 "text": cleaned[:80],
                 "style": "dialogue" if "?" in cleaned or "!" in cleaned else "narration",
@@ -412,7 +417,8 @@ def _default_scene(index: int) -> dict:
     return {
         "background": "gradient_sky",
         "duration": 6.0,
-        "characters": [{"name": "pixel", "pose": "idle", "expression": "neutral", "animation": "float", "x": 0.5, "y": 0.55}],
+        "characters": [{"name": "pixel", "pose": "idle", "expression": "neutral",
+                        "animation": "float", "x": 0.5, "y": 0.55}],
         "text": [],
         "effects": ["fade_in"] if index == 0 else ["none"],
         "transition": "cut" if index == 0 else "dissolve",
