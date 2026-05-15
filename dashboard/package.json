@@ -10,7 +10,7 @@
   },
   "dependencies": {
     "firebase": "^10.14.1",
-    "firebase-admin": "^13.9.0",
+    "firebase-admin": "^13.10.0",
     "framer-motion": "11.11.17",
     "next": "15.5.9",
     "react": "^18.3.1",
