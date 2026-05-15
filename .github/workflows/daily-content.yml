@@ -99,9 +99,9 @@ jobs:
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
         run: |
-          # Decode Firebase service account (stored as base64 in GitHub Secrets)
+          # Decode Firebase service account (raw JSON secret)
           mkdir -p firebase
-          printf '%s' "$FIREBASE_SERVICE_ACCOUNT" | base64 -d > firebase/serviceAccountKey.json
+          printf '%s' "$FIREBASE_SERVICE_ACCOUNT" > firebase/serviceAccountKey.json
 
           # Decode YouTube OAuth token (stored as base64 in GitHub Secrets)
           printf '%s' "$YOUTUBE_OAUTH_TOKEN" | base64 -d > youtube_token.json 2>/dev/null
