@@ -1,4 +1,7 @@
-from utils.series_router import load_series, pick_series_for_category, inject_intro_outro, build_intro_scene, build_outro_scene
+from utils.series_router import (
+    load_series, pick_series_for_category, inject_intro_outro,
+    build_intro_scene, build_outro_scene,
+)
 
 
 def test_load_series_returns_dict():

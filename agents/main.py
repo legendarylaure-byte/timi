@@ -58,6 +58,7 @@ def _run_async(coro):
     with concurrent.futures.ThreadPoolExecutor(max_workers=1) as pool:
         return pool.submit(asyncio.run, coro).result()
 
+
 logging.getLogger("grpc").setLevel(logging.ERROR)
 logging.getLogger("google.cloud.firestore").setLevel(logging.WARNING)
 

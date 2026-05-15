@@ -71,7 +71,8 @@ def test_pull_all_video_analytics_skips_non_uploaded(
         MagicMock(to_dict=lambda: {"status": "generating", "video_id": "v1"}),
         MagicMock(to_dict=lambda: {"status": "failed", "video_id": "v2"}),
     ]
-    mock_get_firestore.return_value.collection.return_value.order_by.return_value.limit.return_value.stream.return_value = docs
+    col = mock_get_firestore.return_value.collection.return_value
+    col.order_by.return_value.limit.return_value.stream.return_value = docs
     from utils.youtube_analytics import pull_all_video_analytics
     result = pull_all_video_analytics()
     assert result == {"processed": 0, "failed": 0}
@@ -93,7 +94,8 @@ def test_pull_all_video_analytics_processes_uploaded(
         "video_id": "v1",
         "youtube_id": "dQw4w9WgXcQ",
     }
-    mock_get_firestore.return_value.collection.return_value.order_by.return_value.limit.return_value.stream.return_value = [doc]
+    col = mock_get_firestore.return_value.collection.return_value
+    col.order_by.return_value.limit.return_value.stream.return_value = [doc]
     mock_fetch_stats.return_value = {"views": 100, "likes": 5, "comments": 2, "favorites": 0}
     from utils.youtube_analytics import pull_all_video_analytics
     result = pull_all_video_analytics()
