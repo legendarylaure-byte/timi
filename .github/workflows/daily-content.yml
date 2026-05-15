@@ -111,11 +111,7 @@ jobs:
           fi
           echo "  ✅ YouTube OAuth token decoded ($(wc -c < youtube_token.json) bytes)"
 
-      - name: Pre-flight checks
-        working-directory: ./agents
-        run: |
           echo "=== Pre-flight checks ==="
-          # Check required secrets
           for var in GROQ_API_KEY FIREBASE_PROJECT_ID FIREBASE_SERVICE_ACCOUNT YOUTUBE_CLIENT_ID YOUTUBE_CLIENT_SECRET YOUTUBE_OAUTH_TOKEN PEXELS_API_KEY PIXABAY_API_KEY GEMINI_API_KEY; do
             if [ -z "${!var}" ]; then
               echo "ERROR: Required secret $var is not set"
@@ -123,12 +119,10 @@ jobs:
             fi
             echo "  ✅ $var is set"
           done
-          # Check FFmpeg
           ffmpeg -version > /dev/null 2>&1 || { echo "ERROR: ffmpeg not found"; exit 1; }
           echo "  ✅ ffmpeg available"
           ffprobe -version > /dev/null 2>&1 || { echo "ERROR: ffprobe not found"; exit 1; }
           echo "  ✅ ffprobe available"
-          # Check Groq API health
           STATUS=$(curl -s -o /dev/null -w "%{http_code}" -X POST https://api.groq.com/openai/v1/chat/completions \
             -H "Authorization: Bearer $GROQ_API_KEY" \
             -H "Content-Type: application/json" \
@@ -138,7 +132,6 @@ jobs:
           else
             echo "  ⚠️  Groq API health check returned $STATUS (non-blocking)"
           fi
-          # Check disk space
           AVAIL_KB=$(df . | awk 'NR==2 {print $4}')
           if [ "$AVAIL_KB" -lt 1048576 ]; then
             echo "ERROR: Less than 1GB disk space available (${AVAIL_KB}KB)"
