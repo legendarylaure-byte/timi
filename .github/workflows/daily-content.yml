@@ -103,17 +103,20 @@ jobs:
           mkdir -p firebase
           printf '%s' "$FIREBASE_SERVICE_ACCOUNT" | base64 -d > firebase/serviceAccountKey.json
 
-          # Decode YouTube OAuth token if available (stored as base64 in GitHub Secrets)
-          if [ -n "$YOUTUBE_OAUTH_TOKEN" ]; then
-            printf '%s' "$YOUTUBE_OAUTH_TOKEN" | base64 -d > youtube_token.json
+          # Decode YouTube OAuth token (stored as base64 in GitHub Secrets)
+          printf '%s' "$YOUTUBE_OAUTH_TOKEN" | base64 -d > youtube_token.json 2>/dev/null
+          if [ ! -s youtube_token.json ]; then
+            echo "ERROR: YOUTUBE_OAUTH_TOKEN is invalid or empty — youtube_token.json is empty"
+            exit 1
           fi
+          echo "  ✅ YouTube OAuth token decoded ($(wc -c < youtube_token.json) bytes)"
 
       - name: Pre-flight checks
         working-directory: ./agents
         run: |
           echo "=== Pre-flight checks ==="
           # Check required secrets
-          for var in GROQ_API_KEY FIREBASE_PROJECT_ID FIREBASE_SERVICE_ACCOUNT YOUTUBE_CLIENT_ID YOUTUBE_CLIENT_SECRET PEXELS_API_KEY PIXABAY_API_KEY GEMINI_API_KEY; do
+          for var in GROQ_API_KEY FIREBASE_PROJECT_ID FIREBASE_SERVICE_ACCOUNT YOUTUBE_CLIENT_ID YOUTUBE_CLIENT_SECRET YOUTUBE_OAUTH_TOKEN PEXELS_API_KEY PIXABAY_API_KEY GEMINI_API_KEY; do
             if [ -z "${!var}" ]; then
               echo "ERROR: Required secret $var is not set"
               exit 1
