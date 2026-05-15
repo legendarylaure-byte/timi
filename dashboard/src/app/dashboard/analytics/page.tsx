@@ -50,6 +50,16 @@ interface ChannelStats {
   last_updated: string | null;
 }
 
+interface CharacterStat {
+  id: string;
+  name: string;
+  emoji: string;
+  total_views: number;
+  video_count: number;
+  share_pct: number;
+  top_categories: string[];
+}
+
 const categories = ['Self-Learning', 'Bedtime Stories', 'Mythology Stories', 'Animated Fables', 'Science for Kids', 'Rhymes & Songs', 'Colors & Shapes'];
 
 export default function AnalyticsPage() {
@@ -65,6 +75,7 @@ export default function AnalyticsPage() {
   const [analyticsLoading, setAnalyticsLoading] = useState(true);
   const [analyticsRefreshing, setAnalyticsRefreshing] = useState(false);
   const [channelStats, setChannelStats] = useState<ChannelStats | null>(null);
+  const [characterStats, setCharacterStats] = useState<CharacterStat[]>([]);
   const [sortBy, setSortBy] = useState<'views' | 'likes' | 'comments' | 'created_at'>('views');
 
   useEffect(() => {
@@ -86,9 +97,10 @@ export default function AnalyticsPage() {
       const headers: Record<string, string> = {};
       if (token) headers['Authorization'] = `Bearer ${token}`;
 
-      const [analyticsRes, channelRes] = await Promise.all([
+      const [analyticsRes, channelRes, charRes] = await Promise.all([
         fetch('/api/youtube/analytics?limit=50', { headers }),
         fetch('/api/youtube/channel', { headers }),
+        fetch('/api/analytics/characters', { headers }),
       ]);
       const analyticsData = await analyticsRes.json();
       if (analyticsData.success) {
@@ -98,6 +110,10 @@ export default function AnalyticsPage() {
       const channelData = await channelRes.json();
       if (channelData.success && channelData.channel) {
         setChannelStats(channelData.channel);
+      }
+      const charData = await charRes.json();
+      if (charData.success) {
+        setCharacterStats(charData.characters);
       }
     } catch (e) {
       console.error('[ANALYTICS] Failed to load:', e);
@@ -232,6 +248,38 @@ export default function AnalyticsPage() {
               </motion.div>
             ))}
           </motion.div>
+
+          {characterStats.length > 0 && (
+            <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.15 }}>
+              <div className="relative rounded-2xl overflow-hidden glass-strong border border-light-border/50 dark:border-white/10 p-6">
+                <h2 className="text-lg font-bold text-light-text dark:text-dark-text mb-4">Character Performance</h2>
+                <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
+                  {characterStats.map(char => (
+                    <div key={char.id} className="p-4 rounded-xl bg-light-bg/50 dark:bg-dark-bg/50 border border-light-border/30 dark:border-white/5 text-center">
+                      <span className="text-3xl block mb-2">{char.emoji}</span>
+                      <h3 className="font-bold text-light-text dark:text-dark-text text-sm">{char.name}</h3>
+                      <p className="text-xs text-light-muted dark:text-dark-muted mt-1">{char.video_count} videos</p>
+                      <p className="text-lg font-bold text-light-text dark:text-dark-text mt-1">{formatNumber(char.total_views)}</p>
+                      <div className="mt-2">
+                        <div className="w-full h-1.5 rounded-full bg-light-border/50 dark:bg-white/10 overflow-hidden">
+                          <div
+                            className="h-full rounded-full bg-gradient-to-r from-purple-500 to-blue-500"
+                            style={{ width: `${char.share_pct}%` }}
+                          />
+                        </div>
+                        <p className="text-xs text-light-muted dark:text-dark-muted mt-1">{char.share_pct}% share</p>
+                      </div>
+                      <div className="mt-2 flex flex-wrap gap-1 justify-center">
+                        {char.top_categories.map(cat => (
+                          <span key={cat} className="text-[10px] px-1.5 py-0.5 rounded bg-purple-500/10 text-purple-400">{cat}</span>
+                        ))}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            </motion.div>
+          )}
 
           <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.2 }}>
             <div className="relative rounded-2xl overflow-hidden glass-strong border border-light-border/50 dark:border-white/10 p-6">
