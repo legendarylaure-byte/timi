@@ -103,10 +103,13 @@ jobs:
           mkdir -p firebase
           printf '%s' "$FIREBASE_SERVICE_ACCOUNT" > firebase/serviceAccountKey.json
 
-          # Decode YouTube OAuth token (stored as base64 in GitHub Secrets)
-          printf '%s' "$YOUTUBE_OAUTH_TOKEN" | base64 -d > youtube_token.json 2>/dev/null
+          # Decode YouTube OAuth token — try base64 first, fall back to raw JSON
+          printf '%s' "$YOUTUBE_OAUTH_TOKEN" | base64 -d > youtube_token.json 2>/dev/null || true
           if [ ! -s youtube_token.json ]; then
-            echo "ERROR: YOUTUBE_OAUTH_TOKEN is invalid or empty — youtube_token.json is empty"
+            printf '%s' "$YOUTUBE_OAUTH_TOKEN" > youtube_token.json
+          fi
+          if [ ! -s youtube_token.json ]; then
+            echo "ERROR: YOUTUBE_OAUTH_TOKEN produced an empty file"
             exit 1
           fi
           echo "  ✅ YouTube OAuth token decoded ($(wc -c < youtube_token.json) bytes)"
