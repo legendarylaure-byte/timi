@@ -1,6 +1,11 @@
 import os
+from pathlib import Path
+
 import httpx
 from crewai.llm import LLM
+from dotenv import load_dotenv
+
+load_dotenv(Path(__file__).resolve().parent.parent / '.env')
 
 
 def _groq_has_quota() -> bool:

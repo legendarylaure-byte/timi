@@ -27,14 +27,14 @@ PLATFORMS = {
         'icon': '📸',
         'color': '#E4405F',
         'api': 'Instagram Graph API',
-        'endpoint': 'https://graph.facebook.com/v18.0/{page_id}/media',
+        'endpoint': 'https://graph.facebook.com/v25.0/{page_id}/media',
     },
     'facebook': {
         'name': 'Facebook',
         'icon': '👤',
         'color': '#1877F2',
         'api': 'Facebook Graph API',
-        'endpoint': 'https://graph.facebook.com/v18.0/{page_id}/videos',
+        'endpoint': 'https://graph.facebook.com/v25.0/{page_id}/videos',
     },
 }
 
@@ -220,7 +220,7 @@ def _upload_instagram(title: str, video_path: str, format_type: str) -> dict:
         media_type = 'REELS' if format_type == 'shorts' else 'VIDEO'
 
         create_resp = requests.post(
-            f'https://graph.facebook.com/v18.0/{ig_account_id}/media',
+            f'https://graph.facebook.com/v25.0/{ig_account_id}/media',
             params={
                 'access_token': access_token,
                 'media_type': media_type,
@@ -248,7 +248,7 @@ def _upload_instagram(title: str, video_path: str, format_type: str) -> dict:
         max_retries = 12
         for attempt in range(max_retries):
             status_resp = requests.get(
-                f'https://graph.facebook.com/v18.0/{creation_id}',
+                f'https://graph.facebook.com/v25.0/{creation_id}',
                 params={'access_token': access_token, 'fields': 'status_code'},
                 timeout=15,
             )
@@ -264,7 +264,7 @@ def _upload_instagram(title: str, video_path: str, format_type: str) -> dict:
             time.sleep(2)
 
         publish_resp = requests.post(
-            f'https://graph.facebook.com/v18.0/{ig_account_id}/media_publish',
+            f'https://graph.facebook.com/v25.0/{ig_account_id}/media_publish',
             params={'access_token': access_token, 'creation_id': creation_id},
             timeout=30,
         )
@@ -317,7 +317,7 @@ def _upload_facebook(title: str, description: str, video_path: str) -> dict:
         if upload_method == 'direct':
             with open(video_path, 'rb') as f:
                 upload_resp = requests.post(
-                    f'https://graph.facebook.com/v18.0/{page_id}/videos',
+                    f'https://graph.facebook.com/v25.0/{page_id}/videos',
                     params={'access_token': access_token},
                     files={'source': f},
                     data={
@@ -345,7 +345,7 @@ def _upload_facebook(title: str, description: str, video_path: str) -> dict:
                 }
         else:
             init_resp = requests.post(
-                f'https://graph.facebook.com/v18.0/{page_id}/videos',
+                f'https://graph.facebook.com/v25.0/{page_id}/videos',
                 params={
                     'access_token': access_token,
                     'title': title,
@@ -371,7 +371,7 @@ def _upload_facebook(title: str, description: str, video_path: str) -> dict:
 
             with open(video_path, 'rb') as f:
                 chunk_resp = requests.post(
-                    f'https://graph.facebook.com/v18.0/{page_id}/videos',
+                    f'https://graph.facebook.com/v25.0/{page_id}/videos',
                     params={
                         'access_token': access_token,
                         'upload_phase': 'transfer',
