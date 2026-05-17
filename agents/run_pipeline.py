@@ -19,7 +19,10 @@ def main():
             sys.exit(1)
     else:
         log_event('SCHEDULED', 'Running daily content generation')
-        daily_content_job()
+        success = daily_content_job()
+        if not success:
+            log_event('SCHEDULED', 'Daily content generation produced no videos')
+            sys.exit(1)
 
 
 if __name__ == '__main__':

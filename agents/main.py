@@ -788,6 +788,8 @@ def daily_content_job():
     if failed_topics:
         log_event("SCHEDULER", f"Failed topics (will retry next run): {', '.join(failed_topics)}")
 
+    return successful_shorts > 0 or successful_longs > 0
+
 
 def daily_repurpose_job():
     log_event("REPURPOSE", "Starting content repurposing scan")
@@ -950,11 +952,11 @@ if __name__ == "__main__":
     log_event("SYSTEM", f"Max retries per topic: {MAX_RETRIES_PER_TOPIC}")
 
     scheduler = BlockingScheduler()
-    scheduler.add_job(daily_content_job, "cron", hour=6, minute=0)
-    scheduler.add_job(daily_analytics_job, "cron", hour=8, minute=0)
-    scheduler.add_job(daily_revenue_job, "cron", hour=8, minute=30)
-    scheduler.add_job(daily_repurpose_job, "cron", hour=14, minute=0)
-    scheduler.add_job(daily_cleanup_job, "cron", hour=4, minute=0)
+    scheduler.add_job(daily_content_job, "cron", hour=6, minute=0, misfire_grace_time=86400)
+    scheduler.add_job(daily_analytics_job, "cron", hour=8, minute=0, misfire_grace_time=86400)
+    scheduler.add_job(daily_revenue_job, "cron", hour=8, minute=30, misfire_grace_time=86400)
+    scheduler.add_job(daily_repurpose_job, "cron", hour=14, minute=0, misfire_grace_time=86400)
+    scheduler.add_job(daily_cleanup_job, "cron", hour=4, minute=0, misfire_grace_time=86400)
     scheduler.add_job(scheduled_publish_job, "interval", minutes=15)
     log_event("SCHEDULER", "Daily content job scheduled at 06:00 UTC")
     log_event("SCHEDULER", "Daily analytics pull scheduled at 08:00 UTC")

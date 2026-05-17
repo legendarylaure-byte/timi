@@ -44,7 +44,7 @@ def get_llm(temperature: float = 0.7, max_tokens: int = 2000) -> LLM:
 
     gemini_key = os.getenv("GEMINI_API_KEY", "")
     if gemini_key:
-        gemini_model = os.getenv("GEMINI_MODEL", "gemini-pro")
+        gemini_model = os.getenv("GEMINI_MODEL", "gemini-2.5-flash")
         print(f"[LLM] Falling back to Gemini ({gemini_model})")
         from utils.gemini_llm import GeminiLLM
         return GeminiLLM(
