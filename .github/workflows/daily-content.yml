@@ -74,7 +74,7 @@ jobs:
       - name: Install extra codecs for FFmpeg
         run: |
           sudo apt-get update
-          sudo apt-get install -y libavcodec-extra
+          sudo apt-get install -y ffmpeg libavcodec-extra
 
       - name: Install dependencies
         working-directory: ./agents
