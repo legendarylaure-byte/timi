@@ -1,11 +1,11 @@
 # Vyom Ai Cloud — Timi
 
 > **Faceless Kids Content Automation Platform**
-> AI-powered 3D animated cartoon video generation and publishing for YouTube, TikTok, Instagram, and Facebook.
+> AI-powered animated cartoon video generation and publishing for YouTube, TikTok, Instagram, and Facebook.
 
 ## Overview
 
-Vyom Ai Cloud (codename: Timi) is a fully automated content creation pipeline that generates educational 3D animated cartoon videos for children aged 1-9. The system runs 24/7, producing and publishing content across multiple social media platforms daily.
+Vyom Ai Cloud (codename: Timi) is a fully automated content creation pipeline that generates educational animated cartoon videos for children aged 1-9. The system runs 24/7, producing and publishing content across multiple social media platforms daily.
 
 ### Content Types
 - Bedtime stories
@@ -17,7 +17,7 @@ Vyom Ai Cloud (codename: Timi) is a fully automated content creation pipeline th
 ### Output Formats
 | Format | Aspect Ratio | Duration | Platforms |
 |--------|-------------|----------|-----------|
-| Shorts | 9:16 | Up to 120s | TikTok, Instagram Reels, YouTube Shorts |
+| Shorts | 9:16 | Up to 120s | YouTube Shorts (TikTok/Instagram — planned) |
 | Long | 16:9 | Up to 300s | YouTube, Facebook |
 
 ### Daily Quota
@@ -42,21 +42,21 @@ Vyom Ai Cloud (codename: Timi) is a fully automated content creation pipeline th
 
 ### Frontend
 - Next.js 15 + React 19 + TypeScript
-- Three.js + React Three Fiber (3D animations)
+- Framer Motion (CSS animations)
 - TailwindCSS + Framer Motion
 - Firebase Auth (Google OAuth)
 
 ### AI Agents
 - CrewAI + LangChain (multi-agent orchestration)
 - Groq API (LLM inference — free tier)
-- Piper TTS + Bark (voice synthesis)
+- Edge TTS (voice synthesis)
 - MusicGen (background music)
-- Stable Video Diffusion (video frames)
-- Stable Diffusion XL (images/thumbnails)
+- Stable Diffusion XL (character sprite generation, optional — requires GPU)
+- Stable Video Diffusion (video frames, optional — requires GPU)
 
 ### Pipeline
 - FFmpeg (video composition)
-- Manim (mathematical animations)
+- PIL/Pillow (2D frame generation)
 - APScheduler (task scheduling)
 
 ### Infrastructure
@@ -150,7 +150,7 @@ Add CNAME record in Hostinger:
 | Storyboard Artist | Generates scene descriptions and images |
 | Voice Actor | Synthesizes character voices |
 | Composer | Creates background music |
-| Animator | Generates 3D animated frames |
+| Animator | Generates 2D animated frames / sources stock footage |
 | Editor | Composites video and audio |
 | Thumbnail Creator | Generates eye-catching thumbnails |
 | Metadata Writer | Writes SEO-optimized titles, descriptions, tags |

@@ -96,7 +96,7 @@ ENABLE_DIRECTOR_REVIEW = os.getenv("ENABLE_DIRECTOR_REVIEW", "true").lower() == 
 MULTI_LANG_CODES = os.getenv("MULTI_LANG_CODES", "es,de,fr").split(",")
 PIPELINE_TIMEOUT_MINUTES = int(os.getenv("PIPELINE_TIMEOUT_MINUTES", 30))
 MAX_RETRIES_PER_TOPIC = int(os.getenv("MAX_RETRIES_PER_TOPIC", 2))
-USE_ANIMATION_ENGINE = os.getenv("USE_ANIMATION_ENGINE", "false").lower() == "true"
+USE_ANIMATION_ENGINE = os.getenv("USE_ANIMATION_ENGINE", "true").lower() == "true"
 
 
 def _run_with_timeout(func, args, timeout_minutes: int):
@@ -530,7 +530,7 @@ def generate_short_video(topic: str, category: str, video_id: str, publish_at: s
         )
 
         failed_step = "publishing"
-        platforms_to_publish = ['youtube']
+        platforms_to_publish = ['youtube', 'tiktok', 'instagram']
         publish_result = multi_platform_publish(
             video_id=video_id,
             title=topic,
@@ -579,6 +579,15 @@ def generate_short_video(topic: str, category: str, video_id: str, publish_at: s
         })
         log_event("PIPELINE", f"SHORT video generation SUCCESS: {topic}")
         update_pipeline_status(False)
+        try:
+            from bot.notifications import send_upload_notification
+            video_dur = video_result.get("duration", 0)
+            send_upload_notification({
+                "title": topic, "format": "shorts", "duration": video_dur,
+                "platforms": publish_result.get("platforms", {}),
+            })
+        except Exception:
+            log_event("NOTIFY", "Upload notification skipped", "debug")
         return True
     except Exception as e:
         error_msg = str(e)[:500]
@@ -587,6 +596,11 @@ def generate_short_video(topic: str, category: str, video_id: str, publish_at: s
         update_pipeline_status(False, paused_by_user=False)
         log_event("PIPELINE", f"SHORT video FAILED at {failed_step}: {error_msg}", "error")
         log_event("CLEANUP", "Intermediate files cleaned by scheduled daily_cleanup_job")
+        try:
+            from bot.notifications import send_error_notification
+            send_error_notification(error_msg, f"short_video/{failed_step}: {topic}")
+        except Exception:
+            pass
         return False
 
 
@@ -712,6 +726,20 @@ def generate_long_video(topic: str, category: str, video_id: str, publish_at: st
                 subtitle_path=video_result.get("subtitle_path"),
             )
 
+        if ENABLE_MULTI_LANG:
+            log_event("PIPELINE", "Generating multi-language versions for long video")
+            translations = {}
+            for lang_code in MULTI_LANG_CODES:
+                try:
+                    translations[lang_code] = translate_script(script_text, lang_code, title=topic)
+                except Exception as e:
+                    log_event("TRANSLATE", f"Failed {lang_code}: {e}")
+
+            if translations:
+                update_video_record(video_id, {
+                    "translations": {k: v.get("title", "") for k, v in translations.items()},
+                })
+
         failed_step = "finalizing"
         update_video_record(video_id, {
             "script": script_text,
@@ -723,6 +751,15 @@ def generate_long_video(topic: str, category: str, video_id: str, publish_at: st
         add_video_record(video_id, topic, "long", "uploaded")
         log_event("PIPELINE", f"LONG video generation SUCCESS: {topic}")
         update_pipeline_status(False)
+        try:
+            from bot.notifications import send_upload_notification
+            video_dur = video_result.get("duration", 0)
+            send_upload_notification({
+                "title": topic, "format": "long", "duration": video_dur,
+                "platforms": publish_result.get("platforms", {}),
+            })
+        except Exception:
+            log_event("NOTIFY", "Upload notification skipped", "debug")
         return True
     except Exception as e:
         error_msg = str(e)[:500]
@@ -731,6 +768,11 @@ def generate_long_video(topic: str, category: str, video_id: str, publish_at: st
         update_pipeline_status(False, paused_by_user=False)
         log_event("PIPELINE", f"LONG video FAILED at {failed_step}: {error_msg}", "error")
         log_event("CLEANUP", "Intermediate files cleaned by scheduled daily_cleanup_job")
+        try:
+            from bot.notifications import send_error_notification
+            send_error_notification(error_msg, f"long_video/{failed_step}: {topic}")
+        except Exception:
+            pass
         return False
 
 

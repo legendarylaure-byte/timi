@@ -17,7 +17,7 @@ ASSETS_DIR = Path(__file__).parent / "assets"
 CHARACTERS_DIR = ASSETS_DIR / "characters"
 SPRITE_SIZE = 512
 
-USE_FLUX_GEN = os.getenv("USE_FLUX_GEN", "false").lower() == "true"
+USE_FLUX_GEN = os.getenv("USE_FLUX_GEN", "true").lower() == "true"
 
 CHARACTER_PROMPTS = {
     "pixel": (

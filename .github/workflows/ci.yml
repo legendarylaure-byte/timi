@@ -58,7 +58,7 @@ jobs:
       - run: pip install flake8 pyright
       - run: flake8 crew/ utils/ main.py tests/ --max-line-length=120
       - name: Type check
-        run: pyright . || echo "pyright warnings (non-blocking)"
+        run: pyright .
       - name: Run tests
         run: python -m pytest tests/ -v
 

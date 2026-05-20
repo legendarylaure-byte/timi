@@ -22,7 +22,7 @@ load_dotenv()
 MUSIC_DIR = Path(__file__).parent.parent / "tmp" / "music"
 MUSIC_DIR.mkdir(parents=True, exist_ok=True)
 
-USE_MUSICGEN = os.getenv("USE_MUSICGEN", "false").lower() == "true"
+USE_MUSICGEN = os.getenv("USE_MUSICGEN", "true").lower() == "true"
 
 MOOD_CONFIGS = {
     "happy": {"bpm": 120, "notes": [261.63, 293.66, 329.63, 349.23, 392.00, 440.00, 493.88], "waveform": "triangle"},
