@@ -3,6 +3,7 @@ import math
 import json
 import subprocess
 import random
+import shutil
 from pathlib import Path
 from collections import OrderedDict
 from PIL import Image, ImageDraw, ImageFont
@@ -56,36 +57,81 @@ def _load_background(name: str, format_type: str) -> Image.Image:
     return img
 
 
-def _load_character_sprite(
-    char_name: str, pose: str = "idle", expression: str = "neutral", mouth: str = "closed"
+# Part-based sprite offsets for each character (relative to center)
+CHARACTER_PART_OFFSETS = {
+    "pixel": {"mouth": (0, 30), "eyes": (0, -10)},
+    "nova": {"mouth": (0, 25), "eyes": (0, -5)},
+    "ziggy": {"mouth": (0, 28), "eyes": (0, -5)},
+    "boop": {"mouth": (0, 32), "eyes": (0, -20)},
+    "sprout": {"mouth": (0, 25), "eyes": (0, -5)},
+}
+
+
+def _compose_character(
+    char_name: str, pose: str = "idle", expression: str = "neutral", mouth: str = "closed", blink: bool = False
 ) -> Image.Image:
-    cache_key = f"{char_name}_{pose}_{expression}_{mouth}"
+    """Composite a character from multi-part sprites.
+
+    Loads body + mouth overlay from parts directory. Falls back to monolithic
+    sprites if parts are not available.
+    """
+    cache_key = f"part_{char_name}_{pose}_{expression}_{mouth}_{blink}"
     if cache_key in CHAR_CACHE:
         CHAR_CACHE.move_to_end(cache_key)
         return CHAR_CACHE[cache_key].copy()
 
     char_dir = os.path.join(CHARACTERS_DIR, char_name)
-    filename = f"{pose}_{expression}_{mouth}.png"
-    path = os.path.join(char_dir, filename)
+    body_path = os.path.join(char_dir, f"body_{pose}_{expression}.png")
+    mouth_path = os.path.join(char_dir, f"mouth_{mouth}.png")
 
-    if not os.path.exists(path):
-        filename = f"{pose}_{expression}.png"
-        path = os.path.join(char_dir, filename)
-    if not os.path.exists(path):
-        path = os.path.join(char_dir, "idle_neutral.png")
+    parts_available = os.path.exists(body_path) and os.path.exists(mouth_path)
 
-    if os.path.exists(path):
-        img = Image.open(path).convert("RGBA")
+    if parts_available:
+        body = Image.open(body_path).convert("RGBA")
+        result = body.copy()
+
+        mouth_img = Image.open(mouth_path).convert("RGBA")
+        mx, my = CHARACTER_PART_OFFSETS.get(char_name, {"mouth": (0, 30)})["mouth"]
+        cx, cy = result.width // 2, result.height // 2
+        mouth_x = cx + mx - mouth_img.width // 2
+        mouth_y = cy + my - mouth_img.height // 2
+        result.paste(mouth_img, (mouth_x, mouth_y), mouth_img)
+
+        if blink:
+            closed_eyes = Image.new("RGBA", result.size, (0, 0, 0, 0))
+            ed = ImageDraw.Draw(closed_eyes)
+            for ex in (cx - 18, cx + 18):
+                ed.arc([ex - 8, cy + my - 25, ex + 8, cy + my - 5], 0, 180, fill="#333333", width=4)
+            result.paste(closed_eyes, (0, 0), closed_eyes)
+
+        img = result
     else:
-        size = 256
-        img = Image.new("RGBA", (size, size), (200, 200, 200, 200))
-        draw = ImageDraw.Draw(img)
-        draw.ellipse([20, 20, size - 20, size - 20], fill=(255, 200, 200, 255))
+        # Fall back to monolithic sprite
+        filename = f"{pose}_{expression}_{mouth}.png"
+        path = os.path.join(char_dir, filename)
+        if not os.path.exists(path):
+            path = os.path.join(char_dir, f"{pose}_{expression}.png")
+        if not os.path.exists(path):
+            path = os.path.join(char_dir, "idle_neutral.png")
+
+        if os.path.exists(path):
+            img = Image.open(path).convert("RGBA")
+        else:
+            size = 256
+            img = Image.new("RGBA", (size, size), (200, 200, 200, 200))
+            draw = ImageDraw.Draw(img)
+            draw.ellipse([20, 20, size - 20, size - 20], fill=(255, 200, 200, 255))
 
     CHAR_CACHE[cache_key] = img.copy()
     if len(CHAR_CACHE) > _LRU_MAX:
         CHAR_CACHE.popitem(last=False)
     return img
+
+
+def _load_character_sprite(
+    char_name: str, pose: str = "idle", expression: str = "neutral", mouth: str = "closed", blink: bool = False
+) -> Image.Image:
+    return _compose_character(char_name, pose, expression, mouth, blink)
 
 
 def _load_effect(name: str) -> Image.Image:
@@ -251,6 +297,71 @@ def _render_effects(draw: ImageDraw, effects: list, frame_w: int, frame_h: int, 
                 pass
 
 
+# ---------------------------------------------------------------------------
+# Rhubarb lip sync integration
+# ---------------------------------------------------------------------------
+
+RHUBARD_MOUTH_MAP = {
+    "X": "closed", "D": "closed",
+    "B": "half", "F": "half",
+    "A": "open", "C": "open", "E": "open", "G": "open", "H": "open",
+}
+
+_rhubarb_bin = None
+for _candidate in ["rhubarb", "rhubarb-lip-sync", "/usr/local/bin/rhubarb", "/opt/homebrew/bin/rhubarb"]:
+    if shutil.which(_candidate) or os.path.exists(_candidate):
+        _rhubarb_bin = _candidate
+        break
+
+
+def _run_rhubarb(voice_path: str, output_dir: str) -> list[dict] | None:
+    if not _rhubarb_bin:
+        print("[animation] Rhubarb binary not found, using sine-wave lip sync")
+        return None
+    if not os.path.exists(voice_path):
+        return None
+    try:
+        output_path = os.path.join(output_dir, "rhubarb_output.txt")
+        cmd = [_rhubarb_bin, "-f", "txt", "-o", output_path, voice_path]
+        result = subprocess.run(cmd, capture_output=True, text=True, timeout=120)
+        if result.returncode != 0 or not os.path.exists(output_path):
+            return None
+        phonemes = []
+        with open(output_path, "r") as f:
+            for line in f:
+                line = line.strip()
+                if not line or "\t" not in line:
+                    continue
+                parts = line.split("\t")
+                if len(parts) >= 2:
+                    try:
+                        time_s = float(parts[0])
+                        mouth_code = parts[1].strip().upper()
+                        phonemes.append({"time_ms": time_s * 1000, "mouth": RHUBARD_MOUTH_MAP.get(mouth_code, "closed")})
+                    except ValueError:
+                        continue
+        if phonemes:
+            print(f"[animation] Rhubarb generated {len(phonemes)} phoneme timings")
+            return phonemes
+    except (FileNotFoundError, subprocess.TimeoutExpired, Exception) as e:
+        print(f"[animation] Rhubarb error: {e}")
+    return None
+
+
+def _get_rhubarb_mouth_state(frame_time_ms: float, phoneme_timings: list[dict]) -> str | None:
+    if not phoneme_timings:
+        return None
+    for i, pt in enumerate(phoneme_timings):
+        next_time = phoneme_timings[i + 1]["time_ms"] if i + 1 < len(phoneme_timings) else float("inf")
+        if pt["time_ms"] <= frame_time_ms < next_time:
+            return pt["mouth"]
+    return None
+
+
+# ---------------------------------------------------------------------------
+# Lip sync (Rhubarb preferred, sine-wave fallback)
+# ---------------------------------------------------------------------------
+
 def _is_speaking(frame_time_ms: float, phrase_timings: list) -> bool:
     if not phrase_timings:
         return False
@@ -260,7 +371,11 @@ def _is_speaking(frame_time_ms: float, phrase_timings: list) -> bool:
     return False
 
 
-def _lip_mouth_state(frame_time_ms: float, phrase_timings: list) -> str:
+def _lip_mouth_state(frame_time_ms: float, phrase_timings: list, phoneme_timings: list | None = None) -> str:
+    if phoneme_timings:
+        rhubarb_state = _get_rhubarb_mouth_state(frame_time_ms, phoneme_timings)
+        if rhubarb_state:
+            return rhubarb_state
     if not _is_speaking(frame_time_ms, phrase_timings):
         return "closed"
     t_sec = frame_time_ms / 1000.0
@@ -293,6 +408,10 @@ def render_scenes(scene_configs: list[dict], voice_path: str = None, music_path:
     OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
 
     w, h = FRAME_SIZE.get(format_type, (1080, 1920))
+
+    phoneme_timings = None
+    if voice_path and os.path.exists(voice_path):
+        phoneme_timings = _run_rhubarb(voice_path, str(TEMP_DIR))
 
     with open(os.path.join(ASSETS_DIR, "characters.json")) as f:
         characters_config = json.load(f)
@@ -342,17 +461,15 @@ def render_scenes(scene_configs: list[dict], voice_path: str = None, music_path:
                 expression = char_cfg.get("expression", "neutral")
 
                 global_frame_time_ms = (scene_frame_offset + fi) / FPS * 1000.0
-                mouth = _lip_mouth_state(global_frame_time_ms, phrase_timings) if phrase_timings else "closed"
+                mouth = _lip_mouth_state(global_frame_time_ms, phrase_timings, phoneme_timings) if phrase_timings else "closed"
 
                 char_key = f"{char_name}_{char_cfg.get('x', 0.5)}_{char_cfg.get('y', 0.55)}"
                 if char_key not in _blink_states:
                     _blink_states[char_key] = {"next_blink": random.randint(90, 120)}
                 cbs = _blink_states[char_key]
-                if _should_blink(cbs, global_frame):
-                    expression = "sleep"
-                    mouth = "closed"
+                is_blinking = _should_blink(cbs, global_frame)
 
-                sprite = _load_character_sprite(char_name, pose, expression, mouth)
+                sprite = _load_character_sprite(char_name, pose, expression, mouth, blink=is_blinking)
 
                 char_def = characters_config.get(char_name, {})
                 anim_params = char_def.get("animations", {}).get(char_cfg.get("animation", "float"), {})
@@ -380,9 +497,6 @@ def render_scenes(scene_configs: list[dict], voice_path: str = None, music_path:
 
                 if 0 <= rx < w and 0 <= ry < h:
                     frame.paste(resized, (rx, ry), resized)
-
-            for text_cfg in text_overlays:
-                _render_text(draw, text_cfg, w, h, fi, scene_frames)
 
             for sl in scene.get("spotlights", []):
                 from utils.text_animator import render_spotlight as _rs
@@ -438,6 +552,19 @@ def render_scenes(scene_configs: list[dict], voice_path: str = None, music_path:
                 mixed = voice.overlay(music)
             else:
                 mixed = voice
+
+            # Overlay scene SFX
+            scene_offset_ms = 0
+            for scene in scene_configs:
+                scene_sfx = scene.get("sfx", [])
+                scene_duration_ms = int(scene.get("duration", 5) * 1000)
+                for sfx in scene_sfx:
+                    sfx_path = sfx.get("path", "")
+                    if os.path.exists(sfx_path):
+                        sfx_audio = AudioSegment.from_file(sfx_path)
+                        mixed = mixed.overlay(sfx_audio, position=scene_offset_ms)
+                scene_offset_ms += scene_duration_ms
+
             mixed.export(mixed_audio, format="wav")
         except Exception as e:
             print(f"[ANIMATION] Audio mix error: {e}")

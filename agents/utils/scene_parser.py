@@ -324,20 +324,19 @@ def _infer_text(text: str) -> list[dict]:
     texts = []
     for line in lines:
         cleaned = re.sub(r'^[\s*#\-]+', '', line).strip()
-        cleaned = re.sub(r'[\d\s\-–—,]+(?:seconds?|secs?|s)\)', '', cleaned)
         cleaned = re.sub(r'^Narrator\s*:\s*', '', cleaned, flags=re.IGNORECASE).strip()
         cleaned = re.sub(r'^[A-Z][a-z]+\s*:\s*', '', cleaned).strip()
         cleaned = re.sub(r'[<>]', '', cleaned)
 
         if cleaned and 15 < len(cleaned) < 100 and not any(
-            kw in cleaned.lower() for kw in ["scene", "camera", "angle", "color palette", "background"]
+            kw in cleaned.lower() for kw in ["scene", "camera", "angle", "color palette", "background", "visual"]
         ):
             texts.append({
                 "text": cleaned[:80],
                 "style": "dialogue" if "?" in cleaned or "!" in cleaned else "narration",
-                "position": "bottom" if len(texts) % 2 == 1 else "center",
+                "position": "bottom",
             })
-            if len(texts) >= 3:
+            if len(texts) >= 2:
                 break
 
     return texts

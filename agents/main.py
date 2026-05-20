@@ -92,6 +92,7 @@ AUTO_APPROVE_THRESHOLD = int(os.getenv("AUTO_APPROVE_THRESHOLD", 80))
 ENABLE_MULTI_LANG = os.getenv("ENABLE_MULTI_LANG", "true").lower() == "true"
 ENABLE_SUBTITLES = os.getenv("ENABLE_SUBTITLES", "true").lower() == "true"
 ENABLE_REVIEW_GATE = os.getenv("ENABLE_REVIEW_GATE", "true").lower() == "true"
+ENABLE_DIRECTOR_REVIEW = os.getenv("ENABLE_DIRECTOR_REVIEW", "true").lower() == "true"
 MULTI_LANG_CODES = os.getenv("MULTI_LANG_CODES", "es,de,fr").split(",")
 PIPELINE_TIMEOUT_MINUTES = int(os.getenv("PIPELINE_TIMEOUT_MINUTES", 30))
 MAX_RETRIES_PER_TOPIC = int(os.getenv("MAX_RETRIES_PER_TOPIC", 2))
@@ -122,7 +123,7 @@ def run_agent_step(agent_id: str, agent_name: str, action: str, crew_factory, in
 
     for attempt in range(max_retries):
         try:
-            crew = crew_factory()
+            crew = crew_factory(**inputs)
             result = crew.kickoff(inputs=inputs)
             update_agent_status(agent_id, "completed", f"Completed: {action}")
             log_activity(agent_id, f"Completed: {action}", "success")
@@ -270,6 +271,14 @@ def run_video_pipeline(script_text: str, storyboard_text: str, category: str, fo
     else:
         scenes, clips, total_video_duration = _run_stock_footage_pipeline(script_text, storyboard_text, category, format_type, video_id, max_duration)
 
+    log_event("PIPELINE", "Step 1.5: Assigning sound effects to scenes")
+    try:
+        from utils.sfx_generator import load_sfx_scene_assignments
+        scenes = load_sfx_scene_assignments(scenes)
+        log_event("SFX", f"Assigned SFX to {sum(1 for s in scenes if s.get('sfx'))} scenes")
+    except Exception as e:
+        log_event("SFX", f"SFX assignment skipped: {e}", "debug")
+
     log_event("PIPELINE", "Step 2: Generating voice-over with Edge TTS")
     update_agent_status("voice", "working", "Generating narration audio")
     is_long = format_type == "long"
@@ -304,7 +313,8 @@ def run_video_pipeline(script_text: str, storyboard_text: str, category: str, fo
 
     log_event("PIPELINE", "Step 3: Generating background music")
     update_agent_status("composer", "working", "Creating background music")
-    music_result = generate_background_music(category, duration=total_video_duration)
+    scene_moods = [s.get("music_mood", "happy") for s in scenes if isinstance(s, dict) and s.get("music_mood")]
+    music_result = generate_background_music(category, duration=total_video_duration, scene_moods=scene_moods if scene_moods else None)
     music_path = music_result.get("path")
     log_event("COMPOSER", f"Music: {music_result.get('mood', 'unknown')} mood -> {music_path}")
     update_agent_status("composer", "completed", f"Music generated ({music_result.get('mood')})")
@@ -333,19 +343,16 @@ def run_video_pipeline(script_text: str, storyboard_text: str, category: str, fo
     if use_animation:
         from utils.animation_engine import render_scenes
         final_path = render_scenes(scenes, voice_path=voice_result["path"], music_path=music_path, video_id=video_id, format_type=format_type, phrase_timings=voice_result.get("phrase_timings"))
-        if final_path:
-            has_text_overlays = any(s.get("text") for s in (scenes or []))
-            if subtitle_path and not has_text_overlays:
-                log_event("PIPELINE", "Burning subtitles into animated video")
-                from utils.video_compositor import TEMP_DIR as COMPOSITOR_TEMP_DIR
-                subs_out = str(COMPOSITOR_TEMP_DIR / f"anim_{video_id}_subs.mp4")
-                is_kids = any(kw in category.lower() for kw in ["kids", "children", "bedtime", "fable", "rhyme", "story", "nursery", "baby", "toddler"])
-                sub_fs = 52 if format_type == "shorts" else 36
-                from utils.video_compositor import burn_subtitles
-                if burn_subtitles(final_path, subtitle_path, subs_out, fontsize=sub_fs, is_kids=is_kids):
-                    final_path = subs_out
+        if final_path and subtitle_path:
+            log_event("PIPELINE", "Burning subtitles into animated video")
+            from utils.video_compositor import TEMP_DIR as COMPOSITOR_TEMP_DIR, burn_subtitles
+            subs_out = str(COMPOSITOR_TEMP_DIR / f"anim_{video_id}_subs.mp4")
+            is_kids = any(kw in category.lower() for kw in ["kids", "children", "bedtime", "fable", "rhyme", "story", "nursery", "baby", "toddler"])
+            sub_fs = 28 if format_type == "shorts" else 22
+            if burn_subtitles(final_path, subtitle_path, subs_out, fontsize=sub_fs, is_kids=is_kids):
+                final_path = subs_out
     else:
-        final_path = composite_video(clips=clips, voice_path=voice_result["path"], music_path=music_path, format_type=format_type, video_id=video_id, subtitle_path=subtitle_path, chapters=chapters, category=category)
+        final_path = composite_video(clips=clips, voice_path=voice_result["path"], music_path=music_path, format_type=format_type, video_id=video_id, subtitle_path=subtitle_path, chapters=chapters, category=category, scenes=scenes)
 
     if not final_path:
         log_pipeline_error(video_id, "Video compositing failed", "video_compositing")
@@ -394,6 +401,40 @@ def apply_review_gate(video_id: str, topic: str, format_type: str, script_text: 
     return "auto_approve"
 
 
+def run_director_review(stage: str, topic: str, category: str, format_type: str, script: str, storyboard: str = "") -> dict:
+    if not ENABLE_DIRECTOR_REVIEW:
+        return {"decision": "pass", "score": 100, "issues": [], "feedback": "Director review disabled"}
+    try:
+        from crew.director import create_director_crew
+        crew = create_director_crew()
+        result = crew.kickoff(inputs={
+            "script": script,
+            "storyboard": storyboard or "N/A",
+            "category": category,
+            "format": format_type,
+            "topic": topic,
+        })
+        import json
+        raw = str(result)
+        try:
+            review = json.loads(raw)
+        except json.JSONDecodeError:
+            import re
+            json_match = re.search(r'\{.*\}', raw, re.DOTALL)
+            if json_match:
+                review = json.loads(json_match.group())
+            else:
+                raise
+        log_event("DIRECTOR", f"[{stage}] Score: {review.get('score', 0)}/100, Decision: {review.get('decision', 'unknown')}")
+        if review.get("issues"):
+            for issue in review["issues"][:3]:
+                log_event("DIRECTOR", f"  Issue [{issue.get('severity','info')}]: {issue.get('description','')[:120]}")
+        return review
+    except Exception as e:
+        log_event("DIRECTOR", f"[{stage}] Review failed: {e}", "error")
+        return {"decision": "pass", "score": 100, "issues": [], "feedback": "Auto-pass (review unavailable)", "error": str(e)}
+
+
 def generate_short_video(topic: str, category: str, video_id: str, publish_at: str = None):
     update_pipeline_status(True, video_id)
     add_video_record(video_id, topic, "shorts", "generating")
@@ -426,9 +467,27 @@ def generate_short_video(topic: str, category: str, video_id: str, publish_at: s
             update_pipeline_status(False)
             return False
 
+        failed_step = "director_script_review"
+        script_review = run_director_review("script", topic, category, "shorts", script_text)
+        if script_review.get("decision") == "block":
+            log_pipeline_error(video_id, f"Blocked by Director (script): {script_review.get('feedback', '')[:200]}", "director_review")
+            add_video_record(video_id, topic, "shorts", "blocked")
+            log_event("DIRECTOR", f"BLOCKED at script review: {topic}")
+            update_pipeline_status(False)
+            return False
+
         failed_step = "storyboarding"
         storyboard = run_agent_step("storyboard", "Storyboard", "Generating storyboard",
                                     create_storyboard_crew, {"script": script_text, "format_type": "shorts"})
+
+        failed_step = "director_storyboard_review"
+        sb_review = run_director_review("storyboard", topic, category, "shorts", script_text, str(storyboard))
+        if sb_review.get("decision") == "block":
+            log_pipeline_error(video_id, f"Blocked by Director (storyboard)", "director_review")
+            add_video_record(video_id, topic, "shorts", "blocked")
+            log_event("DIRECTOR", f"BLOCKED at storyboard review: {topic}")
+            update_pipeline_status(False)
+            return False
 
         failed_step = "video_pipeline"
         video_result = run_video_pipeline(script_text, str(storyboard), category, "shorts", video_id, 120)
@@ -436,6 +495,15 @@ def generate_short_video(topic: str, category: str, video_id: str, publish_at: s
         failed_step = "review_gate"
         review_decision = apply_review_gate(video_id, topic, "shorts", script_text, quality)
         if review_decision == "block":
+            update_pipeline_status(False)
+            return False
+
+        failed_step = "director_final_review"
+        final_review = run_director_review("final", topic, category, "shorts", script_text, str(storyboard))
+        if final_review.get("decision") == "block":
+            log_pipeline_error(video_id, f"Blocked by Director (final)", "director_review")
+            add_video_record(video_id, topic, "shorts", "blocked")
+            log_event("DIRECTOR", f"BLOCKED at final review: {topic}")
             update_pipeline_status(False)
             return False
 
@@ -554,9 +622,27 @@ def generate_long_video(topic: str, category: str, video_id: str, publish_at: st
             update_pipeline_status(False)
             return False
 
+        failed_step = "director_script_review"
+        script_review = run_director_review("script", topic, category, "long", script_text)
+        if script_review.get("decision") == "block":
+            log_pipeline_error(video_id, f"Blocked by Director (script): {script_review.get('feedback', '')[:200]}", "director_review")
+            add_video_record(video_id, topic, "long", "blocked")
+            log_event("DIRECTOR", f"BLOCKED at script review: {topic}")
+            update_pipeline_status(False)
+            return False
+
         failed_step = "storyboarding"
         storyboard = run_agent_step("storyboard", "Storyboard", "Generating storyboard",
                                     create_storyboard_crew, {"script": script_text, "format_type": "long"})
+
+        failed_step = "director_storyboard_review"
+        sb_review = run_director_review("storyboard", topic, category, "long", script_text, str(storyboard))
+        if sb_review.get("decision") == "block":
+            log_pipeline_error(video_id, f"Blocked by Director (storyboard)", "director_review")
+            add_video_record(video_id, topic, "long", "blocked")
+            log_event("DIRECTOR", f"BLOCKED at storyboard review: {topic}")
+            update_pipeline_status(False)
+            return False
 
         failed_step = "video_pipeline"
         video_result = run_video_pipeline(script_text, str(storyboard), category, "long", video_id, 600)
@@ -564,6 +650,15 @@ def generate_long_video(topic: str, category: str, video_id: str, publish_at: st
         failed_step = "review_gate"
         review_decision = apply_review_gate(video_id, topic, "long", script_text, quality)
         if review_decision == "block":
+            update_pipeline_status(False)
+            return False
+
+        failed_step = "director_final_review"
+        final_review = run_director_review("final", topic, category, "long", script_text, str(storyboard))
+        if final_review.get("decision") == "block":
+            log_pipeline_error(video_id, f"Blocked by Director (final)", "director_review")
+            add_video_record(video_id, topic, "long", "blocked")
+            log_event("DIRECTOR", f"BLOCKED at final review: {topic}")
             update_pipeline_status(False)
             return False
 
@@ -812,6 +907,21 @@ def daily_analytics_job():
             update_channel_stats(channel)
         update_agent_status("analytics", "completed", f"Processed {result['processed']} videos")
         log_event("ANALYTICS", f"YouTube analytics pull: {result['processed']} updated, {result['failed']} failed")
+
+        log_event("ANALYST", "Running performance analysis on recent data")
+        update_agent_status("analytics", "working", "Analyzing performance trends")
+        try:
+            from crew.analyst import run_analyst
+            analysis = run_analyst(days=7)
+            if analysis and "error" not in analysis:
+                log_event("ANALYST", f"Analysis complete: {len(analysis.get('recommendations', []))} recommendations")
+                for rec in analysis.get("recommendations", [])[:3]:
+                    log_event("ANALYST", f"  [{rec.get('priority','medium')}] {rec.get('suggestion','')[:120]}")
+                update_video_record("analyst_latest", analysis)
+            else:
+                log_event("ANALYST", f"Analysis returned error: {analysis.get('error', 'unknown')}", "error")
+        except Exception as e:
+            log_event("ANALYST", f"Performance analysis failed: {e}", "error")
     except Exception as e:
         update_agent_status("analytics", "error", str(e))
         log_event("ANALYTICS", f"Analytics pull failed: {e}", "error")

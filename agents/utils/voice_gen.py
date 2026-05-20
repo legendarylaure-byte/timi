@@ -31,14 +31,85 @@ DEFAULT_VOICE = KIDS_VOICES["narrator_warm"]
 DEFAULT_RATE = "-5%"
 DEFAULT_PITCH = "-2Hz"
 
+CHARACTER_VOICES = {
+    "NARRATOR": {"voice": "en-US-JennyNeural", "rate": "-5%", "pitch": "-2Hz"},
+    "PIXEL": {"voice": "en-US-EricNeural", "rate": "-5%", "pitch": "+3Hz"},
+    "NOVA": {"voice": "en-US-AriaNeural", "rate": "-8%", "pitch": "-3Hz"},
+    "ZIGGY": {"voice": "en-US-AnaNeural", "rate": "+5%", "pitch": "+5Hz"},
+    "BOOP": {"voice": "en-US-SaraNeural", "rate": "-3%", "pitch": "+2Hz"},
+    "SPROUT": {"voice": "en-GB-LibbyNeural", "rate": "-5%", "pitch": "-2Hz"},
+}
+
+CHARACTER_ORDER = ["NARRATOR", "PIXEL", "NOVA", "ZIGGY", "BOOP", "SPROUT"]
+
+
+def _extract_narration_via_markers(script: str) -> str | None:
+    """Primary method: extract text between NARRATION: markers (new format)."""
+    lines = script.split('\n')
+    in_narration = False
+    parts = []
+    for line in lines:
+        stripped = line.strip()
+        if stripped.upper().startswith('NARRATION:'):
+            in_narration = True
+            text = stripped.split(':', 1)[1].strip()
+            if text:
+                parts.append(text)
+            continue
+        if stripped.upper().startswith('VISUAL:'):
+            in_narration = False
+            continue
+        if re.match(r'^--SCENE\s+\d+--', stripped, re.IGNORECASE):
+            in_narration = False
+            continue
+        if in_narration and stripped:
+            maybe_dialogue = re.split(r'^[A-Z][A-Z\s]+:\s*', stripped, maxsplit=1)
+            if len(maybe_dialogue) > 1 and maybe_dialogue[-1].strip():
+                parts.append(maybe_dialogue[-1].strip())
+            elif stripped and not any(kw in stripped.lower() for kw in
+                                       ['camera', 'angle', 'color palette', 'background', 'transition',
+                                        'mood', 'emotional', 'educational']):
+                parts.append(stripped)
+    if parts:
+        return ' '.join(parts)
+    return None
+
+
+def _extract_narration_via_dialogue_tags(script: str) -> str | None:
+    """Secondary method: extract text after character dialogue tags."""
+    lines = script.split('\n')
+    parts = []
+    for line in lines:
+        stripped = line.strip()
+        if not stripped:
+            continue
+        char_match = re.match(
+            r'^(NARRATOR|PIXEL|NOVA|ZIGGY|BOOP|SPROUT|NARR\.?|CHILD\s*\d*|CHARACTER|HOST|VOICE|SPEAKER)\s*:\s*(.+)',
+            stripped, re.IGNORECASE)
+        if char_match:
+            text = char_match.group(2).strip()
+            text = re.sub(r'^["\'\u2018\u2019]+|["\'\u2018\u2019]+$', '', text).strip()
+            if text and len(text) > 2:
+                parts.append(text)
+            continue
+        if re.match(r'^["\u2018\u2019](.+?)["\u2018\u2019]', stripped):
+            text = re.sub(r'^["\'\u2018\u2019]+|["\'\u2018\u2019]+$', '', stripped).strip()
+            if text and len(text) > 5:
+                parts.append(text)
+    if parts:
+        return ' '.join(parts)
+    return None
+
 
 def extract_narration_text(script: str, is_long_form: bool = False) -> str:
     skip_patterns = [
+        r'^--SCENE\s+\d+--',
         r'^#{1,6}\s',
         r'^\*{1,2}Scene\s*:',
         r'^Scene\s*:',
         r'^\*{1,2}Scene\s+\d+',
         r'^Scene\s+\d+',
+        r'^VISUAL\s*:',
         r'^\*{1,2}Visual\s+Description',
         r'^\*{1,2}Emotional\s+Beat',
         r'^\*{1,2}Engagement\s+Hook',
@@ -58,6 +129,10 @@ def extract_narration_text(script: str, is_long_form: bool = False) -> str:
         r'^The\s+script\s+is\s+designed',
         r'^This\s+detailed\s+storyboard',
         r'^\d+\.\s+\*\*',
+        r'^Educational\s+[Vv]alue',
+        r'^Call.to.action',
+        r'^Age\s+[Gg]roup',
+        r'^Language\s+must\s+be',
     ]
 
     if not is_long_form:
@@ -75,6 +150,15 @@ def extract_narration_text(script: str, is_long_form: bool = False) -> str:
             r'^\d+\.\s+Transition\s+',
             r'^\d+\.\s+Mood\s+',
         ])
+
+    result = _extract_narration_via_markers(script)
+    if result and len(result) > 50:
+        return result
+
+    result = _extract_narration_via_dialogue_tags(script)
+    if result and len(result) > 50:
+        return result
+
     lines = script.split('\n')
     narration_parts = []
     for line in lines:
@@ -83,55 +167,31 @@ def extract_narration_text(script: str, is_long_form: bool = False) -> str:
             continue
         if any(re.match(pattern, stripped, re.IGNORECASE) for pattern in skip_patterns):
             continue
-        if re.search(r'\bDialogue\b', stripped, re.IGNORECASE) and ':' in stripped:
-            parts = stripped.split(':', 1)
-            if len(parts) == 2:
-                text = parts[1].strip()
-                text = re.sub(r'[\*\'\"]', '', text).strip()
-                if text and len(text) > 5:
-                    narration_parts.append(text)
-                continue
-        if re.search(r'\bNarration\b', stripped, re.IGNORECASE) and ':' in stripped:
-            parts = stripped.split(':', 1)
-            if len(parts) == 2:
-                text = parts[1].strip()
-                text = re.sub(r'[\*\'\"]', '', text).strip()
-                if text and len(text) > 5:
-                    narration_parts.append(text)
-                continue
-        cleaned = re.sub(r'\*{1,2}([^\*]+)\*{1,2}', r'\1', stripped)
-        cleaned = re.sub(r'_{1,2}([^_]+)_{1,2}', r'\1', cleaned)
-        generic_dialogue = re.search(
-            r'[\w\s]+\s*\(?(?:voiceover|to \w+)?\)?\s*:\s*["\u2018\u2019](.+?)["\u2018\u2019]', cleaned, re.IGNORECASE)
-        if generic_dialogue:
-            narration_parts.append(generic_dialogue.group(1).strip())
-            continue
-        dialogue_match = re.search(
-            r'(?:Narrator|Narr\.?|Child\s*\d*|Character|Host|Voice|Speaker)\s*:\s*["\u2018\u2019](.+?)["\u2018\u2019]', cleaned, re.IGNORECASE)  # noqa: E501
-        if dialogue_match:
-            narration_parts.append(dialogue_match.group(1).strip())
-            continue
-        char_match = re.search(
-            r'(?:Narrator|Narr\.?|Child\s*\d*|Character|Host|Voice|Speaker)\s*:\s*(.+)', cleaned, re.IGNORECASE)
-        if char_match:
-            text = char_match.group(1).strip()
-            text = text.strip("'").strip('"').strip()
-            if text and len(text) > 2:
+        colon_match = re.match(r'^[A-Z][A-Z\s]+:\s*(.+)', stripped)
+        if colon_match and not re.match(r'^(HTTP|HTTPS|WWW)\b', stripped, re.IGNORECASE):
+            text = colon_match.group(1).strip()
+            text = re.sub(r'[\*\'\"]', '', text).strip()
+            if text and len(text) > 5:
                 narration_parts.append(text)
             continue
-        if not cleaned.startswith('*') and not cleaned.startswith('**') and not cleaned.startswith('-') and not cleaned.startswith('#'):  # noqa: E501
+        cleaned = re.sub(r'\*{1,2}([^\*]+)\*{1,2}', r'\1', stripped)
+        cleaned = re.sub(r'_{1,2}([^_]+)_{1,2}', r'\1', cleaned)
+        if not cleaned.startswith('*') and not cleaned.startswith('**') and not cleaned.startswith('-') and not cleaned.startswith('#'):
             metadata_keywords = ['camera angle', 'character position', 'color palette',
-                                 'background element', 'transition to', 'mood and emotional', 'educational value']
+                                 'background element', 'transition to', 'mood and emotional',
+                                 'educational value', 'educational value statement', 'call to action']
             if any(kw in cleaned.lower() for kw in metadata_keywords):
                 continue
             if re.match(r'^\d+\.\s+', cleaned):
                 continue
             if len(cleaned) > 5:
                 narration_parts.append(cleaned)
+
     result = ' '.join(narration_parts)
     result = re.sub(r'\s+', ' ', result).strip()
     result = re.sub(r'[^\w\s.,!?\'\-:;()&%$#@+=]', '', result)
     result = re.sub(r'\s+', ' ', result).strip()
+
     if not result or len(result) < 100:
         print("[voice_gen] WARNING: Narration extraction produced empty/short text, using fallback")
         fallback_lines = []
@@ -139,7 +199,7 @@ def extract_narration_text(script: str, is_long_form: bool = False) -> str:
             s = line.strip()
             quote_match = re.findall(r'["\'"]([^"\']+?)["\'"]', s)
             for q in quote_match:
-                if len(q) > 5 and not any(w in q.lower() for w in ['scene', 'visual', 'camera', 'color', 'background', 'transition', 'mood']):  # noqa: E501
+                if len(q) > 5 and not any(w in q.lower() for w in ['scene', 'visual', 'camera', 'color', 'background', 'transition', 'mood']):
                     fallback_lines.append(q)
         if fallback_lines:
             result = ' '.join(fallback_lines)
@@ -149,6 +209,78 @@ def extract_narration_text(script: str, is_long_form: bool = False) -> str:
             result = re.sub(r'\n\s*\n', '\n', result)
             result = re.sub(r'\s+', ' ', result).strip()
     return result
+
+
+def parse_dialogue_segments(script: str) -> list[dict]:
+    """Parse script into ordered list of {character, text} segments.
+
+    Handles multiple formats:
+    1. NARRATION:/VISUAL: markers (new pipeline format)
+    2. CHARACTER_NAME: dialogue text (e.g. PIXEL: Hello!)
+    3. Plain text with no markers -> NARRATOR
+    """
+    lines = script.split('\n')
+    segments = []
+    current_character = None
+    current_text = []
+
+    for line in lines:
+        stripped = line.strip()
+        if not stripped:
+            continue
+
+        if stripped.upper().startswith('VISUAL:') or re.match(r'^--SCENE\s+\d+--', stripped, re.IGNORECASE):
+            if current_text:
+                segments.append({"character": current_character, "text": ' '.join(current_text)})
+                current_text = []
+                current_character = None
+            continue
+
+        if stripped.upper().startswith('NARRATION:'):
+            if current_text:
+                segments.append({"character": current_character, "text": ' '.join(current_text)})
+                current_text = []
+            current_character = "NARRATOR"
+            text = stripped.split(':', 1)[1].strip()
+            if text:
+                current_text.append(text)
+            continue
+
+        char_match = re.match(r'^(PIXEL|NOVA|ZIGGY|BOOP|SPROUT)\s*:\s*(.+)', stripped, re.IGNORECASE)
+        if char_match:
+            if current_text:
+                segments.append({"character": current_character, "text": ' '.join(current_text)})
+                current_text = []
+            current_character = char_match.group(1).upper()
+            text = char_match.group(2).strip()
+            if text:
+                current_text.append(text)
+            continue
+
+        is_technical = any(kw in stripped.lower() for kw in
+                           ['camera', 'angle', 'color palette', 'background',
+                            'transition', 'mood', 'visual', 'educational value',
+                            'call to action', 'character position'])
+        if is_technical:
+            continue
+
+        if current_character:
+            current_text.append(stripped)
+        else:
+            current_character = "NARRATOR"
+            current_text.append(stripped)
+
+    if current_text:
+        segments.append({"character": current_character, "text": ' '.join(current_text)})
+
+    merged = []
+    for seg in segments:
+        if merged and merged[-1]["character"] == seg["character"]:
+            merged[-1]["text"] += " " + seg["text"]
+        else:
+            merged.append(seg)
+
+    return merged
 
 
 def get_voice_settings(content_type: str = "general") -> dict:
@@ -283,8 +415,17 @@ def concatenate_audio(segment_files: list[str], output_path: str) -> bool:
 
 async def generate_voiceover(script: str, voice: str = DEFAULT_VOICE, output_filename: str = "voiceover.wav", content_type: str = "general", is_long_form: bool = False) -> dict:  # noqa: E501
     VOICE_DIR.mkdir(parents=True, exist_ok=True)
+
+    dialogue_segments = parse_dialogue_segments(script)
+    has_multi_character = len({s["character"] for s in dialogue_segments}) > 1 or any(
+        s["character"] != "NARRATOR" for s in dialogue_segments)
+
+    if has_multi_character:
+        print(f"[voice_gen] Multi-voice: {len(dialogue_segments)} segments, characters: {set(s['character'] for s in dialogue_segments)}")
+        return await _generate_multi_voice(dialogue_segments, output_filename)
+
     narration_text = extract_narration_text(script, is_long_form=is_long_form)
-    print(f"[voice_gen] Original script: {len(script)} chars -> Narration: {len(narration_text)} chars")
+    print(f"[voice_gen] Single voice: {len(script)} chars -> {len(narration_text)} chars")
     if not narration_text.strip():
         print("[voice_gen] WARNING: Narration extraction failed, using raw script")
         narration_text = script
@@ -331,6 +472,80 @@ async def generate_voiceover(script: str, voice: str = DEFAULT_VOICE, output_fil
         with open(timing_file, "w") as f:
             json.dump(all_phrase_timings, f)
         print(f"[voice_gen] Generated {len(all_phrase_timings)} phrase timings")
+
+    duration = 0.0
+    if concat_success:
+        try:
+            audio = AudioSegment.from_file(output_path)
+            duration = len(audio) / 1000.0
+        except Exception:
+            pass
+
+    return {
+        "path": output_path,
+        "duration": duration,
+        "segments": len(segment_files),
+        "timing_file": timing_file if all_phrase_timings else None,
+        "phrase_timings": all_phrase_timings,
+        "success": concat_success,
+    }
+
+
+async def _generate_multi_voice(dialogue_segments: list[dict], output_filename: str) -> dict:
+    """Generate voiceover with multiple character-specific voices."""
+    segment_files = []
+    all_phrase_timings = []
+    cumulative_offset = 0.0
+    seg_idx = 0
+
+    for seg in dialogue_segments:
+        character = seg["character"]
+        text = seg["text"]
+        if not text.strip():
+            continue
+
+        char_cfg = CHARACTER_VOICES.get(character, CHARACTER_VOICES["NARRATOR"])
+        voice = char_cfg["voice"]
+        rate = char_cfg["rate"]
+        pitch = char_cfg["pitch"]
+
+        sub_segments = split_script_into_segments(text)
+        for sub_text in sub_segments:
+            seg_idx += 1
+            seg_path = str(VOICE_DIR / f"seg_{seg_idx:03d}.wav")
+            timing_path = str(VOICE_DIR / f"seg_{seg_idx:03d}_timing.json")
+
+            success = await generate_segment_audio(sub_text, seg_path, voice=voice, rate=rate, pitch=pitch)
+            if not success:
+                continue
+
+            segment_files.append(seg_path)
+
+            sentence_times = await generate_segment_timing(sub_text, voice=voice, rate=rate, pitch=pitch)
+            if sentence_times:
+                phrase_timings = generate_phrase_timings_from_sentences(sub_text, sentence_times)
+                for pt in phrase_timings:
+                    pt["start_ms"] += cumulative_offset
+                    pt["end_ms"] += cumulative_offset
+                all_phrase_timings.extend(phrase_timings)
+
+                with open(timing_path, "w") as f:
+                    json.dump({"sentences": sentence_times, "phrases": phrase_timings}, f)
+
+            try:
+                seg_audio = AudioSegment.from_file(seg_path)
+                cumulative_offset += len(seg_audio) + 200
+            except Exception:
+                cumulative_offset += 5000
+
+    output_path = str(VOICE_DIR / output_filename)
+    concat_success = concatenate_audio(segment_files, output_path)
+
+    timing_file = str(VOICE_DIR / "phrase_timing.json")
+    if all_phrase_timings:
+        with open(timing_file, "w") as f:
+            json.dump(all_phrase_timings, f)
+        print(f"[voice_gen] Multi-voice: {seg_idx} segments, {len(set(s['character'] for s in dialogue_segments))} characters")
 
     duration = 0.0
     if concat_success:

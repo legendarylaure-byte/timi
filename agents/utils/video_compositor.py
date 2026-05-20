@@ -108,13 +108,62 @@ def resize_to_target(input_path: str, output_path: str, target_w: int, target_h:
         return False
 
 
-def mix_audio(voice_path: str, music_path: Optional[str], output_path: str, voice_volume_db: float = 0, music_volume_db: float = -18) -> bool:  # noqa: E501
+def _apply_ducking(music: AudioSegment, voice: AudioSegment, duck_db: float = -6, threshold_db: float = -30, window_ms: int = 50, attack_ms: int = 100, release_ms: int = 200) -> AudioSegment:  # noqa: E501
+    """Reduce music volume when voice is active (audio ducking)."""
+    try:
+        import math
+        num_windows = max(1, len(voice) // window_ms)
+        duck_envelope = AudioSegment.silent(duration=len(music))
+
+        for i in range(num_windows):
+            start = i * window_ms
+            end = min(start + window_ms, len(voice))
+            voice_chunk = voice[start:end]
+            rms = voice_chunk.rms if voice_chunk.rms else 0
+            db = 20 * math.log10(max(rms, 1) / 32768) if rms > 0 else -60
+            gain = duck_db if db > threshold_db else 0
+            chunk = music[start:end].apply_gain(gain)
+            duck_envelope = duck_envelope.overlay(chunk, position=start)
+
+        # Apply attack/release smoothing with crossfade
+        smoothed = AudioSegment.silent(duration=0)
+        prev_gain = 0
+        for i in range(num_windows):
+            start = i * window_ms
+            end = min(start + window_ms, len(music))
+            start_ms = min(start, len(music))
+            end_ms = min(end, len(music))
+            chunk = music[start_ms:end_ms]
+
+            start_rms = voice[start_ms:min(start_ms + window_ms, len(voice))].rms or 0
+            start_db = 20 * math.log10(max(start_rms, 1) / 32768) if start_rms > 0 else -60
+            target_gain = duck_db if start_db > threshold_db else 0
+
+            if target_gain != prev_gain:
+                crossfade = attack_ms if target_gain < prev_gain else release_ms
+                chunk = chunk.apply_gain(prev_gain).append(
+                    chunk[-crossfade:].apply_gain(target_gain) if crossfade < len(chunk) else chunk.apply_gain(target_gain),
+                    crossfade=min(crossfade, len(chunk)))
+            else:
+                chunk = chunk.apply_gain(target_gain)
+
+            smoothed = smoothed.append(chunk, crossfade=5)
+            prev_gain = target_gain
+
+        return smoothed[:len(music)]
+    except Exception as e:
+        print(f"[compositor] Ducking error (falling back to flat mix): {e}")
+        return music
+
+
+def mix_audio(voice_path: str, music_path: Optional[str], output_path: str, voice_volume_db: float = 0, music_volume_db: float = -18, duck_db: float = -6) -> bool:  # noqa: E501
     try:
         voice = AudioSegment.from_file(voice_path) + voice_volume_db
         if music_path and os.path.exists(music_path):
-            music = (AudioSegment.from_file(music_path) + music_volume_db)
-            music = (music * (len(voice) // len(music) + 1))[:len(voice)]
-            mixed = voice.overlay(music)
+            music_raw = (AudioSegment.from_file(music_path) + music_volume_db)
+            music_raw = (music_raw * (len(voice) // len(music_raw) + 1))[:len(voice)]
+            music_ducked = _apply_ducking(music_raw, voice, duck_db=duck_db)
+            mixed = voice.overlay(music_ducked)
         else:
             mixed = voice
         mixed.export(output_path, format="wav")
@@ -161,7 +210,7 @@ KIDS_SUB_COLORS = [
 ]
 
 
-def burn_subtitles(video_path: str, subtitle_path: str, output_path: str, fontsize: int = 24, is_kids: bool = True) -> bool:  # noqa: E501
+def burn_subtitles(video_path: str, subtitle_path: str, output_path: str, fontsize: int = 28, is_kids: bool = True) -> bool:  # noqa: E501
     TEMP_DIR.mkdir(parents=True, exist_ok=True)
     abs_subtitle = os.path.abspath(subtitle_path)
     if is_kids:
@@ -169,7 +218,7 @@ def burn_subtitles(video_path: str, subtitle_path: str, output_path: str, fontsi
         _convert_srt_to_kids_ass(abs_subtitle, temp_ass, fontsize)
         vf = f"subtitles=filename='{os.path.abspath(temp_ass)}'"
     else:
-        vf = f"subtitles=filename='{abs_subtitle}':force_style='FontSize={fontsize},PrimaryColour=&HFFFFFF&,OutlineColour=&H000000&,Outline=2,Shadow=1'"  # noqa: E501
+        vf = f"subtitles=filename='{abs_subtitle}':force_style='FontSize={fontsize},PrimaryColour=&HFFFFFF&,OutlineColour=&H000000&,Outline=2,Shadow=1,Alignment=2,MarginV=60'"  # noqa: E501
     cmd = [
         _ffmpeg_cmd(), "-y", "-i", video_path,
         "-vf", vf,
@@ -199,7 +248,7 @@ def burn_subtitles(video_path: str, subtitle_path: str, output_path: str, fontsi
         return False
 
 
-def _convert_srt_to_kids_ass(srt_path: str, ass_path: str, base_fontsize: int = 36) -> bool:
+def _convert_srt_to_kids_ass(srt_path: str, ass_path: str, base_fontsize: int = 28) -> bool:
     try:
         with open(srt_path, "r", encoding="utf-8") as f:
             srt_content = f.read()
@@ -217,7 +266,7 @@ def _convert_srt_to_kids_ass(srt_path: str, ass_path: str, base_fontsize: int = 
             "ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, "
             "Alignment, MarginL, MarginR, MarginV, Encoding\n"
             "Style: Default,{font},{size},&H00FFFFFF,&H000000FF,&H00000000,"
-            "&H80000000,1,0,0,0,100,100,0,0,1,3,2,2,10,10,40,1\n"
+            "&H80000000,1,0,0,0,100,100,0,0,1,3,2,2,10,10,60,1\n"
             "\n"
             "[Events]\n"
             "Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text\n"
@@ -281,7 +330,31 @@ def add_chapter_markers(video_path: str, chapters: list[dict], output_path: str)
         return False
 
 
-def composite_video(clips: list[dict], voice_path: str, music_path: Optional[str] = None, format_type: str = "shorts", video_id: str = "output", subtitle_path: Optional[str] = None, chapters: Optional[list] = None, category: str = "") -> Optional[str]:  # noqa: E501
+def _mix_scene_sfx(mixed_audio_path: str, scenes: list[dict], clips: list[dict]) -> str:
+    """Overlay scene-specific SFX onto the mixed audio track."""
+    try:
+        mixed = AudioSegment.from_file(mixed_audio_path)
+        current_time_ms = 0
+        for i, scene in enumerate(scenes):
+            scene_sfx = scene.get("sfx", [])
+            clip_duration_ms = int(clips[i].get("duration", 5.0) * 1000) if i < len(clips) else 5000
+            for sfx in scene_sfx:
+                sfx_path = sfx.get("path", "")
+                if not os.path.exists(sfx_path):
+                    continue
+                sfx_audio = AudioSegment.from_file(sfx_path)
+                mixed = mixed.overlay(sfx_audio, position=current_time_ms)
+            current_time_ms += clip_duration_ms
+        sfx_path = str(TEMP_DIR / f"audio_with_sfx.wav")
+        mixed.export(sfx_path, format="wav")
+        print(f"[compositor] Mixed SFX into audio: {sfx_path}")
+        return sfx_path
+    except Exception as e:
+        print(f"[compositor] SFX mix error (using original): {e}")
+        return mixed_audio_path
+
+
+def composite_video(clips: list[dict], voice_path: str, music_path: Optional[str] = None, format_type: str = "shorts", video_id: str = "output", subtitle_path: Optional[str] = None, chapters: Optional[list] = None, category: str = "", scenes: Optional[list] = None) -> Optional[str]:  # noqa: E501
     TEMP_DIR.mkdir(parents=True, exist_ok=True)
     target = ASPECT_RATIOS.get(format_type, ASPECT_RATIOS["long"])
     tw, th = target["w"], target["h"]
@@ -329,7 +402,7 @@ def composite_video(clips: list[dict], voice_path: str, music_path: Optional[str
         with_subs_path = str(TEMP_DIR / "video_with_subs.mp4")
         is_kids_content = any(kw in category.lower() for kw in [
                               "kids", "children", "bedtime", "fable", "rhyme", "story", "nursery", "baby", "toddler"])
-        sub_fontsize = 52 if format_type == "shorts" else 36
+        sub_fontsize = 28 if format_type == "shorts" else 22
         if burn_subtitles(combined_video, subtitle_path, with_subs_path, fontsize=sub_fontsize, is_kids=is_kids_content):  # noqa: E501
             combined_video = with_subs_path
 
@@ -341,6 +414,8 @@ def composite_video(clips: list[dict], voice_path: str, music_path: Optional[str
 
     mixed_audio_path = str(TEMP_DIR / "mixed_audio.wav")
     mix_audio(voice_path, music_path, mixed_audio_path)
+    if scenes:
+        mixed_audio_path = _mix_scene_sfx(mixed_audio_path, scenes, clips)
 
     final_path = str(OUTPUT_DIR / f"{video_id}_{format_type}.mp4")
     cmd = [_ffmpeg_cmd(), "-y", "-i", combined_video, "-i", mixed_audio_path,

@@ -132,3 +132,21 @@ ANIMATION_FUNCTIONS = {
     "breathe": breathe,
     "none": none_anim,
 }
+
+# Per-part animation overrides for Synctoon-style multi-part characters.
+# Maps body part name → animation name → override params.
+# Use in characters.json via a "part_animations" field.
+# Example: arms wave while body bounces:
+#   "part_animations": {"arms": "wave", "body": "bounce"}
+PART_ANIMATION_FUNCTIONS = {
+    "arms": {
+        "wave": wave,
+        "bounce": bounce,
+        "idle": none_anim,
+    },
+    "head": {
+        "thinking": thinking,
+        "shake": lambda t: {"x": math.sin(t * 4 * math.pi) * 6, "y": 0, "rotation": 0, "scale_x": 1.0, "scale_y": 1.0},
+        "nod": lambda t: {"x": 0, "y": abs(math.sin(t * 2 * math.pi)) * 4, "rotation": 0, "scale_x": 1.0, "scale_y": 1.0},
+    },
+}

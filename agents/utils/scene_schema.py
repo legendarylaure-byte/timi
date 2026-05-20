@@ -42,7 +42,11 @@ ANIMATION_TYPES = [
 BACKGROUND_TYPES = [
     "gradient_sky", "gradient_forest", "gradient_ocean", "gradient_space",
     "gradient_sunset", "gradient_night", "gradient_garden", "gradient_classroom",
-    "gradient_bedroom", "gradient_underwater", "color_solid",
+    "gradient_bedroom", "gradient_underwater", "gradient_planet", "gradient_desert",
+    "gradient_mountain", "gradient_city", "gradient_cave", "gradient_castle",
+    "gradient_fairy", "gradient_arctic", "gradient_jungle", "gradient_farm",
+    "gradient_beach", "gradient_volcano", "gradient_river", "gradient_meadow",
+    "gradient_candy", "gradient_toy", "gradient_storybook", "gradient_solid", "color_solid",
 ]
 
 
@@ -62,21 +66,32 @@ def validate_scene(scene: dict, index: int = 0) -> dict:
 
     background = scene.get("background", "gradient_sky")
     if background and background not in BACKGROUND_TYPES:
-        errors.append(f"Scene {index}: unknown background '{background}'")
+        import warnings
+        warnings.warn(f"Scene {index}: unknown background '{background}', falling back to 'gradient_sky'")
+        scene["background"] = "gradient_sky"
 
     transition = scene.get("transition", "cut")
     if transition not in VALID_TRANSITIONS:
-        errors.append(f"Scene {index}: unknown transition '{transition}'")
+        import warnings
+        warnings.warn(f"Scene {index}: unknown transition '{transition}', falling back to 'cut'")
+        scene["transition"] = "cut"
 
     effects = scene.get("effects", [])
     if isinstance(effects, str):
         effects = [effects]
     if not isinstance(effects, list):
-        errors.append(f"Scene {index}: 'effects' must be a list")
+        import warnings
+        warnings.warn(f"Scene {index}: 'effects' must be a list, resetting to []")
+        scene["effects"] = []
     else:
+        clean = []
         for e in effects:
-            if e not in VALID_EFFECTS:
-                errors.append(f"Scene {index}: unknown effect '{e}'")
+            if e in VALID_EFFECTS:
+                clean.append(e)
+            else:
+                import warnings
+                warnings.warn(f"Scene {index}: unknown effect '{e}', skipping")
+        scene["effects"] = clean
 
     characters = scene.get("characters", [])
     if not isinstance(characters, list):

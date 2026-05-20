@@ -26,7 +26,6 @@ CRITICAL: This is a LONG-FORM video. You MUST write enough content to fill at le
 {max_duration - 60} to {max_duration} seconds of narration.
 - Write a MINIMUM of 1200 words for the narration/dialogue.
 - Include 10-15 distinct scenes or chapters, each lasting 30-60 seconds.
-- Each scene must have detailed narration, not just descriptions.
 - Use storytelling with characters, dialogue, and educational explanations.
 - Include interactive questions for viewers to answer.
 - Add fun facts, did-you-know moments, and recap sections.
@@ -38,7 +37,6 @@ This is a SHORT video. Keep it fast-paced and visual.
 - Maximum {max_duration} seconds total.
 - 8-12 scenes, each 5-10 seconds.
 - Quick hooks, pattern interrupts every 5-7 seconds.
-- Minimal dialogue, focus on visual storytelling.
 """
 
     script_task = Task(
@@ -46,20 +44,37 @@ This is a SHORT video. Keep it fast-paced and visual.
 
 {format_instructions}
 
-Include for EACH scene:
-1. Scene title and timing (e.g., "Scene 1: Introduction (0-30 seconds)")
-2. Detailed narration/dialogue that will be spoken out loud (this is what the voice-over will read)
-3. Visual descriptions for animators
-4. Emotional beats and engagement hooks
-5. Character expressions and actions
+CRITICAL OUTPUT FORMAT — Follow this EXACT structure for EVERY scene:
+
+--SCENE 1--
+NARRATION: [Only the spoken words — what the voice-over actor will read aloud. This is the ONLY text that will be spoken.]
+VISUAL: [Scene description for animators — camera angle, character positions, colors, actions, background details.]
+
+--SCENE 2--
+NARRATION: [Spoken text only]
+VISUAL: [Visual description only]
+
+...and so on for all scenes.
+
+RULES (STRICT):
+1. NARRATION lines contain ONLY text to be spoken aloud. No scene numbers, no timings, no descriptions.
+2. VISUAL lines contain ONLY visual directions. Never spoken aloud.
+3. NEVER include text like "Scene 1:" or "(0-30 seconds)" or "###" inside NARRATION.
+4. Every NARRATION line WILL be read by the voice-over — so it must be complete, natural sentences.
+5. Use character names in NARRATION when they speak: "PIXEL: Hello friends!" or just the dialogue.
+6. Age group: 1-9 years old. Language must be simple, positive, and educational.
 
 At the end include:
 - Educational value statement (1-2 sentences)
-- Call-to-action for kids to share with friends
+- Call-to-action for kids to share with friends""",
+        expected_output="""A complete script with each scene in EXACT format:
+--SCENE 1--
+NARRATION: [spoken text only]
+VISUAL: [visual description only]
 
-Age group: 1-9 years old. Language must be simple, positive, and educational.
-Every scene MUST have spoken narration/dialogue — this is NOT a silent video.""",
-        expected_output="A complete script with detailed narration for each scene, timing, visual descriptions, and engagement hooks.",  # noqa: E501
+--SCENE 2--
+NARRATION: [spoken text only]
+VISUAL: [visual description only]""",
         agent=scriptwriter,
     )
 
