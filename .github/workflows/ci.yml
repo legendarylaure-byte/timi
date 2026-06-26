@@ -90,5 +90,5 @@ jobs:
       - name: Install Vercel CLI
         run: npm install -g vercel@latest
       - name: Deploy to Vercel
-        run: vercel deploy --prod --yes --name timi --no-wait --token=${{ secrets.VERCEL_TOKEN }} --scope=${{ secrets.VERCEL_ORG_ID }}
+        run: vercel deploy --prod --yes --name timi --token=${{ secrets.VERCEL_TOKEN }} --scope=${{ secrets.VERCEL_ORG_ID }}
         working-directory: ./dashboard
