@@ -1,18 +1,16 @@
 from utils.groq_client import generate_completion
 from utils.json_utils import extract_json
+from compliance.ai_disclosure import get_disclosure_text
 
-SYSTEM_PROMPT = """You are an expert YouTube SEO specialist for children's content.
+SYSTEM_PROMPT = """You are an expert YouTube SEO specialist for technology educational content.
 Generate optimized video descriptions that:
-1. Are COPPA-compliant (no personalized ad links, no external tracking)
-2. Include relevant keywords naturally for search optimization
-3. Have a clear hook in the first 2 lines
-4. Include timestamps/chapters for long-form content
-5. Include age-appropriate disclaimers
-6. Support merch/affiliate link injection when provided
+1. Include relevant tech keywords naturally for search optimization
+2. Have a clear hook in the first 2 lines
+3. Include timestamps/chapters for long-form content
+4. Include AI-generated content disclaimer
+5. Support affiliate link injection when provided
 
-The description should be professional, parent-friendly, and optimized for YouTube's algorithm for kids' content."""
-
-
+The description should be professional, informative, and optimized for YouTube's algorithm for Science & Technology content."""
 
 
 def generate_description(
@@ -45,11 +43,13 @@ def generate_description(
 
     affiliate_section = ""
     if affiliate_links:
-        affiliate_section = "\n📚 Recommended Products:\n"
+        affiliate_section = "\n📚 Recommended Resources:\n"
         for link in affiliate_links:
             affiliate_section += f"• {link.get('name', 'Product')}: {link.get('url', '')}\n"
 
-    prompt = f"""Generate a YouTube video description for this children's content:
+    ai_disclaimer = get_disclosure_text("youtube")
+
+    prompt = f"""Generate a YouTube video description for this tech educational content:
 
 Title: {title}
 Category: {category}
@@ -60,17 +60,17 @@ Content preview:
 {hook}
 
 Generate a description that:
-1. Starts with an engaging hook for parents
-2. Includes 3-5 relevant hashtags (kid-safe)
-3. Is COPPA compliant (no personalized ad references)
-4. Mentions the educational value
+1. Starts with an engaging hook for tech/AI enthusiasts
+2. Includes 5-8 relevant hashtags (tech-focused)
+3. Clearly explains what the viewer will learn
+4. Includes an AI-generated content disclaimer
 
 Return ONLY a JSON object:
 {{
   "description": "full description text",
   "hashtags": ["#hashtag1", "#hashtag2", "#hashtag3"],
   "tags": ["tag1", "tag2", ...],
-  "is_coppa_compliant": true
+  "is_ai_generated": true
 }}"""
 
     try:
@@ -89,7 +89,8 @@ Return ONLY a JSON object:
         full_description += chapters
         full_description += merch_section
         full_description += affiliate_section
-        full_description += f"\n\n© {channel_name}. Made for Kids. COPPA Compliant."
+        full_description += ai_disclaimer
+        full_description += f"\n\n© {channel_name}."
 
         result["full_description"] = full_description
         result["chapters"] = chapters.strip() if chapters else ""
@@ -102,33 +103,35 @@ Return ONLY a JSON object:
 
 
 def _fallback_description(title: str, category: str, format_type: str, hook: str) -> dict:
-    safe_tags = {
-        "Self-Learning": ["kids learning", "educational videos", "preschool learning", "toddler education", "learn at home"],  # noqa: E501
-        "Bedtime Stories": ["bedtime stories", "sleep stories", "calm stories", "kids sleep", "gentle stories"],
-        "Science for Kids": ["science for kids", "kids experiments", "stem learning", "fun science", "educational science"],  # noqa: E501
-        "Animated Fables": ["fables for kids", "moral stories", "animated stories", "kids tales", "story time"],
-        "Rhymes & Songs": ["kids songs", "nursery rhymes", "children music", "sing along", "kids entertainment"],
-        "Colors & Shapes": ["colors for kids", "shapes learning", "preschool colors", "toddler learning", "educational shapes"],  # noqa: E501
+    tags = {
+        "AI Explained": ["artificial intelligence", "machine learning", "ai explained", "tech education", "deep learning"],
+        "Deep Tech": ["technology explained", "how it works", "system design", "architecture", "engineering"],
+        "Paper Breakdowns": ["research papers", "ai research", "machine learning papers", "academic", "breakthrough"],
+        "Tool Tutorials": ["ai tools", "tutorial", "productivity", "software tutorial", "ai workflow"],
+        "Industry Analysis": ["tech news", "industry trends", "ai industry", "market analysis", "future of tech"],
+        "Code & Build": ["programming", "coding tutorial", "build projects", "software development", "hands-on"],
+        "AI News": ["ai news", "weekly roundup", "tech updates", "latest in ai", "technology news"],
+        "Career & Learning": ["tech career", "learn to code", "ai skills", "career advice", "tech jobs"],
     }
 
-    tags = safe_tags.get(category, ["kids content", "children videos", "educational"])
-    hashtags = [f"#{category.replace(' ', '')}", "#KidsContent", "#MadeForKids"]
+    safe_tags = tags.get(category, ["technology", "educational", "ai", "tutorial", "explainer"])
+    hashtags = [f"#{category.replace(' ', '')}", "#Technology", "#AI"]
 
-    description = f"Welcome to our channel! This {format_type} video is part of our {category} series for children ages 1-9.\n\n{hook[:150]}...\n\nThis video is designed to be educational, entertaining, and safe for young viewers."  # noqa: E501
+    description = f"Learn about {category.lower()} in this {format_type} explainer video.\n\n{hook[:150]}...\n\nThis educational content covers key concepts and practical insights."
 
     return {
         "description": description,
         "hashtags": hashtags,
-        "tags": tags[:15],
-        "is_coppa_compliant": True,
+        "tags": safe_tags[:15],
+        "is_ai_generated": True,
     }
 
 
-def get_coppa_metadata(category: str, format_type: str = "shorts") -> dict:
+def get_tech_metadata(category: str, format_type: str = "shorts") -> dict:
     return {
-        "madeForKids": True,
-        "selfDeclaredMadeForKids": True,
-        "categoryId": "27",
+        "madeForKids": False,
+        "selfDeclaredMadeForKids": False,
+        "categoryId": "28",
         "defaultLanguage": "en",
         "defaultAudioLanguage": "en",
         "privacyStatus": "public",
@@ -136,13 +139,13 @@ def get_coppa_metadata(category: str, format_type: str = "shorts") -> dict:
         "license": "youtube",
         "publicStatsViewable": True,
         "tags": [
-            "kids content",
-            "children videos",
+            "technology",
+            "artificial intelligence",
             "educational",
             category.lower(),
-            "made for kids",
-            "coppa compliant",
-            "family friendly",
-            "safe for kids",
+            "ai generated",
+            "science and technology",
+            "tech explainer",
+            "machine learning",
         ],
     }

@@ -6,47 +6,48 @@ def create_director_crew():
     llm = get_llm(temperature=0.3, max_tokens=2000)
 
     director = Agent(
-        role="Content Director & Quality Reviewer",
-        goal="Review children's content for quality, consistency, and age-appropriateness",
-        backstory="""You are an experienced director of children's educational content.
-You have a keen eye for quality, engagement, and educational value.
-You review scripts, storyboards, and metadata to ensure every video meets
-the channel's brand standards before it goes into production.
-You are strict but fair — every issue you flag comes with a specific fix suggestion.""",
+        role="Tech Content Director & Quality Reviewer",
+        goal="Review tech educational content for factual accuracy, clarity, engagement, and production quality",
+        backstory="""You are an experienced director of educational technology content.
+You have a keen eye for factual accuracy, explanation clarity, and viewer engagement.
+You review scripts and storyboards to ensure every video is informative, accurate,
+and accessible to a general tech audience. You are strict but fair — every issue
+you flag comes with a specific fix suggestion. You prioritize truthfulness over hype.""",
         llm=llm,
         verbose=True,
         allow_delegation=False,
     )
 
     review_task = Task(
-        description="""Review the following children's video content and provide structured feedback.
+        description="""Review the following tech educational video content and provide structured feedback.
 
 Review the content against these criteria:
 
 1. **Script Quality (40%)**
-   - Age-appropriate language (target: 1-9 years old)
-   - Clear educational value / learning objective
+   - FACTUAL ACCURACY: No false or misleading claims. If uncertain, it must be stated as opinion.
+   - Clear learning objective: viewer should understand X after watching
    - Strong hook in first 3 seconds
-   - Pattern interrupts every 5-7 seconds
+   - Logical flow: concepts build on each other naturally
    - Proper NARRATION:/VISUAL: format (no scene markers in narration)
-   - Positive, encouraging tone
-   - COPPA-compliant (no personal info requests, no inappropriate content)
+   - Accessible language: explains jargon, assumes tech-curious audience
 
-2. **Storyboard/Visual Consistency (30%)**
-   - Visual descriptions match the narration
-   - Consistent character usage
-   - Appropriate scene transitions
-   - Visual variety across scenes
+2. **Visual Plan Effectiveness (30%)**
+   - ASSET_TYPE choices match the narration content
+   - Visual descriptions are specific enough for pipeline execution
+   - Appropriate variety across scenes (not all stock footage)
+   - Text overlays reinforce key points
 
 3. **Engagement Potential (20%)**
-   - Interactive elements (questions, call-and-response)
-   - Emotional triggers (wonder, curiosity, joy, surprise)
-   - Pacing appropriate for format (shorts: fast; long: varied)
+   - Strong hook that creates curiosity
+   - Clear pacing appropriate for format (shorts: fast; long: varied)
+   - Practical takeaways for the viewer
+   - Effective call-to-action
 
 4. **Technical Compliance (10%)**
-   - No forbidden words or content
-   - Proper structure for the format
-   - Complete (has intro, body, outro)
+   - No fabricated statistics, dates, or claims
+   - Proper NARRATION/VISUAL scene structure
+   - Complete (has hook, body, conclusion)
+   - Appropriate length for format
 
 Return your review as a JSON object with this exact structure:
 {
@@ -54,7 +55,7 @@ Return your review as a JSON object with this exact structure:
   "score": <0-100 integer>,
   "breakdown": {
     "script_quality": <0-100>,
-    "visual_consistency": <0-100>,
+    "visual_effectiveness": <0-100>,
     "engagement": <0-100>,
     "technical": <0-100>
   },
@@ -69,7 +70,7 @@ Return your review as a JSON object with this exact structure:
 Decisions:
 - "pass": Score >= 75. Content is ready for production.
 - "fix": Score 50-74. Content has issues that must be addressed before proceeding.
-- "block": Score < 50. Content has critical issues and should not proceed.
+- "block": Score < 50. Content has critical factual errors or structural problems.
 
 Content to review:
 SCRIPT:

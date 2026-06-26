@@ -6,19 +6,19 @@ from utils.validators import validate_script_content
 from utils.json_utils import extract_json
 from firebase_admin import firestore
 
-SYSTEM_PROMPT = """You are an expert content quality evaluator for children's YouTube/TikTok videos (ages 1-9).
-You are evaluating AI-generated educational content for kids. These scripts follow proven engagement patterns.
+SYSTEM_PROMPT = """You are an expert content quality evaluator for tech educational YouTube/TikTok videos.
+You are evaluating AI-generated educational technology content.
 
 Evaluate the provided content and return ONLY a valid JSON object with this exact structure:
 
 {
   "overall_score": 0-100,
   "breakdown": {
-    "age_appropriateness": 0-100,
+    "accuracy": 0-100,
     "educational_value": 0-100,
     "engagement_potential": 0-100,
-    "language_safety": 0-100,
-    "creativity": 0-100,
+    "clarity": 0-100,
+    "structure": 0-100,
     "pacing": 0-100
   },
   "flags": ["flag1", "flag2"] or [],
@@ -26,28 +26,28 @@ Evaluate the provided content and return ONLY a valid JSON object with this exac
   "feedback": "Brief explanation of the score"
 }
 
-Scoring guidelines for AI-generated kids content:
-- 85-100: Excellent content with clear educational value, engaging hooks, \
-age-appropriate language, good pacing. APPROVE immediately.
-- 70-84: Good content with minor areas for improvement. Still APPROVE - it's suitable for children.
+Scoring guidelines for AI-generated tech educational content:
+- 85-100: Excellent content with clear explanations, accurate information, engaging hooks, \
+good structure. APPROVE immediately.
+- 70-84: Good content with minor areas for improvement. Still APPROVE.
 - 55-69: Acceptable but has noticeable gaps. Manual review recommended.
-- Below 55: Significant issues, not suitable. BLOCK.
+- Below 55: Significant issues (factual errors, unclear explanations). BLOCK.
 
-IMPORTANT: AI-generated educational scripts for kids are inherently well-structured. Give them fair scores:
-- If the script has educational content, dialogue, and scene descriptions → score 75-85 minimum
-- If the script has interactive questions, fun facts, or storytelling elements → add bonus points
-- If the script is for ages 1-9 with simple, positive language → age_appropriateness should be 80+
-- Long-form content (10+ scenes, 400+ words) should get higher educational_value scores
-- Shorts content with clear hooks and engagement should get higher engagement_potential
+IMPORTANT: Evaluate based on information quality, not entertainment value:
+- Check that explanations are accurate (no fabricated claims)
+- Check that complex terms are explained
+- Assess whether the viewer will actually learn something
+- Shorts should be fast-paced and focused on one concept
+- Long-form should have clear structure and depth
 
-Only flag genuinely harmful content (violence, scary themes, inappropriate language)."""
+Only flag factually incorrect or misleading content. Do NOT penalize for being AI-generated."""
 
 
 def score_content(script: str, title: str, category: str, format_type: str = "shorts") -> dict:
     """Score video content using Groq AI and return quality metrics."""
     update_agent_status("quality_scorer", "working", f"Evaluating: {title}")
 
-    content_prompt = """Evaluate this children's video content:
+    content_prompt = """Evaluate this tech educational video content:
 
 Title: {title}
 Format: {format_type}
@@ -131,55 +131,51 @@ def _fallback_score(script: str, title: str, category: str) -> dict:
     score = 75
     flags = []
 
-    forbidden = ["violence", "scary", "death", "kill", "hurt", "fight", "war"]
-    for word in forbidden:
-        if word in script_lower:
-            flags.append(f"contains_{word}")
-            score -= 5
-
-    if word_count < 30:
+    if word_count < 50:
         flags.append("too_short")
         score -= 10
 
-    positive_words = ["learn", "friend", "happy", "love", "fun", "discover", "explore", "share",
-                      "play", "wonder", "amazing", "beautiful", "magic", "adventure", "exciting", "curious"]
-    for word in positive_words:
+    tech_keywords = ["ai", "machine learning", "neural", "algorithm", "data", "model", "training",
+                     "compute", "inference", "transformer", "code", "function", "system", "network",
+                     "automation", "deep learning", "llm", "gpt", "token", "embedding"]
+    for word in tech_keywords:
         if word in script_lower:
             score += 2
 
-    edu_words = ["why", "how", "because", "learn", "teach", "experiment",
-                 "science", "number", "count", "read", "write", "create", "imagine"]
-    for word in edu_words:
-        if word in script_lower:
-            score += 2
-
-    engagement_words = ["what do you think", "can you", "did you know", "let's", "look at", "wow", "amazing"]
-    for phrase in engagement_words:
+    clarity_indicators = ["this means", "in other words", "for example", "think of it as",
+                          "simply put", "essentially", "specifically", "in practice"]
+    for phrase in clarity_indicators:
         if phrase in script_lower:
             score += 3
+
+    structure_indicators = ["first", "second", "next", "finally", "in summary",
+                            "to understand", "the key insight", "importantly"]
+    for phrase in structure_indicators:
+        if phrase in script_lower:
+            score += 2
 
     if word_count >= 500:
         score += 5
     if word_count >= 1000:
         score += 5
-    if "scene" in script_lower and script_lower.count("scene") >= 8:
+    if "visual" in script_lower:
         score += 3
 
-    score = max(72, min(92, score))
+    score = max(60, min(95, score))
 
     return {
         "overall_score": score,
         "breakdown": {
-            "age_appropriateness": min(100, score + 5),
-            "educational_value": min(100, score + 3),
+            "accuracy": min(100, score),
+            "educational_value": min(100, score + 5),
             "engagement_potential": min(100, score + 2),
-            "language_safety": min(100, score - len(flags) * 5),
-            "creativity": min(100, score),
-            "pacing": min(100, score - 3),
+            "clarity": min(100, score + 3),
+            "structure": min(100, score + 4),
+            "pacing": min(100, score - 2),
         },
         "flags": flags,
         "recommendation": "approve" if score >= 65 else "review",
-        "feedback": f"Local heuristic score: {score}/100. {len(flags)} flag(s) found." if flags else f"Content appears suitable. Score: {score}/100",  # noqa: E501
+        "feedback": f"Local heuristic score: {score}/100. {len(flags)} flag(s) found." if flags else f"Content appears suitable. Score: {score}/100",
     }
 
 
@@ -207,7 +203,7 @@ def _save_review(title: str, format_type: str, result: dict):
 
 def predict_performance(title: str, category: str, format_type: str = "shorts", script: str = "") -> dict:
     """Predict video performance (views, engagement) before publishing."""
-    system_prompt = """You are a YouTube/TikTok performance analyst specializing in children's content.
+    system_prompt = """You are a YouTube/TikTok performance analyst specializing in tech educational content.
 Predict the potential performance of a video based on its title, category, and format.
 Return ONLY a valid JSON object with this exact structure:
 
@@ -226,7 +222,7 @@ Return ONLY a valid JSON object with this exact structure:
 
 Consider: title attractiveness, category popularity, format trends, seasonal relevance, competition level."""
 
-    prediction_prompt = """Predict performance for this children's video:
+    prediction_prompt = """Predict performance for this tech educational video:
 
 Title: {title}
 Category: {category}
@@ -269,8 +265,9 @@ def _fallback_prediction(title: str, category: str, format_type: str = "shorts")
     random.seed(seed_val)
 
     base_views = 5000 if format_type == "shorts" else 3000
-    category_bonus = {"Self-Learning": 1.3, "Bedtime Stories": 1.1,
-                      "Mythology Stories": 0.9, "Animated Fables": 1.0, "Science for Kids": 1.4}
+    category_bonus = {"AI Explained": 1.4, "Deep Tech": 1.2,
+                      "Paper Breakdowns": 1.1, "Tool Tutorials": 1.5, "Industry Analysis": 1.2,
+                      "Code & Build": 1.3, "AI News": 1.3, "Career & Learning": 1.1}
     multiplier = category_bonus.get(category, 1.0)
 
     predicted_7d = int(base_views * multiplier * random.uniform(0.5, 2.0))

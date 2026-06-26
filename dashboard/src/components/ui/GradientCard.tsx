@@ -20,11 +20,11 @@ const gradients: Record<string, string> = {
 };
 
 const glowShadows: Record<string, string> = {
-  primary: '0 8px 32px rgba(255, 77, 109, 0.15)',
-  warm: '0 8px 32px rgba(251, 191, 36, 0.15)',
-  cool: '0 8px 32px rgba(124, 58, 237, 0.15)',
+  primary: '0 8px 32px rgba(255, 105, 105, 0.15)',
+  warm: '0 8px 32px rgba(255, 105, 105, 0.15)',
+  cool: '0 8px 32px rgba(200, 0, 54, 0.15)',
   success: '0 8px 32px rgba(16, 185, 129, 0.15)',
-  info: '0 8px 32px rgba(59, 130, 246, 0.15)',
+  info: '0 8px 32px rgba(37, 99, 235, 0.15)',
 };
 
 export function GradientCard({ children, gradient = 'primary', className = '', hover = true, delay = 0 }: GradientCardProps) {

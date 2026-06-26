@@ -1,42 +1,96 @@
 rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
-    
-    // Users collection
+
+    // Users collection — owner access only
     match /users/{userId} {
       allow read, write: if request.auth != null && request.auth.uid == userId;
     }
-    
-    // Channels collection
+
+    // Channels — read by all auth'd, write by owner
     match /channels/{channelId} {
       allow read: if request.auth != null;
       allow write: if request.auth != null && resource.data.ownerId == request.auth.uid;
       allow create: if request.auth != null;
     }
-    
-    // Videos collection
+
+    // Videos — read by all auth'd, create/update by any auth'd, delete by creator
     match /videos/{videoId} {
       allow read: if request.auth != null;
       allow create, update: if request.auth != null;
       allow delete: if request.auth != null && resource.data.createdBy == request.auth.uid;
     }
-    
-    // Agents collection (read-only for dashboard)
+
+    // Backend-only collections — dashboard can read, only backend (unauthed) can write
+    function isBackend() { return request.auth == null; }
+
     match /agents/{agentId} {
       allow read: if request.auth != null;
-      allow write: if false; // Only backend can write
+      allow write: if isBackend();
     }
-    
-    // Logs collection (read-only)
+
     match /logs/{logId} {
       allow read: if request.auth != null;
-      allow write: if false; // Only backend can write
+      allow write: if isBackend();
     }
-    
-    // Analytics collection
+
     match /analytics/{docId} {
       allow read: if request.auth != null;
-      allow write: if false; // Only backend can write
+      allow write: if isBackend();
+    }
+
+    match /series_plans/{docId} {
+      allow read: if request.auth != null;
+      allow write: if isBackend();
+    }
+
+    match /system/{docId} {
+      allow read: if request.auth != null;
+      allow write: if isBackend();
+    }
+
+    match /config/{docId} {
+      allow read: if request.auth != null;
+      allow write: if isBackend();
+    }
+
+    match /scheduled_posts/{docId} {
+      allow read: if request.auth != null;
+      allow write: if isBackend();
+    }
+
+    // User-facing collections — read/write by auth'd users
+    match /settings/{docId} {
+      allow read, write: if request.auth != null;
+    }
+
+    match /platform_settings/{docId} {
+      allow read, write: if request.auth != null;
+    }
+
+    match /predictions/{docId} {
+      allow read, write: if request.auth != null;
+    }
+
+    match /pipeline_triggers/{docId} {
+      allow read: if request.auth != null;
+      allow create: if request.auth != null;
+      allow update: if request.auth != null;
+      allow delete: if request.auth != null && resource.data.createdBy == request.auth.uid;
+    }
+
+    match /notifications/{docId} {
+      allow read, write: if request.auth != null && request.auth.uid == resource.data.userId;
+      allow create: if request.auth != null;
+    }
+
+    match /notif_preferences/{docId} {
+      allow read, write: if request.auth != null && request.auth.uid == docId;
+    }
+
+    // Deny everything else
+    match /{document=**} {
+      allow read, write: if false;
     }
   }
 }

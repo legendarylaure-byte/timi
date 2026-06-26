@@ -8,7 +8,7 @@ import random
 from utils.groq_client import generate_completion
 from utils.firebase_status import get_firestore_client, log_activity, update_video_record
 
-SYSTEM_PROMPT = """You are a content repurposing expert for children's YouTube/TikTok videos.
+SYSTEM_PROMPT = """You are a content repurposing expert for tech/AI educational YouTube/TikTok videos.
 Given a long-form video title and approximate duration, identify the best segments \
 to extract as shorts (30-60 seconds each).
 Focus on moments with strong hooks, educational value, or entertainment peak.
@@ -37,7 +37,7 @@ def repurpose_video(video_id: str, title: str, duration_seconds: int = 300) -> d
     """Analyze a long video and generate repurposing clips."""
     log_activity("repurposer", f"Starting repurpose: {title}", "info")
 
-    prompt = f"""Repurpose this long-form children's video into shorts:
+    prompt = f"""Repurpose this long-form tech educational video into shorts:
 
 Title: {title}
 Duration: {duration_seconds} seconds ({duration_seconds // 60}min {duration_seconds % 60}s)

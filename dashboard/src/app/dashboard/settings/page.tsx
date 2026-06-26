@@ -129,7 +129,7 @@ export default function SettingsPage() {
           </div>
           <div className="flex gap-2">
             <button
-              onClick={() => { toggleAppTheme(); setTheme(theme === 'light' ? 'dark' : 'light'); }}
+              onClick={toggleTheme}
               className={`px-4 py-2 rounded-xl text-sm font-medium transition-all ${
                 theme === 'light'
                   ? 'bg-light-primary text-white'

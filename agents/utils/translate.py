@@ -60,13 +60,13 @@ LANGUAGES = {
     },
 }
 
-SYSTEM_PROMPT = """You are a professional translator specializing in children's content localization.
+SYSTEM_PROMPT = """You are a professional translator specializing in tech content localization.
 Translate the given English script into the target language while:
-1. Keeping language simple and age-appropriate (ages 1-9)
+1. Using correct technical terminology
 2. Preserving the educational value and tone
 3. Adapting cultural references to be locally relevant
 4. Maintaining the same number of sentences/segments for audio sync
-5. Keeping names of characters if they are story-specific
+5. Keeping proper nouns and technical terms untranslated where appropriate
 
 Return ONLY a valid JSON object with this structure:
 {
@@ -83,14 +83,14 @@ def translate_script(script: str, target_lang: str, title: str = "") -> dict:
     if not lang:
         raise ValueError(f"Unsupported language: {target_lang}")
 
-    prompt = f"""Translate this children's content to {lang['name']} ({target_lang}):
+    prompt = f"""Translate this tech educational content to {lang['name']} ({target_lang}):
 
 Original title: {title if title else "N/A"}
 
 Original script:
 {script}
 
-Translate all content to {lang['name']} while keeping it age-appropriate and culturally relevant."""
+Translate all content to {lang['name']} while preserving technical accuracy and terminology."""
 
     try:
         response = generate_completion(

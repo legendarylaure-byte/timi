@@ -8,8 +8,8 @@ import { AGENT_ROLES, CONTENT_CATEGORIES } from '@/lib/constants';
 import { GradientCard } from '@/components/ui/GradientCard';
 import { StatusBadge } from '@/components/ui/StatusBadge';
 import { useToast } from '@/components/ui/Toast';
-import { HappyScene } from '@/components/3d/HappyScene';
 import Image from 'next/image';
+import { Play, FolderOpen, Eye, Bot, Rocket, Calendar, TrendingUp, BarChart3, Lightbulb } from 'lucide-react';
 
 interface AgentStatus {
   agent_id: string;
@@ -46,10 +46,10 @@ interface PipelineTrigger {
 }
 
 const gradients: Record<string, string> = {
-  primary: 'linear-gradient(135deg, #FF4D6D, #7C3AED)',
-  warm: 'linear-gradient(135deg, #FF4D6D, #FBBF24)',
-  cool: 'linear-gradient(135deg, #7C3AED, #3B82F6)',
-  success: 'linear-gradient(135deg, #10B981, #3B82F6)',
+  primary: 'linear-gradient(135deg, #FF6969, #C80036)',
+  warm: 'linear-gradient(135deg, #FF6969, #FFF5E1)',
+  cool: 'linear-gradient(135deg, #C80036, #0C1844)',
+  success: 'linear-gradient(135deg, #FF6969, #0C1844)',
 };
 
 function isToday(timestamp: any): boolean {
@@ -74,6 +74,7 @@ export default function DashboardPage() {
   const [triggers, setTriggers] = useState<PipelineTrigger[]>([]);
   const [triggerForm, setTriggerForm] = useState({ topic: '', category: 'science', format: 'shorts', schedule: 'now' as 'now' | 'schedule', publishAt: '' });
   const [triggerSubmitting, setTriggerSubmitting] = useState(false);
+  const [insights, setInsights] = useState<{ best_category: string; best_format: string; recommendations: string[] } | null>(null);
   const { addToast } = useToast();
 
   useEffect(() => {
@@ -158,6 +159,20 @@ export default function DashboardPage() {
       setTriggers(items);
     });
     return () => unsubscribe();
+  }, []);
+
+  useEffect(() => {
+    const unsub = onSnapshot(doc(db, 'analytics', 'insights'), (snap) => {
+      if (snap.exists()) {
+        const data = snap.data();
+        setInsights({
+          best_category: data.best_category || '',
+          best_format: data.best_format || '',
+          recommendations: data.recommendations || [],
+        });
+      }
+    });
+    return () => unsub();
   }, []);
 
   const submitTrigger = useCallback(async () => {
@@ -252,14 +267,7 @@ export default function DashboardPage() {
         </div>
       </motion.div>
 
-      {/* 3D Hero Scene */}
-      <motion.div
-        initial={{ opacity: 0, scale: 0.98 }}
-        animate={{ opacity: 1, scale: 1 }}
-        transition={{ delay: 0.1, duration: 0.5 }}
-      >
-        <HappyScene />
-      </motion.div>
+
 
       {/* Pipeline Status Banner */}
       <AnimatePresence>
@@ -286,35 +294,37 @@ export default function DashboardPage() {
 
       {/* Stats Cards */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-        {[
-          { label: 'Videos Today', value: `${videosToday}`, suffix: `/${shortsQuota + longQuota}`, icon: '🎬', gradient: 'primary' as const },
-          { label: 'Total Videos', value: `${totalVideos}`, icon: '📁', gradient: 'warm' as const },
-          { label: 'Total Views', value: `${totalViews > 999 ? (totalViews / 1000).toFixed(1) + 'K' : totalViews}`, icon: '👁️', gradient: 'cool' as const },
-        ].map((stat, i) => (
-          <GradientCard key={stat.label} gradient={stat.gradient} delay={0.1 + i * 0.1}>
-            <div className="flex items-center justify-between mb-3">
-              <motion.span
-                className="text-2xl"
-                initial={{ scale: 0 }}
-                animate={{ scale: 1 }}
-                transition={{ delay: 0.2 + i * 0.1, type: 'spring' }}
-              >
-                {stat.icon}
-              </motion.span>
-              <div
-                className="w-10 h-10 rounded-lg flex items-center justify-center text-white text-sm font-bold"
-                style={{ background: gradients[stat.gradient] }}
-              >
-                {stat.icon}
+          {[
+            { label: 'Videos Today', value: `${videosToday}`, suffix: `/${shortsQuota + longQuota}`, icon: Play, gradient: 'primary' as const },
+            { label: 'Total Videos', value: `${totalVideos}`, icon: FolderOpen, gradient: 'warm' as const },
+            { label: 'Total Views', value: `${totalViews > 999 ? (totalViews / 1000).toFixed(1) + 'K' : totalViews}`, icon: Eye, gradient: 'cool' as const },
+          ].map((stat, i) => {
+            const StatIcon = stat.icon;
+            return (
+            <GradientCard key={stat.label} gradient={stat.gradient} delay={0.1 + i * 0.1}>
+              <div className="flex items-center justify-between mb-3">
+                <motion.div
+                  initial={{ scale: 0 }}
+                  animate={{ scale: 1 }}
+                  transition={{ delay: 0.2 + i * 0.1, type: 'spring' }}
+                >
+                  <StatIcon className="w-6 h-6 text-light-text dark:text-dark-text" />
+                </motion.div>
+                <div
+                  className="w-10 h-10 rounded-lg flex items-center justify-center text-white text-sm font-bold"
+                  style={{ background: gradients[stat.gradient] }}
+                >
+                  <StatIcon className="w-5 h-5" />
+                </div>
               </div>
-            </div>
-            <p className="text-2xl font-bold text-light-text dark:text-dark-text">
-              {stat.value}
-              {stat.suffix && <span className="text-light-muted dark:text-dark-muted text-lg font-normal">{stat.suffix}</span>}
-            </p>
-            <p className="text-sm text-light-muted dark:text-dark-muted">{stat.label}</p>
-          </GradientCard>
-        ))}
+              <p className="text-2xl font-bold text-light-text dark:text-dark-text">
+                {stat.value}
+                {stat.suffix && <span className="text-light-muted dark:text-dark-muted text-lg font-normal">{stat.suffix}</span>}
+              </p>
+              <p className="text-sm text-light-muted dark:text-dark-muted">{stat.label}</p>
+            </GradientCard>
+            );
+          })}
       </div>
 
       {/* Agent Status + Activity Feed */}
@@ -384,13 +394,13 @@ export default function DashboardPage() {
           <div className="space-y-3 max-h-96 overflow-y-auto">
             {activityLogs.length === 0 ? (
               <div className="flex flex-col items-center justify-center py-12 text-light-muted dark:text-dark-muted">
-                <motion.div
-                  animate={{ y: [0, -8, 0] }}
-                  transition={{ duration: 2, repeat: Infinity }}
-                  className="text-4xl mb-3"
-                >
-                  🤖
-                </motion.div>
+                  <motion.div
+                    animate={{ y: [0, -8, 0] }}
+                    transition={{ duration: 2, repeat: Infinity }}
+                    className="mb-3"
+                  >
+                    <Bot className="w-10 h-10 text-light-muted" />
+                  </motion.div>
                 <p className="text-sm font-medium">Agents are warming up...</p>
                 <p className="text-xs mt-1">Activity will appear here when agents start working</p>
               </div>
@@ -431,11 +441,11 @@ export default function DashboardPage() {
 
       {/* Quick Run Pipeline */}
       <GradientCard gradient="primary">
-        <h2 className="text-lg font-bold text-light-text dark:text-dark-text mb-4">🚀 Run Pipeline</h2>
+        <h2 className="text-lg font-bold text-light-text dark:text-dark-text mb-4 flex items-center gap-2"><Rocket className="w-5 h-5" /> Run Pipeline</h2>
         <div className="flex flex-col sm:flex-row gap-3">
           <input
             type="text"
-            placeholder="Enter video topic (e.g. The Magic of Rainbows)"
+            placeholder="Enter video topic (e.g. Transformers Explained)"
             value={triggerForm.topic}
             onChange={(e) => setTriggerForm({ ...triggerForm, topic: e.target.value })}
             onKeyDown={(e) => e.key === 'Enter' && submitTrigger()}
@@ -540,9 +550,40 @@ export default function DashboardPage() {
         )}
       </GradientCard>
 
+      {/* Analytics Insights */}
+      {insights && insights.best_category && (
+        <GradientCard gradient="success">
+          <h2 className="text-lg font-bold text-light-text dark:text-dark-text mb-4 flex items-center gap-2"><Lightbulb className="w-5 h-5" /> Analytics Insights</h2>
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-4">
+            <div className="p-3 rounded-xl bg-light-bg/50 dark:bg-dark-bg/50 border border-light-border/30 dark:border-white/5">
+              <div className="flex items-center gap-2 text-sm text-light-muted dark:text-dark-muted mb-1">
+                <TrendingUp className="w-4 h-4" /> Best Category
+              </div>
+              <p className="text-lg font-bold text-light-text dark:text-dark-text">{insights.best_category}</p>
+            </div>
+            <div className="p-3 rounded-xl bg-light-bg/50 dark:bg-dark-bg/50 border border-light-border/30 dark:border-white/5">
+              <div className="flex items-center gap-2 text-sm text-light-muted dark:text-dark-muted mb-1">
+                <BarChart3 className="w-4 h-4" /> Best Format
+              </div>
+              <p className="text-lg font-bold text-light-text dark:text-dark-text capitalize">{insights.best_format}</p>
+            </div>
+          </div>
+          {insights.recommendations.length > 0 && (
+            <div className="space-y-1.5">
+              {insights.recommendations.slice(0, 3).map((rec, i) => (
+                <div key={i} className="flex items-start gap-2 text-sm text-light-muted dark:text-dark-muted">
+                  <span className="text-light-primary mt-0.5 shrink-0">•</span>
+                  <span>{rec}</span>
+                </div>
+              ))}
+            </div>
+          )}
+        </GradientCard>
+      )}
+
       {/* Content Schedule */}
       <GradientCard gradient="warm">
-        <h2 className="text-lg font-bold text-light-text dark:text-dark-text mb-4">Today&apos;s Content Schedule</h2>
+        <h2 className="text-lg font-bold text-light-text dark:text-dark-text mb-4 flex items-center gap-2"><Calendar className="w-5 h-5" /> Today&apos;s Content Schedule</h2>
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
           <div className="p-4 rounded-xl border border-light-primary/20 bg-light-primary/5 dark:bg-light-primary/5">
             <h3 className="font-semibold text-light-primary mb-2">Shorts (9:16)</h3>

@@ -25,29 +25,27 @@ MUSIC_DIR.mkdir(parents=True, exist_ok=True)
 USE_MUSICGEN = os.getenv("USE_MUSICGEN", "true").lower() == "true"
 
 MOOD_CONFIGS = {
-    "happy": {"bpm": 120, "notes": [261.63, 293.66, 329.63, 349.23, 392.00, 440.00, 493.88], "waveform": "triangle"},
-    "calm": {"bpm": 70, "notes": [196.00, 220.00, 246.94, 293.66, 329.63, 392.00], "waveform": "sine"},
-    "adventure": {"bpm": 140, "notes": [293.66, 329.63, 369.99, 440.00, 493.88, 587.33], "waveform": "triangle"},
-    "sad": {"bpm": 60, "notes": [220.00, 261.63, 329.63, 349.23, 440.00], "waveform": "sine"},
-    "exciting": {"bpm": 160, "notes": [329.63, 369.99, 415.30, 493.88, 554.37, 659.25], "waveform": "triangle"},
-    "bedtime": {"bpm": 50, "notes": [174.61, 220.00, 261.63, 349.23, 440.00], "waveform": "sine"},
-    "playful": {"bpm": 130, "notes": [261.63, 329.63, 392.00, 523.25, 659.25], "waveform": "triangle"},
+    "focused": {"bpm": 85, "notes": [196.00, 220.00, 261.63, 329.63, 392.00, 440.00], "waveform": "sine"},
+    "energetic": {"bpm": 130, "notes": [293.66, 329.63, 369.99, 440.00, 493.88, 587.33], "waveform": "triangle"},
+    "cinematic": {"bpm": 75, "notes": [130.81, 164.81, 196.00, 261.63, 329.63, 392.00], "waveform": "sawtooth"},
+    "ambient": {"bpm": 60, "notes": [174.61, 220.00, 261.63, 349.23, 440.00], "waveform": "sine"},
+    "modern": {"bpm": 110, "notes": [261.63, 329.63, 392.00, 523.25, 659.25], "waveform": "triangle"},
+    "uplifting": {"bpm": 120, "notes": [261.63, 293.66, 329.63, 349.23, 392.00, 440.00, 493.88], "waveform": "triangle"},
 }
 
 
 def detect_mood(category: str) -> str:
     category = category.lower()
     mood_map = {
-        "lullaby": "bedtime", "bedtime": "bedtime", "sleep": "bedtime", "calm": "calm",
-        "adventure": "adventure", "explore": "adventure", "journey": "adventure",
-        "happy": "happy", "fun": "happy", "play": "playful", "friendship": "happy",
-        "exciting": "exciting", "action": "exciting", "superhero": "exciting",
-        "sad": "sad", "emotional": "calm",
+        "explained": "focused", "tutorial": "modern", "deep": "ambient",
+        "breakdown": "focused", "analysis": "focused", "news": "energetic",
+        "build": "uplifting", "code": "modern", "career": "uplifting",
+        "industry": "cinematic",
     }
     for key, mood in mood_map.items():
         if key in category:
             return mood
-    return "playful"
+    return "focused"
 
 
 # ---------------------------------------------------------------------------
@@ -58,20 +56,18 @@ def _build_musicgen_prompt(category: str, scene_moods: list[str]) -> str:
     """Build a descriptive prompt for MusicGen from category + per-scene moods."""
     cat_lower = category.lower()
     style_keywords = []
-    if any(k in cat_lower for k in ("bedtime", "lullaby", "sleep", "calm")):
-        style_keywords = ["gentle", "soothing", "lullaby", "soft piano and strings"]
-    elif any(k in cat_lower for k in ("adventure", "explore", "journey", "action")):
-        style_keywords = ["epic", "adventurous", "orchestral", "uplifting"]
-    elif any(k in cat_lower for k in ("science", "learn", "tech", "discover")):
-        style_keywords = ["curious", "playful", "electronic", "upbeat"]
-    elif any(k in cat_lower for k in ("song", "rhyme", "dance", "color", "shape")):
-        style_keywords = ["bouncy", "fun", "catchy melody", "children's music box"]
-    elif any(k in cat_lower for k in ("story", "fable", "mythology", "fairy")):
-        style_keywords = ["whimsical", "magical", "storytelling", "gentle"]
-    elif any(k in cat_lower for k in ("emotion", "friend", "social", "feel")):
-        style_keywords = ["warm", "heartfelt", "gentle acoustic"]
+    if any(k in cat_lower for k in ("explained", "tutorial", "basics", "intro")):
+        style_keywords = ["clear", "educational", "modern electronic", "focused"]
+    elif any(k in cat_lower for k in ("deep", "paper", "analysis", "architecture")):
+        style_keywords = ["ambient", "thoughtful", "cinematic", "minimal"]
+    elif any(k in cat_lower for k in ("industry", "news", "review")):
+        style_keywords = ["energetic", "professional", "modern corporate", "upbeat"]
+    elif any(k in cat_lower for k in ("code", "build", "tool")):
+        style_keywords = ["modern", "rhythmic", "electronic", "productive"]
+    elif any(k in cat_lower for k in ("career", "learning")):
+        style_keywords = ["uplifting", "inspirational", "warm", "progressive"]
     else:
-        style_keywords = ["playful", "cheerful", "cartoon background music"]
+        style_keywords = ["modern", "educational", "electronic background"]
 
     # Build arc description from scene moods
     unique_moods = []
@@ -81,13 +77,13 @@ def _build_musicgen_prompt(category: str, scene_moods: list[str]) -> str:
 
     if unique_moods:
         mood_labels = {
-            "happy": "cheerful and bright",
-            "calm": "calm and gentle",
-            "adventure": "exciting and adventurous",
-            "sad": "soft and emotional",
-            "exciting": "energetic and thrilling",
-            "bedtime": "peaceful and dreamy",
-            "playful": "bouncy and fun",
+            "focused": "focused and clear",
+            "energetic": "energetic and driving",
+            "cinematic": "epic and cinematic",
+            "ambient": "ambient and atmospheric",
+            "modern": "modern and rhythmic",
+            "uplifting": "uplifting and inspiring",
+            "focused": "focused and clear",
             "dreamy": "dreamy and whimsical",
         }
         arc_parts = [mood_labels.get(m, m) for m in unique_moods]
@@ -97,10 +93,10 @@ def _build_musicgen_prompt(category: str, scene_moods: list[str]) -> str:
         arc = ""
 
     prompt = (
-        f"{' and '.join(style_keywords)} background music for a children's cartoon. "
+        f"{' and '.join(style_keywords)} background music for an educational tech video. "
         f"{arc} "
         f"Clean studio recording, no vocals, suitable for narration voiceover. "
-        f"Cheerful, warm, child-friendly instrumental."
+        f"Professional, modern instrumental."
     )
     return prompt
 
@@ -178,8 +174,8 @@ def _try_musicgen(category: str, duration: float, scene_moods: list[str], output
 # Procedural music generation (fallback / default)
 # ---------------------------------------------------------------------------
 
-def generate_melody(duration_seconds: float, mood: str = "playful", output_path: Optional[str] = None) -> Optional[str]:
-    config = MOOD_CONFIGS.get(mood, MOOD_CONFIGS["playful"])
+def generate_melody(duration_seconds: float, mood: str = "focused", output_path: Optional[str] = None) -> Optional[str]:
+    config = MOOD_CONFIGS.get(mood, MOOD_CONFIGS["focused"])
     bpm = config["bpm"]
     notes = config["notes"]
     waveform = config["waveform"]
@@ -228,6 +224,8 @@ def generate_background_music(category: str, duration: float = 60, output_filena
         try:
             audio = AudioSegment.from_file(music_path)
             return {"path": music_path, "duration": len(audio) / 1000.0, "mood": mood, "success": True, "source": "musicgen" if musicgen_ok else "procedural"}
-        except Exception:
-            pass
+        except Exception as e:
+            print(f"[music_gen] Generated music file is corrupt/unreadable: {e}")
+    else:
+        print(f"[music_gen] Music generation produced no output file")
     return {"path": None, "duration": 0, "mood": mood, "success": False}

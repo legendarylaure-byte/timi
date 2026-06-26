@@ -40,17 +40,17 @@ def test_load_recent_performance_with_videos():
     data = json.dumps({
         "videos": {
             "vid1": {
-                "type": "shorts", "character": "pixel",
+                "type": "shorts",
                 "created_at": today,
                 "metrics": {"views": 150}, "score": 85,
             },
             "vid2": {
-                "type": "long", "character": "nova",
+                "type": "long",
                 "created_at": yesterday,
                 "metrics": {"views": 300}, "score": 92,
             },
             "vid3": {
-                "type": "shorts", "character": "pixel",
+                "type": "shorts",
                 "created_at": old,
                 "metrics": {"views": 50}, "score": 60,
             },
@@ -76,7 +76,7 @@ def test_load_recent_performance_long_key_fix():
     today = datetime.now().strftime("%Y-%m-%d")
     data = json.dumps({
         "videos": {
-            "vid1": {"type": "long", "character": "nova", "created_at": today, "metrics": {"views": 100}, "score": 80},
+            "vid1": {"type": "long", "created_at": today, "metrics": {"views": 100}, "score": 80},
         },
         "daily_stats": {},
     })

@@ -10,23 +10,25 @@ import { ThemeToggle } from '@/components/ui/ThemeToggle';
 import { NotificationCenter } from '@/components/ui/NotificationCenter';
 import { APP_NAME } from '@/lib/constants';
 import Image from 'next/image';
+import {
+  LayoutDashboard, Clapperboard, Archive, Flame, Scissors, Palette,
+  Upload, TrendingUp, DollarSign, Clapperboard as SeriesIcon, Clock,
+  Settings, Eye, LogOut, Menu, X,
+} from 'lucide-react';
 
 const navItems = [
-  { label: 'Dashboard', icon: '📊', path: '/dashboard' },
-  { label: 'Workspace', icon: '🎬', path: '/dashboard/workspace' },
-  { label: 'Archive', icon: '📁', path: '/dashboard/archive' },
-  { label: 'Trends', icon: '🔥', path: '/dashboard/trends' },
-  { label: 'Repurpose', icon: '✂️', path: '/dashboard/repurpose' },
-  { label: 'Preview', icon: '🎨', path: '/dashboard/preview' },
-  { label: 'Publishing', icon: '📤', path: '/dashboard/publishing' },
-  { label: 'Analytics', icon: '📈', path: '/dashboard/analytics' },
-  { label: 'Monetization', icon: '💰', path: '/dashboard/monetization' },
-  { label: 'Series', icon: '🎭', path: '/dashboard/series' },
-  { label: 'Scheduler', icon: '⏰', path: '/dashboard/scheduler' },
-  { label: 'Calendar', icon: '📅', path: '/dashboard/calendar' },
-  { label: 'Brand Safety', icon: '🛡️', path: '/dashboard/brand-safety' },
-  { label: 'Logs', icon: '📝', path: '/dashboard/logs' },
-  { label: 'Settings', icon: '⚙️', path: '/dashboard/settings' },
+  { label: 'Dashboard', icon: LayoutDashboard, path: '/dashboard' },
+  { label: 'Workspace', icon: Clapperboard, path: '/dashboard/workspace' },
+  { label: 'Archive', icon: Archive, path: '/dashboard/archive' },
+  { label: 'Trends', icon: Flame, path: '/dashboard/trends' },
+  { label: 'Repurpose', icon: Scissors, path: '/dashboard/repurpose' },
+  { label: 'Preview', icon: Palette, path: '/dashboard/preview' },
+  { label: 'Publishing', icon: Upload, path: '/dashboard/publishing' },
+  { label: 'Analytics', icon: TrendingUp, path: '/dashboard/analytics' },
+  { label: 'Monetization', icon: DollarSign, path: '/dashboard/monetization' },
+  { label: 'Series', icon: SeriesIcon, path: '/dashboard/series' },
+  { label: 'Scheduler', icon: Clock, path: '/dashboard/scheduler' },
+  { label: 'Settings', icon: Settings, path: '/dashboard/settings' },
 ];
 
 export default function DashboardLayout({ children }: { children: React.ReactNode }) {
@@ -75,15 +77,15 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
   if (!user) return (
     <div className="flex items-center justify-center min-h-screen bg-light-bg dark:bg-dark-bg">
       <div className="flex flex-col items-center gap-4">
-        <div className="w-10 h-10 border-4 border-purple-500/30 border-t-purple-500 rounded-full animate-spin" />
+        <div className="w-10 h-10 border-4 border-light-primary/30 border-t-light-primary rounded-full animate-spin" />
         <p className="text-sm text-light-muted dark:text-dark-muted">Loading...</p>
       </div>
     </div>
   );
 
   const miniStats = [
-    { icon: '🎬', value: '3' },
-    { icon: '👁️', value: '28K' },
+    { icon: Clapperboard, value: '3', label: 'Videos' },
+    { icon: Eye, value: '28K', label: 'Views' },
   ];
 
   return (
@@ -117,8 +119,8 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
             className="px-3 py-2 flex flex-col items-center gap-2"
           >
             {miniStats.map((stat) => (
-              <div key={stat.icon} className="flex flex-col items-center text-center">
-                <span className="text-xs">{stat.icon}</span>
+              <div key={stat.label} className="flex flex-col items-center text-center">
+                <stat.icon className="w-4 h-4 text-light-muted" />
                 <span className="text-[10px] font-bold text-light-primary">{stat.value}</span>
               </div>
             ))}
@@ -128,6 +130,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
         <nav className="flex-1 px-3 py-4 space-y-1">
           {navItems.map((item) => {
             const isActive = pathname === item.path;
+            const Icon = item.icon;
             return (
               <Link
                 key={item.path}
@@ -143,18 +146,12 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
                     layoutId="activeNav"
                     className="absolute inset-0 rounded-xl"
                     style={{
-                      background: 'linear-gradient(135deg, #FF4D6D, #7C3AED)',
+                      background: 'linear-gradient(135deg, #ec133e, #bd0f32)',
                     }}
                     transition={{ type: 'spring', stiffness: 300, damping: 30 }}
                   />
                 )}
-                <motion.span
-                  className="relative z-10 text-lg shrink-0"
-                  whileHover={{ scale: 1.2 }}
-                  whileTap={{ scale: 0.9 }}
-                >
-                  {item.icon}
-                </motion.span>
+                <Icon className="relative z-10 w-5 h-5 shrink-0" />
                 {sidebarOpen && (
                   <motion.span className="relative z-10 text-sm">{item.label}</motion.span>
                 )}
@@ -181,7 +178,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
             onClick={handleLogout}
             className="w-full flex items-center gap-3 px-3 py-2 rounded-xl text-light-muted dark:text-dark-muted hover:bg-light-primary/10 hover:text-light-primary transition-colors text-sm"
           >
-            <span className="text-lg shrink-0">🚪</span>
+            <LogOut className="w-4 h-4 shrink-0" />
             {sidebarOpen && <span>Sign Out</span>}
           </button>
         </div>
@@ -197,6 +194,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
           <div className="flex items-center justify-around px-2 py-2">
             {navItems.slice(0, 5).map((item) => {
               const isActive = pathname === item.path;
+              const Icon = item.icon;
               return (
                 <Link
                   key={item.path}
@@ -205,12 +203,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
                     isActive ? 'text-light-primary' : 'text-light-muted dark:text-dark-muted'
                   }`}
                 >
-                  <motion.span
-                    animate={isActive ? { scale: 1.2, y: -2 } : { scale: 1, y: 0 }}
-                    className="text-lg"
-                  >
-                    {item.icon}
-                  </motion.span>
+                  <Icon className="w-5 h-5" />
                   <span className="text-[10px] font-medium">{item.label}</span>
                   {isActive && <div className="w-1 h-1 rounded-full bg-light-primary" />}
                 </Link>
@@ -248,12 +241,15 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
                     <p className="text-xs text-light-muted dark:text-dark-muted">Timi</p>
                   </div>
                 </div>
-                <button onClick={() => setMobileMenuOpen(false)} className="text-light-muted text-2xl" aria-label="Close mobile menu">✕</button>
+                <button onClick={() => setMobileMenuOpen(false)} className="text-light-muted" aria-label="Close mobile menu">
+                  <X className="w-6 h-6" />
+                </button>
               </div>
 
               <nav className="flex-1 space-y-1">
                 {navItems.map((item) => {
                   const isActive = pathname === item.path;
+                  const Icon = item.icon;
                   return (
                     <Link
                       key={item.path}
@@ -264,9 +260,9 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
                           ? 'text-white font-medium'
                           : 'text-light-muted dark:text-dark-muted'
                       }`}
-                      style={isActive ? { background: 'linear-gradient(135deg, #FF4D6D, #7C3AED)' } : {}}
+                      style={isActive ? { background: 'linear-gradient(135deg, #ec133e, #bd0f32)' } : {}}
                     >
-                      <span className="text-xl">{item.icon}</span>
+                      <Icon className="w-5 h-5" />
                       <span className="text-sm">{item.label}</span>
                     </Link>
                   );
@@ -285,7 +281,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
                   onClick={handleLogout}
                   className="w-full flex items-center gap-3 px-4 py-2 rounded-xl text-light-muted dark:text-dark-muted hover:bg-light-primary/10 hover:text-light-primary transition-colors text-sm"
                 >
-                  <span className="text-lg">🚪</span>
+                  <LogOut className="w-4 h-4" />
                   <span>Sign Out</span>
                 </button>
               </div>
@@ -311,7 +307,9 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
         {/* Mobile Header */}
         {isMobile && (
           <div className="md:hidden flex items-center justify-between p-4 glass-strong sticky top-0 z-30">
-            <button onClick={() => setMobileMenuOpen(true)} className="text-light-text dark:text-dark-text text-2xl" aria-label="Open mobile menu">☰</button>
+            <button onClick={() => setMobileMenuOpen(true)} className="text-light-text dark:text-dark-text" aria-label="Open mobile menu">
+              <Menu className="w-6 h-6" />
+            </button>
             <div className="flex items-center gap-3">
               <span className="text-sm font-medium text-light-muted dark:text-dark-muted tabular-nums">{currentTime}</span>
               <NotificationCenter />

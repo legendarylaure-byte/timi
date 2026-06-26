@@ -19,7 +19,7 @@ def mock_groq():
             },
             "flags": [],
             "recommendation": "approve",
-            "feedback": "Good content for kids"
+            "feedback": "Good tech educational content"
         }
         """
         yield m
@@ -34,7 +34,7 @@ def mock_firebase():
 
 def test_score_content_returns_all_keys(mock_groq, mock_firebase):
     from utils.quality_scorer import score_content
-    result = score_content("Test script about apples", "Red Apple", "Colors & Shapes", "shorts")
+    result = score_content("Test script about AI", "Red Apple", "AI Explained", "shorts")
     assert "overall_score" in result
     assert "breakdown" in result
     assert "recommendation" in result
@@ -75,7 +75,7 @@ def test_score_content_empty_script(mock_groq, mock_firebase):
 
 def test_score_content_long_format(mock_groq, mock_firebase):
     from utils.quality_scorer import score_content
-    result = score_content("Long script " * 50, "Long Video", "Bedtime Stories", "long")
+    result = score_content("Long script " * 50, "Long Video", "Deep Tech", "long")
     assert result["overall_score"] > 0
 
 
@@ -116,7 +116,7 @@ def test_predict_performance_returns_keys(mock_firebase):
         {"predicted_views_7d": 5000, "predicted_views_30d": 25000, "virality_score": 65}
         """
     from utils.quality_scorer import predict_performance
-    result = predict_performance("Red Apple", "Colors & Shapes", "shorts", "Script text")
+    result = predict_performance("Red Apple", "AI Explained", "shorts", "Script text")
     assert "predicted_views_7d" in result
     assert "predicted_views_30d" in result
     assert "virality_score" in result

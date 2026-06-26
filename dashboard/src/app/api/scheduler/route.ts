@@ -34,7 +34,7 @@ export async function GET(request: Request) {
         }
       : { running: false, last_run: null, next_run: null, pid: null, uptime_minutes: 0 };
 
-    const planSnap = await db.collection('content_plan').orderBy('scheduled_at', 'desc').limit(20).get();
+    const planSnap = await db.collection('content_plan').orderBy('scheduled_at', 'desc').limit(50).get();
     const plan = planSnap.docs.map(doc => {
       const d = doc.data();
       return {
@@ -59,7 +59,15 @@ export async function GET(request: Request) {
       };
     });
 
-    return NextResponse.json({ success: true, scheduler, plan, pending_triggers });
+    const seriesPlansSnap = await db.collection('series_plans').where('status', '==', 'active').get();
+    const seriesPlans = seriesPlansSnap.docs.map(doc => ({
+      id: doc.id,
+      title: doc.data().title || '',
+      parts: doc.data().parts || [],
+      categories: doc.data().categories || [],
+    }));
+
+    return NextResponse.json({ success: true, scheduler, plan, pending_triggers, series_plans: seriesPlans });
   } catch (error: any) {
     console.error('[SCHEDULER API] Error:', error);
     return NextResponse.json({ success: false, error: error.message }, { status: 500 });
@@ -76,8 +84,8 @@ export async function POST(request: Request) {
     const body = await request.json();
     const { action } = body;
 
-    if (!action || !['trigger', 'pause', 'resume'].includes(action)) {
-      return NextResponse.json({ success: false, message: 'Invalid action. Must be trigger, pause, or resume' }, { status: 400 });
+    if (!action || !['trigger', 'pause', 'resume', 'schedule_series'].includes(action)) {
+      return NextResponse.json({ success: false, message: 'Invalid action. Must be trigger, pause, resume, or schedule_series' }, { status: 400 });
     }
 
     const db = getAdminFirestore();
@@ -95,6 +103,41 @@ export async function POST(request: Request) {
       return NextResponse.json({ success: true, message: 'Manual trigger created successfully' });
     }
 
+    if (action === 'schedule_series') {
+      const { series_plan_id, start_date } = body;
+      if (!series_plan_id || !start_date) {
+        return NextResponse.json({ success: false, message: 'series_plan_id and start_date are required' }, { status: 400 });
+      }
+
+      const planDoc = await db.collection('series_plans').doc(series_plan_id).get();
+      if (!planDoc.exists) {
+        return NextResponse.json({ success: false, message: 'Series plan not found' }, { status: 404 });
+      }
+
+      const plan = planDoc.data()!;
+      const parts = plan.parts || [];
+      const startDate = new Date(start_date);
+
+      for (let i = 0; i < parts.length; i++) {
+        const part = parts[i];
+        const scheduledDate = new Date(startDate);
+        scheduledDate.setDate(scheduledDate.getDate() + i);
+
+        await db.collection('content_plan').add({
+          title: `${plan.title || 'Series'} — Part ${part.part}`,
+          category: (plan.categories || [])[0] || 'AI Explained',
+          format: part.estimated_duration || 'shorts',
+          scheduled_at: scheduledDate,
+          status: 'planned',
+          series_plan_id: series_plan_id,
+          part_number: part.part,
+          created_at: FieldValue.serverTimestamp(),
+        });
+      }
+
+      return NextResponse.json({ success: true, message: `Scheduled ${parts.length} parts from series plan` });
+    }
+
     if (action === 'pause' || action === 'resume') {
       await db.collection('system').doc('scheduler_status').set(
         { running: action === 'resume', updated_at: FieldValue.serverTimestamp() },
@@ -106,6 +149,58 @@ export async function POST(request: Request) {
     return NextResponse.json({ success: false, message: 'Unknown action' }, { status: 400 });
   } catch (error: any) {
     console.error('[SCHEDULER API] Error:', error);
+    return NextResponse.json({ success: false, error: error.message }, { status: 500 });
+  }
+}
+
+export async function PUT(request: Request) {
+  try {
+    const user = await verifyAuth(request);
+    if (!user) {
+      return NextResponse.json({ success: false, error: 'Unauthorized' }, { status: 401 });
+    }
+
+    const body = await request.json();
+    const { id, title, category, format, scheduled_at, status } = body;
+    if (!id) {
+      return NextResponse.json({ success: false, error: 'Plan item id is required' }, { status: 400 });
+    }
+
+    const db = getAdminFirestore();
+    const updateData: Record<string, any> = {};
+    if (title !== undefined) updateData.title = title;
+    if (category !== undefined) updateData.category = category;
+    if (format !== undefined) updateData.format = format;
+    if (scheduled_at !== undefined) updateData.scheduled_at = new Date(scheduled_at);
+    if (status !== undefined) updateData.status = status;
+    updateData.updated_at = FieldValue.serverTimestamp();
+
+    await db.collection('content_plan').doc(id).update(updateData);
+    return NextResponse.json({ success: true, message: 'Plan item updated' });
+  } catch (error: any) {
+    console.error('[SCHEDULER API] PUT Error:', error);
+    return NextResponse.json({ success: false, error: error.message }, { status: 500 });
+  }
+}
+
+export async function DELETE(request: Request) {
+  try {
+    const user = await verifyAuth(request);
+    if (!user) {
+      return NextResponse.json({ success: false, error: 'Unauthorized' }, { status: 401 });
+    }
+
+    const { searchParams } = new URL(request.url);
+    const id = searchParams.get('id');
+    if (!id) {
+      return NextResponse.json({ success: false, error: 'Plan item id is required' }, { status: 400 });
+    }
+
+    const db = getAdminFirestore();
+    await db.collection('content_plan').doc(id).delete();
+    return NextResponse.json({ success: true, message: 'Plan item deleted' });
+  } catch (error: any) {
+    console.error('[SCHEDULER API] DELETE Error:', error);
     return NextResponse.json({ success: false, error: error.message }, { status: 500 });
   }
 }

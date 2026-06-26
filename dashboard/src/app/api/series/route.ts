@@ -14,11 +14,6 @@ async function verifyAuth(request: Request): Promise<{ uid: string } | null> {
   }
 }
 
-const CHARACTER_NAMES = ['pixel', 'nova', 'ziggy', 'boop', 'sprout'] as const;
-const BACKGROUNDS = ['gradient_sky', 'gradient_forest', 'gradient_ocean', 'gradient_space', 'gradient_sunset', 'gradient_night', 'gradient_garden', 'gradient_classroom', 'gradient_bedroom', 'gradient_underwater'] as const;
-const POSES = ['idle', 'happy', 'wave', 'point', 'surprised', 'thinking', 'sleep', 'dance', 'growing', 'sad'] as const;
-const MOODS = ['happy', 'calm', 'adventure', 'dreamy', 'playful', 'exciting'] as const;
-
 export async function GET(request: Request) {
   try {
     const user = await verifyAuth(request);
@@ -27,7 +22,7 @@ export async function GET(request: Request) {
     }
 
     const db = getAdminFirestore();
-    const snapshot = await db.collection('series').get();
+    const snapshot = await db.collection('series').orderBy('created_at', 'desc').get();
 
     const series = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
     return NextResponse.json({ success: true, series });
@@ -45,27 +40,19 @@ export async function POST(request: Request) {
     }
 
     const body = await request.json();
-    const { name, description, host, intro_text, outro_text, background, music_mood } = body;
+    const { name, description, category, youtube_playlist_link, auto_generated } = body;
 
-    if (!name || !host) {
-      return NextResponse.json({ success: false, error: 'Name and host are required' }, { status: 400 });
+    if (!name || !category) {
+      return NextResponse.json({ success: false, error: 'Name and category are required' }, { status: 400 });
     }
 
     const db = getAdminFirestore();
     const seriesData = {
       name,
       description: description || '',
-      host: host.toLowerCase(),
-      host_pose: body.host_pose || 'wave',
-      host_expression: body.host_expression || 'happy',
-      intro_duration: body.intro_duration || 3.0,
-      outro_duration: body.outro_duration || 3.0,
-      categories: body.categories || [],
-      character_placement: body.character_placement || { x: 0.5, y: 0.55 },
-      intro_text: intro_text || `Welcome to ${name}!`,
-      outro_text: outro_text || 'See you next time!',
-      background: background || 'gradient_sky',
-      music_mood: music_mood || 'happy',
+      category,
+      youtube_playlist_link: youtube_playlist_link || '',
+      auto_generated: auto_generated || false,
       created_at: FieldValue.serverTimestamp(),
       updated_at: FieldValue.serverTimestamp(),
     };

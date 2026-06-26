@@ -1,47 +1,13 @@
-from dotenv import load_dotenv
-from pydub import AudioSegment
 import os
 import re
 import subprocess
 from pathlib import Path
 from typing import Optional
 
+from dotenv import load_dotenv
+from pydub import AudioSegment
+
 load_dotenv()
-
-
-def _get_env():
-    return os.environ.copy()
-
-
-def _ffmpeg_cmd() -> str:
-    env_path = os.getenv("FFMPEG_PATH", "")
-    if env_path and os.path.exists(env_path):
-        return env_path
-    candidates = [
-        "/opt/homebrew/opt/ffmpeg-full/bin/ffmpeg",
-        "/usr/local/bin/ffmpeg",
-        "/usr/bin/ffmpeg",
-    ]
-    for p in candidates:
-        if os.path.exists(p):
-            return p
-    return "ffmpeg"
-
-
-def _ffprobe_cmd() -> str:
-    env_path = os.getenv("FFPROBE_PATH", "")
-    if env_path and os.path.exists(env_path):
-        return env_path
-    candidates = [
-        "/opt/homebrew/opt/ffmpeg-full/bin/ffprobe",
-        "/usr/local/bin/ffprobe",
-        "/usr/bin/ffprobe",
-    ]
-    for p in candidates:
-        if os.path.exists(p):
-            return p
-    return "ffprobe"
-
 
 OUTPUT_DIR = Path(__file__).parent.parent / "output"
 OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
@@ -54,44 +20,60 @@ ASPECT_RATIOS = {
     "long": {"w": 1920, "h": 1080, "ar": "16:9"},
 }
 
-KEN_BURNS_PRESETS = [
-    "z=1.0+0.3*t:x=0:y=0",
-    "z=1.0+0.3*t:x=(iw-iw/zoom)/2:y=0",
-    "z=1.3-0.3*t:x=0:y=0",
-    "z=1.0+0.2*t:x=0:y=(ih-ih/zoom)/2",
-    "z=1.2-0.2*t:x=(iw-iw/zoom)/2:y=(ih-ih/zoom)/2",
-    "z=1.0+0.25*t:x=(iw-iw/zoom)/4:y=0",
-    "z=1.0+0.2*t:x=0:y=(ih-ih/zoom)/4",
-    "z=1.25-0.25*t:x=(iw-iw/zoom)/3:y=(ih-ih/zoom)/3",
-]
+FFMPEG_XFADE_MAP = {
+    "dissolve": "dissolve",
+    "fade": "fade",
+    "slide_left": "slideleft",
+    "slide_right": "slideright",
+    "zoom": "zoompan",
+    "cut": "cut",
+}
 
 
-def apply_ken_burns(input_path: str, output_path: str, target_w: int, target_h: int, duration: float, preset_idx: int = 0) -> bool:  # noqa: E501
-    kb = KEN_BURNS_PRESETS[preset_idx % len(KEN_BURNS_PRESETS)]
-    cmd = [
-        _ffmpeg_cmd(), "-y", "-i", input_path,
-        "-vf", f"scale={target_w}*2:{target_h}*2,zoompan='{kb}':d={int(duration*30)}:s={target_w}x{target_h}:fps=30",
-        "-t", str(duration),
-        "-c:v", "libx264", "-preset", "fast", "-crf", "23",
-        "-an", "-pix_fmt", "yuv420p", output_path,
-    ]
+def _get_env():
+    return os.environ.copy()
+
+
+def _ffmpeg_cmd() -> str:
+    env_path = os.getenv("FFMPEG_PATH", "")
+    if env_path and os.path.exists(env_path):
+        return env_path
+    for p in ["/opt/homebrew/opt/ffmpeg-full/bin/ffmpeg", "/usr/local/bin/ffmpeg", "/usr/bin/ffmpeg"]:
+        if os.path.exists(p):
+            return p
+    return "ffmpeg"
+
+
+def _ffprobe_cmd() -> str:
+    env_path = os.getenv("FFPROBE_PATH", "")
+    if env_path and os.path.exists(env_path):
+        return env_path
+    for p in ["/opt/homebrew/opt/ffmpeg-full/bin/ffprobe", "/usr/local/bin/ffprobe", "/usr/bin/ffprobe"]:
+        if os.path.exists(p):
+            return p
+    return "ffprobe"
+
+
+def _get_duration(path: str) -> float:
+    cmd = [_ffprobe_cmd(), "-v", "error", "-show_entries", "format=duration",
+           "-of", "default=noprint_wrappers=1:nokey=1", path]
     try:
-        result = subprocess.run(cmd, capture_output=True, text=True, timeout=300, env=_get_env())
-        return result.returncode == 0
-    except Exception as e:
-        print(f"[compositor] Ken Burns error: {e}")
-        return False
+        result = subprocess.run(cmd, capture_output=True, text=True, timeout=30)
+        return float(result.stdout.strip())
+    except Exception:
+        return 0.0
 
 
 def trim_clip(input_path: str, output_path: str, start: float = 0, duration: float = 5) -> bool:
     cmd = [
-        _ffmpeg_cmd(), "-y", "-i", input_path, "-ss", str(start), "-t", str(duration),
-        "-c:v", "libx264", "-preset", "fast", "-crf", "23", "-an", "-pix_fmt", "yuv420p", output_path,
+        _ffmpeg_cmd(), "-y", "-i", input_path,
+        "-ss", str(start), "-t", str(duration),
+        "-c:v", "libx264", "-preset", "fast", "-crf", "23",
+        "-an", "-pix_fmt", "yuv420p", output_path,
     ]
     try:
         return subprocess.run(cmd, capture_output=True, text=True, timeout=120, env=_get_env()).returncode == 0
-    except Exception as e:
-        print(f"[compositor] Trim error: {e}")
+    except Exception:
         return False
 
 
@@ -99,71 +81,71 @@ def resize_to_target(input_path: str, output_path: str, target_w: int, target_h:
     cmd = [
         _ffmpeg_cmd(), "-y", "-i", input_path,
         "-vf", f"scale={target_w}:{target_h}:force_original_aspect_ratio=increase,crop={target_w}:{target_h}",
-        "-c:v", "libx264", "-preset", "fast", "-crf", "23", "-an", "-pix_fmt", "yuv420p", output_path,
+        "-c:v", "libx264", "-preset", "fast", "-crf", "23",
+        "-r", "30", "-an", "-pix_fmt", "yuv420p", output_path,
     ]
     try:
         return subprocess.run(cmd, capture_output=True, text=True, timeout=120, env=_get_env()).returncode == 0
-    except Exception as e:
-        print(f"[compositor] Resize error: {e}")
+    except Exception:
         return False
 
 
-def _apply_ducking(music: AudioSegment, voice: AudioSegment, duck_db: float = -6, threshold_db: float = -30, window_ms: int = 50, attack_ms: int = 100, release_ms: int = 200) -> AudioSegment:  # noqa: E501
-    """Reduce music volume when voice is active (audio ducking)."""
+def apply_ken_burns(input_path: str, output_path: str, target_w: int, target_h: int, duration: float, preset_idx: int = 0) -> bool:
+    trim_path = str(TEMP_DIR / f"kb_trim_{preset_idx:03d}.mp4")
+    if not trim_clip(input_path, trim_path, 0, duration):
+        return resize_to_target(input_path, output_path, target_w, target_h)
+
+    src_w, src_h = 0, 0
     try:
-        import math
-        num_windows = max(1, len(voice) // window_ms)
-        duck_envelope = AudioSegment.silent(duration=len(music))
+        probe = [_ffprobe_cmd(), "-v", "error", "-select_streams", "v:0",
+                 "-show_entries", "stream=width,height",
+                 "-of", "csv=p=0", trim_path]
+        result = subprocess.run(probe, capture_output=True, text=True, timeout=15)
+        src_w, src_h = map(int, result.stdout.strip().split(","))
+    except Exception:
+        return resize_to_target(trim_path, output_path, target_w, target_h)
 
-        for i in range(num_windows):
-            start = i * window_ms
-            end = min(start + window_ms, len(voice))
-            voice_chunk = voice[start:end]
-            rms = voice_chunk.rms if voice_chunk.rms else 0
-            db = 20 * math.log10(max(rms, 1) / 32768) if rms > 0 else -60
-            gain = duck_db if db > threshold_db else 0
-            chunk = music[start:end].apply_gain(gain)
-            duck_envelope = duck_envelope.overlay(chunk, position=start)
+    crop_w = min(target_w, src_w)
+    crop_h = min(target_h, src_h)
 
-        # Apply attack/release smoothing with crossfade
-        smoothed = AudioSegment.silent(duration=0)
-        prev_gain = 0
-        for i in range(num_windows):
-            start = i * window_ms
-            end = min(start + window_ms, len(music))
-            start_ms = min(start, len(music))
-            end_ms = min(end, len(music))
-            chunk = music[start_ms:end_ms]
+    # Pan across the wider dimension over the clip's duration
+    if src_w * target_h > src_h * target_w:
+        # Source is wider — pan horizontally
+        max_x = max(0, src_w - crop_w)
+        x_expr = f"min({max_x}*t/{duration},{max_x})"
+        y_expr = f"({src_h} - {crop_h}) / 2"
+    else:
+        # Source is taller — pan vertically
+        max_y = max(0, src_h - crop_h)
+        x_expr = f"({src_w} - {crop_w}) / 2"
+        y_expr = f"min({max_y}*t/{duration},{max_y})"
 
-            start_rms = voice[start_ms:min(start_ms + window_ms, len(voice))].rms or 0
-            start_db = 20 * math.log10(max(start_rms, 1) / 32768) if start_rms > 0 else -60
-            target_gain = duck_db if start_db > threshold_db else 0
-
-            if target_gain != prev_gain:
-                crossfade = attack_ms if target_gain < prev_gain else release_ms
-                chunk = chunk.apply_gain(prev_gain).append(
-                    chunk[-crossfade:].apply_gain(target_gain) if crossfade < len(chunk) else chunk.apply_gain(target_gain),
-                    crossfade=min(crossfade, len(chunk)))
-            else:
-                chunk = chunk.apply_gain(target_gain)
-
-            smoothed = smoothed.append(chunk, crossfade=5)
-            prev_gain = target_gain
-
-        return smoothed[:len(music)]
-    except Exception as e:
-        print(f"[compositor] Ducking error (falling back to flat mix): {e}")
-        return music
+    vf = f"crop={crop_w}:{crop_h}:{x_expr}:{y_expr},scale={target_w}:{target_h}"
+    cmd = [
+        _ffmpeg_cmd(), "-y", "-i", trim_path,
+        "-vf", vf,
+        "-c:v", "libx264", "-preset", "fast", "-crf", "23",
+        "-r", "30", "-an", "-pix_fmt", "yuv420p", output_path,
+    ]
+    try:
+        result = subprocess.run(cmd, capture_output=True, text=True, timeout=120, env=_get_env())
+        if result.returncode == 0 and os.path.exists(output_path) and os.path.getsize(output_path) > 1000:
+            return True
+    except Exception:
+        pass
+    return resize_to_target(trim_path, output_path, target_w, target_h)
 
 
-def mix_audio(voice_path: str, music_path: Optional[str], output_path: str, voice_volume_db: float = 0, music_volume_db: float = -18, duck_db: float = -6) -> bool:  # noqa: E501
+def mix_audio(voice_path: str, music_path: Optional[str], output_path: str,
+              voice_volume_db: float = 0, music_volume_db: float = -18,
+              duck_db: float = -6) -> bool:
     try:
         voice = AudioSegment.from_file(voice_path) + voice_volume_db
         if music_path and os.path.exists(music_path):
             music_raw = (AudioSegment.from_file(music_path) + music_volume_db)
             music_raw = (music_raw * (len(voice) // len(music_raw) + 1))[:len(voice)]
-            music_ducked = _apply_ducking(music_raw, voice, duck_db=duck_db)
-            mixed = voice.overlay(music_ducked)
+            music_raw = _apply_ducking(music_raw, voice, duck_db=duck_db)
+            mixed = voice.overlay(music_raw)
         else:
             mixed = voice
         mixed.export(output_path, format="wav")
@@ -173,52 +155,148 @@ def mix_audio(voice_path: str, music_path: Optional[str], output_path: str, voic
         return False
 
 
-def add_text_overlay(video_path: str, text: str, output_path: str, fontsize: int = 48, color: str = "white", position: str = "center", start_time: float = 0, duration: float = 3) -> bool:  # noqa: E501
+def _apply_ducking(music: AudioSegment, voice: AudioSegment, duck_db: float = -6,
+                   threshold_db: float = -30, window_ms: int = 50,
+                   attack_ms: int = 100, release_ms: int = 200) -> AudioSegment:
+    try:
+        import math
+        num_windows = max(1, len(voice) // window_ms)
+        smoothed = AudioSegment.silent(duration=0)
+        prev_gain = 0
+        for i in range(num_windows):
+            start = i * window_ms
+            end = min(start + window_ms, len(music))
+            chunk = music[start:end]
+            voice_rms = voice[start:min(end, len(voice))].rms or 0
+            voice_db = 20 * math.log10(max(voice_rms, 1) / 32768) if voice_rms > 0 else -60
+            target_gain = duck_db if voice_db > threshold_db else 0
+            if target_gain != prev_gain:
+                crossfade = attack_ms if target_gain < prev_gain else release_ms
+                chunk = chunk.apply_gain(prev_gain).append(
+                    chunk[-crossfade:].apply_gain(target_gain) if crossfade < len(chunk) else chunk.apply_gain(target_gain),
+                    crossfade=min(crossfade, len(chunk)))
+            else:
+                chunk = chunk.apply_gain(target_gain)
+            smoothed = smoothed.append(chunk, crossfade=5)
+            prev_gain = target_gain
+        return smoothed[:len(music)]
+    except Exception:
+        return music
+
+
+NON_TIMED_ASSETS = {"DIAGRAM_ANIMATION", "SCREEN_CAPTURE", "CODE_SNIPPET"}
+
+
+def _process_clip(clip: dict, target_w: int, target_h: int, idx: int) -> str | None:
+    src = clip["path"]
+    dur = clip.get("duration", 8.0)
+    out = str(TEMP_DIR / f"clip_{idx:03d}.mp4")
+    asset_type = clip.get("asset_type", "STOCK_FOOTAGE")
+
+    if asset_type in NON_TIMED_ASSETS or not (src.endswith(".mp4") and os.path.getsize(src) > 10000):
+        if src.endswith(".mp4") and os.path.getsize(src) > 10000:
+            if not resize_to_target(src, out, target_w, target_h):
+                return None
+        else:
+            from PIL import Image
+            img = Image.open(src)
+            img_resized = img.resize((target_w, target_h), Image.LANCZOS)
+            png_path = str(TEMP_DIR / f"still_{idx:03d}.png")
+            img_resized.save(png_path)
+            cmd = [
+                _ffmpeg_cmd(), "-y", "-loop", "1", "-i", png_path,
+                "-c:v", "libx264", "-t", str(dur), "-r", "30", "-pix_fmt", "yuv420p",
+                "-vf", f"scale={target_w}:{target_h}",
+                "-preset", "fast", "-crf", "23", out,
+            ]
+            try:
+                subprocess.run(cmd, capture_output=True, text=True, timeout=120, env=_get_env())
+            except Exception:
+                return None
+        actual_dur = _get_duration(out) if os.path.exists(out) else 0
+        clip["duration"] = actual_dur if actual_dur > 0 else dur
+    else:
+        if not apply_ken_burns(src, out, target_w, target_h, dur, idx):
+            return None
+
+    return out if os.path.exists(out) and os.path.getsize(out) > 1000 else None
+
+
+def _build_xfade_filter(processed: list[str], transitions: list[str], durations: list[float]) -> tuple[str, str]:
+    n = len(processed)
+    if n == 0:
+        return "", ""
+    if n == 1:
+        return f"[0:v]format=yuv420p[out]", "out"
+
+    labels = []
+    filter_parts = []
+    xfade_dur = 0.5
+
+    for i in range(n):
+        label = f"v{i}"
+        labels.append(label)
+        filter_parts.append(f"[{i}:v]setpts=PTS-STARTPTS,format=yuv420p[{label}]")
+
+    prev_label = labels[0]
+    cumulative = durations[0]
+    for i in range(1, n):
+        xfade = FFMPEG_XFADE_MAP.get(transitions[i] if i < len(transitions) else "dissolve", "dissolve")
+        out_label = f"xf{i}"
+        offset = max(0, cumulative - xfade_dur)
+        filter_parts.append(
+            f"[{prev_label}][{labels[i]}]xfade=transition={xfade}:duration={xfade_dur}:offset={offset}[{out_label}]"
+        )
+        prev_label = out_label
+        cumulative += durations[i] - xfade_dur
+
+    return ";".join(filter_parts), prev_label
+
+
+def add_text_overlay(video_path: str, text: str, output_path: str,
+                     fontsize: int = 48, color: str = "white",
+                     position: str = "center", start_time: float = 0,
+                     duration: float = 3) -> bool:
     positions = {"center": "(w-text_w)/2:(h-text_h)/2",
-                 "bottom": "(w-text_w)/2:(h-text_h)-50", "top": "(w-text_w)/2:50"}
+                 "bottom": "(w-text_w)/2:(h-text_h)-50",
+                 "top": "(w-text_w)/2:50"}
     pos = positions.get(position, positions["center"])
-    escaped_text = text.replace("'", "\\'").replace(":", "\\:").replace("-", "\\-")
+    escaped = text.replace("'", "\\'").replace(":", "\\:").replace("-", "\\-")
     cmd = [
         _ffmpeg_cmd(), "-y", "-i", video_path,
-        "-vf", f"drawtext=text='{escaped_text}':fontsize={fontsize}:fontcolor={color}:x={pos}:enable='between(t,{start_time},{start_time+duration})'",  # noqa: E501
-        "-c:v", "libx264", "-preset", "fast", "-crf", "23", "-c:a", "copy", "-pix_fmt", "yuv420p", output_path,
+        "-vf", f"drawtext=text='{escaped}':fontsize={fontsize}:fontcolor={color}:x={pos}:enable='between(t,{start_time},{start_time+duration})'",
+        "-c:v", "libx264", "-preset", "fast", "-crf", "23",
+        "-c:a", "copy", "-pix_fmt", "yuv420p", output_path,
     ]
     try:
-        return subprocess.run(cmd, capture_output=True, text=True, timeout=120, env=_get_env()).returncode == 0
-    except Exception as e:
-        print(f"[compositor] Text overlay error: {e}")
+        return subprocess.run(cmd, capture_output=True, text=True, timeout=120).returncode == 0
+    except Exception:
         return False
 
 
-import shutil
+def add_logo_overlay(video_path: str, logo_path: str, output_path: str,
+                     position: str = "bottom_right", scale: float = 0.1) -> bool:
+    positions = {"bottom_right": "main_w-overlay_w-20:main_h-overlay_h-20",
+                 "top_right": "main_w-overlay_w-20:20",
+                 "bottom_left": "20:main_h-overlay_h-20",
+                 "top_left": "20:20"}
+    pos = positions.get(position, positions["bottom_right"])
+    cmd = [
+        _ffmpeg_cmd(), "-y", "-i", video_path, "-i", logo_path,
+        "-filter_complex", f"[1:v]scale=iw*{scale}:ih*{scale}[logo];[0:v][logo]overlay={pos}",
+        "-c:v", "libx264", "-preset", "fast", "-crf", "23",
+        "-c:a", "copy", "-pix_fmt", "yuv420p", output_path,
+    ]
+    try:
+        return subprocess.run(cmd, capture_output=True, text=True, timeout=120).returncode == 0
+    except Exception:
+        return False
 
-KIDS_FONT = os.getenv("KIDS_FONT", "")
-if not KIDS_FONT:
-    candidates = ["Marker Felt", "Comic Sans MS", "Chalkboard SE", "Arial Rounded MT Bold", "DejaVu Sans", "Liberation Sans"]
-    for c in candidates:
-        if shutil.which(c) or os.path.exists(f"/System/Library/Fonts/{c}.ttf"):
-            KIDS_FONT = c
-            break
-    if not KIDS_FONT:
-        KIDS_FONT = "Arial"
-KIDS_SUB_COLORS = [
-    {"primary": "&H00FFFF&", "outline": "&H0000FF&"},
-    {"primary": "&HFF00FF&", "outline": "&H000080&"},
-    {"primary": "&H00FF00&", "outline": "&H800000&"},
-    {"primary": "&HFFFF00&", "outline": "&HFF0000&"},
-    {"primary": "&HFF8000&", "outline": "&H000000&"},
-]
 
-
-def burn_subtitles(video_path: str, subtitle_path: str, output_path: str, fontsize: int = 28, is_kids: bool = True) -> bool:  # noqa: E501
-    TEMP_DIR.mkdir(parents=True, exist_ok=True)
-    abs_subtitle = os.path.abspath(subtitle_path)
-    if is_kids:
-        temp_ass = str(TEMP_DIR / "kids_subtitles.ass")
-        _convert_srt_to_kids_ass(abs_subtitle, temp_ass, fontsize)
-        vf = f"subtitles=filename='{os.path.abspath(temp_ass)}'"
-    else:
-        vf = f"subtitles=filename='{abs_subtitle}':force_style='FontSize={fontsize},PrimaryColour=&HFFFFFF&,OutlineColour=&H000000&,Outline=2,Shadow=1,Alignment=2,MarginV=60'"  # noqa: E501
+def burn_subtitles(video_path: str, subtitle_path: str, output_path: str,
+                   fontsize: int = 22) -> bool:
+    abs_sub = os.path.abspath(subtitle_path)
+    vf = f"subtitles=filename='{abs_sub}':force_style='FontSize={fontsize},PrimaryColour=&HFFFFFF&,OutlineColour=&H000000&,Outline=2,Shadow=1,Alignment=2,MarginV=60'"
     cmd = [
         _ffmpeg_cmd(), "-y", "-i", video_path,
         "-vf", vf,
@@ -228,204 +306,122 @@ def burn_subtitles(video_path: str, subtitle_path: str, output_path: str, fontsi
     try:
         result = subprocess.run(cmd, capture_output=True, text=True, timeout=300, env=_get_env())
         if result.returncode == 0:
-            print("[compositor] Subtitles burned successfully")
             return True
-        else:
-            print(f"[compositor] Subtitle burn error: {result.stderr[-300:]}")
-            cmd_fallback = [
-                _ffmpeg_cmd(), "-y", "-i", video_path,
-                "-vf", f"subtitles=filename='{abs_subtitle}':force_style='FontSize={fontsize},PrimaryColour=&HFFFFFF&,OutlineColour=&H000000&,Outline=2,Shadow=1'",  # noqa: E501
-                "-c:v", "libx264", "-preset", "fast", "-crf", "23",
-                "-c:a", "copy", "-pix_fmt", "yuv420p", output_path,
-            ]
-            result2 = subprocess.run(cmd_fallback, capture_output=True, text=True, timeout=300, env=_get_env())
-            if result2.returncode == 0:
-                print("[compositor] Subtitles burned with fallback style")
-                return True
-            return False
+        print(f"[compositor] Subtitle burn error (fallback): {result.stderr[-200:]}")
+        cmd[-2] = f"subtitles=filename='{abs_sub}'"
+        return subprocess.run(cmd, capture_output=True, text=True, timeout=300, env=_get_env()).returncode == 0
     except Exception as e:
         print(f"[compositor] Subtitle burn error: {e}")
         return False
 
 
-def _convert_srt_to_kids_ass(srt_path: str, ass_path: str, base_fontsize: int = 28) -> bool:
-    try:
-        with open(srt_path, "r", encoding="utf-8") as f:
-            srt_content = f.read()
-        blocks = re.split(r'\n\s*\n', srt_content.strip())
-        ass_header = (
-            "[Script Info]\n"
-            "Title: Kids Subtitles\n"
-            "ScriptType: v4.00+\n"
-            "PlayResX: 1920\n"
-            "PlayResY: 1080\n"
-            "\n"
-            "[V4+ Styles]\n"
-            "Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, "
-            "OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, "
-            "ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, "
-            "Alignment, MarginL, MarginR, MarginV, Encoding\n"
-            "Style: Default,{font},{size},&H00FFFFFF,&H000000FF,&H00000000,"
-            "&H80000000,1,0,0,0,100,100,0,0,1,3,2,2,10,10,60,1\n"
-            "\n"
-            "[Events]\n"
-            "Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text\n"
-        )
-        font = KIDS_FONT
-        with open(ass_path, "w", encoding="utf-8") as f:
-            f.write(ass_header.format(font=font, size=base_fontsize))
-            idx = 0
-            for block in blocks:
-                lines = block.strip().split('\n')
-                if len(lines) < 3:
-                    continue
-                try:
-                    int(lines[0])
-                except ValueError:
-                    continue
-                time_line = lines[1]
-                text_lines = lines[2:]
-                if '-->' not in time_line:
-                    continue
-                start, end = time_line.split('-->')
-                start = start.strip().replace(',', '.')
-                end = end.strip().replace(',', '.')
-                text = ' '.join(t.strip() for t in text_lines)
-                color = KIDS_SUB_COLORS[idx % len(KIDS_SUB_COLORS)]
-                styled_text = r"{\c%s\3c%s\3%s\blur1}%s" % (
-                    color["primary"], color["outline"], "b1", text
-                )
-                f.write(f"Dialogue: 0,{start},{end},Default,,0,0,0,,{styled_text}\n")
-                idx += 1
-        return True
-    except Exception as e:
-        print(f"[compositor] ASS conversion error: {e}")
-        return False
-
-
 def add_chapter_markers(video_path: str, chapters: list[dict], output_path: str) -> bool:
-    TEMP_DIR.mkdir(parents=True, exist_ok=True)
-    metadata_path = str(TEMP_DIR / "chapters_metadata.txt")
-    with open(metadata_path, "w") as f:
+    md_path = str(TEMP_DIR / "chapters_metadata.txt")
+    with open(md_path, "w") as f:
         f.write(";FFMETADATA1\n")
-        for chapter in chapters:
-            start_ms = int(chapter.get("start_time", 0) * 1000)
-            end_ms = int(chapter.get("end_time", 0) * 1000)
-            title = chapter.get("title", "Chapter")
+        for ch in chapters:
+            start_ms = int(ch.get("start_time", 0) * 1000)
+            end_ms = int(ch.get("end_time", 0) * 1000)
+            title = ch.get("title", "Chapter")
             f.write(f"[CHAPTER]\nTIMEBASE=1/1000\nSTART={start_ms}\nEND={end_ms}\ntitle={title}\n")
-
     cmd = [
-        _ffmpeg_cmd(), "-y", "-i", video_path, "-i", metadata_path,
-        "-map_metadata", "1",
-        "-c:v", "copy", "-c:a", "copy", output_path,
+        _ffmpeg_cmd(), "-y", "-i", video_path, "-i", md_path,
+        "-map_metadata", "1", "-c:v", "copy", "-c:a", "copy", output_path,
     ]
     try:
-        result = subprocess.run(cmd, capture_output=True, text=True, timeout=120, env=_get_env())
-        if result.returncode == 0:
-            print(f"[compositor] Chapter markers added: {len(chapters)} chapters")
-            return True
-        return False
-    except Exception as e:
-        print(f"[compositor] Chapter markers error: {e}")
+        return subprocess.run(cmd, capture_output=True, text=True, timeout=120).returncode == 0
+    except Exception:
         return False
 
 
-def _mix_scene_sfx(mixed_audio_path: str, scenes: list[dict], clips: list[dict]) -> str:
-    """Overlay scene-specific SFX onto the mixed audio track."""
-    try:
-        mixed = AudioSegment.from_file(mixed_audio_path)
-        current_time_ms = 0
-        for i, scene in enumerate(scenes):
-            scene_sfx = scene.get("sfx", [])
-            clip_duration_ms = int(clips[i].get("duration", 5.0) * 1000) if i < len(clips) else 5000
-            for sfx in scene_sfx:
-                sfx_path = sfx.get("path", "")
-                if not os.path.exists(sfx_path):
-                    continue
-                sfx_audio = AudioSegment.from_file(sfx_path)
-                mixed = mixed.overlay(sfx_audio, position=current_time_ms)
-            current_time_ms += clip_duration_ms
-        sfx_path = str(TEMP_DIR / f"audio_with_sfx.wav")
-        mixed.export(sfx_path, format="wav")
-        print(f"[compositor] Mixed SFX into audio: {sfx_path}")
-        return sfx_path
-    except Exception as e:
-        print(f"[compositor] SFX mix error (using original): {e}")
-        return mixed_audio_path
-
-
-def composite_video(clips: list[dict], voice_path: str, music_path: Optional[str] = None, format_type: str = "shorts", video_id: str = "output", subtitle_path: Optional[str] = None, chapters: Optional[list] = None, category: str = "", scenes: Optional[list] = None) -> Optional[str]:  # noqa: E501
-    TEMP_DIR.mkdir(parents=True, exist_ok=True)
+def composite_video(clips: list[dict], voice_path: str, music_path: Optional[str] = None,
+                    format_type: str = "shorts", video_id: str = "output",
+                    subtitle_path: Optional[str] = None, chapters: Optional[list] = None,
+                    category: str = "", scenes: Optional[list] = None) -> Optional[str]:
     target = ASPECT_RATIOS.get(format_type, ASPECT_RATIOS["long"])
     tw, th = target["w"], target["h"]
 
-    processed_clips = []
+    processed = []
+    transitions = []
+    durations = []
     for i, clip in enumerate(clips):
-        clip_path = clip["path"]
-        clip_duration = clip.get("duration", 5.0)
-        processed_path = str(TEMP_DIR / f"kb_{i:03d}.mp4")
-        print(f"[compositor] Ken Burns on clip {i+1}/{len(clips)}")
-        success = apply_ken_burns(clip_path, processed_path, tw, th, clip_duration, i)
-        if not success:
-            fallback_path = str(TEMP_DIR / f"resize_{i:03d}.mp4")
-            success = resize_to_target(clip_path, fallback_path, tw, th)
-            if success:
-                processed_clips.append(fallback_path)
-        else:
-            processed_clips.append(processed_path)
+        out = _process_clip(clip, tw, th, i)
+        if out is None:
+            continue
+        processed.append(out)
+        actual_dur = _get_duration(out) or clip.get("duration", 8.0)
+        clip["duration"] = actual_dur
+        transitions.append(clip.get("transition", "dissolve"))
+        durations.append(actual_dur)
 
-    if not processed_clips:
+    if not processed:
         print("[compositor] No clips to composite")
         return None
 
-    concat_list_path = str(TEMP_DIR / "concat_list.txt")
-    with open(concat_list_path, "w") as f:
-        for p in processed_clips:
-            f.write(f"file '{p}'\n")
-
-    combined_video = str(TEMP_DIR / "combined_video.mp4")
-    cmd = [_ffmpeg_cmd(), "-y", "-f", "concat", "-safe", "0", "-i", concat_list_path,
-           "-c:v", "libx264", "-preset", "fast", "-crf", "23", "-pix_fmt", "yuv420p", combined_video]
-    try:
-        result = subprocess.run(cmd, capture_output=True, text=True, timeout=300, env=_get_env())
-        if result.returncode != 0:
-            print(f"[compositor] Concat error: {result.stderr[-300:]}")
-    except Exception as e:
-        print(f"[compositor] Concat error: {e}")
-        return None
+    combined_video = str(TEMP_DIR / f"combined_{video_id}.mp4")
+    if len(processed) == 1:
+        combined_video = processed[0]
+    else:
+        filter_str, out_label = _build_xfade_filter(processed, transitions, durations)
+        inputs = []
+        for p in processed:
+            inputs.extend(["-i", p])
+        cmd = [
+            _ffmpeg_cmd(), "-y", *inputs,
+            "-filter_complex", filter_str,
+            "-map", f"[{out_label}]",
+            "-c:v", "libx264", "-preset", "fast", "-crf", "23",
+            "-pix_fmt", "yuv420p", combined_video,
+        ]
+        try:
+            result = subprocess.run(cmd, capture_output=True, text=True, timeout=600, env=_get_env())
+            if result.returncode != 0 or not os.path.exists(combined_video):
+                print(f"[compositor] Xfade failed ({result.stderr[-200:]}), falling back to concat")
+                concat_list = str(TEMP_DIR / f"concat_{video_id}.txt")
+                with open(concat_list, "w") as f:
+                    for p in processed:
+                        f.write(f"file '{p}'\n")
+                cmd = [
+                    _ffmpeg_cmd(), "-y", "-f", "concat", "-safe", "0", "-i", concat_list,
+                    "-c:v", "libx264", "-preset", "fast", "-crf", "23",
+                    "-pix_fmt", "yuv420p", combined_video,
+                ]
+                subprocess.run(cmd, capture_output=True, text=True, timeout=300, env=_get_env())
+        except Exception as e:
+            print(f"[compositor] Xfade error: {e}")
+            return None
 
     if not os.path.exists(combined_video):
         return None
 
     if subtitle_path and os.path.exists(subtitle_path):
-        print("[compositor] Burning subtitles into video")
-        with_subs_path = str(TEMP_DIR / "video_with_subs.mp4")
-        is_kids_content = any(kw in category.lower() for kw in [
-                              "kids", "children", "bedtime", "fable", "rhyme", "story", "nursery", "baby", "toddler"])
-        sub_fontsize = 28 if format_type == "shorts" else 22
-        if burn_subtitles(combined_video, subtitle_path, with_subs_path, fontsize=sub_fontsize, is_kids=is_kids_content):  # noqa: E501
-            combined_video = with_subs_path
+        with_subs = str(TEMP_DIR / f"subs_{video_id}.mp4")
+        sub_fs = 28 if format_type == "shorts" else 22
+        if burn_subtitles(combined_video, subtitle_path, with_subs, fontsize=sub_fs):
+            combined_video = with_subs
 
     if chapters and format_type == "long":
-        print("[compositor] Adding chapter markers")
-        with_chapters_path = str(TEMP_DIR / "video_with_chapters.mp4")
-        if add_chapter_markers(combined_video, chapters, with_chapters_path):
-            combined_video = with_chapters_path
+        with_chapters = str(TEMP_DIR / f"chapters_{video_id}.mp4")
+        if add_chapter_markers(combined_video, chapters, with_chapters):
+            combined_video = with_chapters
 
-    mixed_audio_path = str(TEMP_DIR / "mixed_audio.wav")
-    mix_audio(voice_path, music_path, mixed_audio_path)
-    if scenes:
-        mixed_audio_path = _mix_scene_sfx(mixed_audio_path, scenes, clips)
+    mixed_audio = str(TEMP_DIR / f"audio_{video_id}.wav")
+    if not mix_audio(voice_path, music_path, mixed_audio):
+        print("[compositor] Audio mix failed")
+        return None
 
     final_path = str(OUTPUT_DIR / f"{video_id}_{format_type}.mp4")
-    cmd = [_ffmpeg_cmd(), "-y", "-i", combined_video, "-i", mixed_audio_path,
-           "-c:v", "libx264", "-preset", "fast", "-crf", "23",
-           "-c:a", "aac", "-b:a", "128k", "-shortest", "-pix_fmt", "yuv420p", final_path]
+    cmd = [
+        _ffmpeg_cmd(), "-y", "-i", combined_video, "-i", mixed_audio,
+        "-c:v", "libx264", "-preset", "fast", "-crf", "23",
+        "-c:a", "aac", "-b:a", "128k", "-shortest", "-pix_fmt", "yuv420p", final_path,
+    ]
     try:
         result = subprocess.run(cmd, capture_output=True, text=True, timeout=300, env=_get_env())
         if result.returncode == 0 and os.path.exists(final_path):
-            print(f"[compositor] Final video: {final_path}")
+            print(f"[compositor] Final video: {final_path} ({os.path.getsize(final_path)} bytes)")
             return final_path
+        print(f"[compositor] Final mux error: {result.stderr[-200:]}")
     except Exception as e:
         print(f"[compositor] Final mux error: {e}")
     return None

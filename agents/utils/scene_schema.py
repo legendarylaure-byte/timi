@@ -1,52 +1,25 @@
-import json
-import os
-
-ASSETS_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "assets")
-
-
-def load_characters() -> dict:
-    path = os.path.join(ASSETS_DIR, "characters.json")
-    if os.path.exists(path):
-        with open(path) as f:
-            return json.load(f)
-    return {}
-
-
-def load_series() -> dict:
-    path = os.path.join(ASSETS_DIR, "series.json")
-    if os.path.exists(path):
-        with open(path) as f:
-            return json.load(f)
-    return {}
-
-
 VALID_CATEGORIES = [
-    "Self-Learning", "Bedtime Stories", "Mythology Stories", "Animated Fables",
-    "Science for Kids", "Rhymes & Songs", "Colors & Shapes", "Tech & AI",
-    "Gaming", "Cooking & Food", "DIY & Crafts", "Health & Wellness",
-    "Travel & Adventure", "Finance & Business", "Comedy & Entertainment", "Music & Dance",
+    "AI Explained", "Deep Tech", "Paper Breakdowns",
+    "Tool Tutorials", "Industry Analysis", "Code & Build",
+    "AI News", "Career & Learning",
 ]
 
 VALID_FORMATS = ["shorts", "long"]
 VALID_DIRECTIONS = ["left", "right", "top", "bottom"]
-VALID_EFFECTS = ["sparkle", "fade_in", "fade_out", "rainbow_burst", "star_rain", "none"]
-VALID_TRANSITIONS = ["cut", "fade", "fade_in", "fade_out", "dissolve", "slide_left", "slide_right", "none"]
+VALID_EFFECTS = ["fade_in", "fade_out", "none"]
+VALID_TRANSITIONS = ["cut", "fade", "dissolve", "slide_left", "slide_right", "zoom", "none"]
 
-SHAPE_TYPES = ["circle", "star", "heart", "diamond", "blob"]
+ASSET_TYPES = ["STOCK_FOOTAGE", "SCREEN_CAPTURE", "DIAGRAM_ANIMATION", "CODE_SNIPPET", "STATIC_IMAGE"]
+
+SHAPE_TYPES = ["circle", "square", "rounded_square", "arrow", "line"]
 ANIMATION_TYPES = [
-    "bounce", "float", "wave", "grow", "wiggle", "slide_in",
-    "thinking", "twinkle", "spin", "glide", "morph", "dance",
-    "squish", "cry", "hug", "sway", "bloom", "none",
+    "grow", "fade_in", "fade_out", "slide_in", "none",
 ]
 
 BACKGROUND_TYPES = [
-    "gradient_sky", "gradient_forest", "gradient_ocean", "gradient_space",
-    "gradient_sunset", "gradient_night", "gradient_garden", "gradient_classroom",
-    "gradient_bedroom", "gradient_underwater", "gradient_planet", "gradient_desert",
-    "gradient_mountain", "gradient_city", "gradient_cave", "gradient_castle",
-    "gradient_fairy", "gradient_arctic", "gradient_jungle", "gradient_farm",
-    "gradient_beach", "gradient_volcano", "gradient_river", "gradient_meadow",
-    "gradient_candy", "gradient_toy", "gradient_storybook", "gradient_solid", "color_solid",
+    "solid_black", "solid_white", "solid_indigo", "solid_slate",
+    "gradient_dark_tech", "gradient_blueprint", "gradient_neon",
+    "gradient_corporate", "gradient_minimal",
 ]
 
 
@@ -59,16 +32,23 @@ def validate_scene(scene: dict, index: int = 0) -> dict:
     if not isinstance(scene, dict):
         raise ValidationError(f"Scene {index}: must be a dict, got {type(scene).__name__}")
 
-    if "duration" not in scene:
-        errors.append(f"Scene {index}: missing 'duration'")
-    elif not isinstance(scene.get("duration"), (int, float)) or scene["duration"] <= 0:
-        errors.append(f"Scene {index}: 'duration' must be positive number, got {scene.get('duration')}")
+    if "duration" not in scene and "target_duration" not in scene:
+        errors.append(f"Scene {index}: missing 'duration' or 'target_duration'")
+    dur = scene.get("duration", scene.get("target_duration", 8))
+    if not isinstance(dur, (int, float)) or dur <= 0:
+        errors.append(f"Scene {index}: 'duration' must be positive number, got {dur}")
 
-    background = scene.get("background", "gradient_sky")
+    asset_type = scene.get("asset_type", "STOCK_FOOTAGE")
+    if asset_type not in ASSET_TYPES:
+        import warnings
+        warnings.warn(f"Scene {index}: unknown asset_type '{asset_type}', falling back to STOCK_FOOTAGE")
+        scene["asset_type"] = "STOCK_FOOTAGE"
+
+    background = scene.get("background", "solid_black")
     if background and background not in BACKGROUND_TYPES:
         import warnings
-        warnings.warn(f"Scene {index}: unknown background '{background}', falling back to 'gradient_sky'")
-        scene["background"] = "gradient_sky"
+        warnings.warn(f"Scene {index}: unknown background '{background}', falling back to 'solid_black'")
+        scene["background"] = "solid_black"
 
     transition = scene.get("transition", "cut")
     if transition not in VALID_TRANSITIONS:
@@ -93,19 +73,6 @@ def validate_scene(scene: dict, index: int = 0) -> dict:
                 warnings.warn(f"Scene {index}: unknown effect '{e}', skipping")
         scene["effects"] = clean
 
-    characters = scene.get("characters", [])
-    if not isinstance(characters, list):
-        errors.append(f"Scene {index}: 'characters' must be a list")
-    else:
-        for ci, char in enumerate(characters):
-            if not isinstance(char, dict):
-                errors.append(f"Scene {index}, character {ci}: must be a dict")
-                continue
-            if "name" not in char:
-                errors.append(f"Scene {index}, character {ci}: missing 'name'")
-            if "animation" in char and char["animation"] not in ANIMATION_TYPES:
-                errors.append(f"Scene {index}, character {ci}: unknown animation '{char['animation']}'")
-
     text_overlays = scene.get("text", [])
     if not isinstance(text_overlays, list):
         errors.append(f"Scene {index}: 'text' must be a list")
@@ -126,14 +93,12 @@ def validate_scene(scene: dict, index: int = 0) -> dict:
         raise ValidationError("; ".join(errors))
 
     result = dict(scene)
-    result.setdefault("background", "gradient_sky")
+    result.setdefault("asset_type", "STOCK_FOOTAGE")
+    result.setdefault("background", "solid_black")
     result.setdefault("transition", "cut")
     result.setdefault("effects", [])
-    if not result.get("characters"):
-        result["characters"] = [{"name": "pixel", "pose": "idle", "expression": "neutral", "animation": "float", "x": 0.5, "y": 0.55}]
     result.setdefault("text", [])
-    result.setdefault("camera", {})
-    result.setdefault("music_mood", "happy")
+    result.setdefault("music_mood", "ambient")
     return result
 
 
@@ -146,19 +111,12 @@ def validate_scenes(scenes: list) -> list:
 
 
 def scene_to_prompt(scene: dict) -> str:
-    parts = [f"Background: {scene['background']}"]
-    parts.append(f"Duration: {scene['duration']}s")
-    parts.append(f"Transition: {scene['transition']}")
-    if scene.get("characters"):
-        chars = []
-        for c in scene["characters"]:
-            desc = c["name"]
-            if c.get("pose"):
-                desc += f" ({c['pose']})"
-            if c.get("animation"):
-                desc += f" anim:{c['animation']}"
-            chars.append(desc)
-        parts.append(f"Characters: {', '.join(chars)}")
+    parts = [f"Asset: {scene.get('asset_type', 'STOCK_FOOTAGE')}"]
+    parts.append(f"Background: {scene.get('background', 'solid_black')}")
+    parts.append(f"Duration: {scene.get('duration', scene.get('target_duration', 8))}s")
+    parts.append(f"Transition: {scene.get('transition', 'cut')}")
+    keywords = scene.get("asset_keywords", [scene.get("keyword", "technology")])
+    parts.append(f"Keywords: {', '.join(keywords) if isinstance(keywords, list) else keywords}")
     if scene.get("text"):
         texts = [t.get("text", "") for t in scene["text"] if t.get("text")]
         if texts:

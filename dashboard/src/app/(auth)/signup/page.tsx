@@ -8,27 +8,20 @@ import Link from 'next/link';
 import { motion, AnimatePresence } from 'framer-motion';
 import { ThemeToggle } from '@/components/ui/ThemeToggle';
 import Image from 'next/image';
+import { Bot, Sparkles, Cpu, Lock, Shield, CheckCircle } from 'lucide-react';
 
 const TAGLINES = [
-  '9 AI Agents at your service ✨',
-  'Daily content creation 🚀',
-  '100% Free, Local AI 💎',
-  'From script to publish 🎬',
+  '9 AI Agents at your service',
+  'Daily content creation automated',
+  '100% Free, Local AI pipeline',
+  'From script to publish daily',
 ];
 
 const PERKS = [
-  { icon: '✨', title: '9 AI Agents', desc: 'Script to publish, automated', gradient: 'from-rose-400/20 to-pink-400/20' },
-  { icon: '🚀', title: 'Daily Content', desc: 'Shorts + long-form videos', gradient: 'from-orange-400/20 to-amber-400/20' },
-  { icon: '💎', title: '100% Free', desc: 'Local AI, no API costs', gradient: 'from-purple-400/20 to-violet-400/20' },
+  { icon: Bot, title: '9 AI Agents', desc: 'Script to publish, automated', gradient: 'from-rose-400/20 to-pink-400/20' },
+  { icon: Sparkles, title: 'Daily Content', desc: 'Shorts + long-form videos', gradient: 'from-orange-400/20 to-amber-400/20' },
+  { icon: Cpu, title: '100% Free', desc: 'Local AI, no API costs', gradient: 'from-purple-400/20 to-violet-400/20' },
 ];
-
-const FLOATING_EMOJIS = ['🎬', '🎵', '🎨', '⚡', '🌟', '🚀', '💎', '🎭'];
-
-interface Ripple {
-  id: number;
-  x: number;
-  y: number;
-}
 
 export default function SignupPage() {
   const router = useRouter();
@@ -39,14 +32,10 @@ export default function SignupPage() {
   const [taglineIdx, setTaglineIdx] = useState(0);
   const [cardTilt, setCardTilt] = useState({ x: 0, y: 0 });
   const [isHoveringCard, setIsHoveringCard] = useState(false);
-  const [ripples, setRipples] = useState<Ripple[]>([]);
   const [btnMagnetic, setBtnMagnetic] = useState({ x: 0, y: 0 });
-  const [cursorTrail, setCursorTrail] = useState<{ id: number; x: number; y: number }[]>([]);
 
   const cardRef = useRef<HTMLDivElement>(null);
   const btnRef = useRef<HTMLButtonElement>(null);
-  const rippleId = useRef(0);
-  const trailId = useRef(0);
 
   useEffect(() => {
     setMounted(true);
@@ -88,23 +77,7 @@ export default function SignupPage() {
       }
     }
 
-    if (Math.random() > 0.7) {
-      const newDot = { id: trailId.current++, x: e.clientX, y: e.clientY };
-      setCursorTrail(prev => [...prev.slice(-8), newDot]);
-      setTimeout(() => {
-        setCursorTrail(prev => prev.slice(1));
-      }, 800);
-    }
   }, []);
-
-  const handleRipple = (e: React.MouseEvent<HTMLButtonElement>) => {
-    const rect = e.currentTarget.getBoundingClientRect();
-    const newRipple = { id: rippleId.current++, x: e.clientX - rect.left, y: e.clientY - rect.top };
-    setRipples(prev => [...prev, newRipple]);
-    setTimeout(() => {
-      setRipples(prev => prev.filter(r => r.id !== newRipple.id));
-    }, 600);
-  };
 
   const handleGoogleSignup = async () => {
     setLoading(true);
@@ -129,159 +102,30 @@ export default function SignupPage() {
       className="min-h-screen relative overflow-hidden flex items-center justify-center"
       onMouseMove={handleMouseMove}
       style={{
-        background: 'linear-gradient(135deg, #FFF7F0 0%, #FFE8D6 25%, #FFD4B8 50%, #FFCBA4 75%, #FFF0E6 100%)',
+        backgroundColor: '#0C1844',
+        backgroundImage: 'radial-gradient(circle at 1px 1px, rgba(255,255,255,0.05) 1px, transparent 0)',
+        backgroundSize: '40px 40px',
       }}
     >
       <div className="fixed top-4 right-4 z-50"><ThemeToggle /></div>
 
-      {/* Cursor trail */}
-      {mounted && cursorTrail.map((dot, i) => (
-        <motion.div
-          key={dot.id}
-          className="fixed rounded-full pointer-events-none z-[100]"
-          style={{
-            left: dot.x - 4,
-            top: dot.y - 4,
-            width: 8,
-            height: 8,
-            background: `rgba(255, ${140 + i * 10}, ${100 + i * 10}, ${0.6 - i * 0.06})`,
-          }}
-          initial={{ scale: 1, opacity: 0.6 }}
-          animate={{ scale: 0, opacity: 0 }}
-          transition={{ duration: 0.8, ease: 'easeOut' }}
-        />
-      ))}
-
-      {/* Aurora background layers */}
+      {/* Aurora glow */}
       {mounted && (
-        <>
-          <motion.div
-            className="absolute inset-0"
-            style={{
-              background: `radial-gradient(ellipse at ${30 + mousePos.x * 40}% ${20 + mousePos.y * 30}%, rgba(255,107,107,0.2) 0%, transparent 50%)`,
-            }}
-            animate={{
-              background: [
-                `radial-gradient(ellipse at 30% 20%, rgba(255,107,107,0.2) 0%, transparent 50%)`,
-                `radial-gradient(ellipse at 60% 40%, rgba(255,142,83,0.2) 0%, transparent 50%)`,
-                `radial-gradient(ellipse at 40% 60%, rgba(255,179,71,0.2) 0%, transparent 50%)`,
-                `radial-gradient(ellipse at 30% 20%, rgba(255,107,107,0.2) 0%, transparent 50%)`,
-              ],
-            }}
-            transition={{ duration: 12, repeat: Infinity, ease: 'linear' }}
-          />
-          <motion.div
-            className="absolute inset-0"
-            style={{
-              background: `radial-gradient(ellipse at ${70 - mousePos.x * 30}% ${80 - mousePos.y * 40}%, rgba(255,105,180,0.15) 0%, transparent 50%)`,
-            }}
-            animate={{
-              background: [
-                `radial-gradient(ellipse at 70% 80%, rgba(255,105,180,0.15) 0%, transparent 50%)`,
-                `radial-gradient(ellipse at 50% 50%, rgba(255,179,71,0.15) 0%, transparent 50%)`,
-                `radial-gradient(ellipse at 80% 30%, rgba(255,215,0,0.15) 0%, transparent 50%)`,
-                `radial-gradient(ellipse at 70% 80%, rgba(255,105,180,0.15) 0%, transparent 50%)`,
-              ],
-            }}
-            transition={{ duration: 15, repeat: Infinity, ease: 'linear' }}
-          />
-          <motion.div
-            className="absolute inset-0"
-            style={{
-              background: `radial-gradient(ellipse at ${50 + mousePos.x * 20}% ${50 + mousePos.y * 20}%, rgba(255,215,0,0.12) 0%, transparent 40%)`,
-            }}
-            animate={{
-              background: [
-                `radial-gradient(ellipse at 50% 50%, rgba(255,215,0,0.12) 0%, transparent 40%)`,
-                `radial-gradient(ellipse at 70% 30%, rgba(255,107,107,0.12) 0%, transparent 40%)`,
-                `radial-gradient(ellipse at 30% 70%, rgba(255,105,180,0.12) 0%, transparent 40%)`,
-                `radial-gradient(ellipse at 50% 50%, rgba(255,215,0,0.12) 0%, transparent 40%)`,
-              ],
-            }}
-            transition={{ duration: 18, repeat: Infinity, ease: 'linear' }}
-          />
-        </>
+        <motion.div
+          className="absolute inset-0 pointer-events-none"
+          style={{
+            background: `radial-gradient(ellipse at ${30 + mousePos.x * 40}% ${20 + mousePos.y * 30}%, rgba(255,105,105,0.15) 0%, transparent 50%)`,
+          }}
+          animate={{
+            background: [
+              `radial-gradient(ellipse at 30% 20%, rgba(255,105,105,0.15) 0%, transparent 50%)`,
+              `radial-gradient(ellipse at 60% 40%, rgba(200,0,54,0.1) 0%, transparent 50%)`,
+              `radial-gradient(ellipse at 30% 20%, rgba(255,105,105,0.15) 0%, transparent 50%)`,
+            ],
+          }}
+          transition={{ duration: 10, repeat: Infinity, ease: 'linear' }}
+        />
       )}
-
-      {/* Floating emojis */}
-      {mounted && FLOATING_EMOJIS.map((emoji, i) => (
-        <motion.div
-          key={`emoji-${i}`}
-          className="absolute text-3xl select-none pointer-events-none"
-          style={{
-            left: `${10 + (i * 80) % 80}%`,
-            bottom: '-50px',
-            filter: 'drop-shadow(0 4px 8px rgba(0,0,0,0.1))',
-          }}
-          animate={{
-            y: [0, -window.innerHeight - 100],
-            x: [0, Math.sin(i) * 60, -Math.sin(i) * 40, 0],
-            rotate: [0, 15, -10, 0],
-            scale: [0.8, 1, 0.9, 0.8],
-          }}
-          transition={{
-            duration: 12 + i * 2,
-            repeat: Infinity,
-            delay: i * 1.5,
-            ease: 'easeOut',
-          }}
-        >
-          {emoji}
-        </motion.div>
-      ))}
-
-      {/* Confetti particles */}
-      {mounted && Array.from({ length: 25 }).map((_, i) => (
-        <motion.div
-          key={`confetti-${i}`}
-          className="absolute rounded-full pointer-events-none"
-          style={{
-            width: 4 + Math.random() * 8,
-            height: 4 + Math.random() * 8,
-            background: ['#FF6B6B', '#FF8E53', '#FFB347', '#FF69B4', '#FFD700', '#FFA07A'][i % 6],
-            left: `${Math.random() * 100}%`,
-            top: `${Math.random() * 100}%`,
-            borderRadius: i % 3 === 0 ? '50%' : '2px',
-          }}
-          animate={{
-            y: [0, -30 - Math.random() * 40],
-            x: [0, Math.sin(i * 0.5) * 50],
-            opacity: [0, 0.6, 0.2, 0],
-            rotate: [0, 180 + Math.random() * 180],
-            scale: [0.5, 1.2, 0.8, 0.5],
-          }}
-          transition={{
-            duration: 4 + Math.random() * 4,
-            repeat: Infinity,
-            delay: Math.random() * 5,
-            ease: 'easeInOut',
-          }}
-        />
-      ))}
-
-      {/* Morphing blobs */}
-      {mounted && [0, 1, 2].map((i) => (
-        <motion.div
-          key={`blob-${i}`}
-          className="absolute rounded-full blur-3xl pointer-events-none"
-          style={{
-            width: 300 + i * 100,
-            height: 300 + i * 100,
-            background: ['rgba(255,182,193,0.3)', 'rgba(255,218,185,0.25)', 'rgba(255,223,186,0.2)'][i],
-            left: `${[20, 60, 40][i]}%`,
-            top: `${[20, 60, 80][i]}%`,
-          }}
-          animate={{
-            borderRadius: ['30% 70% 70% 30% / 30% 30% 70% 70%', '60% 40% 30% 70% / 60% 30% 70% 40%', '30% 70% 70% 30% / 30% 30% 70% 70%'],
-            scale: [1, 1.1, 0.95, 1],
-          }}
-          transition={{
-            duration: 8 + i * 3,
-            repeat: Infinity,
-            ease: 'easeInOut',
-          }}
-        />
-      ))}
 
       {/* Main content */}
       <motion.div
@@ -318,7 +162,7 @@ export default function SignupPage() {
             animate={{ opacity: 1, y: 0 }}
             transition={{ delay: 0.5, duration: 0.8 }}
             style={{
-              background: 'linear-gradient(135deg, #FF6B6B 0%, #FF8E53 25%, #FFB347 50%, #FF69B4 75%, #FF6B6B 100%)',
+              background: 'linear-gradient(135deg, #FF6969 0%, #C80036 50%, #FF6969 100%)',
               backgroundSize: '300% auto',
               WebkitBackgroundClip: 'text',
               WebkitTextFillColor: 'transparent',
@@ -330,9 +174,9 @@ export default function SignupPage() {
 
           <div className="h-8 mb-8 overflow-hidden">
             <AnimatePresence mode="wait">
-              <motion.p
-                key={taglineIdx}
-                className="text-xl text-stone-600 font-medium max-w-md mx-auto lg:mx-0"
+                <motion.p
+                  key={taglineIdx}
+                  className="text-xl text-red-200/80 font-medium max-w-md mx-auto lg:mx-0"
                 initial={{ opacity: 0, y: 30 }}
                 animate={{ opacity: 1, y: 0 }}
                 exit={{ opacity: 0, y: -30 }}
@@ -353,21 +197,21 @@ export default function SignupPage() {
                 transition={{ delay: 0.7 + i * 0.1, type: 'spring', stiffness: 200 }}
                 whileHover={{ x: 8, scale: 1.02 }}
                 whileTap={{ scale: 0.98 }}
-                className="relative flex items-center gap-4 p-4 rounded-2xl bg-white/70 border border-orange-200/30 backdrop-blur-sm cursor-pointer overflow-hidden group"
+                className="relative flex items-center gap-4 p-4 rounded-2xl bg-white/5 border border-white/10 backdrop-blur-sm cursor-pointer overflow-hidden group"
               >
                 <motion.div
                   className={`absolute inset-0 bg-gradient-to-br ${perk.gradient} opacity-0 group-hover:opacity-100 transition-opacity duration-300`}
                 />
                 <motion.div
-                  className="relative z-10 w-12 h-12 rounded-xl bg-gradient-to-br from-orange-200/50 to-pink-200/50 flex items-center justify-center text-2xl"
+                  className="relative z-10 w-12 h-12 rounded-xl bg-gradient-to-br from-red-500/20 to-red-800/20 flex items-center justify-center"
                   whileHover={{ scale: 1.2, rotate: [0, -10, 10, 0] }}
                   transition={{ duration: 0.4 }}
                 >
-                  {perk.icon}
+                  <perk.icon className="w-6 h-6 text-red-300" />
                 </motion.div>
                 <div className="relative z-10">
-                  <h3 className="text-sm font-bold text-stone-800">{perk.title}</h3>
-                  <p className="text-xs text-stone-500">{perk.desc}</p>
+                  <h3 className="text-sm font-bold text-white">{perk.title}</h3>
+                  <p className="text-xs text-red-200/60">{perk.desc}</p>
                 </div>
               </motion.div>
             ))}
@@ -393,12 +237,12 @@ export default function SignupPage() {
             onHoverStart={() => setIsHoveringCard(true)}
             onHoverEnd={() => setIsHoveringCard(false)}
             style={{
-              background: 'linear-gradient(135deg, rgba(255,255,255,0.9), rgba(255,248,240,0.95))',
+              background: 'linear-gradient(135deg, rgba(255,255,255,0.08), rgba(255,255,255,0.03))',
               backdropFilter: 'blur(40px)',
-              border: '1px solid rgba(255,182,193,0.3)',
+              border: '1px solid rgba(255,105,105,0.2)',
               boxShadow: isHoveringCard
-                ? '0 35px 80px rgba(255,140,66,0.2), 0 15px 40px rgba(255,182,193,0.15)'
-                : '0 25px 60px rgba(255,140,66,0.15), 0 10px 30px rgba(255,182,193,0.1)',
+                ? '0 35px 80px rgba(255,105,105,0.15), 0 15px 40px rgba(12,1,68,0.3)'
+                : '0 25px 60px rgba(255,105,105,0.1), 0 10px 30px rgba(12,1,68,0.2)',
               transformStyle: 'preserve-3d',
             }}
           >
@@ -406,7 +250,7 @@ export default function SignupPage() {
             <motion.div
               className="absolute inset-0 rounded-3xl opacity-40"
               style={{
-                background: 'conic-gradient(from 0deg, #FFB6C1, #FFA07A, #FFD700, #FF69B4, #FFA07A, #FFB6C1)',
+                background: 'conic-gradient(from 0deg, #FF6969, #C80036, #0C1844, #FF6969, #C80036, #FF6969)',
                 mask: 'linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0)',
                 WebkitMaskComposite: 'xor',
                 maskComposite: 'exclude',
@@ -421,7 +265,7 @@ export default function SignupPage() {
               <motion.div
                 className="absolute inset-0 pointer-events-none"
                 style={{
-                  background: `radial-gradient(600px circle at ${mousePos.x * 100}% ${mousePos.y * 100}%, rgba(255,182,193,0.15), transparent 40%)`,
+                  background: `radial-gradient(600px circle at ${mousePos.x * 100}% ${mousePos.y * 100}%, rgba(255,105,105,0.12), transparent 40%)`,
                 }}
               />
             )}
@@ -435,13 +279,13 @@ export default function SignupPage() {
                 className="text-center mb-8"
               >
                 <motion.h2
-                  className="text-3xl font-black text-stone-800 mb-2"
+                  className="text-3xl font-black text-white mb-2"
                   animate={{ scale: isHoveringCard ? [1, 1.02, 1] : 1 }}
                   transition={{ duration: 2, repeat: isHoveringCard ? Infinity : 0 }}
                 >
                   Get Started
                 </motion.h2>
-                <p className="text-sm text-stone-500">Create your account and start creating</p>
+                <p className="text-sm text-red-200/60">Create your account and start building</p>
               </motion.div>
 
               {/* Error message */}
@@ -463,13 +307,13 @@ export default function SignupPage() {
                 ref={btnRef}
                 whileHover={{ scale: 1.03 }}
                 whileTap={{ scale: 0.97 }}
-                onClick={(e) => { handleRipple(e); handleGoogleSignup(); }}
+                onClick={handleGoogleSignup}
                 disabled={loading}
                 className="relative w-full py-4 rounded-2xl font-bold text-white transition-all duration-300 disabled:opacity-50 overflow-hidden"
                 style={{
-                  background: 'linear-gradient(135deg, #FF6B6B, #FF8E53, #FFB347)',
+                  background: 'linear-gradient(135deg, #FF6969, #C80036)',
                   backgroundSize: '200% auto',
-                  boxShadow: '0 10px 30px rgba(255,107,107,0.3)',
+                  boxShadow: '0 10px 30px rgba(255,105,105,0.3)',
                   transform: `translate(${btnMagnetic.x}px, ${btnMagnetic.y}px)`,
                 }}
                 animate={{
@@ -477,17 +321,6 @@ export default function SignupPage() {
                 }}
                 transition={{ duration: 3, repeat: Infinity, ease: 'easeInOut' }}
               >
-                {/* Ripple effects */}
-                {ripples.map((ripple) => (
-                  <motion.span
-                    key={ripple.id}
-                    className="absolute bg-white/30 rounded-full"
-                    initial={{ width: 0, height: 0, opacity: 1, x: ripple.x, y: ripple.y }}
-                    animate={{ width: 300, height: 300, opacity: 0, x: ripple.x - 150, y: ripple.y - 150 }}
-                    transition={{ duration: 0.6, ease: 'easeOut' }}
-                  />
-                ))}
-
                 <div className="relative z-10 flex items-center justify-center gap-3">
                   {loading ? (
                     <motion.div
@@ -495,12 +328,7 @@ export default function SignupPage() {
                       initial={{ opacity: 0 }}
                       animate={{ opacity: 1 }}
                     >
-                      <motion.span
-                        animate={{ y: [0, -10, 0] }}
-                        transition={{ duration: 0.8, repeat: Infinity, ease: 'easeInOut' }}
-                      >
-                        🚀
-                      </motion.span>
+                      <Bot className="w-5 h-5" />
                       <span>Creating your account...</span>
                     </motion.div>
                   ) : (
@@ -529,9 +357,9 @@ export default function SignupPage() {
                 animate={{ opacity: 1 }}
                 transition={{ delay: 0.9 }}
               >
-                <div className="flex-1 h-px bg-gradient-to-r from-transparent via-orange-200 to-transparent" />
-                <span className="text-xs text-stone-400 font-medium">SECURED BY</span>
-                <div className="flex-1 h-px bg-gradient-to-r from-transparent via-orange-200 to-transparent" />
+                <div className="flex-1 h-px bg-gradient-to-r from-transparent via-red-400/20 to-transparent" />
+                <span className="text-xs text-red-200/40 font-medium">SECURED BY</span>
+                <div className="flex-1 h-px bg-gradient-to-r from-transparent via-red-400/20 to-transparent" />
               </motion.div>
 
               {/* Security badges */}
@@ -542,10 +370,12 @@ export default function SignupPage() {
                 transition={{ delay: 1 }}
               >
                 {[
-                  { icon: '🔒', label: 'Google Auth' },
-                  { icon: '🛡️', label: 'Encrypted' },
-                  { icon: '✅', label: 'Secure' },
-                ].map((item, i) => (
+                  { icon: Lock, label: 'Google Auth' },
+                  { icon: Shield, label: 'Encrypted' },
+                  { icon: CheckCircle, label: 'Secure' },
+                ].map((item, i) => {
+                  const BadgeIcon = item.icon;
+                  return (
                   <motion.div
                     key={item.label}
                     initial={{ opacity: 0, scale: 0 }}
@@ -553,23 +383,24 @@ export default function SignupPage() {
                     transition={{ delay: 1.1 + i * 0.1, type: 'spring', stiffness: 300 }}
                     className="flex items-center gap-1.5 hover:scale-110 transition-transform cursor-default"
                   >
-                    <span>{item.icon}</span>
-                    <span>{item.label}</span>
+                    <BadgeIcon className="w-3.5 h-3.5 text-red-300" />
+                    <span className="text-red-200/60">{item.label}</span>
                   </motion.div>
-                ))}
+                  );
+                })}
               </motion.div>
 
               {/* Login link */}
               <motion.p
-                className="text-center mt-8 text-sm text-stone-500"
+                className="text-center mt-8 text-sm text-red-200/40"
                 initial={{ opacity: 0 }}
                 animate={{ opacity: 1 }}
                 transition={{ delay: 1.2 }}
               >
                 Already have an account?{' '}
-                <Link href="/login" className="text-orange-500 hover:text-orange-600 font-bold transition-colors relative group">
+                <Link href="/login" className="text-red-400 hover:text-red-300 font-bold transition-colors relative group">
                   Sign in
-                  <span className="absolute -bottom-0.5 left-0 w-0 h-0.5 bg-orange-500 group-hover:w-full transition-all duration-300" />
+                  <span className="absolute -bottom-0.5 left-0 w-0 h-0.5 bg-red-400 group-hover:w-full transition-all duration-300" />
                 </Link>
               </motion.p>
             </div>

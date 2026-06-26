@@ -3,7 +3,9 @@
 import { useState, useEffect } from 'react';
 import { motion } from 'framer-motion';
 import { db, auth } from '@/lib/firebase';
+import { CONTENT_CATEGORIES } from '@/lib/constants';
 import { collection, query, orderBy, limit, getDocs, doc, setDoc, addDoc, serverTimestamp } from 'firebase/firestore';
+import { BarChart3, ThumbsUp, MessageSquare, Film, Rocket, Eye } from 'lucide-react';
 
 interface PredictionResult {
   predicted_views_7d: number;
@@ -50,17 +52,7 @@ interface ChannelStats {
   last_updated: string | null;
 }
 
-interface CharacterStat {
-  id: string;
-  name: string;
-  emoji: string;
-  total_views: number;
-  video_count: number;
-  share_pct: number;
-  top_categories: string[];
-}
-
-const categories = ['Self-Learning', 'Bedtime Stories', 'Mythology Stories', 'Animated Fables', 'Science for Kids', 'Rhymes & Songs', 'Colors & Shapes'];
+const categories = CONTENT_CATEGORIES.map(c => c.name);
 
 export default function AnalyticsPage() {
   const [title, setTitle] = useState('');
@@ -75,7 +67,6 @@ export default function AnalyticsPage() {
   const [analyticsLoading, setAnalyticsLoading] = useState(true);
   const [analyticsRefreshing, setAnalyticsRefreshing] = useState(false);
   const [channelStats, setChannelStats] = useState<ChannelStats | null>(null);
-  const [characterStats, setCharacterStats] = useState<CharacterStat[]>([]);
   const [sortBy, setSortBy] = useState<'views' | 'likes' | 'comments' | 'created_at'>('views');
 
   useEffect(() => {
@@ -97,10 +88,9 @@ export default function AnalyticsPage() {
       const headers: Record<string, string> = {};
       if (token) headers['Authorization'] = `Bearer ${token}`;
 
-      const [analyticsRes, channelRes, charRes] = await Promise.all([
+      const [analyticsRes, channelRes] = await Promise.all([
         fetch('/api/youtube/analytics?limit=50', { headers }),
         fetch('/api/youtube/channel', { headers }),
-        fetch('/api/analytics/characters', { headers }),
       ]);
       const analyticsData = await analyticsRes.json();
       if (analyticsData.success) {
@@ -110,10 +100,6 @@ export default function AnalyticsPage() {
       const channelData = await channelRes.json();
       if (channelData.success && channelData.channel) {
         setChannelStats(channelData.channel);
-      }
-      const charData = await charRes.json();
-      if (charData.success) {
-        setCharacterStats(charData.characters);
       }
     } catch (e) {
       console.error('[ANALYTICS] Failed to load:', e);
@@ -182,8 +168,8 @@ export default function AnalyticsPage() {
     <div className="space-y-6">
       <motion.div initial={{ opacity: 0, y: -20 }} animate={{ opacity: 1, y: 0 }}>
         <div className="flex items-center gap-4 mb-2">
-          <div className="w-12 h-12 rounded-2xl bg-gradient-to-br from-purple-500/20 to-blue-500/20 flex items-center justify-center">
-            <span className="text-2xl">📊</span>
+          <div className="w-12 h-12 rounded-2xl flex items-center justify-center" style={{ background: 'linear-gradient(135deg, #FF6969, #C80036)' }}>
+            <BarChart3 className="w-6 h-6 text-white" />
           </div>
           <div>
             <h1 className="text-3xl font-bold text-light-text dark:text-dark-text">YouTube Analytics</h1>
@@ -227,11 +213,11 @@ export default function AnalyticsPage() {
 
           <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} className="grid grid-cols-2 lg:grid-cols-4 gap-4">
             {[
-              { label: 'Total Views', value: formatNumber(summary.total_views), icon: '👁️', color: 'from-blue-500 to-purple-500' },
-              { label: 'Total Likes', value: formatNumber(summary.total_likes), icon: '👍', color: 'from-green-500 to-teal-500' },
-              { label: 'Total Comments', value: formatNumber(summary.total_comments), icon: '💬', color: 'from-yellow-500 to-orange-500' },
-              { label: 'Published Videos', value: `${summary.published_videos}`, icon: '🎬', color: 'from-pink-500 to-rose-500' },
-            ].map((stat, i) => (
+              { label: 'Total Views', value: formatNumber(summary.total_views), icon: Eye, color: 'from-blue-500 to-purple-500' },
+              { label: 'Total Likes', value: formatNumber(summary.total_likes), icon: ThumbsUp, color: 'from-green-500 to-teal-500' },
+              { label: 'Total Comments', value: formatNumber(summary.total_comments), icon: MessageSquare, color: 'from-yellow-500 to-orange-500' },
+              { label: 'Published Videos', value: `${summary.published_videos}`, icon: Film, color: 'from-pink-500 to-rose-500' },
+            ].map(({ icon: StatIcon, ...stat }, i) => (
               <motion.div
                 key={stat.label}
                 initial={{ opacity: 0, y: 20 }}
@@ -240,7 +226,7 @@ export default function AnalyticsPage() {
                 className="relative rounded-2xl overflow-hidden glass-strong border border-light-border/50 dark:border-white/10 p-5"
               >
                 <div className="flex items-center justify-between mb-3">
-                  <span className="text-2xl">{stat.icon}</span>
+                  <StatIcon className="w-6 h-6 text-light-muted" />
                   <span className={`text-xs font-medium px-2 py-0.5 rounded-full bg-gradient-to-r ${stat.color} text-white`}>YouTube</span>
                 </div>
                 <p className="text-2xl font-bold text-light-text dark:text-dark-text">{stat.value}</p>
@@ -249,39 +235,7 @@ export default function AnalyticsPage() {
             ))}
           </motion.div>
 
-          {characterStats.length > 0 && (
-            <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.15 }}>
-              <div className="relative rounded-2xl overflow-hidden glass-strong border border-light-border/50 dark:border-white/10 p-6">
-                <h2 className="text-lg font-bold text-light-text dark:text-dark-text mb-4">Character Performance</h2>
-                <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
-                  {characterStats.map(char => (
-                    <div key={char.id} className="p-4 rounded-xl bg-light-bg/50 dark:bg-dark-bg/50 border border-light-border/30 dark:border-white/5 text-center">
-                      <span className="text-3xl block mb-2">{char.emoji}</span>
-                      <h3 className="font-bold text-light-text dark:text-dark-text text-sm">{char.name}</h3>
-                      <p className="text-xs text-light-muted dark:text-dark-muted mt-1">{char.video_count} videos</p>
-                      <p className="text-lg font-bold text-light-text dark:text-dark-text mt-1">{formatNumber(char.total_views)}</p>
-                      <div className="mt-2">
-                        <div className="w-full h-1.5 rounded-full bg-light-border/50 dark:bg-white/10 overflow-hidden">
-                          <div
-                            className="h-full rounded-full bg-gradient-to-r from-purple-500 to-blue-500"
-                            style={{ width: `${char.share_pct}%` }}
-                          />
-                        </div>
-                        <p className="text-xs text-light-muted dark:text-dark-muted mt-1">{char.share_pct}% share</p>
-                      </div>
-                      <div className="mt-2 flex flex-wrap gap-1 justify-center">
-                        {char.top_categories.map(cat => (
-                          <span key={cat} className="text-[10px] px-1.5 py-0.5 rounded bg-purple-500/10 text-purple-400">{cat}</span>
-                        ))}
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              </div>
-            </motion.div>
-          )}
-
-          <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.2 }}>
+          <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.15 }}>
             <div className="relative rounded-2xl overflow-hidden glass-strong border border-light-border/50 dark:border-white/10 p-6">
               <div className="flex items-center justify-between mb-4">
                 <h2 className="text-lg font-bold text-light-text dark:text-dark-text">Video Performance</h2>
@@ -292,7 +246,7 @@ export default function AnalyticsPage() {
                       onClick={() => setSortBy(s)}
                       className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-all ${
                         sortBy === s
-                          ? 'bg-gradient-to-r from-purple-500 to-blue-500 text-white'
+                          ? 'bg-light-primary text-white'
                           : 'bg-light-bg dark:bg-dark-bg text-light-muted dark:text-dark-muted border border-light-border/30 dark:border-white/10'
                       }`}
                     >
@@ -364,8 +318,8 @@ export default function AnalyticsPage() {
       {/* Prediction Section */}
       <motion.div initial={{ opacity: 0, y: -20 }} animate={{ opacity: 1, y: 0 }}>
         <div className="flex items-center gap-4 mb-2 mt-8">
-          <div className="w-12 h-12 rounded-2xl bg-gradient-to-br from-purple-500/20 to-blue-500/20 flex items-center justify-center">
-            <span className="text-2xl">🚀</span>
+          <div className="w-12 h-12 rounded-2xl flex items-center justify-center" style={{ background: 'linear-gradient(135deg, #FF6969, #C80036)' }}>
+            <Rocket className="w-6 h-6 text-white" />
           </div>
           <div>
             <h1 className="text-3xl font-bold text-light-text dark:text-dark-text">Performance Predictor</h1>
@@ -384,8 +338,8 @@ export default function AnalyticsPage() {
               type="text"
               value={title}
               onChange={e => setTitle(e.target.value)}
-              placeholder="e.g., The Brave Little Star - Bedtime Story"
-              className="w-full px-4 py-2.5 rounded-xl bg-light-bg dark:bg-dark-bg border border-light-border dark:border-white/10 text-light-text dark:text-dark-text text-sm focus:outline-none focus:ring-2 focus:ring-purple-500/50"
+              placeholder="e.g., Transformers Explained Simply"
+              className="w-full px-4 py-2.5 rounded-xl bg-light-bg dark:bg-dark-bg border border-light-border dark:border-white/10 text-light-text dark:text-dark-text text-sm focus:outline-none focus:ring-2 focus:ring-light-primary"
             />
           </div>
           <div>
@@ -393,7 +347,7 @@ export default function AnalyticsPage() {
             <select
               value={selectedCategory}
               onChange={e => setSelectedCategory(e.target.value)}
-              className="w-full px-4 py-2.5 rounded-xl bg-light-bg dark:bg-dark-bg border border-light-border dark:border-white/10 text-light-text dark:text-dark-text text-sm focus:outline-none focus:ring-2 focus:ring-purple-500/50"
+              className="w-full px-4 py-2.5 rounded-xl bg-light-bg dark:bg-dark-bg border border-light-border dark:border-white/10 text-light-text dark:text-dark-text text-sm focus:outline-none focus:ring-2 focus:ring-light-primary"
             >
               {categories.map(c => <option key={c} value={c}>{c}</option>)}
             </select>
@@ -407,7 +361,7 @@ export default function AnalyticsPage() {
                   onClick={() => setFormat(f)}
                   className={`flex-1 py-2.5 rounded-xl text-sm font-medium transition-all ${
                     format === f
-                      ? 'bg-gradient-to-r from-purple-500 to-blue-500 text-white shadow-lg'
+                      ? 'bg-light-primary text-white shadow-lg'
                       : 'bg-light-bg dark:bg-dark-bg border border-light-border dark:border-white/10 text-light-muted dark:text-dark-muted'
                   }`}
                 >
@@ -423,14 +377,15 @@ export default function AnalyticsPage() {
               value={scriptPreview}
               onChange={e => setScriptPreview(e.target.value)}
               placeholder="First 200 characters of script..."
-              className="w-full px-4 py-2.5 rounded-xl bg-light-bg dark:bg-dark-bg border border-light-border dark:border-white/10 text-light-text dark:text-dark-text text-sm focus:outline-none focus:ring-2 focus:ring-purple-500/50"
+              className="w-full px-4 py-2.5 rounded-xl bg-light-bg dark:bg-dark-bg border border-light-border dark:border-white/10 text-light-text dark:text-dark-text text-sm focus:outline-none focus:ring-2 focus:ring-light-primary"
             />
           </div>
         </div>
         <button
           onClick={runPrediction}
           disabled={loading || !title.trim()}
-          className="mt-4 w-full py-3 rounded-xl bg-gradient-to-r from-purple-500 to-blue-500 text-white font-semibold text-sm hover:opacity-90 disabled:opacity-50 disabled:cursor-not-allowed transition-opacity"
+          className="mt-4 w-full py-3 rounded-xl text-white font-semibold text-sm hover:opacity-90 disabled:opacity-50 disabled:cursor-not-allowed transition-opacity"
+          style={{ background: 'linear-gradient(135deg, #FF6969, #C80036)' }}
         >
           {loading ? 'Analyzing...' : 'Predict Performance'}
         </button>
@@ -545,7 +500,7 @@ function generateLocalPrediction(title: string, category: string, format: string
   const seed = hashStr(title + category);
   const rand = (min: number, max: number) => min + (Math.abs(seed * 9301 + 49297) % 233280) / 233280 * (max - min);
   const baseViews = format === 'shorts' ? 8000 : 4000;
-  const categoryBonus: Record<string, number> = { 'Self-Learning': 1.3, 'Bedtime Stories': 1.1, 'Mythology Stories': 0.9, 'Animated Fables': 1.0, 'Science for Kids': 1.4, 'Rhymes & Songs': 1.5, 'Colors & Shapes': 1.2 };
+  const categoryBonus: Record<string, number> = { 'AI Explained': 1.5, 'Deep Tech': 1.0, 'Paper Breakdowns': 1.1, 'Tech Tutorials': 1.3, 'Code & Build': 1.2, 'Career & Learning': 1.3, 'Industry Analysis': 0.9, 'AI News': 1.4 };
   const mult = categoryBonus[category] || 1.0;
   const virality = Math.min(100, Math.max(0, Math.floor(mult * rand(30, 80))));
 
@@ -561,11 +516,11 @@ function generateLocalPrediction(title: string, category: string, format: string
       'Add a hook in the first 3 seconds to boost retention',
       'Use bright, high-contrast thumbnail with large text',
       `Best posting time for ${category}: 6:00 PM – 8:00 PM`,
-      'Include popular keywords: "for kids", "learn", "animated"',
+      'Include popular keywords: "AI", "tutorial", "explained"',
       format === 'shorts' ? 'Keep pacing fast — aim for 60+ cuts per minute' : 'Add chapter markers to improve navigation',
     ],
     trending_match: virality > 60 ? 'high' : virality > 40 ? 'medium' : 'low',
-    reasoning: `Based on ${category} popularity trends, ${format} format performance, and current YouTube algorithm patterns for children's content.`,
+    reasoning: `Based on ${category} popularity trends, ${format} format performance, and current YouTube algorithm patterns for tech educational content.`,
   };
 }
 

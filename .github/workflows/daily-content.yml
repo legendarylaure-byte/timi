@@ -20,7 +20,7 @@ on:
       category:
         description: 'Content category'
         required: false
-        default: 'Self-Learning'
+        default: 'AI Explained'
       enable_multi_lang:
         description: 'Generate multi-language versions'
         required: false
@@ -150,7 +150,7 @@ jobs:
         env:
           TOPIC: ${{ github.event.inputs.topic }}
           FORMAT: ${{ github.event.inputs.format || 'shorts' }}
-          CATEGORY: ${{ github.event.inputs.category || 'Self-Learning' }}
+          CATEGORY: ${{ github.event.inputs.category || 'AI Explained' }}
         run: |
           source .venv/bin/activate
           python3 run_pipeline.py

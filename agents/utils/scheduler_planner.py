@@ -11,22 +11,15 @@ PLANNER_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__fil
 os.makedirs(PLANNER_DIR, exist_ok=True)
 PLAN_FILE = os.path.join(PLANNER_DIR, "content_plan.json")
 
-PLANNER_SYSTEM_PROMPT = """You are a content planning analyst for a children's animated YouTube channel. Your job is to create a daily content plan that maximizes engagement and channel growth.
-
-Characters available:
-- Pixel (robot): Self-Learning, Science for Kids, Tech & AI — energetic, curious
-- Nova (star): Bedtime Stories, Mythology Stories, Animated Fables — calm, dreamy
-- Ziggy (rainbow): Rhymes & Songs, Colors & Shapes, DIY & Crafts — playful, silly
-- Boop (blob): emotions, friendship, social skills
-- Sprout (plant): nature, growing, gardening
+PLANNER_SYSTEM_PROMPT = """You are a content planning analyst for a tech educational YouTube channel. Your job is to create a daily content plan that maximizes engagement and channel growth.
 
 Rules:
-1. Prioritize characters with highest engagement share
-2. Avoid repeating the same character twice in one day
-3. Mix shorts (under 60s) and longs (8-12 min)
-4. Consider seasonal events and trending topics
-5. Balance across categories — don't over-use one category
-6. If a character has 0 videos, give them a chance (testing new content)
+1. Mix shorts (under 60s) and longs (3-8 min)
+2. Prioritize topics with highest engagement from analytics
+3. Consider seasonal tech events (conferences, product launches, paper releases)
+4. Balance across categories — don't over-use one category
+5. Follow trending AI/tech topics on social media
+6. Avoid repetitive topics within the same week
 
 Return ONLY valid JSON:
 {
@@ -37,7 +30,7 @@ Return ONLY valid JSON:
       "title": "Video title",
       "category": "Category name",
       "format": "shorts" or "long",
-      "character": "pixel" or "nova" or "ziggy" or "boop" or "sprout",
+      "priority": 0-100,
       "priority": 0-100,
       "reasoning": "Why this video was chosen"
     }
@@ -60,26 +53,12 @@ def _load_analytics_context() -> str:
             data = json.load(f)
 
         lines = []
-        char_stats = data.get("character_stats", {})
-        if char_stats:
-            total_views = sum(c["total_views"] for c in char_stats.values()) or 1
-            lines.append("Character Performance:")
-            for char, stats in sorted(char_stats.items(), key=lambda x: x[1]["total_views"], reverse=True):
-                share = round(stats["total_views"] / total_views * 100, 1)
-                cats = ", ".join(list(stats.get("categories", {}).keys())[:2])
-                lines.append(f"  {char}: {stats['video_count']} videos, {stats['total_views']} views ({share}% share), categories: {cats or 'none'}")
-
         videos = data.get("videos", {})
         if videos:
             recent = [v for v in videos.values()
                       if v.get("created_at", "") >= (datetime.now() - timedelta(days=7)).strftime("%Y-%m-%d")]
             if recent:
                 lines.append(f"\nLast 7 days: {len(recent)} videos produced")
-                by_char = {}
-                for v in recent:
-                    c = v.get("character", "unknown")
-                    by_char[c] = by_char.get(c, 0) + 1
-                lines.append("  Per character: " + ", ".join(f"{c}: {n}" for c, n in by_char.items()))
 
         daily = data.get("daily_stats", {})
         if daily:
@@ -159,8 +138,8 @@ Seasonal context: {seasonal}
 
 {calendar_context}
 
-Consider which characters and categories need more content based on engagement data.
-Avoid topics that appear in the blacklist. If a character has low video count, give them priority."""
+Consider which categories need more content based on engagement data.
+Avoid topics that appear in the blacklist. Prioritize underrepresented categories."""
 
     try:
         response = generate_completion(
@@ -185,87 +164,44 @@ Avoid topics that appear in the blacklist. If a character has low video count, g
 
 
 _CATEGORIES = [
-    "Self-Learning", "Science for Kids", "Tech & AI",
-    "Bedtime Stories", "Mythology Stories", "Animated Fables",
-    "Rhymes & Songs", "Colors & Shapes", "DIY & Crafts",
+    "AI Explained", "Deep Tech", "Paper Breakdowns",
+    "Tool Tutorials", "Industry Analysis", "Code & Build",
+    "AI News", "Career & Learning",
 ]
 
-_CHARACTER_MAP = {
-    "Self-Learning": "pixel",
-    "Science for Kids": "pixel",
-    "Tech & AI": "pixel",
-    "Bedtime Stories": "nova",
-    "Mythology Stories": "nova",
-    "Animated Fables": "nova",
-    "Rhymes & Songs": "ziggy",
-    "Colors & Shapes": "ziggy",
-    "DIY & Crafts": "ziggy",
-}
-
-_CATEGORY_KEYWORDS = {
-    "pixel": ["self-learn", "science", "tech", "ai"],
-    "nova": ["bedtime", "mythology", "fable", "story"],
-    "ziggy": ["rhyme", "song", "color", "shape", "diy", "craft"],
-    "boop": ["emotion", "friend", "social"],
-    "sprout": ["nature", "garden", "grow", "plant"],
-}
-
-
-def _infer_category_character(category: str) -> str:
-    cat_lower = category.lower()
-    for char, keywords in _CATEGORY_KEYWORDS.items():
-        if any(k in cat_lower for k in keywords):
-            return char
-    return "pixel"
-
 _SEASONAL_TOPICS = {
-    1: ["New Year Counting Fun", "Winter Science Experiments", "Snowflake Shapes & Colors"],
-    2: ["Valentine's Heart Shapes", "Love Songs for Kids", "Friendship Stories"],
-    3: ["Spring Science Experiments", "Rainbow Colors Song", "St. Patrick's Day Fables"],
-    4: ["Earth Day for Kids", "Spring Garden Adventure", "Baby Animals"],
-    5: ["Mother's Day Stories", "Spring Flowers Colors", "Space Adventure"],
-    6: ["Summer Fun Learning", "Ocean Animals Adventure", "Father's Day Songs"],
-    7: ["Independence Day Colors", "Summer Science Camp", "Beach Day Shapes"],
-    8: ["Back to School ABCs", "Dinosaur Discovery", "Friendship Stories"],
-    9: ["Autumn Leaves Colors", "Harvest Fables", "Grandparents Day Stories"],
-    10: ["Halloween Gentle Stories", "Pumpkin Shapes & Colors", "Fall Science"],
-    11: ["Thanksgiving Gratitude", "Native American Stories", "Fall Harvest Songs"],
-    12: ["Christmas Bedtime Stories", "Snowflake Science", "Winter Wonderland Colors"],
+    1: ["AI Predictions for New Year", "Best Tech of Previous Year", "Getting Started with AI"],
+    2: ["AI Love: Valentine's Tech", "Machine Learning Basics", "Neural Networks Explained"],
+    3: ["Spring Tech Updates", "GTC Conference Highlights", "Open Source AI News"],
+    4: ["Earth Day: AI for Climate", "Tech Conference Season", "AI in Sustainability"],
+    5: ["Google I/O Highlights", "Summer Internship Tips", "AI Tools Roundup"],
+    6: ["Mid-Year AI Review", "Best Coding Practices", "Tech Career Roadmap"],
+    7: ["Open Source Spotlight", "AI in Healthcare", "Build Weekend Projects"],
+    8: ["Back to Tech: Learn AI", "Fall Tech Predictions", "Study Tools Powered by AI"],
+    9: ["Tech Conference Season", "AI Ethics Discussion", "Research Paper Highlights"],
+    10: ["Halloween Tech Special", "AI Security", "Fall Product Releases"],
+    11: ["Thanksgiving: AI Gratitude", "Open Source Contributions", "Year-End Tech Wrap"],
+    12: ["Year in AI Review", "Best Tech of the Year", "Holiday Tech Gift Guide"],
 }
 
 
 def _fallback_plan() -> list:
     month = datetime.now().month
-    seasonal_topics = _SEASONAL_TOPICS.get(month, ["Fun Learning Adventures", "Bedtime Dreams", "Colors & Shapes Fun"])
+    seasonal_topics = _SEASONAL_TOPICS.get(month, ["AI News", "Tool Tutorial", "Tech Explained"])
 
-    used_characters = set()
+    category_cycle = ["AI Explained", "Tool Tutorials", "Code & Build", "Industry Analysis", "Deep Tech", "Paper Breakdowns"]
     videos = []
 
-    pairings = [
-        (seasonal_topics[0] if len(seasonal_topics) > 0 else "Fun Learning", "Self-Learning", "shorts"),
-        (seasonal_topics[1] if len(seasonal_topics) > 1 else "Bedtime Stories", "Bedtime Stories", "shorts"),
-        ("Why is the Sky Blue?", "Science for Kids", "shorts"),
-        (seasonal_topics[2] if len(seasonal_topics) > 2 else "Rainbow Colors", "Colors & Shapes", "long"),
-        ("ABC Phonics Fun", "Rhymes & Songs", "shorts"),
-        ("Magical Bedtime Adventure", "Bedtime Stories", "long"),
-    ]
-
-    for title, category, fmt in pairings:
-        character = _CHARACTER_MAP.get(category, "pixel")
-        if character in used_characters and len(videos) < 4:
-            alternate = [c for c in _CHARACTER_MAP.values() if c != character]
-            if alternate:
-                character = alternate[len(videos) % len(alternate)]
-
+    for i, title in enumerate(seasonal_topics[:4]):
+        category = category_cycle[i % len(category_cycle)]
+        fmt = "shorts" if i < 2 else "long"
         videos.append({
             "title": title,
             "category": category,
             "format": fmt,
-            "character": character,
-            "priority": max(50, 95 - len(videos) * 5),
-            "reasoning": f"Seasonal/educational content for {character}",
+            "priority": max(50, 95 - i * 5),
+            "reasoning": f"Seasonal/trending tech content in {category}",
         })
-        used_characters.add(character)
 
     return videos
 
@@ -366,22 +302,14 @@ def generate_content_plan(force_llm: bool = False) -> list:
     selected = shorts[:max(shorts_per_day, 1)] + longs[:max(long_per_day, 1)]
     selected.sort(key=lambda x: x.get("priority", 50), reverse=True)
 
-    used_chars = set()
-    deduped = []
-    for v in selected:
-        char = v.get("character", "pixel")
-        if char in used_chars:
-            alt_char = [c for c in ["pixel", "nova", "ziggy", "boop", "sprout"] if c != char]
-            v["character"] = alt_char[len(deduped) % len(alt_char)]
-        used_chars.add(v["character"])
-        deduped.append(v)
+    deduped = selected[:]
 
     rationale = f"Planned {len(deduped)} videos ({len([v for v in deduped if v['format'] == 'shorts'])} shorts, {len([v for v in deduped if v['format'] == 'long'])} longs)"
     save_plan(deduped, rationale)
 
     logger.info(f"Plan: {rationale}")
     for v in deduped:
-        logger.info(f"  [{v['format']}] {v['title']} ({v['category']}) - {v['character']} [priority {v['priority']}]")
+        logger.info(f"  [{v['format']}] {v['title']} ({v['category']}) [priority {v['priority']}]")
 
     try:
         from utils.firebase_status import update_agent_status

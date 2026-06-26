@@ -35,22 +35,14 @@ export const VIDEO_FORMATS = {
 };
 
 export const CONTENT_CATEGORIES = [
-  { name: 'Self-Learning', description: 'Educational content for kids' },
-  { name: 'Bedtime Stories', description: 'Calming stories for sleep' },
-  { name: 'Mythology Stories', description: 'Ancient myths for children' },
-  { name: 'Animated Fables', description: 'Classic fables with morals' },
-  { name: 'Science for Kids', description: 'Fun science experiments' },
-  { name: 'Rhymes & Songs', description: 'Nursery rhymes and music' },
-  { name: 'Colors & Shapes', description: 'Visual learning basics' },
-  { name: 'Tech & AI', description: 'Technology and AI trends' },
-  { name: 'Gaming', description: 'Gaming content and reviews' },
-  { name: 'Cooking & Food', description: 'Recipes and food content' },
-  { name: 'DIY & Crafts', description: 'DIY projects and crafts' },
-  { name: 'Health & Wellness', description: 'Health and fitness content' },
-  { name: 'Travel & Adventure', description: 'Travel guides and adventures' },
-  { name: 'Finance & Business', description: 'Finance and business tips' },
-  { name: 'Comedy & Entertainment', description: 'Funny and entertaining content' },
-  { name: 'Music & Dance', description: 'Music and dance content' },
+  { name: 'AI Explained', description: 'How AI and ML technologies work, explained simply' },
+  { name: 'Deep Tech', description: 'In-depth technical deep dives and architecture breakdowns' },
+  { name: 'Paper Breakdowns', description: 'Latest research papers summarized and analyzed' },
+  { name: 'Tool Tutorials', description: 'Hands-on tutorials for AI tools and frameworks' },
+  { name: 'Industry Analysis', description: 'Tech industry trends, predictions, and news analysis' },
+  { name: 'Code & Build', description: 'Learn to build with code — projects and examples' },
+  { name: 'AI News', description: 'Weekly AI and technology news roundup' },
+  { name: 'Career & Learning', description: 'Tech career advice, learning paths, and resources' },
 ];
 
 export const DAILY_QUOTA = {
@@ -66,17 +58,17 @@ export const PLATFORMS = {
 };
 
 export const HUMAN_READABLE_ACTIONS: Record<string, string> = {
-  scriptwriting: 'crafting a story',
-  storyboarding: 'drawing scenes',
-  voice_generating: 'recording voices',
+  scriptwriting: 'writing the script',
+  storyboarding: 'planning visuals',
+  voice_generating: 'recording narration',
   composing: 'creating background music',
-  animating: 'bringing characters to life',
-  editing: 'putting the video together',
+  animating: 'assembling visual assets',
+  editing: 'compositing the video',
   thumbnail_creating: 'designing a thumbnail',
-  metadata_writing: 'writing the video details',
-  uploading: 'sharing the video',
+  metadata_writing: 'writing video metadata',
+  uploading: 'publishing to platforms',
   scoring: 'evaluating content quality',
   discovering_trends: 'finding trending topics',
   repurposing: 'splitting videos into shorts',
-  planning: 'planning daily content schedule',
+  planning: 'planning content schedule',
 };

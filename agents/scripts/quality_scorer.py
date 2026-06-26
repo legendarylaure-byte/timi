@@ -10,7 +10,7 @@ from agents.utils.quality_scorer import score_content, predict_performance
 def main():
     parser = argparse.ArgumentParser(description='Quality Score & Performance Predictor')
     parser.add_argument('--title', required=True, help='Video title')
-    parser.add_argument('--category', default='Self-Learning', help='Content category')
+    parser.add_argument('--category', default='AI Explained', help='Content category')
     parser.add_argument('--format', default='shorts', choices=['shorts', 'long'], help='Video format')
     parser.add_argument('--script', default='', help='Script content')
     parser.add_argument('--mode', default='both', choices=['score', 'predict', 'both'], help='Run mode')

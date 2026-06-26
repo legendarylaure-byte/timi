@@ -6,6 +6,7 @@ Run: python -m agents.scripts.publisher --title "..." --video_path "..." --platf
 import os
 from datetime import datetime
 from utils.firebase_status import get_firestore_client, log_activity, update_video_record
+from compliance.ai_disclosure import get_ai_disclosure
 
 PLATFORMS = {
     'youtube': {
@@ -66,11 +67,11 @@ def upload_to_platform(platform: str, title: str, description: str, video_path: 
 def _upload_youtube(title: str, description: str, video_path: str, thumbnail_path: str, format_type: str, publish_at: str = None) -> dict:  # noqa: E501
     try:
         from utils.youtube_upload import upload_video_to_youtube
-        from utils.description_gen import get_coppa_metadata
+        from utils.description_gen import get_tech_metadata
 
-        coppa_meta = get_coppa_metadata("kids content", format_type)
+        tech_meta = get_tech_metadata("tech educational", format_type)
 
-        tags = coppa_meta.get("tags", []) + [format_type, "vyom ai cloud"]
+        tags = tech_meta.get("tags", []) + [format_type, "vyom-ai-cloud", "ai", "technology"]
 
         print(f"[PUBLISHER] Uploading YouTube video: {title} (format={format_type}, publish_at={publish_at})")
         result = upload_video_to_youtube(
@@ -79,13 +80,15 @@ def _upload_youtube(title: str, description: str, video_path: str, thumbnail_pat
             description=description,
             tags=tags[:15],
             thumbnail_file=thumbnail_path,
-            category_id=coppa_meta["categoryId"],
+            category_id=tech_meta["categoryId"],
             is_shorts=(format_type == "shorts"),
             publish_at=publish_at,
         )
 
-        result["made_for_kids"] = True
-        result["coppa_compliant"] = True
+        ai_flags = get_ai_disclosure("youtube")
+        result["ai_disclosure"] = ai_flags
+        result["made_for_kids"] = False
+        result["ai_generated"] = True
 
         if result.get('success'):
             print(f"[PUBLISHER] YouTube upload successful: {result.get('video_url', 'unknown')}")
@@ -163,19 +166,24 @@ def _upload_tiktok(title: str, video_path: str, format_type: str) -> dict:
                 'error': f'Upload failed: {upload_resp.status_code}',
             }
 
+        ai_flags = get_ai_disclosure("tiktok")
+        publish_payload = {
+            'publish_id': publish_id,
+            'post_info': {
+                'title': title,
+                'privacy_level': 'PUBLIC_TO_EVERYONE',
+                'disable_duet': False,
+                'disable_comment': False,
+                'disable_stitch': False,
+            },
+        }
+        if ai_flags.get("is_aigc"):
+            publish_payload["post_info"]["is_aigc"] = True
+
         publish_resp = requests.post(
             'https://open.tiktokapis.com/v2/post/publish/video/publish/',
             headers={'Authorization': f'Bearer {access_token}', 'Content-Type': 'application/json'},
-            json={
-                'publish_id': publish_id,
-                'post_info': {
-                    'title': title,
-                    'privacy_level': 'PUBLIC_TO_EVERYONE',
-                    'disable_duet': False,
-                    'disable_comment': False,
-                    'disable_stitch': False,
-                },
-            },
+            json=publish_payload,
             timeout=30,
         )
 
@@ -219,15 +227,20 @@ def _upload_instagram(title: str, video_path: str, format_type: str) -> dict:
 
         media_type = 'REELS' if format_type == 'shorts' else 'VIDEO'
 
+        ai_flags = get_ai_disclosure("instagram")
+        media_params = {
+            'access_token': access_token,
+            'media_type': media_type,
+            'video_url': '',
+            'caption': title,
+            'share_to_feed': 'true' if format_type == 'long' else 'false',
+        }
+        if ai_flags.get("is_ai_generated"):
+            media_params["is_ai_generated"] = "true"
+
         create_resp = requests.post(
             f'https://graph.facebook.com/v25.0/{ig_account_id}/media',
-            params={
-                'access_token': access_token,
-                'media_type': media_type,
-                'video_url': '',  # Requires a publicly accessible URL
-                'caption': title,
-                'share_to_feed': 'true' if format_type == 'long' else 'false',
-            },
+            params=media_params,
             timeout=30,
         )
 
@@ -314,6 +327,11 @@ def _upload_facebook(title: str, description: str, video_path: str) -> dict:
         else:
             upload_method = 'direct'
 
+        ai_flags = get_ai_disclosure("facebook")
+        fb_description = description
+        if ai_flags.get("caption_hashtag"):
+            fb_description += f"\n\n{ai_flags['caption_hashtag'] }"
+
         if upload_method == 'direct':
             with open(video_path, 'rb') as f:
                 upload_resp = requests.post(
@@ -322,7 +340,7 @@ def _upload_facebook(title: str, description: str, video_path: str) -> dict:
                     files={'source': f},
                     data={
                         'title': title,
-                        'description': description,
+                        'description': fb_description,
                         'published': 'true',
                     },
                     timeout=600,

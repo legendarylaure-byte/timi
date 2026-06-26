@@ -10,47 +10,50 @@ def create_storyboard_crew(script: str = "", format_type: str = "shorts"):
 
     if is_long:
         scene_instruction = """
-CRITICAL: Create EXACTLY 10-15 distinct scenes total. Each scene should be 30-60 seconds long.
-DO NOT create separate scenes for "Transition to Next Scene" — transitions should be part of each main scene.
-DO NOT create separate scenes for camera angles, lighting, or mood — include these as details within each main scene.
-Group related actions together into single scenes. Each scene is a CONTINUOUS moment, not a bullet point."""
+CRITICAL: Create 6-10 distinct scenes. Each scene should be 30-90 seconds long.
+Do NOT create separate scenes for transitions — describe them within each scene.
+For each scene, specify the VISUAL ASSET TYPE to use."""
     else:
         scene_instruction = """
-CRITICAL: Create EXACTLY 8-12 scenes total (MAXIMUM 12). Each scene should be 5-15 seconds long.
-DO NOT create separate scenes for "Transition to Next Scene" — describe transitions within each main scene.
-DO NOT create separate scenes for camera angles, lighting, or mood — include these as details within each main scene.
-Group related actions together. A short video of 60-120 seconds can ONLY have 8-12 scenes total."""
+CRITICAL: Create 5-8 scenes total. Each scene should be 5-15 seconds long.
+Do NOT create separate scenes for transitions — describe them within each scene.
+For each scene, specify the VISUAL ASSET TYPE to use."""
 
     storyboard_artist = Agent(
-        role="Storyboard Artist for Kids Animation",
-        goal="Create detailed scene-by-scene visual descriptions for 3D animated children's content",
-        backstory="""You are a professional storyboard artist specializing in children's 3D animation.
-You translate scripts into vivid visual descriptions that animators can use directly.
-Your storyboards include camera angles, character positions, color palettes, lighting,
-and mood descriptions optimized for the target age group (1-9 years).""",
+        role="Visual Director for Tech Content",
+        goal="Create scene-by-scene visual plans for educational tech videos using stock footage, screen captures, diagrams, and code snippets",
+        backstory="""You are a professional visual director specializing in educational technology content.
+You translate scripts into detailed visual plans that the video pipeline can execute.
+Your storyboards specify which asset type to use per scene: stock footage for atmosphere,
+screen captures for tool demonstrations, diagram animations for conceptual explanations,
+and code snippets for technical deep-dives. You match visual style to content type.""",
         llm=llm,
         verbose=True,
         allow_delegation=False,
     )
 
     storyboard_task = Task(
-        description=f"""Create a detailed storyboard from the following script:
+        description=f"""Create a detailed visual plan from the following script:
 {{script}}
 
 {scene_instruction}
 
-For EACH scene include:
-1. Scene title and timing (e.g., "Scene 1: Introduction (0-10 seconds)")
-2. Camera angle and movement
-3. Character positions and expressions
-4. Color palette and lighting
-5. Background elements
-6. Transition to next scene (include at the END of each scene, not as a separate scene)
-7. Mood and emotional tone
+For EACH scene output:
+1. Scene number and timing (e.g., "Scene 1: 0-12s")
+2. ASSET TYPE: one of [STOCK_FOOTAGE, SCREEN_CAPTURE, DIAGRAM_ANIMATION, CODE_SNIPPET, STATIC_IMAGE]
+3. Visual description: what the viewer sees — screen content, diagram elements, footage subject
+4. Text overlay: any text that should appear on screen (titles, labels, bullet points, code)
+5. Transition to next scene (cut, fade, slide)
 
-NUMBER your scenes consecutively. Count them. Ensure the total matches the requirement above.
-Optimize for 3D cartoon style that appeals to children aged 1-9.""",
-        expected_output=f"A detailed storyboard with {'10-15' if is_long else '8-12'} scenes, each with camera angles, character positions, colors, lighting, and transitions.",  # noqa: E501
+OUTPUT FORMAT — one block per scene:
+--SCENE 1 (0-12s)--
+ASSET_TYPE: [STOCK_FOOTAGE | SCREEN_CAPTURE | DIAGRAM_ANIMATION | CODE_SNIPPET | STATIC_IMAGE]
+VISUAL: [what the viewer sees]
+TEXT_OVERLAY: [any on-screen text, or NONE]
+TRANSITION: [cut | fade | slide]
+
+NUMBER scenes consecutively. Ensure visual descriptions are specific enough for an automated pipeline to execute.""",
+        expected_output=f"A detailed visual plan with {'6-10' if is_long else '5-8'} scenes, each with asset type, visual description, text overlay, and transition.",
         agent=storyboard_artist,
     )
 

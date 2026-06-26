@@ -29,10 +29,7 @@ def save_analytics(data: Dict):
         logger.error(f"Failed to save analytics: {e}")
 
 
-_CHARACTERS = ["pixel", "nova", "ziggy", "boop", "sprout"]
-
-
-def track_video(video_id: str, title: str, video_type: str, url: str, score: float, character: str = ""):
+def track_video(video_id: str, title: str, video_type: str, url: str, score: float):
     data = load_analytics()
     now = datetime.now().strftime("%Y-%m-%d")
 
@@ -43,7 +40,6 @@ def track_video(video_id: str, title: str, video_type: str, url: str, score: flo
             "url": url,
             "score": score,
             "created_at": now,
-            "character": character if character in _CHARACTERS else "",
             "metrics": {
                 "views": 0,
                 "likes": 0,
@@ -164,63 +160,3 @@ def calculate_engagement_rate(video_id: str) -> float:
         return round(engagement, 2)
 
     return 0.0
-
-
-def track_character_performance(video_id: str, character: str, category: str, views: int = 0):
-    data = load_analytics()
-    if "character_stats" not in data:
-        data["character_stats"] = {}
-
-    if character not in _CHARACTERS:
-        return
-
-    if character not in data["character_stats"]:
-        data["character_stats"][character] = {
-            "total_views": 0,
-            "video_count": 0,
-            "categories": {},
-        }
-
-    stats = data["character_stats"][character]
-    stats["total_views"] += views
-
-    if video_id not in {k for k, v in data.get("videos", {}).items() if v.get("character") == character}:
-        stats["video_count"] += 1
-
-    if category:
-        stats["categories"][category] = stats["categories"].get(category, 0) + 1
-
-    save_analytics(data)
-
-
-def get_character_performance_summary() -> dict:
-    data = load_analytics()
-    char_stats = data.get("character_stats", {})
-    if not char_stats:
-        from utils.scene_parser import _pick_character_for_category
-        for video_id, v in data.get("videos", {}).items():
-            char = v.get("character", "")
-            if not char:
-                char = _pick_character_for_category(v.get("type", "general"))
-            cat = v.get("type", "")
-            views = v.get("metrics", {}).get("views", 0)
-            if char not in char_stats:
-                char_stats[char] = {"total_views": 0, "video_count": 0, "categories": {}}
-            cs = char_stats[char]
-            cs["total_views"] += views
-            cs["video_count"] += 1
-            if cat:
-                cs["categories"][cat] = cs["categories"].get(cat, 0) + 1
-
-    total_views = sum(c["total_views"] for c in char_stats.values()) or 1
-    result = {}
-    for char, stats in char_stats.items():
-        result[char] = {
-            "total_views": stats["total_views"],
-            "video_count": stats["video_count"],
-            "share_pct": round(stats["total_views"] / total_views * 100, 1),
-            "top_categories": sorted(stats.get("categories", {}).items(), key=lambda x: x[1], reverse=True)[:3],
-        }
-
-    sorted_result = dict(sorted(result.items(), key=lambda x: x[1]["total_views"], reverse=True))
-    return sorted_result

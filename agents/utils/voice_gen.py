@@ -31,16 +31,7 @@ DEFAULT_VOICE = KIDS_VOICES["narrator_warm"]
 DEFAULT_RATE = "-5%"
 DEFAULT_PITCH = "-2Hz"
 
-CHARACTER_VOICES = {
-    "NARRATOR": {"voice": "en-US-JennyNeural", "rate": "-5%", "pitch": "-2Hz"},
-    "PIXEL": {"voice": "en-US-EricNeural", "rate": "-5%", "pitch": "+3Hz"},
-    "NOVA": {"voice": "en-US-AriaNeural", "rate": "-8%", "pitch": "-3Hz"},
-    "ZIGGY": {"voice": "en-US-AnaNeural", "rate": "+5%", "pitch": "+5Hz"},
-    "BOOP": {"voice": "en-US-SaraNeural", "rate": "-3%", "pitch": "+2Hz"},
-    "SPROUT": {"voice": "en-GB-LibbyNeural", "rate": "-5%", "pitch": "-2Hz"},
-}
-
-CHARACTER_ORDER = ["NARRATOR", "PIXEL", "NOVA", "ZIGGY", "BOOP", "SPROUT"]
+NARRATOR_VOICE = {"voice": "en-US-JennyNeural", "rate": "-5%", "pitch": "-2Hz"}
 
 
 def _extract_narration_via_markers(script: str) -> str | None:
@@ -84,7 +75,7 @@ def _extract_narration_via_dialogue_tags(script: str) -> str | None:
         if not stripped:
             continue
         char_match = re.match(
-            r'^(NARRATOR|PIXEL|NOVA|ZIGGY|BOOP|SPROUT|NARR\.?|CHILD\s*\d*|CHARACTER|HOST|VOICE|SPEAKER)\s*:\s*(.+)',
+            r'^(NARRATOR|NARR\.?|HOST|VOICE|SPEAKER)\s*:\s*(.+)',
             stripped, re.IGNORECASE)
         if char_match:
             text = char_match.group(2).strip()
@@ -216,7 +207,7 @@ def parse_dialogue_segments(script: str) -> list[dict]:
 
     Handles multiple formats:
     1. NARRATION:/VISUAL: markers (new pipeline format)
-    2. CHARACTER_NAME: dialogue text (e.g. PIXEL: Hello!)
+    2. CHARACTER_NAME: dialogue text (e.g. NARRATOR: Hello!)
     3. Plain text with no markers -> NARRATOR
     """
     lines = script.split('\n')
@@ -246,13 +237,13 @@ def parse_dialogue_segments(script: str) -> list[dict]:
                 current_text.append(text)
             continue
 
-        char_match = re.match(r'^(PIXEL|NOVA|ZIGGY|BOOP|SPROUT)\s*:\s*(.+)', stripped, re.IGNORECASE)
-        if char_match:
+        narrator_match = re.match(r'^(NARRATOR)\s*:\s*(.+)', stripped, re.IGNORECASE)
+        if narrator_match:
             if current_text:
                 segments.append({"character": current_character, "text": ' '.join(current_text)})
                 current_text = []
-            current_character = char_match.group(1).upper()
-            text = char_match.group(2).strip()
+            current_character = "NARRATOR"
+            text = narrator_match.group(2).strip()
             if text:
                 current_text.append(text)
             continue
@@ -285,7 +276,7 @@ def parse_dialogue_segments(script: str) -> list[dict]:
 
 def get_voice_settings(content_type: str = "general") -> dict:
     settings = {
-        "bedtime": {
+        "storytelling": {
             "voice": "en-US-JennyNeural",
             "rate": "-10%",
             "pitch": "-4Hz",
@@ -461,7 +452,8 @@ async def generate_voiceover(script: str, voice: str = DEFAULT_VOICE, output_fil
             try:
                 seg_audio = AudioSegment.from_file(seg_path)
                 cumulative_offset += len(seg_audio) + 200
-            except Exception:
+            except Exception as e:
+                print(f"[voice_gen] Failed to load seg_{i+1:03d} audio, guessing 5s offset: {e}")
                 cumulative_offset += 5000
 
     output_path = str(VOICE_DIR / output_filename)
@@ -504,7 +496,7 @@ async def _generate_multi_voice(dialogue_segments: list[dict], output_filename: 
         if not text.strip():
             continue
 
-        char_cfg = CHARACTER_VOICES.get(character, CHARACTER_VOICES["NARRATOR"])
+        char_cfg = NARRATOR_VOICE
         voice = char_cfg["voice"]
         rate = char_cfg["rate"]
         pitch = char_cfg["pitch"]
@@ -535,7 +527,8 @@ async def _generate_multi_voice(dialogue_segments: list[dict], output_filename: 
             try:
                 seg_audio = AudioSegment.from_file(seg_path)
                 cumulative_offset += len(seg_audio) + 200
-            except Exception:
+            except Exception as e:
+                print(f"[voice_gen] Failed to load seg_{seg_idx:03d} audio, guessing 5s offset: {e}")
                 cumulative_offset += 5000
 
     output_path = str(VOICE_DIR / output_filename)

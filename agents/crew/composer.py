@@ -6,12 +6,13 @@ def create_composer_crew(category: str = "", duration: int = 60):
     llm = get_llm(temperature=0.4, max_tokens=1000)
 
     composer = Agent(
-        role="Children's Music Composer",
-        goal="Create engaging background music that matches the emotional tone of each scene",
-        backstory="""You are a music composer specializing in children's content.
-You create simple, memorable melodies that are uplifting and perfectly matched
-to the emotional tone of each scene. You use procedural music generation
-with child-friendly tempos and instrument tones.""",
+        role="Tech Music Composer",
+        goal="Create modern background music that matches the tone of educational tech content",
+        backstory="""You are a music composer specializing in technology and educational content.
+You create modern, electronic background music that enhances learning without distracting.
+Your compositions use clean synth tones, subtle rhythmic elements, and professional production
+quality. You match the emotional tone: focused for deep explanations, energetic for tutorials,
+and cinematic for concept overviews.""",
         llm=llm,
         verbose=True,
         allow_delegation=False,
@@ -20,7 +21,7 @@ with child-friendly tempos and instrument tones.""",
     music_task = Task(
         description="""Compose background music for a {category} video with duration of {duration} seconds.
 
-Select the appropriate mood: happy, calm, adventure, bedtime, playful, exciting, or sad.
+Select the appropriate mood: focused, energetic, cinematic, ambient, modern, or uplifting.
 Generate a melody file path and mood selection.""",
         expected_output="Background music file path with mood and duration.",
         agent=composer,

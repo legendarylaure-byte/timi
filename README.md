@@ -1,23 +1,28 @@
 # Vyom Ai Cloud — Timi
 
-> **Faceless Kids Content Automation Platform**
-> AI-powered animated cartoon video generation and publishing for YouTube, TikTok, Instagram, and Facebook.
+> **AI-Powered Tech Educational Video Platform**
+> Fully automated video creation and multi-platform publishing for AI/tech educational content.
 
 ## Overview
 
-Vyom Ai Cloud (codename: Timi) is a fully automated content creation pipeline that generates educational animated cartoon videos for children aged 1-9. The system runs 24/7, producing and publishing content across multiple social media platforms daily.
+Vyom Ai Cloud (codename: Timi) is an automated content pipeline that generates educational tech/AI videos — from script to publish — across YouTube, TikTok, Instagram, and Facebook. Eight CrewAI agents orchestrate the full workflow: scriptwriting, scene routing (Manim diagrams, PIL mockups, stock footage), voiceover (Edge TTS), background music (MusicGen), xfade compositing, and multi-platform upload with API-native AI disclosure.
 
-### Content Types
-- Bedtime stories
-- Mythology stories (gods and goddesses)
-- Self-learning (ABCs, numbers, colors, morals)
-- Animated fables
-- Science for kids
+### Content Categories
+| Category | Description |
+|----------|-------------|
+| AI Explained | How AI and ML technologies work, explained simply |
+| Deep Tech | In-depth technical deep dives and architecture breakdowns |
+| Paper Breakdowns | Latest research papers summarized and analyzed |
+| Tool Tutorials | Hands-on tutorials for AI tools and frameworks |
+| Industry Analysis | Tech industry trends, predictions, and news analysis |
+| Code & Build | Learn to build with code — projects and examples |
+| AI News | Weekly AI and technology news roundup |
+| Career & Learning | Tech career advice, learning paths, and resources |
 
 ### Output Formats
 | Format | Aspect Ratio | Duration | Platforms |
 |--------|-------------|----------|-----------|
-| Shorts | 9:16 | Up to 120s | YouTube Shorts (TikTok/Instagram — planned) |
+| Shorts | 9:16 | Up to 120s | YouTube Shorts, TikTok, Instagram Reels |
 | Long | 16:9 | Up to 300s | YouTube, Facebook |
 
 ### Daily Quota
@@ -29,7 +34,7 @@ Vyom Ai Cloud (codename: Timi) is a fully automated content creation pipeline th
 ```
 ┌─────────────────────┐     ┌──────────────────────┐     ┌─────────────────┐
 │   Dashboard (Next.js)│────▶│  AI Agents (CrewAI)  │────▶│  Pipeline (FFmpeg)│
-│   timi.vyomai.cloud  │     │  Groq LLM            │     │  + Serverless GPU │
+│   timi.vyomai.cloud  │     │  Groq/Gemini LLM     │     │  + xfade compose  │
 └─────────────────────┘     └──────────────────────┘     └─────────────────┘
          │                          │                            │
     Firebase              Cloudflare R2 (temp)          YouTube/TikTok/
@@ -38,34 +43,48 @@ Vyom Ai Cloud (codename: Timi) is a fully automated content creation pipeline th
                     Telegram Bot ──────────────► Notifications
 ```
 
+### Scene Asset Routing
+```
+┌──────────────┐
+│  Scene Parser │──▶ STOCK_FOOTAGE ──▶ Pexels API
+│  (keywords)   │──▶ DIAGRAM_ANIMATION ──▶ Manim (Python)
+└──────────────┘──▶ SCREEN_CAPTURE ──▶ PIL mockups
+                   └──▶ CODE_SNIPPET ──▶ PIL mockup
+```
+
 ## Tech Stack
 
 ### Frontend
 - Next.js 15 + React 19 + TypeScript
-- Framer Motion (CSS animations)
-- TailwindCSS + Framer Motion
+- Framer Motion + TailwindCSS
 - Firebase Auth (Google OAuth)
+- lucide-react (SVG icons)
+- Dark/light theme
 
 ### AI Agents
 - CrewAI + LangChain (multi-agent orchestration)
-- Groq API (LLM inference — free tier)
+- Groq API + Gemini API (LLM inference)
 - Edge TTS (voice synthesis)
 - MusicGen (background music)
-- Stable Diffusion XL (character sprite generation, optional — requires GPU)
-- Stable Video Diffusion (video frames, optional — requires GPU)
 
-### Pipeline
-- FFmpeg (video composition)
-- PIL/Pillow (2D frame generation)
-- APScheduler (task scheduling)
+### Video Pipeline
+- Manim 0.20.1 (math animations, neural net diagrams)
+- FFmpeg 8.1 (xfade compositing with dissolve/fade/slide transitions)
+- PIL/Pillow (terminal/IDE/browser/code mockups)
+- Pexels API (stock footage)
 
 ### Infrastructure
 - Vercel (frontend hosting — free)
 - Firebase (auth, database — free tier)
 - Cloudflare R2 (video storage — 10GB free, auto-delete)
-- Modal/Replicate (serverless GPU — pay-per-use)
-- GitHub Actions (CI/CD)
 - python-telegram-bot (notifications)
+- APScheduler (task scheduling)
+
+### Compliance
+- YouTube `containsSyntheticMedia` (API-native AI disclosure)
+- TikTok `is_aigc` (Content Posting API)
+- Instagram `is_ai_generated` (Graph API)
+- Facebook fallback `#AI` hashtag
 
 ## Project Structure
 
@@ -73,8 +92,10 @@ Vyom Ai Cloud (codename: Timi) is a fully automated content creation pipeline th
 timi/
 ├── dashboard/              # Next.js frontend application
 ├── agents/                 # Python AI agent scripts
-├── pipeline/               # FFmpeg rendering pipeline
-├── bot/                    # Telegram notification bot
+│   ├── crew/               # CrewAI agent definitions
+│   ├── utils/              # Shared utilities (video, audio, thumbnails)
+│   ├── compliance/         # AI disclosure & platform policy
+│   └── data/               # Affiliate programs, prompts
 ├── firebase/               # Firebase configuration
 ├── .github/workflows/      # CI/CD pipelines
 ├── vercel.json             # Vercel deployment config
@@ -85,8 +106,9 @@ timi/
 
 ### Prerequisites
 - Node.js 20+
-- Python 3.11+
-- FFmpeg installed
+- Python 3.11+ (3.14.x)
+- FFmpeg 8.0+ (with xfade filter support)
+- Manim 0.20.1 (optional — for diagram animations)
 - Firebase project created
 
 ### Environment Variables
@@ -111,57 +133,39 @@ npm run dev
 
 ```bash
 cd agents
+python3 -m venv .venv
+source .venv/bin/activate
 pip install -r requirements.txt
 python main.py
 ```
 
-### Bot Setup
+### Test the Full Pipeline
 
 ```bash
-cd bot
-pip install -r requirements.txt
-python bot.py
+cd agents
+source .venv/bin/activate
+python test_transformers.py
 ```
-
-## Deployment
-
-### Vercel (Dashboard)
-```bash
-cd dashboard
-vercel --prod
-```
-
-### Firebase (Database + Storage)
-```bash
-firebase deploy --only firestore,storage
-```
-
-### Domain Configuration
-Add CNAME record in Hostinger:
-- Host: `timi`
-- Type: `CNAME`
-- Value: `cname.vercel-dns.com`
 
 ## Agent Roles
 
 | Agent | Responsibility |
 |-------|---------------|
-| Scriptwriter | Creates age-appropriate scripts |
-| Storyboard Artist | Generates scene descriptions and images |
-| Voice Actor | Synthesizes character voices |
+| Scriptwriter | Researches and writes educational tech scripts |
+| Storyboard Artist | Generates scene descriptions with asset type routing |
+| Voice Actor | Synthesizes narration (Edge TTS) |
 | Composer | Creates background music |
-| Animator | Generates 2D animated frames / sources stock footage |
-| Editor | Composites video and audio |
-| Thumbnail Creator | Generates eye-catching thumbnails |
-| Metadata Writer | Writes SEO-optimized titles, descriptions, tags |
-| Publisher | Uploads to all social media platforms |
+| Asset Generator | Routes scenes to Manim/PIL/Pexels |
+| Video Editor | xfade composites assets with audio |
+| Thumbnail Creator | Renders Pillow thumbnails with title text |
+| Publisher | Uploads with compliance flags to all platforms |
 
 ## Telegram Bot Commands
 
 | Command | Description |
 |---------|-------------|
 | `/start` | Initialize bot |
-| `/status` | Current project status |
+| `/status` | Current pipeline status |
 | `/today` | Videos generated/uploaded today |
 | `/analytics` | Channel growth metrics |
 | `/youtube` | YouTube channel stats |
@@ -173,18 +177,20 @@ Add CNAME record in Hostinger:
 ## Monetization Strategy
 
 ### Revenue Streams
-1. YouTube Partner Program (1K subs + 4K watch hours)
+1. YouTube Partner Program (1K subs + 4K watch hours / 10M Shorts views)
 2. TikTok Creator Rewards Program (10K followers + 100K views)
-3. Instagram Subscriptions
+3. Instagram Subscriptions (10K followers + 60K watch mins)
 4. Facebook In-Stream Ads
-5. Brand sponsorships
-6. Merchandise
+5. AI tool affiliate marketing
+6. Brand sponsorships
 
-### Growth Targets
-- Month 1-2: Build content library (60 videos/month)
-- Month 3-4: Reach 1K YouTube subscribers
-- Month 5-6: Enable monetization
-- Month 7+: Scale to 10K+ subscribers
+### CPM Ranges (Tech/AI Education)
+| Platform | CPM |
+|----------|-----|
+| YouTube | $8.00 - $15.00 |
+| TikTok | $1.00 - $4.00 |
+| Instagram | $3.00 - $8.00 |
+| Facebook | $2.00 - $6.00 |
 
 ## Cost Breakdown (Monthly)
 
@@ -193,14 +199,12 @@ Add CNAME record in Hostinger:
 | Vercel Hosting | $0 |
 | Firebase (Free tier) | $0 |
 | Groq API (Free tier) | $0 |
-| Serverless GPU (rendering) | ~$0.50-1.00 |
+| Gemini API (Free tier) | $0 |
+| Pexels API (Free tier) | $0 |
+| Cloudflare R2 (10GB free) | $0 |
 | Telegram Bot | $0 |
-| **Total** | **~$1/month** |
+| **Total** | **~$0/month** |
 
 ## License
 
 MIT — Open Source
-
-## Contributing
-
-This is a personal automation project. Contributions welcome.

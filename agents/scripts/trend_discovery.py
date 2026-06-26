@@ -1,6 +1,6 @@
 """
 Standalone Trend Discovery Script
-Run: python -m agents.scripts.trend_discovery [--category "Self-Learning"]
+Run: python -m agents.scripts.trend_discovery [--category "AI Explained"]
 """
 import argparse
 import json
@@ -8,7 +8,7 @@ from agents.utils.trend_discovery import discover_trends, analyze_category
 
 
 def main():
-    parser = argparse.ArgumentParser(description='Trend Discovery for Children\'s Content')
+    parser = argparse.ArgumentParser(description='Trend Discovery for Tech/AI Content')
     parser.add_argument('--category', help='Analyze specific category')
     args = parser.parse_args()
 

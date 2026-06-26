@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { APP_URL } from '@/lib/constants';
+import { getAdminFirestore } from '@/lib/firebase-admin';
 
 const YOUTUBE_CLIENT_ID = process.env.YOUTUBE_CLIENT_ID || '';
 const YOUTUBE_CLIENT_SECRET = process.env.YOUTUBE_CLIENT_SECRET || '';
@@ -9,6 +10,7 @@ export async function GET(request: NextRequest) {
   const searchParams = request.nextUrl.searchParams;
   const code = searchParams.get('code');
   const error = searchParams.get('error');
+  const state = searchParams.get('state'); // user UID from init
 
   if (error) {
     return NextResponse.redirect(
@@ -19,6 +21,12 @@ export async function GET(request: NextRequest) {
   if (!code) {
     return NextResponse.redirect(
       `${APP_URL}/dashboard/settings?error=missing_code`
+    );
+  }
+
+  if (!state) {
+    return NextResponse.redirect(
+      `${APP_URL}/dashboard/settings?error=missing_state`
     );
   }
 
@@ -47,10 +55,28 @@ export async function GET(request: NextRequest) {
 
     const tokens = await tokenResponse.json();
 
+    // Persist tokens to Firestore for the user
+    try {
+      const db = getAdminFirestore();
+      await db.collection('platform_settings').doc('youtube').set({
+        connected: true,
+        access_token: tokens.access_token,
+        refresh_token: tokens.refresh_token,
+        scope: tokens.scope,
+        token_type: tokens.token_type,
+        expires_at: Date.now() + (tokens.expires_in || 3600) * 1000,
+        updated_at: new Date().toISOString(),
+        userId: state,
+      }, { merge: true });
+    } catch (firestoreError) {
+      console.error('[YOUTUBE CALLBACK] Failed to persist tokens:', firestoreError);
+    }
+
     return NextResponse.redirect(
       `${APP_URL}/dashboard/settings?youtube_connected=true`
     );
   } catch (error) {
+    console.error('[YOUTUBE CALLBACK] Error:', error);
     return NextResponse.redirect(
       `${APP_URL}/dashboard/settings?error=token_exchange_failed`
     );

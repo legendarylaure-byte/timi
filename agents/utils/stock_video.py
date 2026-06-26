@@ -32,43 +32,43 @@ def _rate_limit_delay():
 
 
 PEXELS_KEYWORD_MAP = {
-    "bunny": ["rabbit", "bunny", "cute animal"],
-    "bear": ["teddy bear", "bear cub", "cartoon bear"],
-    "forest": ["forest", "woodland", "trees nature"],
-    "ocean": ["ocean", "sea waves", "underwater"],
+    "neural": ["neural network", "deep learning", "AI brain"],
+    "data": ["data center", "server room", "big data"],
+    "code": ["computer code", "programming", "developer coding"],
+    "robot": ["robot", "automation", "robotic arm"],
+    "chip": ["microchip", "processor", "circuit board"],
     "space": ["stars", "galaxy", "space", "planet"],
-    "play": ["kids playing", "children playground", "happy kids"],
-    "sleep": ["sleeping child", "night sky stars", "moon"],
-    "friend": ["friends playing", "kids together", "hugging"],
-    "magic": ["sparkles", "fairy dust", "glowing particles"],
-    "garden": ["garden flowers", "butterfly", "nature spring"],
-    "adventure": ["exploring", "hiking nature", "mountain view"],
-    "animal": ["cute animals", "wildlife", "farm animals"],
-    "rainbow": ["rainbow", "colorful sky"],
-    "snow": ["snowfall", "winter wonderland", "snowy"],
-    "sunset": ["sunset", "golden hour", "dawn sky"],
-    "birthday": ["birthday cake", "party balloons"],
-    "school": ["classroom kids", "learning", "reading book"],
-    "food": ["kids eating", "fruit vegetables", "cooking food"],
-    "car": ["toy car", "cars driving"],
-    "dog": ["dog playing", "cute puppy", "dog running"],
-    "cat": ["cat playing", "cute kitten"],
-    "bird": ["bird flying", "colorful bird"],
-    "fish": ["fish swimming", "aquarium", "tropical fish"],
-    "dragon": ["dragon", "fantasy creature"],
-    "princess": ["princess", "castle", "fairy tale"],
-    "superhero": ["superhero", "flying", "action hero"],
-    "music": ["music instruments", "dancing"],
-    "dance": ["kids dancing", "ballet"],
-    "cloud": ["clouds sky", "fluffy clouds"],
-    "flower": ["flower blooming", "flower garden"],
+    "network": ["network", "cloud computing", "internet"],
+    "abstract": ["abstract tech", "digital art", "technology background"],
+    "office": ["modern office", "coworking space", "tech startup"],
+    "analytics": ["data analytics", "dashboard", "statistics"],
+    "brain": ["human brain", "neuroscience", "thinking"],
+    "innovation": ["innovation", "future technology", "modern tech"],
+    "science": ["laboratory", "scientist", "research"],
+    "ai": ["artificial intelligence", "machine learning", "AI"],
+    "education": ["online learning", "e-learning", "study"],
+    "business": ["business meeting", "presentation", "corporate"],
+    "phone": ["smartphone", "mobile app", "technology device"],
+    "screen": ["computer screen", "monitor", "display"],
+    "cloud": ["cloud computing", "cloud storage", "server cloud"],
+    "engineering": ["engineering", "blueprint", "technical drawing"],
+    "cybersecurity": ["cybersecurity", "data protection", "encryption"],
+    "research": ["research paper", "scientific study", "analysis"],
+    "startup": ["startup team", "entrepreneur", "innovation lab"],
+    "digital": ["digital transformation", "digital technology", "tech"],
+    "future": ["futuristic", "future tech", "technology"],
+    "algorithm": ["algorithm", "data flow", "binary code"],
+    "scientist": ["data scientist", "researcher", "lab work"],
+    "computer": ["computer lab", "computing", "pc"],
+    "math": ["mathematics", "formula", "equations"],
+    "presentation": ["presentation", "conference", "tech talk"],
 }
 
 UNIVERSAL_KEYWORDS = [
-    "colorful background", "nature scenery", "kids learning",
-    "happy children", "animated shapes", "bright colors",
-    "cute animals playing", "nature landscape", "abstract animation",
-    "sunny day outdoor", "waterfall nature", "rainbow sky",
+    "technology background", "abstract tech", "digital network",
+    "data visualization", "circuit board", "server room",
+    "computer code", "artificial intelligence", "futuristic",
+    "blue digital background", "abstract animation", "tech innovation",
 ]
 
 
@@ -77,7 +77,7 @@ def _keyword_expand(base_keyword: str) -> list[str]:
     for key, aliases in PEXELS_KEYWORD_MAP.items():
         if key in base or base in key:
             return aliases
-    return [base, base + " cartoon", base + " animation", base + " kids"]
+    return [base, base + " technology", base + " abstract", base + " 4k"]
 
 
 def _handle_rate_limit(resp: requests.Response, source: str, max_retries: int = 1) -> requests.Response:

@@ -62,7 +62,7 @@ def upload_video_to_youtube(
     description: str,
     tags: list,
     thumbnail_file: str = None,
-    category_id: str = "27",
+    category_id: str = "28",
     is_shorts: bool = False,
     publish_at: str = None,
 ) -> dict:
@@ -106,14 +106,11 @@ def upload_video_to_youtube(
         },
         "status": {
             "privacyStatus": privacy_status,
-            "madeForKids": True,
-            "selfDeclaredMadeForKids": True,
+            "madeForKids": False,
+            "selfDeclaredMadeForKids": False,
+            "containsSyntheticMedia": True,
         },
     }
-
-    if is_shorts:
-        body["snippet"]["title"] = f"#Shorts {title}"
-        body["snippet"]["description"] += "\n\n#shorts #kidscontent #vyomaicloud"
 
     media = MediaFileUpload(video_file, chunksize=-1, resumable=True)
 
@@ -154,8 +151,9 @@ def upload_video_to_youtube(
                     "status": {
                         "privacyStatus": "private",
                         "publishAt": publish_at,
-                        "madeForKids": True,
-                        "selfDeclaredMadeForKids": True,
+                        "madeForKids": False,
+                        "selfDeclaredMadeForKids": False,
+                        "containsSyntheticMedia": True,
                     },
                 },
             ).execute()

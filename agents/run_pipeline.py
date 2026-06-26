@@ -6,7 +6,7 @@ from main import daily_content_job, generate_short_video, generate_long_video, l
 def main():
     topic = os.environ.get('TOPIC', '')
     format_type = os.environ.get('FORMAT', 'shorts')
-    category = os.environ.get('CATEGORY', 'Self-Learning')
+    category = os.environ.get('CATEGORY', 'AI Explained')
 
     if topic:
         log_event('MANUAL', f'Generating custom video: {topic} ({format_type})')

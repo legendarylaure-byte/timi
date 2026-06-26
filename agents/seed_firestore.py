@@ -5,6 +5,7 @@ from firebase_admin import credentials, firestore
 from datetime import datetime, timezone
 
 cred = credentials.Certificate('firebase/serviceAccountKey.json')
+# NOTE: 'timi-childern-stories' is legacy — update when new Firebase project is created
 project_id = os.getenv('FIREBASE_PROJECT_ID', 'timi-childern-stories')
 firebase_admin.initialize_app(cred, {
     'projectId': project_id,
@@ -51,7 +52,7 @@ print('Seeding settings/general...')
 db.collection('settings').document('general').set({
     'shortsPerDay': 2,
     'longPerDay': 1,
-    'category': 'Self-Learning',
+    'category': 'AI Explained',
     'enableMultiLang': True,
     'enableSubtitles': True,
     'enableReviewGate': True,

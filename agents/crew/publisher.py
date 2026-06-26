@@ -12,10 +12,11 @@ def create_publisher_crew(video: str = "", thumbnail: str = "", metadata: str = 
 
     publisher = Agent(
         role="Social Media Publisher",
-        goal="Upload videos to YouTube, TikTok, Instagram, and Facebook with proper metadata",
-        backstory="""You are a multi-platform publishing expert. You handle automated uploads
-to all major social media platforms with proper metadata, scheduling, and notifications.
-You ensure COPPA compliance and platform-specific optimization for each upload.""",
+        goal="Upload tech educational videos to YouTube, TikTok, Instagram, and Facebook with proper metadata and compliance",
+        backstory="""You are a multi-platform publishing expert for tech educational content.
+You handle automated uploads to all major social media platforms with proper metadata,
+scheduling, and notifications. You ensure platform compliance including AI content disclosure,
+correct categorization (Science & Technology), and standard (non-kids) content settings.""",
         llm=llm,
         verbose=True,
         allow_delegation=False,
@@ -30,11 +31,12 @@ You ensure COPPA compliance and platform-specific optimization for each upload."
 
 Steps:
 1. Upload to YouTube (Data API v3)
-   - Set "Made for Kids" = true
+   - Set "Made for Kids" = false
    - Apply title, description, tags, thumbnail
    - Set privacy status to "public"
-   - Use category ID "27" (Education) for kids content
-   - If format is "shorts", add #Shorts to title
+   - Use category ID "28" (Science & Technology)
+   - Enable AI-generated content disclosure flag
+   - Do NOT add #Shorts prefix (handled separately)
 
 2. Upload to TikTok (Content Posting API)
    - Apply title and hashtags

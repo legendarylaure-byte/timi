@@ -40,6 +40,7 @@ def get_firestore_client():
     try:
         cred = credentials.Certificate(sa_path)
         firebase_admin.initialize_app(cred, {
+            # NOTE: 'timi-childern-stories' is legacy — update when new Firebase project is created
             'projectId': os.getenv('FIREBASE_PROJECT_ID', 'timi-childern-stories'),
         })
     except ValueError as e:

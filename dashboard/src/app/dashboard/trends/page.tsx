@@ -6,6 +6,7 @@ import { db } from '@/lib/firebase';
 import { collection, getDocs, addDoc, serverTimestamp, orderBy, query, limit, onSnapshot } from 'firebase/firestore';
 import { CONTENT_CATEGORIES } from '@/lib/constants';
 import Image from 'next/image';
+import { Flame, TrendingUp, Search, Target, Star, Eye, BarChart3, Loader2 } from 'lucide-react';
 
 interface TrendItem {
   id: string;
@@ -20,23 +21,13 @@ interface TrendItem {
   created_at?: any;
 }
 
-const trendingIcons: Record<string, string> = {
-  'Self-Learning': '🧠',
-  'Bedtime Stories': '🌙',
-  'Mythology Stories': '⚡',
-  'Animated Fables': '🐾',
-  'Science for Kids': '🔬',
-  'Rhymes & Songs': '🎵',
-  'Colors & Shapes': '🎨',
-  'Tech & AI': '🤖',
-  'Gaming': '🎮',
-  'Cooking & Food': '🍳',
-  'DIY & Crafts': '✂️',
-  'Health & Wellness': '💪',
-  'Travel & Adventure': '✈️',
-  'Finance & Business': '💰',
-  'Comedy & Entertainment': '😂',
-  'Music & Dance': '💃',
+const categoryIcon = (cat: string) => {
+  const icons: Record<string, string> = {
+    'AI Explained': '🤖', 'Deep Tech': '⚡', 'Paper Breakdowns': '📄',
+    'Tool Tutorials': '🛠️', 'Industry Analysis': '📊', 'Code & Build': '💻',
+    'AI News': '📰', 'Career & Learning': '🎯',
+  };
+  return icons[cat] || '🔥';
 };
 
 export default function TrendsPage() {
@@ -107,22 +98,23 @@ export default function TrendsPage() {
       <motion.div initial={{ opacity: 0, y: -20 }} animate={{ opacity: 1, y: 0 }}>
         <div className="flex items-center justify-between mb-2">
           <div className="flex items-center gap-4">
-            <div className="w-12 h-12 rounded-2xl bg-gradient-to-br from-orange-500/20 to-pink-500/20 flex items-center justify-center">
-              <span className="text-2xl">🔥</span>
+            <div className="w-12 h-12 rounded-2xl flex items-center justify-center" style={{ background: 'linear-gradient(135deg, #FF6969, #C80036)' }}>
+              <Flame className="w-6 h-6 text-white" />
             </div>
             <div>
               <h1 className="text-3xl font-bold text-light-text dark:text-dark-text">Trend Discovery</h1>
-              <p className="text-light-muted dark:text-dark-muted mt-1">AI-powered trending topic discovery for kids&apos; content</p>
+              <p className="text-light-muted dark:text-dark-muted mt-1">AI-powered trending topic discovery for tech/AI content</p>
             </div>
           </div>
           <button
             onClick={discoverTrends}
             disabled={refreshing}
-            className="px-4 py-2.5 rounded-xl bg-gradient-to-r from-orange-500 to-pink-500 text-white text-sm font-medium hover:opacity-90 disabled:opacity-50 transition-opacity flex items-center gap-2"
+            className="px-4 py-2.5 rounded-xl text-white text-sm font-medium hover:opacity-90 disabled:opacity-50 transition-opacity flex items-center gap-2"
+            style={{ background: 'linear-gradient(135deg, #FF6969, #C80036)' }}
           >
-            <motion.span animate={refreshing ? { rotate: 360 } : {}} transition={{ duration: 1, repeat: refreshing ? Infinity : 0 }}>
-              🔍
-            </motion.span>
+            <motion.div animate={refreshing ? { rotate: 360 } : {}} transition={{ duration: 1, repeat: refreshing ? Infinity : 0 }}>
+              <Search className="w-4 h-4" />
+            </motion.div>
             {refreshing ? 'Discovering...' : 'Discover Trends'}
           </button>
         </div>
@@ -131,19 +123,22 @@ export default function TrendsPage() {
       {/* Stats */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
         {[
-          { label: 'Total Search Volume', value: formatVolume(totalVolume), icon: '📊', color: 'text-blue-400' },
-          { label: 'Avg Growth', value: `+${avgGrowth}%`, icon: '📈', color: 'text-emerald-400' },
-          { label: 'Low Competition', value: lowCompetition.toString(), icon: '🎯', color: 'text-purple-400' },
-          { label: 'Top Opportunity', value: topScore.toString(), icon: '⭐', color: 'text-yellow-400' },
-        ].map((stat) => (
-          <motion.div key={stat.label} className="p-4 rounded-xl glass-strong border border-light-border/30 dark:border-white/5">
-            <div className="flex items-center gap-2 mb-1">
-              <span className="text-lg">{stat.icon}</span>
-              <p className="text-xs text-light-muted dark:text-dark-muted">{stat.label}</p>
-            </div>
-            <p className={`text-2xl font-bold ${stat.color}`}>{stat.value}</p>
-          </motion.div>
-        ))}
+          { label: 'Total Search Volume', value: formatVolume(totalVolume), icon: BarChart3, color: 'text-blue-400' },
+          { label: 'Avg Growth', value: `+${avgGrowth}%`, icon: TrendingUp, color: 'text-emerald-400' },
+          { label: 'Low Competition', value: lowCompetition.toString(), icon: Target, color: 'text-purple-400' },
+          { label: 'Top Opportunity', value: topScore.toString(), icon: Star, color: 'text-yellow-400' },
+          ].map((stat) => {
+            const StatIcon = stat.icon;
+            return (
+            <motion.div key={stat.label} className="p-4 rounded-xl glass-strong border border-light-border/30 dark:border-white/5">
+              <div className="flex items-center gap-2 mb-1">
+                <StatIcon className={`w-5 h-5 ${stat.color}`} />
+                <p className="text-xs text-light-muted dark:text-dark-muted">{stat.label}</p>
+              </div>
+              <p className={`text-2xl font-bold ${stat.color}`}>{stat.value}</p>
+            </motion.div>
+            );
+          })}
       </div>
 
       {/* Filters */}
@@ -155,11 +150,11 @@ export default function TrendsPage() {
               onClick={() => setSelectedCategory(cat)}
               className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-all ${
                 selectedCategory === cat
-                  ? 'bg-gradient-to-r from-orange-500 to-pink-500 text-white'
+                  ? 'bg-light-primary text-white'
                   : 'bg-light-bg dark:bg-dark-bg border border-light-border dark:border-white/10 text-light-muted dark:text-dark-muted'
               }`}
             >
-              {trendingIcons[cat] || '🔥'} {cat}
+              {categoryIcon(cat)} {cat}
             </button>
           ))}
         </div>
@@ -183,11 +178,11 @@ export default function TrendsPage() {
       {/* Trend Grid */}
       {loading ? (
         <div className="flex items-center justify-center py-20">
-          <motion.div animate={{ rotate: 360 }} transition={{ duration: 1, repeat: Infinity }} className="text-3xl">🔍</motion.div>
+          <Loader2 className="w-8 h-8 text-light-muted animate-spin" />
         </div>
       ) : filtered.length === 0 ? (
         <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="rounded-2xl glass-strong border border-light-border/30 dark:border-white/5 p-12 text-center">
-          <div className="text-5xl mb-4">🔥</div>
+          <Flame className="w-12 h-12 text-light-muted mx-auto mb-4" />
           <h3 className="text-lg font-bold text-light-text dark:text-dark-text mb-2">No Trends Discovered Yet</h3>
           <p className="text-sm text-light-muted dark:text-dark-muted max-w-md mx-auto mb-4">
             Click &quot;Discover Trends&quot; to find trending topics for your content.
@@ -195,7 +190,8 @@ export default function TrendsPage() {
           <button
             onClick={discoverTrends}
             disabled={refreshing}
-            className="px-6 py-2.5 rounded-xl bg-gradient-to-r from-orange-500 to-pink-500 text-white text-sm font-medium hover:opacity-90 disabled:opacity-50 transition-opacity"
+            className="px-6 py-2.5 rounded-xl text-white text-sm font-medium hover:opacity-90 disabled:opacity-50 transition-opacity"
+            style={{ background: 'linear-gradient(135deg, #FF6969, #C80036)' }}
           >
             {refreshing ? 'Discovering...' : 'Discover Trends'}
           </button>
@@ -213,7 +209,7 @@ export default function TrendsPage() {
               >
                 <div className="flex items-start justify-between mb-3">
                   <div className="flex items-center gap-2">
-                    <span className="text-2xl">{trendingIcons[trend.category] || '🔥'}</span>
+                    <span className="text-2xl">{categoryIcon(trend.category)}</span>
                     <div>
                       <h3 className="text-sm font-semibold text-light-text dark:text-dark-text group-hover:text-orange-400 transition-colors">{trend.title}</h3>
                       <p className="text-[10px] text-light-muted dark:text-dark-muted">{trend.category}</p>

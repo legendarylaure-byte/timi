@@ -1,6 +1,6 @@
 """
 Trend Discovery Agent
-Discovers trending topics for children's content on YouTube/TikTok.
+Discovers trending topics for tech/AI content on YouTube/TikTok.
 Run: python -m agents.scripts.trend_discovery
 """
 import json
@@ -9,14 +9,14 @@ from datetime import datetime
 from utils.groq_client import generate_completion
 from utils.firebase_status import get_firestore_client, log_activity
 
-SYSTEM_PROMPT = """You are a trend analyst specializing in YouTube/TikTok content across multiple niches.
-Analyze current trends and suggest video topics for both children's content and global trending categories.
+SYSTEM_PROMPT = """You are a trend analyst specializing in YouTube/TikTok tech content.
+Analyze current trends and suggest video topics for tech/AI educational content.
 Return ONLY a valid JSON array of objects with this exact structure:
 
 [
   {
     "title": "Catchy video title",
-    "category": "One of: Self-Learning, Bedtime Stories, Mythology Stories, Animated Fables, Science for Kids, Rhymes & Songs, Colors & Shapes, Tech & AI, Gaming, Cooking & Food, DIY & Crafts, Health & Wellness, Travel & Adventure, Finance & Business, Comedy & Entertainment, Music & Dance",
+    "category": "One of: AI Explained, Deep Tech, Paper Breakdowns, Tool Tutorials, Industry Analysis, Code & Build, AI News, Career & Learning",
     "search_volume": estimated_monthly_searches,
     "growth": percentage_growth_last_month,
     "competition": "low" or "medium" or "high",
@@ -26,7 +26,7 @@ Return ONLY a valid JSON array of objects with this exact structure:
   }
 ]
 
-Return 15 trending topics. Mix children's content (ages 1-9) with global trending categories. Consider seasonal events, viral patterns, and content gaps."""  # noqa: E501
+Return 10 trending topics focused on tech/AI education. Consider seasonal tech events (conferences, product launches, paper releases), viral patterns, and content gaps."""  # noqa: E501
 
 
 def fetch_youtube_trending(max_results: int = 20, region_code: str = "US") -> list:
@@ -65,18 +65,16 @@ def fetch_youtube_trending(max_results: int = 20, region_code: str = "US") -> li
             view_count = int(item.get("statistics", {}).get("viewCount", 0))
 
             category_map = {
-                "1": "Music & Dance", "2": "Comedy & Entertainment", "10": "Music & Dance",
-                "15": "Gaming", "17": "Comedy & Entertainment", "18": "Comedy & Entertainment",
-                "19": "Travel & Adventure", "20": "Gaming", "22": "Comedy & Entertainment",
-                "23": "Comedy & Entertainment", "24": "Comedy & Entertainment", "25": "Tech & AI",
-                "26": "DIY & Crafts", "27": "Self-Learning", "28": "Science for Kids",
-                "29": "Health & Wellness", "30": "Comedy & Entertainment",
+                "1": "AI Explained", "2": "Deep Tech", "10": "AI News",
+                "15": "Gaming", "17": "Code & Build", "18": "Industry Analysis",
+                "19": "Career & Learning", "20": "Gaming", "22": "Industry Analysis",
+                "23": "Industry Analysis", "24": "Industry Analysis", "25": "AI News",
+                "26": "Tool Tutorials", "27": "AI Explained", "28": "Deep Tech",
+                "29": "Career & Learning", "30": "Industry Analysis",
             }
-            category = category_map.get(category_id, "Comedy & Entertainment")
+            category = category_map.get(category_id, "AI Explained")
 
-            is_kids = category in ("Self-Learning", "Science for Kids", "Bedtime Stories",
-                                   "Rhymes & Songs", "Colors & Shapes", "Animated Fables")
-            predicted_search_volume = max(view_count // 10, 50000) if is_kids else max(view_count // 5, 100000)
+            predicted_search_volume = max(view_count // 5, 100000)
 
             trends.append({
                 "title": title,
@@ -98,45 +96,16 @@ def fetch_youtube_trending(max_results: int = 20, region_code: str = "US") -> li
         return []
 
 
-def _get_character_engagement_data() -> str:
-    """Fetch character performance data for trend prompt context."""
-    try:
-        from utils.analytics_tracker import get_character_performance_summary
-        chars = get_character_performance_summary()
-        if not chars:
-            return ""
-        lines = ["Character Engagement (last 30 days):"]
-        for char, stats in chars.items():
-            cats = ", ".join(c for c, _ in stats.get("top_categories", []))
-            lines.append(f"  - {char}: {stats['total_views']} views ({stats['share_pct']}% share), "
-                         f"{stats['video_count']} videos, top categories: {cats or 'N/A'}")
-        return "\n".join(lines)
-    except Exception as e:
-        print(f"[TRENDS] Character data fetch error: {e}")
-        return ""
-
-
 def discover_trends() -> list:
-    """Discover trending topics for children's content."""
+    """Discover trending topics for tech/AI educational content."""
     log_activity("trend_discovery", "Starting trend discovery scan", "info")
 
     youtube_trends = fetch_youtube_trending(max_results=15)
 
-    char_data = _get_character_engagement_data()
-
-    prompt = f"""Discover current trending topics for children's video content.
+    prompt = f"""Discover current trending topics for tech and AI educational video content.
 Today's date: {datetime.now().strftime('%B %Y')}
-Focus on content for ages 1-9.
-Consider seasonal trends, educational gaps, and viral patterns.
-Prioritize characters that have higher engagement.
-
-{char_data}
-
-When suggesting topics, consider which characters perform best.
-Characters map to categories as follows:
-- Pixel (robot): Self-Learning, Science for Kids, Tech & AI
-- Nova (star): Bedtime Stories, Mythology Stories, Animated Fables
-- Ziggy (rainbow): Rhymes & Songs, Colors & Shapes, DIY & Crafts
+Focus on evergreen tech explanations, tools, and industry analysis.
+Consider seasonal tech events (conferences, product launches, paper releases), educational gaps, and viral patterns.
 - Boop (blob): emotions, friendship, social skills
 - Sprout (plant): nature, growing, science"""
 
@@ -183,21 +152,21 @@ def _fallback_trends() -> list:
     """Fallback trending topics if Groq fails."""
     seasonal = datetime.now().month
     seasonal_topics = {
-        1: ["New Year Counting Fun", "Winter Animals Bedtime"],
-        2: ["Valentine Colors & Hearts", "Love Songs for Kids"],
-        3: ["Spring Science Experiments", "St. Patrick Fables"],
-        4: ["Earth Day for Kids", "Spring Rhymes"],
-        5: ["Mother's Day Stories", "Space Adventure"],
-        6: ["Summer Fun Learning", "Ocean Animals"],
-        7: ["Independence Day Colors", "Summer Science Camp"],
-        8: ["Back to School ABCs", "Dinosaur Discovery"],
-        9: ["Autumn Leaves Colors", "Harvest Fables"],
-        10: ["Halloween Gentle Stories", "Pumpkin Shapes"],
-        11: ["Thanksgiving Gratitude", "Native American Stories"],
-        12: ["Christmas Bedtime Stories", "Snowflake Science"],
+        1: ["AI Predictions for New Year", "Winter Tech Trends"],
+        2: ["Valentine's Day AI Tools", "Machine Learning Love"],
+        3: ["Spring AI Breakthroughs", "St. Patrick's Tech History"],
+        4: ["Earth Day Climate AI", "Spring Tech Releases"],
+        5: ["Mother's Day Gadget Guide", "Summer Tech Preview"],
+        6: ["Summer AI Learning Paths", "Tech Conference Season"],
+        7: ["Independence Day Tech History", "Summer Open Source"],
+        8: ["Back to School AI Tools", "Fall Tech Predictions"],
+        9: ["Autumn AI Research Roundup", "Tech Harvest Season"],
+        10: ["Halloween Tech History", "AI Horror Detection"],
+        11: ["Thanksgiving AI Gratitude", "Native American Tech"],
+        12: ["Christmas Tech Gift Guide", "Year in AI Review"],
     }
 
-    topics = seasonal_topics.get(seasonal, ["Fun Learning Adventures", "Bedtime Dreams"])
+    topics = seasonal_topics.get(seasonal, ["AI Breakthroughs", "Tech Trends"])
 
     global_trends = [
         {"title": f"AI Tools That Will Change {datetime.now().year}", "category": "Tech & AI", "search_volume": 890000, "growth": 120,
@@ -220,20 +189,20 @@ def _fallback_trends() -> list:
             "competition": "medium", "suggested_format": "long", "score": 90, "keywords": ["indie games", "gaming", "top 10", "must play"]},  # noqa: E501
     ]
 
-    kids_trends = [
-        {"title": f"{topics[0]}", "category": "Self-Learning", "search_volume": random.randint(100000, 500000), "growth": random.randint(  # noqa: E501
-            15, 70), "competition": random.choice(["low", "medium"]), "suggested_format": "shorts", "score": random.randint(75, 95), "keywords": ["learn", "kids", "fun"]},  # noqa: E501
-        {"title": f"{topics[1]}", "category": "Bedtime Stories", "search_volume": random.randint(80000, 300000), "growth": random.randint(10, 50), "competition": random.choice(  # noqa: E501
-            ["low", "medium", "high"]), "suggested_format": "long", "score": random.randint(70, 90), "keywords": ["bedtime", "sleep", "story"]},  # noqa: E501
-        {"title": "Why is the Sky Blue?", "category": "Science for Kids", "search_volume": 410000, "growth": 45,
-            "competition": "medium", "suggested_format": "shorts", "score": 94, "keywords": ["sky", "blue", "science", "why"]},  # noqa: E501
-        {"title": "ABC Phonics with Animals", "category": "Self-Learning", "search_volume": 245000, "growth": 34,
-            "competition": "low", "suggested_format": "shorts", "score": 92, "keywords": ["abc", "phonics", "animals"]},
-        {"title": "Counting to 10 with Dinosaurs", "category": "Rhymes & Songs", "search_volume": 290000, "growth": 52,
-            "competition": "low", "suggested_format": "shorts", "score": 91, "keywords": ["count", "dinosaurs", "numbers"]},  # noqa: E501
+    tech_trends = [
+        {"title": f"{topics[0]}", "category": "AI Explained", "search_volume": random.randint(100000, 500000), "growth": random.randint(  # noqa: E501
+            15, 70), "competition": random.choice(["low", "medium"]), "suggested_format": "shorts", "score": random.randint(75, 95), "keywords": ["ai", "explained", "tech"]},  # noqa: E501
+        {"title": f"{topics[1]}", "category": "Deep Tech", "search_volume": random.randint(80000, 300000), "growth": random.randint(10, 50), "competition": random.choice(  # noqa: E501
+            ["low", "medium", "high"]), "suggested_format": "long", "score": random.randint(70, 90), "keywords": ["deep", "tech", "explained"]},  # noqa: E501
+        {"title": "How Transformers Work", "category": "AI Explained", "search_volume": 410000, "growth": 45,
+            "competition": "medium", "suggested_format": "shorts", "score": 94, "keywords": ["transformer", "attention", "neural"]},  # noqa: E501
+        {"title": "Top 5 AI Tools 2025", "category": "Tool Tutorials", "search_volume": 245000, "growth": 34,
+            "competition": "low", "suggested_format": "shorts", "score": 92, "keywords": ["tools", "ai", "productivity"]},
+        {"title": "Python for Machine Learning", "category": "Code & Build", "search_volume": 290000, "growth": 52,
+            "competition": "low", "suggested_format": "shorts", "score": 91, "keywords": ["python", "ml", "tutorial"]},  # noqa: E501
     ]
 
-    return kids_trends + global_trends
+    return tech_trends + global_trends
 
 
 def _save_trends(trends: list):
@@ -252,7 +221,7 @@ def _save_trends(trends: list):
 
 def analyze_category(category: str) -> dict:
     """Analyze a specific category's trend potential."""
-    system_prompt = """Analyze the content category for children's videos.
+    system_prompt = """Analyze the content category for tech/AI educational videos.
 Return ONLY a JSON object with:
 
 {
@@ -269,7 +238,7 @@ Return ONLY a JSON object with:
 
     try:
         response = generate_completion(
-            prompt=f"Analyze the '{category}' category for children's video content (ages 1-9).",
+            prompt=f"Analyze the '{category}' category for tech/AI educational video content.",
             system_prompt=system_prompt,
             temperature=0.3,
             max_tokens=500,
@@ -289,12 +258,12 @@ def _fallback_category_analysis(category: str) -> dict:
     """Fallback category analysis."""
     data = {
         "Self-Learning": {"trending_score": 88, "monthly_searches": 2100000, "saturation": "medium", "growth_trend": "increasing"},  # noqa: E501
-        "Bedtime Stories": {"trending_score": 82, "monthly_searches": 1800000, "saturation": "high", "growth_trend": "stable"},  # noqa: E501
-        "Mythology Stories": {"trending_score": 75, "monthly_searches": 450000, "saturation": "low", "growth_trend": "increasing"},  # noqa: E501
-        "Animated Fables": {"trending_score": 78, "monthly_searches": 890000, "saturation": "medium", "growth_trend": "stable"},  # noqa: E501
-        "Science for Kids": {"trending_score": 91, "monthly_searches": 3200000, "saturation": "medium", "growth_trend": "increasing"},  # noqa: E501
-        "Rhymes & Songs": {"trending_score": 85, "monthly_searches": 4500000, "saturation": "high", "growth_trend": "stable"},  # noqa: E501
-        "Colors & Shapes": {"trending_score": 79, "monthly_searches": 1200000, "saturation": "medium", "growth_trend": "increasing"},  # noqa: E501
+        "AI Explained": {"trending_score": 94, "monthly_searches": 5600000, "saturation": "medium", "growth_trend": "increasing"},  # noqa: E501
+        "Deep Tech": {"trending_score": 82, "monthly_searches": 1200000, "saturation": "low", "growth_trend": "increasing"},  # noqa: E501
+        "Paper Breakdowns": {"trending_score": 78, "monthly_searches": 890000, "saturation": "low", "growth_trend": "increasing"},  # noqa: E501
+        "Tech Tutorials": {"trending_score": 88, "monthly_searches": 3200000, "saturation": "medium", "growth_trend": "increasing"},  # noqa: E501
+        "Code & Build": {"trending_score": 85, "monthly_searches": 2800000, "saturation": "medium", "growth_trend": "increasing"},  # noqa: E501
+        "Industry Analysis": {"trending_score": 80, "monthly_searches": 1500000, "saturation": "medium", "growth_trend": "stable"},  # noqa: E501
         "Tech & AI": {"trending_score": 95, "monthly_searches": 5600000, "saturation": "medium", "growth_trend": "increasing"},  # noqa: E501
         "Gaming": {"trending_score": 89, "monthly_searches": 8900000, "saturation": "high", "growth_trend": "stable"},
         "Cooking & Food": {"trending_score": 84, "monthly_searches": 4200000, "saturation": "medium", "growth_trend": "increasing"},  # noqa: E501
@@ -326,8 +295,8 @@ def generate_monthly_plan(month: int = None, year: int = None, focus_categories:
     year = year or datetime.now().year
 
     if focus_categories is None:
-        focus_categories = ["Self-Learning", "Bedtime Stories",
-                            "Science for Kids", "Tech & AI", "Cooking & Food", "DIY & Crafts"]
+        focus_categories = ["AI Explained", "Deep Tech",
+                            "Paper Breakdowns", "Tech Tutorials", "Code & Build", "Industry Analysis"]
 
     seasonal_events = {
         1: ["New Year", "Winter Activities"],

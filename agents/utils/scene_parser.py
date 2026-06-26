@@ -4,52 +4,47 @@ from utils.groq_client import generate_completion
 from utils.firebase_status import log_activity
 from utils.scene_schema import ValidationError
 
-SYSTEM_PROMPT = """You are a scene director for children's animated videos. Convert the given script into structured scene descriptions.
+SYSTEM_PROMPT = """You are a scene director for tech/AI educational videos. Convert the given script into structured scene descriptions.
 
 Return ONLY a valid JSON array of scene objects. Each scene object has this exact structure:
 
 {
-  "background": "gradient_sky|gradient_forest|gradient_ocean|gradient_space|gradient_sunset|gradient_night|gradient_garden|gradient_classroom|gradient_bedroom|gradient_underwater|color_solid",  # noqa: E501
+  "background": "solid_black|solid_white|solid_indigo|solid_slate|gradient_dark_tech|gradient_blueprint|gradient_neon|gradient_corporate|gradient_minimal",
   "duration": 8.0,
-  "characters": [
-    {
-      "name": "pixel|nova|ziggy|boop|sprout",
-      "pose": "idle|happy|wave|point|surprised|thinking|sleep|dance|growing|sad",  # noqa: E501
-      "expression": "neutral|happy|excited|curious|calm|dreamy|silly|sad|surprised|peaceful",  # noqa: E501
-      "animation": "bounce|float|wave|grow|wiggle|slide_in|thinking|twinkle|spin|glide|morph|dance|squish|cry|hug|sway|bloom|none",  # noqa: E501
-      "x": 0.5,
-      "y": 0.6
-    }
-  ],
+  "asset_type": "STOCK_FOOTAGE|SCREEN_CAPTURE|DIAGRAM_ANIMATION|CODE_SNIPPET|STATIC_IMAGE",
+  "asset_keywords": ["keyword1", "keyword2"],
   "text": [
     {
       "text": "Spoken narration text shown on screen",
-      "style": "narration|dialogue|title|emphasis",
+      "style": "narration|title|emphasis|caption",
       "position": "center|top|bottom|left|right"
     }
   ],
-  "effects": ["sparkle|fade_in|fade_out|rainbow_burst|star_rain"],
   "transition": "cut|fade|dissolve|slide_left|slide_right",
   "camera": {
     "zoom": 1.0,
     "pan_x": 0,
     "pan_y": 0
   },
-  "music_mood": "happy|calm|adventure|dreamy|playful|exciting"
+  "music_mood": "focused|energetic|cinematic|ambient|modern|uplifting"
 }
 
 RULES:
 - Each scene should be 5-12 seconds
-- x and y are normalized 0-1 coordinates (0.5 = center)
-- Use characters that match the story content
-- Pixel = science/learning, Nova = bedtime/magic, Ziggy = colors/songs, Boop = emotions/play, Sprout = nature/growth
-- Max 2 characters per scene (to keep compositing fast)
+- Use asset_type to specify what visual content to show
+- asset_keywords should describe what to search for or render
 - Text should be short phrases (3-8 words), not full sentences
 - Background should match the scene mood
 - camera.zoom of 1.0 means no zoom, >1 zooms in
 - Include text overlays for key spoken phrases
+- Match asset_type to the technical content:
+  - STOCK_FOOTAGE for general concepts/demonstrations
+  - SCREEN_CAPTURE for tool tutorials and code walkthroughs
+  - DIAGRAM_ANIMATION for explaining architectures and processes
+  - CODE_SNIPPET for showing code examples
+  - STATIC_IMAGE for reference images and diagrams
 
-Generate scenes that follow the narrative arc of the script. Maintain consistent character placement across consecutive scenes."""  # noqa: E501
+Generate scenes that follow the narrative arc of the script. Maintain visual continuity across consecutive scenes."""  # noqa: E501
 
 
 def parse_script_to_scenes(
@@ -79,7 +74,7 @@ def _llm_scene_parse(
     if len(script_text) > 6000:
         script_text = script_text[:6000] + "\n...[truncated]"
 
-    prompt = f"""Convert this children's video script into structured animation scenes.
+    prompt = f"""Convert this tech/AI educational video script into structured scenes with asset types.
 
 Title: {title}
 Category: {category}
@@ -91,8 +86,8 @@ Script:
 Storyboard:
 {storyboard_text[:3000] if storyboard_text else "N/A"}
 
-Important: Choose characters that fit the category:
-- {category} related characters: {_get_suggested_characters(category)}
+Important: Choose asset types that fit the category:
+- {category} related assets: {_get_suggested_assets(category)}
 
 Return ONLY valid JSON array of scene objects."""
 
@@ -155,7 +150,8 @@ def _rule_based_parse(script_text: str, storyboard_text: str, format_type: str) 
     for i, block in enumerate(scene_blocks):
         duration = _estimate_scene_duration(block, format_type, len(scene_blocks))
         background = _infer_background(block)
-        characters = _infer_characters(block)
+        asset_type = _infer_asset_type(block)
+        asset_keywords = _infer_keywords(block, title)
         text = _infer_text(block)
         effects = _infer_effects(block, i, len(scene_blocks))
         transition = _infer_transition(i, len(scene_blocks))
@@ -163,7 +159,8 @@ def _rule_based_parse(script_text: str, storyboard_text: str, format_type: str) 
         scene = {
             "background": background,
             "duration": duration,
-            "characters": characters,
+            "asset_type": asset_type,
+            "asset_keywords": asset_keywords,
             "text": text,
             "effects": effects,
             "transition": transition,
@@ -182,20 +179,18 @@ def _rule_based_parse(script_text: str, storyboard_text: str, format_type: str) 
 
 
 def _minimal_fallback(title: str, category: str, format_type: str) -> list[dict]:
-    char_name = _pick_character_for_category(category)
     scene_count = 4 if format_type == "shorts" else 8
     scenes = []
     for i in range(scene_count):
         scenes.append({
-            "background": "gradient_sky",
+            "background": "stock_footage",
             "duration": 6.0 if format_type == "shorts" else 10.0,
-            "characters": [{"name": char_name, "pose": "idle", "expression": "neutral",
-                            "animation": "float", "x": 0.5, "y": 0.5}],
+            "asset_type": "STOCK_FOOTAGE",
+            "asset_keywords": ["technology", title[:30]],
             "text": [{"text": title[:50], "style": "title", "position": "center"}],
-            "effects": ["sparkle"],
             "transition": "fade" if i > 0 else "cut",
             "camera": {"zoom": 1.0, "pan_x": 0, "pan_y": 0},
-            "music_mood": "happy",
+            "music_mood": "focused",
         })
     return scenes
 
@@ -240,83 +235,48 @@ def _estimate_scene_duration(block: str, format_type: str, total_scenes: int) ->
 
 def _infer_background(text: str) -> str:
     text_lower = text.lower()
-    if any(w in text_lower for w in ["space", "star", "moon", "planet", "galaxy", "astronaut"]):
-        return "gradient_space"
-    if any(w in text_lower for w in ["ocean", "sea", "water", "fish", "underwater", "beach"]):
-        return "gradient_ocean"
-    if any(w in text_lower for w in ["night", "sleep", "bedtime", "dream", "moonlight", "dark"]):
-        return "gradient_night"
-    if any(w in text_lower for w in ["forest", "tree", "wood", "nature", "garden", "flower", "plant"]):
-        return "gradient_forest"
-    if any(w in text_lower for w in ["sunset", "evening", "dusk", "golden"]):
-        return "gradient_sunset"
-    if any(w in text_lower for w in ["classroom", "school", "learn", "teach", "book", "read"]):
-        return "gradient_classroom"
-    if any(w in text_lower for w in ["bedroom", "bed", "room", "home", "house"]):
-        return "gradient_bedroom"
-    if any(w in text_lower for w in ["garden", "park", "outside", "playground", "flower"]):
-        return "gradient_garden"
-    if any(w in text_lower for w in ["rainbow", "color", "paint", "draw", "art"]):
-        return "gradient_sunset"
-    return "gradient_sky"
+    if any(w in text_lower for w in ["server", "data center", "cloud", "network", "cluster", "gpu"]):
+        return "gradient_dark_tech"
+    if any(w in text_lower for w in ["code", "algorithm", "program", "function", "script", "syntax"]):
+        return "gradient_blueprint"
+    if any(w in text_lower for w in ["neural", "deep learning", "layer", "architecture", "transformer"]):
+        return "gradient_neon"
+    if any(w in text_lower for w in ["tutorial", "guide", "how to", "step", "build", "setup"]):
+        return "gradient_corporate"
+    if any(w in text_lower for w in ["future", "innovation", "breakthrough", "next gen", "vision"]):
+        return "gradient_dark_tech"
+    if any(w in text_lower for w in ["simple", "beginner", "basics", "fundamentals", "overview"]):
+        return "gradient_minimal"
+    if any(w in text_lower for w in ["training", "benchmark", "performance", "accuracy", "loss"]):
+        return "solid_slate"
+    if any(w in text_lower for w in ["attention", "qkv", "embedding", "positional"]):
+        return "gradient_neon"
+    return "solid_black"
 
 
-def _infer_characters(text: str) -> list[dict]:
+def _infer_asset_type(text: str) -> str:
     text_lower = text.lower()
-    characters = []
+    if any(w in text_lower for w in ["code", "function", "implementation", "syntax", "import", "class", "def "]):  # noqa: E501
+        return "CODE_SNIPPET"
+    if any(w in text_lower for w in ["tutorial", "walkthrough", "click", "install", "terminal", "command"]):
+        return "SCREEN_CAPTURE"
+    if any(w in text_lower for w in ["architecture", "diagram", "network", "layer", "flow", "neural", "transformer", "attention", "algorithm", "process"]):  # noqa: E501
+        return "DIAGRAM_ANIMATION"
+    if any(w in text_lower for w in ["chart", "graph", "comparison", "benchmark", "stat", "table"]):
+        return "STATIC_IMAGE"
+    return "STOCK_FOOTAGE"
 
-    char_keywords = {
-        "pixel": ["robot", "pixel", "machine", "computer", "screen", "tech", "learn", "discover"],
-        "nova": ["star", "nova", "dream", "wish", "night", "imagine", "story", "magic"],
-        "ziggy": ["rainbow", "ziggy", "color", "shape", "circle", "square", "dance", "song", "paint"],
-        "boop": ["friend", "boop", "feel", "happy", "sad", "share", "play", "care", "hug"],
-        "sprout": ["sprout", "plant", "grow", "flower", "nature", "tree", "seed", "garden", "earth"],
-    }
 
-    char_poses = {
-        "pixel": ["idle", "happy", "wave", "point"],
-        "nova": ["idle", "happy", "wave", "float"],
-        "ziggy": ["idle", "happy", "dance", "wave"],
-        "boop": ["idle", "happy", "wave", "surprised"],
-        "sprout": ["idle", "growing", "happy", "wave"],
-    }
-
-    char_anims = {
-        "pixel": "bounce",
-        "nova": "float",
-        "ziggy": "dance",
-        "boop": "bounce",
-        "sprout": "sway",
-    }
-
-    for char_name, keywords in char_keywords.items():
-        if any(kw in text_lower for kw in keywords):
-            poses = char_poses.get(char_name, ["idle"])
-            characters.append({
-                "name": char_name,
-                "pose": poses[len(characters) % len(poses)],
-                "expression": "happy" if any(
-                    w in text_lower for w in ["happy", "fun", "great", "yay", "celebrate"]
-                ) else "neutral",
-                "animation": char_anims.get(char_name, "float"),
-                "x": 0.3 + len(characters) * 0.4,
-                "y": 0.55,
-            })
-            if len(characters) >= 2:
-                break
-
-    if not characters:
-        default_char = _pick_character_for_category("general")
-        characters.append({
-            "name": default_char,
-            "pose": "idle",
-            "expression": "neutral",
-            "animation": "float",
-            "x": 0.5,
-            "y": 0.55,
-        })
-
-    return characters
+def _infer_keywords(text: str, title: str = "") -> list[str]:
+    text_lower = text.lower()
+    tech_terms = ["AI", "machine learning", "deep learning", "neural network", "transformer",
+                  "GPT", "LLM", "data", "algorithm", "code", "GPU", "training", "inference",
+                  "automation", "cloud", "API", "model", "embedding", "attention",
+                  "token", "pipeline", "architecture", "framework", "PyTorch", "TensorFlow"]
+    found = [term for term in tech_terms if term.lower() in text_lower]
+    if title:
+        found.insert(0, title[:40])
+    return found[:5] if found else ["technology", title[:30] if title else "tech"]
 
 
 def _infer_text(text: str) -> list[dict]:
@@ -343,23 +303,13 @@ def _infer_text(text: str) -> list[dict]:
 
 
 def _infer_effects(text: str, scene_index: int, total_scenes: int) -> list[str]:
-    text_lower = text.lower()
     effects = []
-
     if scene_index == 0:
         effects.append("fade_in")
     if scene_index == total_scenes - 1:
         effects.append("fade_out")
-    if any(w in text_lower for w in ["sparkle", "magic", "twinkle", "wish"]):
-        effects.append("sparkle")
-    if any(w in text_lower for w in ["rainbow", "colorful", "bright"]):
-        effects.append("rainbow_burst")
-    if any(w in text_lower for w in ["star", "space", "night", "dream"]):
-        effects.append("star_rain")
-
     if not effects:
         effects.append("none")
-
     return effects[:2]
 
 
@@ -374,55 +324,43 @@ def _infer_transition(scene_index: int, total_scenes: int) -> str:
 
 def _infer_mood(text: str) -> str:
     text_lower = text.lower()
-    if any(w in text_lower for w in ["sad", "cry", "lonely", "afraid", "scared"]):
-        return "calm"
-    if any(w in text_lower for w in ["happy", "fun", "play", "dance", "song", "celebrate"]):
-        return "playful"
-    if any(w in text_lower for w in ["adventure", "explore", "journey", "discover"]):
-        return "adventure"
-    if any(w in text_lower for w in ["dream", "sleep", "night", "wish", "imagine", "story"]):
-        return "dreamy"
-    if any(w in text_lower for w in ["exciting", "wow", "amazing", "incredible"]):
-        return "exciting"
-    return "happy"
+    if any(w in text_lower for w in ["breakthrough", "revolutionary", "amazing", "incredible"]):
+        return "energetic"
+    if any(w in text_lower for w in ["deep", "complex", "architecture", "theory", "analysis"]):
+        return "focused"
+    if any(w in text_lower for w in ["tutorial", "guide", "how to", "step", "build"]):
+        return "modern"
+    if any(w in text_lower for w in ["future", "vision", "imagine", "next gen", "breakthrough"]):
+        return "cinematic"
+    if any(w in text_lower for w in ["simple", "easy", "beginner", "basics"]):
+        return "uplifting"
+    return "focused"
 
 
-def _get_suggested_characters(category: str) -> str:
+def _get_suggested_assets(category: str) -> str:
     mapping = {
-        "Self-Learning": "pixel (robot, curious), boop (friendly, playful)",
-        "Science for Kids": "pixel (robot, experiments), sprout (nature, growing)",
-        "Bedtime Stories": "nova (star, dreams), boop (snuggle, cozy)",
-        "Mythology Stories": "nova (magical, storytelling), pixel (discovering legends)",
-        "Animated Fables": "nova (storyteller), sprout (nature), pixel (curious)",
-        "Rhymes & Songs": "ziggy (rainbow, dancing), boop (bouncing, singing)",
-        "Colors & Shapes": "ziggy (shapeshifter, rainbow), pixel (counting, learning)",
-        "Tech & AI": "pixel (robot), ziggy (colorful tech)",
-        "DIY & Crafts": "ziggy (creative, colorful), boop (hands-on, playful)",
+        "AI Explained": "STOCK_FOOTAGE (tech concepts, AI visuals), DIAGRAM_ANIMATION (neural networks)",
+        "Deep Tech": "DIAGRAM_ANIMATION (architectures), STOCK_FOOTAGE (scientific concepts)",
+        "Paper Breakdowns": "DIAGRAM_ANIMATION (paper figures), CODE_SNIPPET (implementations)",
+        "Tool Tutorials": "SCREEN_CAPTURE (tool walkthrough), CODE_SNIPPET (commands)",
+        "Industry Analysis": "STOCK_FOOTAGE (business/tech), STATIC_IMAGE (charts, graphs)",
+        "Code & Build": "CODE_SNIPPET (code), SCREEN_CAPTURE (build process)",
+        "AI News": "STOCK_FOOTAGE (news style), STATIC_IMAGE (logos, products)",
+        "Career & Learning": "STOCK_FOOTAGE (learning), SCREEN_CAPTURE (resources)",
     }
-    return mapping.get(category, "pixel (curious robot), nova (dreamy star), ziggy (rainbow friend)")
-
-
-def _pick_character_for_category(category: str) -> str:
-    if category in ("Self-Learning", "Science for Kids", "Tech & AI"):
-        return "pixel"
-    if category in ("Bedtime Stories", "Mythology Stories", "Animated Fables"):
-        return "nova"
-    if category in ("Rhymes & Songs", "Colors & Shapes", "DIY & Crafts"):
-        return "ziggy"
-    return "pixel"
+    return mapping.get(category, "STOCK_FOOTAGE (tech visuals), DIAGRAM_ANIMATION (explainers)")
 
 
 def _default_scene(index: int) -> dict:
     return {
-        "background": "gradient_sky",
+        "background": "stock_footage",
         "duration": 6.0,
-        "characters": [{"name": "pixel", "pose": "idle", "expression": "neutral",
-                        "animation": "float", "x": 0.5, "y": 0.55}],
+        "asset_type": "STOCK_FOOTAGE",
+        "asset_keywords": ["technology", "abstract"],
         "text": [],
-        "effects": ["fade_in"] if index == 0 else ["none"],
         "transition": "cut" if index == 0 else "dissolve",
         "camera": {"zoom": 1.0, "pan_x": 0, "pan_y": 0},
-        "music_mood": "happy",
+        "music_mood": "focused",
     }
 
 

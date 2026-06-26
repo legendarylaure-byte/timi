@@ -4,7 +4,7 @@ import { ToastProvider } from '@/components/ui/Toast';
 
 export const metadata: Metadata = {
   title: 'Vyom Ai Cloud — Timi',
-  description: 'AI-powered 3D animated kids content automation platform',
+  description: 'AI-powered tech educational video automation platform',
   icons: {
     icon: '/favicon.svg',
     apple: '/favicon.svg',

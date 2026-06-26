@@ -40,3 +40,4 @@ agents/tmp/
 agents/data/
 agents/*.pid
 youtube_token.json
+keys/
