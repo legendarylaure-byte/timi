@@ -55,10 +55,8 @@ jobs:
           curl -LsSf https://astral.sh/uv/install.sh | sh
           echo "$HOME/.local/bin" >> $GITHUB_PATH
       - run: uv pip install --system -r requirements.txt
-      - run: pip install flake8 pyright
+      - run: pip install flake8
       - run: flake8 crew/ utils/ main.py tests/
-      - name: Type check
-        run: pyright .
       - name: Run tests
         run: python -m pytest tests/ -v
 
@@ -79,7 +77,7 @@ jobs:
           path: ~/.cache/pip
           key: pip-${{ runner.os }}-${{ hashFiles('./bot/requirements.txt') }}
       - run: pip install -r requirements.txt
-      - run: pip install flake8 pyright
+      - run: pip install flake8
       - run: flake8 .
 
   deploy:

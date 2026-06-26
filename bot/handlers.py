@@ -25,7 +25,7 @@ async def _safe_reply(update: Update, text: str, parse_mode: str = "Markdown"):
     try:
         MAX_LEN = 4000
         if len(text) > MAX_LEN:
-            text = text[:MAX_LEN-3] + "..."
+            text = text[:MAX_LEN - 3] + "..."
         await update.message.reply_text(text, parse_mode=parse_mode)
     except Exception as e:
         try:
@@ -79,11 +79,12 @@ async def status(update: Update, context: ContextTypes.DEFAULT_TYPE):
         pipeline_doc = db.collection('system').document('pipeline').get()
         pipeline_status = "Running" if pipeline_doc.exists and pipeline_doc.to_dict().get('running') else "Paused" if pipeline_doc.exists and pipeline_doc.to_dict().get('paused_by_user') else "Idle"
 
+        joined = "\n".join(lines)
         msg = (
             "📊 *System Status*\n\n"
             f"🔧 Pipeline: *{pipeline_status}*\n\n"
-            + "\n".join(lines) +
-            f"\n\n⏰ Updated: {datetime.now().strftime('%H:%M:%S')}"
+            f"{joined}\n\n"
+            f"⏰ Updated: {datetime.now().strftime('%H:%M:%S')}"
         )
         await _safe_reply(msg)
     except Exception as e:
