@@ -35,6 +35,7 @@ from crew.scriptwriter import create_scriptwriter_crew
 from crew.title_optimizer import create_title_optimizer_crew
 from crew.virality_analyst import create_virality_analyst_crew, get_virality_threshold
 from crew.monetization_tracker import create_monetization_review_crew, weekly_check_in, get_growth_summary
+from utils.engagement_manager import append_comment_prompt_to_script
 from compliance.hook_scorer import score_hook, enforce_rewrite
 from compliance.content_safety import check_content_safety
 from compliance.platform_policy import check_platform_compliance

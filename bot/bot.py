@@ -4,7 +4,7 @@ import traceback
 from dotenv import load_dotenv
 from telegram import Update
 from telegram.ext import ApplicationBuilder, CommandHandler, MessageHandler, ContextTypes, filters
-from telegram.ext.filters import MessageFilter
+
 from handlers import start, status, today, analytics, youtube_stats, pause_pipeline, resume_pipeline, cleanup, query
 
 load_dotenv()

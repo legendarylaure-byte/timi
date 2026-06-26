@@ -58,7 +58,7 @@ def parse_script_to_scenes(
     if scenes:
         return scenes
 
-    scenes = _rule_based_parse(script_text, storyboard_text, format_type)
+    scenes = _rule_based_parse(script_text, storyboard_text, format_type, title)
     if scenes:
         print(f"[SCENE_PARSER] Rule-based parse produced {len(scenes)} scenes")
         return scenes
@@ -123,7 +123,7 @@ Return ONLY valid JSON array of scene objects."""
     return None
 
 
-def _rule_based_parse(script_text: str, storyboard_text: str, format_type: str) -> list[dict]:
+def _rule_based_parse(script_text: str, storyboard_text: str, format_type: str, title: str = "") -> list[dict]:
     scenes = []
 
     combined = script_text + "\n" + (storyboard_text or "")

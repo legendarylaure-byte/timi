@@ -1,6 +1,6 @@
 import os
 import sys
-from datetime import datetime, timezone
+from datetime import datetime
 from telegram import Update
 from telegram.ext import ContextTypes
 from telegram.helpers import escape_markdown
@@ -10,8 +10,8 @@ PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, PROJECT_ROOT)
 sys.path.insert(0, os.path.join(PROJECT_ROOT, 'agents'))
 
-from agents.utils.firebase_status import get_firestore_client
-from utils.youtube_upload import get_channel_stats
+from agents.utils.firebase_status import get_firestore_client  # noqa: E402
+from utils.youtube_upload import get_channel_stats  # noqa: E402
 
 
 def _get_firestore():
