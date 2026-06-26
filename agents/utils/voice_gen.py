@@ -57,9 +57,11 @@ def _extract_narration_via_markers(script: str) -> str | None:
             maybe_dialogue = re.split(r'^[A-Z][A-Z\s]+:\s*', stripped, maxsplit=1)
             if len(maybe_dialogue) > 1 and maybe_dialogue[-1].strip():
                 parts.append(maybe_dialogue[-1].strip())
-            elif stripped and not any(kw in stripped.lower() for kw in
-                                       ['camera', 'angle', 'color palette', 'background', 'transition',
-                                        'mood', 'emotional', 'educational']):
+            elif stripped and not any(
+                kw in stripped.lower()
+                for kw in ['camera', 'angle', 'color palette', 'background',
+                           'transition', 'mood', 'emotional', 'educational']
+            ):
                 parts.append(stripped)
     if parts:
         return ' '.join(parts)

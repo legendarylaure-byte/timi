@@ -10,7 +10,7 @@ BG_SIZE_PORTRAIT = (1080, 1920)
 
 def _hex_to_rgb(h):
     h = h.lstrip("#")
-    return tuple(int(h[i:i+2], 16) for i in (0, 2, 4))
+    return tuple(int(h[i:i + 2], 16) for i in (0, 2, 4))
 
 
 def gradient_2d(draw, xy, color_top, color_bottom):

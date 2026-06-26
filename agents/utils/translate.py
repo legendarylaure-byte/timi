@@ -77,7 +77,6 @@ Return ONLY a valid JSON object with this structure:
 }"""
 
 
-
 def translate_script(script: str, target_lang: str, title: str = "") -> dict:
     lang = LANGUAGES.get(target_lang)
     if not lang:

@@ -23,7 +23,6 @@ _TOKEN_LOCK = threading.Lock()
 
 
 def get_youtube_credentials():
-    global _TOKEN_LOCK
     with _TOKEN_LOCK:
         creds = None
         if os.path.exists(TOKEN_FILE):
