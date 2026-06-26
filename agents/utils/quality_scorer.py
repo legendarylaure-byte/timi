@@ -317,7 +317,7 @@ def check_repetition(current_script: str, category: str, max_recent: int = 10) -
         recent_videos = all_recent[:max_recent]
 
         if not recent_videos:
-            return {"is_repetitive": False, "similarity_scores": [], "recommendation": "approve"}
+            return {"is_repetitive": False, "similarity_scores": [], "max_similarity": 0.0, "recommendation": "approve"}
 
         similarities = []
         for recent in recent_videos:
@@ -341,7 +341,7 @@ def check_repetition(current_script: str, category: str, max_recent: int = 10) -
         return result
     except Exception as e:
         print(f"[repetition] Check skipped (quota/timeout): {e}")
-        return {"is_repetitive": False, "similarity_scores": [], "recommendation": "approve"}
+        return {"is_repetitive": False, "similarity_scores": [], "max_similarity": 0.0, "recommendation": "approve"}
 
 
 def _text_similarity(text1: str, text2: str) -> float:
