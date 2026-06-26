@@ -1,6 +1,18 @@
 import os
+import sys
 import webbrowser
 import urllib.parse
+
+# Load .env from parent directory
+_dotenv_path = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), '.env')
+if os.path.exists(_dotenv_path):
+    with open(_dotenv_path) as f:
+        for line in f:
+            line = line.strip()
+            if line and not line.startswith('#'):
+                key, _, val = line.partition('=')
+                if key and val:
+                    os.environ.setdefault(key, val)
 from google.oauth2.credentials import Credentials
 from googleapiclient.discovery import build
 

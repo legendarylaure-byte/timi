@@ -1,6 +1,6 @@
 import json
 from datetime import datetime, timezone
-from utils.firebase_status import get_firestore_client, log_activity
+from .firebase_status import get_firestore_client, log_activity
 
 
 def daily_revenue_job():
@@ -8,7 +8,7 @@ def daily_revenue_job():
     print("[REVENUE] Starting daily revenue computation")
 
     try:
-        from utils.youtube_analytics_v2 import fetch_revenue_data
+        from .youtube_analytics_v2 import fetch_revenue_data
 
         result = fetch_revenue_data(days=30)
 
