@@ -34,15 +34,13 @@ from crew.storyboard import create_storyboard_crew
 from crew.scriptwriter import create_scriptwriter_crew
 from crew.title_optimizer import create_title_optimizer_crew
 from crew.virality_analyst import create_virality_analyst_crew, get_virality_threshold
-from crew.monetization_tracker import create_monetization_review_crew, weekly_check_in, get_growth_summary, update_platform_metrics
-from utils.engagement_manager import append_comment_prompt_to_script, build_pinned_comment
+from crew.monetization_tracker import create_monetization_review_crew, weekly_check_in, get_growth_summary
 from compliance.hook_scorer import score_hook, enforce_rewrite
 from compliance.content_safety import check_content_safety
 from compliance.platform_policy import check_platform_compliance
 from utils.title_tester import TitleTester
 from utils.analytics_feedback import analyze_recent_performance, get_optimization_prompt_injection
-from utils.series_builder import register_video_in_series, add_video_to_playlist, generate_series_description
-from crew.series_planner import save_series_plan
+from utils.series_builder import register_video_in_series
 from crew.affiliate_manager import build_affiliate_section
 from datetime import datetime
 from apscheduler.schedulers.blocking import BlockingScheduler

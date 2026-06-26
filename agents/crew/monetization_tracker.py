@@ -1,8 +1,7 @@
 import os
 import json
 import logging
-from datetime import datetime, timedelta
-from typing import Optional
+from datetime import datetime
 
 from utils.llm_helper import get_llm
 from crewai import Agent, Task, Crew

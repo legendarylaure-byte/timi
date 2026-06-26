@@ -1,6 +1,10 @@
+import logging
+
 from crewai import Agent, Task, Crew
 from utils.llm_helper import get_llm
 from utils.series_builder import save_series
+
+logger = logging.getLogger(__name__)
 
 
 def create_series_planner_crew(topic: str = "", category: str = ""):

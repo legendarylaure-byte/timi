@@ -1,6 +1,5 @@
 from crewai import Agent, Task, Crew
 from utils.llm_helper import get_llm
-from utils.engagement_manager import append_comment_prompt_to_script
 
 
 def create_scriptwriter_crew(topic: str = "", category: str = "", format: str = "shorts", max_duration: int = 120):
