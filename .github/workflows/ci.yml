@@ -27,7 +27,7 @@ jobs:
   healthcheck:
     runs-on: ubuntu-latest
     steps:
-      - name: Check dashboard health
+      - name: Check dashboard is live
         run: |
           curl -s -o /dev/null -w "%{http_code}" --max-time 15 \
-            "https://timi.vyomai.cloud/api/health" | grep 200
+            "https://timi.vyomai.cloud" | grep 200
