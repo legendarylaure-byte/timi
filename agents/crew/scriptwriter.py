@@ -2,7 +2,7 @@ from crewai import Agent, Task, Crew
 from utils.llm_helper import get_llm
 
 
-def create_scriptwriter_crew(topic: str = "", category: str = "", format: str = "shorts", max_duration: int = 120):
+def create_scriptwriter_crew(topic: str = "", category: str = "", format: str = "shorts", max_duration: int = 120, extra_context: str = ""):
     is_long = format == "long"
     max_tokens = 8000 if is_long else 4000
 
@@ -42,8 +42,9 @@ This is a SHORT video ({category}). Fast-paced and information-dense.
 - End with a takeaway or curiosity hook for next video.
 """
 
+    opt_context = f"\nOptimization note: {extra_context}" if extra_context else ""
     script_task = Task(
-        description=f"""Write a script for a {format} video in the {category} category about "{topic}".
+        description=f"""Write a script for a {format} video in the {category} category about "{topic}".{opt_context}
 
 {format_instructions}
 

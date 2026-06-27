@@ -151,58 +151,44 @@ Consider seasonal tech events (conferences, product launches, paper releases), e
 def _fallback_trends() -> list:
     """Fallback trending topics if Groq fails."""
     seasonal = datetime.now().month
-    seasonal_topics = {
-        1: ["AI Predictions for New Year", "Winter Tech Trends"],
-        2: ["Valentine's Day AI Tools", "Machine Learning Love"],
-        3: ["Spring AI Breakthroughs", "St. Patrick's Tech History"],
-        4: ["Earth Day Climate AI", "Spring Tech Releases"],
-        5: ["Mother's Day Gadget Guide", "Summer Tech Preview"],
-        6: ["Summer AI Learning Paths", "Tech Conference Season"],
-        7: ["Independence Day Tech History", "Summer Open Source"],
-        8: ["Back to School AI Tools", "Fall Tech Predictions"],
-        9: ["Autumn AI Research Roundup", "Tech Harvest Season"],
-        10: ["Halloween Tech History", "AI Horror Detection"],
-        11: ["Thanksgiving AI Gratitude", "Native American Tech"],
-        12: ["Christmas Tech Gift Guide", "Year in AI Review"],
+    seasonal_tech_events = {
+        1: ["AI Predictions for the New Year", "Tech Resolutions for Developers"],
+        2: ["Groundbreaking AI Research This Month", "Open Source Projects to Watch"],
+        3: ["Spring AI Breakthroughs", "Tech Conference Season Preview"],
+        4: ["Climate Tech and AI for Earth Day", "Spring Tech Releases Roundup"],
+        5: ["Summer AI Learning Paths", "Tech Conference Highlights"],
+        6: ["Mid-Year AI Trends Report", "Frameworks and Tools Update"],
+        7: ["Independence Day Tech History", "Summer Open Source Projects"],
+        8: ["Back to School AI Tools", "Fall Tech Predictions and Roadmaps"],
+        9: ["Autumn AI Research Roundup", "Developer Tools Harvest Season"],
+        10: ["Cybersecurity in the AI Era", "Halloween Tech Horror Stories"],
+        11: ["Thanksgiving AI: What We're Grateful For", "AI Safety and Ethics Check-in"],
+        12: ["Christmas Tech Gift Guide for Devs", "Year in AI Review and Retrospective"],
     }
+    fallback_tech_events = seasonal_tech_events.get(seasonal, ["AI Breakthroughs", "Tech Trends"])
 
-    topics = seasonal_topics.get(seasonal, ["AI Breakthroughs", "Tech Trends"])
-
-    global_trends = [
-        {"title": f"AI Tools That Will Change {datetime.now().year}", "category": "Tech & AI", "search_volume": 890000, "growth": 120,
-            "competition": "medium", "suggested_format": "long", "score": 96, "keywords": ["AI", "tools", "future", "technology"]},  # noqa: E501
-        {"title": "5-Minute Healthy Breakfast Ideas", "category": "Cooking & Food", "search_volume": 650000, "growth": 45,  # noqa: E501
-            "competition": "low", "suggested_format": "shorts", "score": 88, "keywords": ["breakfast", "healthy", "quick", "recipes"]},  # noqa: E501
-        {"title": "Hidden Gems in Southeast Asia", "category": "Travel & Adventure", "search_volume": 420000, "growth": 67,  # noqa: E501
-            "competition": "medium", "suggested_format": "long", "score": 85, "keywords": ["travel", "asia", "budget", "adventure"]},  # noqa: E501
-        {"title": "10-Minute Home Workout No Equipment", "category": "Health & Wellness", "search_volume": 1200000, "growth": 38,  # noqa: E501
-            "competition": "high", "suggested_format": "shorts", "score": 82, "keywords": ["workout", "home", "fitness", "no equipment"]},  # noqa: E501
-        {"title": "Beginner's Guide to Crypto Investing", "category": "Finance & Business", "search_volume": 780000, "growth": 55,  # noqa: E501
-            "competition": "high", "suggested_format": "long", "score": 79, "keywords": ["crypto", "investing", "beginner", "finance"]},  # noqa: E501
-        {"title": "DIY Room Decor Under $20", "category": "DIY & Crafts", "search_volume": 530000, "growth": 42,
-            "competition": "low", "suggested_format": "shorts", "score": 91, "keywords": ["DIY", "room decor", "budget", "crafts"]},  # noqa: E501
-        {"title": "Funniest Pet Fails Compilation", "category": "Comedy & Entertainment", "search_volume": 2100000, "growth": 28,  # noqa: E501
-            "competition": "high", "suggested_format": "shorts", "score": 87, "keywords": ["pets", "funny", "fails", "compilation"]},  # noqa: E501
-        {"title": "Learn Guitar in 30 Days", "category": "Music & Dance", "search_volume": 340000, "growth": 51,
-            "competition": "medium", "suggested_format": "long", "score": 83, "keywords": ["guitar", "learn", "music", "30 days"]},  # noqa: E501
-        {"title": "Top 10 Indie Games You Must Play", "category": "Gaming", "search_volume": 680000, "growth": 73,
-            "competition": "medium", "suggested_format": "long", "score": 90, "keywords": ["indie games", "gaming", "top 10", "must play"]},  # noqa: E501
-    ]
-
-    tech_trends = [
-        {"title": f"{topics[0]}", "category": "AI Explained", "search_volume": random.randint(100000, 500000), "growth": random.randint(  # noqa: E501
+    return [
+        {"title": f"{fallback_tech_events[0] if len(fallback_tech_events) > 0 else 'AI Trends'}", "category": "AI Explained", "search_volume": random.randint(100000, 500000), "growth": random.randint(  # noqa: E501
             15, 70), "competition": random.choice(["low", "medium"]), "suggested_format": "shorts", "score": random.randint(75, 95), "keywords": ["ai", "explained", "tech"]},  # noqa: E501
-        {"title": f"{topics[1]}", "category": "Deep Tech", "search_volume": random.randint(80000, 300000), "growth": random.randint(10, 50), "competition": random.choice(  # noqa: E501
+        {"title": f"{fallback_tech_events[1] if len(fallback_tech_events) > 1 else 'Deep Tech Insights'}", "category": "Deep Tech", "search_volume": random.randint(80000, 300000), "growth": random.randint(10, 50), "competition": random.choice(  # noqa: E501
             ["low", "medium", "high"]), "suggested_format": "long", "score": random.randint(70, 90), "keywords": ["deep", "tech", "explained"]},  # noqa: E501
         {"title": "How Transformers Work", "category": "AI Explained", "search_volume": 410000, "growth": 45,
             "competition": "medium", "suggested_format": "shorts", "score": 94, "keywords": ["transformer", "attention", "neural"]},  # noqa: E501
-        {"title": "Top 5 AI Tools 2025", "category": "Tool Tutorials", "search_volume": 245000, "growth": 34,
-            "competition": "low", "suggested_format": "shorts", "score": 92, "keywords": ["tools", "ai", "productivity"]},
+        {"title": f"Top 5 AI Tools {datetime.now().year}", "category": "Tool Tutorials", "search_volume": 245000, "growth": 34,  # noqa: E501
+            "competition": "low", "suggested_format": "shorts", "score": 92, "keywords": ["tools", "ai", "productivity"]},  # noqa: E501
         {"title": "Python for Machine Learning", "category": "Code & Build", "search_volume": 290000, "growth": 52,
             "competition": "low", "suggested_format": "shorts", "score": 91, "keywords": ["python", "ml", "tutorial"]},  # noqa: E501
+        {"title": "LangChain vs LlamaIndex Compared", "category": "Code & Build", "search_volume": 320000, "growth": 67,
+            "competition": "low", "suggested_format": "shorts", "score": 89, "keywords": ["langchain", "llamaindex", "llm", "framework"]},  # noqa: E501
+        {"title": "Fine-Tuning LLMs on Your Own Data", "category": "Deep Tech", "search_volume": 380000, "growth": 55,
+            "competition": "medium", "suggested_format": "long", "score": 88, "keywords": ["fine-tuning", "llm", "machine learning"]},  # noqa: E501
+        {"title": "RAG Architecture Explained Simply", "category": "AI Explained", "search_volume": 310000, "growth": 72,
+            "competition": "medium", "suggested_format": "shorts", "score": 90, "keywords": ["rag", "retrieval", "augmented", "generation"]},  # noqa: E501
+        {"title": "AI Safety and Alignment Explained", "category": "AI Explained", "search_volume": 275000, "growth": 41,
+            "competition": "low", "suggested_format": "long", "score": 87, "keywords": ["ai safety", "alignment", "ethics"]},  # noqa: E501
+        {"title": "Building AI Agents with CrewAI", "category": "Code & Build", "search_volume": 260000, "growth": 88,
+            "competition": "low", "suggested_format": "shorts", "score": 93, "keywords": ["crewai", "agents", "ai", "tutorial"]},  # noqa: E501
     ]
-
-    return tech_trends + global_trends
 
 
 def _save_trends(trends: list):

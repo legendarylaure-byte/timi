@@ -1,9 +1,12 @@
 import os
 import time
 import random
+import json
 import firebase_admin
 from firebase_admin import credentials, firestore
 from datetime import datetime
+from utils.retry import retry
+from utils.sanitize import redact
 
 _service_account_path = ''
 _env_key = os.getenv('FIREBASE_SERVICE_ACCOUNT_KEY', '')
@@ -18,22 +21,24 @@ else:
 _db = None
 
 
+@retry(max_attempts=3, base_delay=3.0, backoff=2.0, jitter=True)
+def _firestore_op(op_name: str, func):
+    """Execute a Firestore operation with retry."""
+    return func()
+
 def _retry_firestore(op_name, func, max_retries=3):
-    """Execute a Firestore operation with exponential backoff on quota errors."""
+    """Backward-compatible wrapper."""
     for attempt in range(max_retries):
         try:
             return func()
         except Exception as e:
-            if "429" in str(e) or "Quota" in str(e) or attempt == max_retries - 1:
-                if attempt < max_retries - 1:
-                    wait = (2 ** attempt) * 3 + random.uniform(0, 2)
-                    print(
-                        f"[FIRESTORE] {op_name} failed (attempt {attempt + 1}/{max_retries}), retrying in {wait:.1f}s: {e}")  # noqa: E501
-                    time.sleep(wait)
-                else:
-                    print(f"[FIRESTORE] {op_name} failed after {max_retries} attempts: {e}")
+            if attempt < max_retries - 1:
+                wait = (2 ** attempt) * 3 + random.uniform(0, 2)
+                print(
+                    f"[FIRESTORE] {op_name} failed (attempt {attempt + 1}/{max_retries}), retrying in {wait:.1f}s: {redact(str(e))}")  # noqa: E501
+                time.sleep(wait)
             else:
-                raise
+                print(f"[FIRESTORE] {op_name} failed after {max_retries} attempts: {redact(str(e))}")
     return None
 
 
@@ -44,21 +49,20 @@ def get_firestore_client():
     sa_path = _service_account_path
     if _env_key:
         try:
-            import json
             import base64
             key_bytes = base64.b64decode(_env_key)
             cred = credentials.Certificate(json.loads(key_bytes))
         except Exception as e:
-            print(f"[FIRESTORE] Failed to parse FIREBASE_SERVICE_ACCOUNT_KEY: {e}")
+            print(f"[FIRESTORE] Failed to parse FIREBASE_SERVICE_ACCOUNT_KEY: {redact(str(e))}")
             return None
     elif os.path.exists(sa_path):
         try:
             cred = credentials.Certificate(sa_path)
         except Exception as e:
-            print(f"[FIRESTORE] Failed to load service account file: {e}")
+            print(f"[FIRESTORE] Failed to load service account file: {redact(str(e))}")
             return None
     else:
-        print(f"[FIRESTORE] Service account file not found: {sa_path}")
+        print(f"[FIRESTORE] Service account file not found: {redact(str(sa_path))}")
         return None
     try:
         firebase_admin.initialize_app(cred, {
@@ -99,6 +103,7 @@ def update_agent_status(agent_id: str, status: str, action: str = "", error_mess
 
 def log_activity(agent_id: str, message: str, level: str = "info"):
     """Add activity log to Firestore for the activity feed."""
+    print(json.dumps({"timestamp": datetime.utcnow().isoformat(), "level": level.upper(), "agent": agent_id, "message": message, "type": "activity"}))
     db = get_firestore_client()
     if db is None:
         return

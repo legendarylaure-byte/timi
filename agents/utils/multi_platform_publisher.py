@@ -7,6 +7,7 @@ import os
 from datetime import datetime
 from utils.firebase_status import get_firestore_client, log_activity, update_video_record
 from compliance.ai_disclosure import get_ai_disclosure
+from utils.sanitize import safe_log
 
 PLATFORMS = {
     'youtube': {
@@ -60,8 +61,8 @@ def upload_to_platform(platform: str, title: str, description: str, video_path: 
         else:
             return {'success': False, 'error': 'Platform not implemented'}
     except Exception as e:
-        log_activity('publisher', f'Upload to {platform_info["name"]} failed: {str(e)}', 'error')
-        return {'success': False, 'error': str(e)}
+        log_activity('publisher', f'Upload to {platform_info["name"]} failed: {safe_log(str(e))}', 'error')
+        return {'success': False, 'error': safe_log(str(e))}
 
 
 def _upload_youtube(title: str, description: str, video_path: str, thumbnail_path: str, format_type: str, publish_at: str = None) -> dict:  # noqa: E501
@@ -219,8 +220,15 @@ def _upload_instagram(title: str, video_path: str, format_type: str) -> dict:
             'error': 'Instagram upload not configured. Set FACEBOOK_ACCESS_TOKEN and INSTAGRAM_ACCOUNT_ID env vars.',
         }
 
-    if not os.path.exists(video_path):
-        return {'success': False, 'platform': 'instagram', 'error': f'Video file not found: {video_path}'}
+    instagram_video_url = os.getenv('INSTAGRAM_VIDEO_URL', '')
+    if not instagram_video_url:
+        if video_path.startswith(('http://', 'https://')):
+            instagram_video_url = video_path
+        else:
+            return {
+                'success': False, 'platform': 'instagram',
+                'error': 'Instagram Graph API requires a public URL. Set INSTAGRAM_VIDEO_URL env var or pass a URL.',
+            }
 
     try:
         import requests
@@ -231,7 +239,7 @@ def _upload_instagram(title: str, video_path: str, format_type: str) -> dict:
         media_params = {
             'access_token': access_token,
             'media_type': media_type,
-            'video_url': '',
+            'video_url': instagram_video_url,
             'caption': title,
             'share_to_feed': 'true' if format_type == 'long' else 'false',
         }
@@ -367,7 +375,7 @@ def _upload_facebook(title: str, description: str, video_path: str) -> dict:
                 params={
                     'access_token': access_token,
                     'title': title,
-                    'description': description,
+                    'description': fb_description,
                     'upload_phase': 'start',
                     'file_size': file_size,
                 },

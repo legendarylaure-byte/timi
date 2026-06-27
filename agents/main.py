@@ -5,7 +5,7 @@ from utils.content_calendar import (
 from utils.analytics_tracker import track_video, update_metrics, get_performance_summary
 from utils.scheduler_planner import generate_content_plan
 from utils.thumbnail_gen import generate_thumbnail_image
-from utils.health_monitor import start_heartbeat_monitor, check_ollama_health
+from utils.health_monitor import start_heartbeat_monitor, start_health_server, check_ollama_health
 from utils.description_gen import generate_description
 from utils.subtitle_gen import generate_subtitles_for_video
 from utils.translate import translate_script
@@ -41,6 +41,7 @@ from compliance.content_safety import check_content_safety
 from compliance.platform_policy import check_platform_compliance
 from utils.title_tester import TitleTester
 from utils.analytics_feedback import analyze_recent_performance, get_optimization_prompt_injection
+from utils.llm_helper import force_fallback
 from utils.series_builder import register_video_in_series
 from crew.affiliate_manager import build_affiliate_section
 from datetime import datetime
@@ -120,10 +121,11 @@ def _run_with_timeout(func, args, timeout_minutes: int):
 
 
 def log_event(agent: str, message: str, level: str = "info"):
-    print(f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] [{level.upper()}] [{agent}] {message}")
+    import json as _json
+    print(_json.dumps({"timestamp": datetime.now().isoformat(), "level": level.upper(), "agent": agent, "message": message}))
 
 
-def run_agent_step(agent_id: str, agent_name: str, action: str, crew_factory, inputs: dict, max_retries: int = 2):
+def run_agent_step(agent_id: str, agent_name: str, action: str, crew_factory, inputs: dict, max_retries: int = 2, timeout_minutes: int = 15):
     if control_listener.is_paused(agent_id):
         log_event(agent_name, "Skipped (paused by user)")
         update_agent_status(agent_id, "idle", "Paused by user")
@@ -136,22 +138,30 @@ def run_agent_step(agent_id: str, agent_name: str, action: str, crew_factory, in
     for attempt in range(max_retries):
         try:
             crew = crew_factory(**inputs)
-            result = crew.kickoff(inputs=inputs)
+            def _kick():
+                return crew.kickoff(inputs=inputs)
+            result = _run_with_timeout(_kick, (), timeout_minutes)
             update_agent_status(agent_id, "completed", f"Completed: {action}")
             log_activity(agent_id, f"Completed: {action}", "success")
             log_event(agent_name, f"Completed: {action}")
             return result
         except Exception as e:
-            if "rate_limit" in str(e).lower():
+            err_str = str(e)
+            if "rate_limit" in err_str.lower():
                 os.environ['GROQ_RATE_LIMITED'] = '1'
-                print("[LLM] Groq rate-limited detected in agent step, flagging for Gemini fallback")
+                log_event(agent_name, "Groq rate-limited, flagging for fallback", "warn")
+            if "Invalid response from LLM call" in err_str:
+                log_event(agent_name, "LLM returned empty response — forcing provider fallback", "warn")
+                force_fallback()
+            if "TimeoutError" in type(e).__name__ or "timed out" in err_str.lower():
+                log_event(agent_name, f"Timed out after {timeout_minutes}min", "error")
             if attempt < max_retries - 1:
-                log_event(agent_name, f"Failed (attempt {attempt + 1}/{max_retries}), retrying: {str(e)[:100]}")
+                log_event(agent_name, f"Failed (attempt {attempt + 1}/{max_retries}), retrying: {err_str[:120]}")
                 time.sleep(2)
             else:
-                update_agent_status(agent_id, "error", f"Failed: {action}", str(e))
-                log_activity(agent_id, f"Failed: {action} - {str(e)}", "error")
-                log_event(agent_name, f"Failed: {action} - {str(e)}", "error")
+                update_agent_status(agent_id, "error", f"Failed: {action}", err_str)
+                log_activity(agent_id, f"Failed: {action} - {err_str}", "error")
+                log_event(agent_name, f"Failed: {action} - {err_str}", "error")
                 raise
 
 
@@ -187,7 +197,7 @@ def parse_scenes_from_storyboard(storyboard_text: str, format_type: str = "short
     for i, line in enumerate(lines):
         stripped = line.strip()
         is_scene_header = bool(
-            re.match(r'^#{1,3}\s*Scene\s+\d+|^###\s+Scene\s+\d+|^Scene\s+\d+:', stripped, re.IGNORECASE))
+            re.match(r'^#{1,3}\s*Scene\s+\d+|^###\s+Scene\s+\d+|^Scene\s+\d+:|^--SCENE\s+\d+', stripped, re.IGNORECASE))
         if is_scene_header:
             in_scene = True
             scenes.append({
@@ -218,10 +228,11 @@ def _limit_scenes(scenes: list[dict], format_type: str) -> list[dict]:
     else:
         max_scenes = 20
     if len(scenes) > max_scenes:
-        step = len(scenes) / max_scenes
+        original_count = len(scenes)
+        step = original_count / max_scenes
         scenes = [scenes[int(i * step)] for i in range(max_scenes)]
         for s in scenes:
-            s["target_duration"] = round(s.get("target_duration", 8.0) * (len(scenes) / max_scenes), 1)
+            s["target_duration"] = round(s.get("target_duration", 8.0) * (original_count / max_scenes), 1)
     return scenes
 
 
@@ -428,7 +439,7 @@ def run_director_review(stage: str, topic: str, category: str, format_type: str,
         return review
     except Exception as e:
         log_event("DIRECTOR", f"[{stage}] Review failed: {e}", "error")
-        return {"decision": "pass", "score": 100, "issues": [], "feedback": "Auto-pass (review unavailable)", "error": str(e)}
+        return {"decision": "block", "score": 0, "issues": [{"severity": "error", "description": f"Review unavailable: {e}"}], "feedback": "Auto-blocked (review unavailable)", "error": str(e)}
 
 
 def generate_short_video(topic: str, category: str, video_id: str, publish_at: str = None):
@@ -438,8 +449,11 @@ def generate_short_video(topic: str, category: str, video_id: str, publish_at: s
     failed_step = "setup"
     try:
         failed_step = "scriptwriting"
-        script = run_agent_step("scriptwriter", "Scriptwriter", f"Writing script for: {topic}", create_scriptwriter_crew, {  # noqa: E501
-                                "topic": topic, "category": category, "format": "shorts", "max_duration": 120})
+        opt_injection = get_optimization_prompt_injection()
+        script_kwargs = {"topic": topic, "category": category, "format": "shorts", "max_duration": 120}
+        if opt_injection:
+            script_kwargs["extra_context"] = opt_injection
+        script = run_agent_step("scriptwriter", "Scriptwriter", f"Writing script for: {topic}", create_scriptwriter_crew, script_kwargs, timeout_minutes=20)  # noqa: E501
         script_text = str(script)
 
         failed_step = "hook_scoring"
@@ -447,7 +461,11 @@ def generate_short_video(topic: str, category: str, video_id: str, publish_at: s
         if hook_score_result["score"] < 60:
             log_event("HOOK", f"Hook score: {hook_score_result['score']}/100 — enforcing rewrite")
             script_text = enforce_rewrite(script_text)
-            log_event("HOOK", "Hook rewritten")
+            recheck = score_hook(script_text)
+            log_event("HOOK", f"Hook re-scored: {recheck['score']}/100 after rewrite")
+            if recheck["score"] < hook_score_result["score"]:
+                log_event("HOOK", f"Hook score dropped ({hook_score_result['score']}→{recheck['score']}), keeping original", "warn")
+                script_text = str(script)
         else:
             log_event("HOOK", f"Hook score: {hook_score_result['score']}/100 — passed")
 
@@ -512,7 +530,8 @@ def generate_short_video(topic: str, category: str, video_id: str, publish_at: s
                 return False
             log_event("VIRALITY", f"Virality score: {v_score}/100 — approved")
         except Exception as e:
-            log_event("VIRALITY", f"Virality analysis skipped: {e}", "warn")
+            log_event("VIRALITY", f"Virality analysis CRASHED: {e}", "error")
+            log_pipeline_error(video_id, f"Virality analysis failed: {e}", "virality")
 
         failed_step = "director_script_review"
         script_review = run_director_review("script", topic, category, "shorts", script_text)
@@ -703,8 +722,11 @@ def generate_long_video(topic: str, category: str, video_id: str, publish_at: st
     failed_step = "setup"
     try:
         failed_step = "scriptwriting"
-        script = run_agent_step("scriptwriter", "Scriptwriter", f"Writing script for: {topic}", create_scriptwriter_crew, {  # noqa: E501
-                                "topic": topic, "category": category, "format": "long", "max_duration": 600})
+        opt_injection = get_optimization_prompt_injection()
+        script_kwargs = {"topic": topic, "category": category, "format": "long", "max_duration": 600}
+        if opt_injection:
+            script_kwargs["extra_context"] = opt_injection
+        script = run_agent_step("scriptwriter", "Scriptwriter", f"Writing script for: {topic}", create_scriptwriter_crew, script_kwargs, timeout_minutes=30)  # noqa: E501
         script_text = str(script)
 
         failed_step = "hook_scoring"
@@ -712,7 +734,11 @@ def generate_long_video(topic: str, category: str, video_id: str, publish_at: st
         if hook_score_result["score"] < 60:
             log_event("HOOK", f"Hook score: {hook_score_result['score']}/100 — enforcing rewrite")
             script_text = enforce_rewrite(script_text)
-            log_event("HOOK", "Hook rewritten")
+            recheck = score_hook(script_text)
+            log_event("HOOK", f"Hook re-scored: {recheck['score']}/100 after rewrite")
+            if recheck["score"] < hook_score_result["score"]:
+                log_event("HOOK", f"Hook score dropped ({hook_score_result['score']}→{recheck['score']}), keeping original", "warn")
+                script_text = str(script)
         else:
             log_event("HOOK", f"Hook score: {hook_score_result['score']}/100 — passed")
 
@@ -777,7 +803,8 @@ def generate_long_video(topic: str, category: str, video_id: str, publish_at: st
                 return False
             log_event("VIRALITY", f"Virality score: {v_score}/100 — approved")
         except Exception as e:
-            log_event("VIRALITY", f"Virality analysis skipped: {e}", "warn")
+            log_event("VIRALITY", f"Virality analysis CRASHED: {e}", "error")
+            log_pipeline_error(video_id, f"Virality analysis failed: {e}", "virality")
 
         failed_step = "director_script_review"
         script_review = run_director_review("script", topic, category, "long", script_text)
@@ -1309,6 +1336,7 @@ if __name__ == "__main__":
     cleanup_stuck_state()
 
     start_heartbeat_monitor(interval=600)
+    start_health_server(port=8080)
 
     log_event("HEALTH", "Checking Ollama health...")
     if check_ollama_health():

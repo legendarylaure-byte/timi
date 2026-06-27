@@ -121,11 +121,20 @@ def write_heartbeat():
     for attempt in range(max_attempts):
         try:
             db = get_firestore_client()
-            db.collection('system').document('heartbeat').set({
+            stats = {
                 'last_heartbeat': datetime.utcnow().isoformat(),
                 'pid': os.getpid(),
                 'uptime_minutes': (time.time() - _start_time) / 60,
-            }, merge=True)
+                'ollama_available': ollama_breaker.is_available(),
+            }
+            try:
+                import psutil
+                stats['cpu_percent'] = psutil.cpu_percent(interval=0.5)
+                stats['memory_percent'] = psutil.virtual_memory().percent
+                stats['disk_percent'] = psutil.disk_usage('/').percent
+            except ImportError:
+                pass
+            db.collection('system').document('heartbeat').set(stats, merge=True)
             return
         except Exception as e:
             if "504" in str(e) and attempt < max_attempts - 1:
@@ -138,6 +147,39 @@ def write_heartbeat():
 
 
 _start_time = time.time()
+
+
+def start_health_server(port: int = 8080):
+    """Start a simple health HTTP endpoint in a background thread."""
+    import threading
+    from http.server import HTTPServer, BaseHTTPRequestHandler
+    import json
+
+    class HealthHandler(BaseHTTPRequestHandler):
+        def do_GET(self):
+            if self.path == "/health":
+                self.send_response(200)
+                self.send_header("Content-Type", "application/json")
+                self.end_headers()
+                resp = json.dumps({
+                    "status": "ok",
+                    "timestamp": datetime.utcnow().isoformat(),
+                    "uptime_minutes": round((time.time() - _start_time) / 60, 1),
+                    "ollama_available": ollama_breaker.is_available(),
+                })
+                self.wfile.write(resp.encode())
+            else:
+                self.send_response(404)
+                self.end_headers()
+
+        def log_message(self, format, *args):
+            pass
+
+    server = HTTPServer(("0.0.0.0", port), HealthHandler)
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    print(f"[HEALTH] HTTP server started on port {port}")
+    return thread
 
 
 def start_heartbeat_monitor(interval: int = 300):
