@@ -1,0 +1,12 @@
+.venv/
+.venv-docker/
+venv/
+__pycache__/
+*.pyc
+.env
+output/
+tmp/
+data/
+.DS_Store
+*.log
+*.pid

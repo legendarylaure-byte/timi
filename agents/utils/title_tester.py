@@ -10,6 +10,23 @@ TEST_DATA_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__f
 os.makedirs(TEST_DATA_DIR, exist_ok=True)
 
 
+class TitleTester:
+    def __init__(self, youtube_api_update_func=None):
+        self.youtube_api_update_func = youtube_api_update_func
+
+    def start_test(self, video_id: str, initial_title: str, variants: list) -> dict:
+        return start_title_test(video_id, variants, initial_title)
+
+    def advance_test(self, video_id: str) -> dict:
+        return advance_title_test(video_id, self.youtube_api_update_func)
+
+    def record_ctr(self, video_id: str, title: str, ctr: float):
+        record_title_ctr(video_id, title, ctr)
+
+    def get_status(self, video_id: str) -> dict:
+        return get_test_status(video_id)
+
+
 def _test_path(video_id: str) -> str:
     return os.path.join(TEST_DATA_DIR, f"{video_id}.json")
 

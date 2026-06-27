@@ -61,7 +61,7 @@ A hook is UNACCEPTABLE (approved=false) if:
 def score_hook(script_text: str, category: str = "", format_type: str = "shorts") -> dict:
     hook = extract_hook(script_text)
     if not hook:
-        return {"hook_score": 0, "approved": False, "weaknesses": ["No narration text found"], "suggested_alternatives": ["Start with a surprising question about your topic"]}
+        return {"score": 0, "hook_score": 0, "approved": False, "weaknesses": ["No narration text found"], "suggested_alternatives": ["Start with a surprising question about your topic"]}
     prompt = f"""Script category: {category}
 Format: {format_type}
 Hook text (first {len(hook)} chars):
@@ -76,10 +76,13 @@ Score this hook and suggest improvements."""
         if json_start >= 0 and json_end > json_start:
             result = json.loads(response[json_start:json_end])
             result["hook_text"] = hook
+            if "hook_score" in result and "score" not in result:
+                result["score"] = result["hook_score"]
             return result
     except Exception:
         pass
     return {
+        "score": 50,
         "hook_score": 50,
         "hook_text": hook,
         "approved": True,
@@ -87,6 +90,18 @@ Score this hook and suggest improvements."""
         "weaknesses": ["Could not evaluate with LLM, using default approval"],
         "suggested_alternatives": [],
     }
+
+
+def enforce_rewrite(script_text: str) -> str:
+    result = check_and_improve_hook(script_text)
+    if result["passed"] or not result.get("rewrite"):
+        return script_text
+    rewrite = result["rewrite"].strip()
+    lines = script_text.split("\n")
+    for i, line in enumerate(lines):
+        if i > 0 and line.strip().upper().startswith("--SCENE"):
+            return rewrite + "\n" + "\n".join(lines[i:])
+    return rewrite + "\n" + script_text
 
 
 def check_and_improve_hook(script_text: str, category: str = "", format_type: str = "shorts", min_score: int = 60) -> dict:
