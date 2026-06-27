@@ -1,0 +1,25 @@
+name: Pipeline Health Check
+
+on:
+  schedule:
+    - cron: '*/30 * * * *'
+  workflow_dispatch:
+
+jobs:
+  health-check:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check dashboard health endpoint
+        run: |
+          RESPONSE=$(curl -s -o /dev/null -w "%{http_code}" --max-time 15 \
+            "https://timi.vyomai.cloud/api/health" 2>&1)
+          if [ "$RESPONSE" != "200" ]; then
+            echo "Health check failed with status: $RESPONSE"
+            exit 1
+          fi
+          echo "Health check passed (HTTP $RESPONSE)"
+
+      - name: Notify on failure
+        if: failure()
+        run: |
+          echo "::warning::Dashboard health endpoint unreachable (HTTP $RESPONSE)"

@@ -1,3 +1,12 @@
+import sentry_sdk
+sentry_sdk.init(
+    dsn=os.getenv("SENTRY_DSN", ""),
+    traces_sample_rate=0.1,
+    profiles_sample_rate=0.1,
+    environment=os.getenv("SENTRY_ENVIRONMENT", "production"),
+)
+sentry_sdk.set_tag("service", "pipeline")
+
 from utils.content_calendar import (
     schedule_topic, mark_topic_completed, mark_topic_failed, get_retry_queue,
     process_retry, get_calendar_summary, is_blacklisted
