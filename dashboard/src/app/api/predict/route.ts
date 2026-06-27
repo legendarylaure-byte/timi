@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { rateLimitMiddleware } from '@/lib/rate-limit';
 
 interface PredictionResult {
   predicted_views_7d: number;
@@ -93,6 +94,9 @@ function generatePrediction(title: string, category: string, format: string): Pr
 }
 
 export async function POST(request: NextRequest) {
+  const rateLimitResponse = rateLimitMiddleware(request, 10);
+  if (rateLimitResponse) return rateLimitResponse;
+
   try {
     const body = await request.json();
     const { title, category, format } = body;

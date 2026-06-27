@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server';
 import { getAdminFirestore, getAdminAuth } from '@/lib/firebase-admin';
+import { rateLimitMiddleware } from '@/lib/rate-limit';
 
 async function verifyAuth(request: Request): Promise<{ uid: string } | null> {
   const authHeader = request.headers.get('authorization');
@@ -46,6 +47,9 @@ export async function GET() {
 }
 
 export async function POST(request: Request) {
+  const rateLimitResponse = rateLimitMiddleware(request, 20);
+  if (rateLimitResponse) return rateLimitResponse;
+
   try {
     const user = await verifyAuth(request);
     if (!user) {
