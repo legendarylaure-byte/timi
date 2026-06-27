@@ -1,0 +1,31 @@
+name: Firebase Deploy
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'firebase/firestore.indexes.json'
+      - 'firebase/firestore.rules'
+      - 'firebase/firebase.json'
+  workflow_dispatch:
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Deploy Firestore indexes and rules
+        env:
+          FIREBASE_TOKEN: ${{ secrets.FIREBASE_TOKEN }}
+        if: env.FIREBASE_TOKEN != ''
+        run: |
+          npx firebase-tools deploy \
+            --only firestore:indexes,firestore:rules \
+            --project timi-childern-stories \
+            --token "$FIREBASE_TOKEN"
+      - name: Notify missing token
+        if: env.FIREBASE_TOKEN == ''
+        run: |
+          echo "::warning::FIREBASE_TOKEN not set — skipping Firebase deploy"
+          echo "Generate one: npx firebase-tools login:ci"
+          echo "Add to repo secrets: FIREBASE_TOKEN"
