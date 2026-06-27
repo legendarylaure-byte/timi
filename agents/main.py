@@ -490,9 +490,9 @@ def generate_short_video(topic: str, category: str, video_id: str, publish_at: s
                 log_event("COMPLIANCE", f"BLOCKED: {topic} (content safety)")
                 update_pipeline_status(False)
                 return False
-        platform_compliance = check_platform_compliance(topic, category)
-        if platform_compliance.get("warnings"):
-            for w in platform_compliance["warnings"]:
+        platform_compliance = check_platform_compliance({"title": topic, "script": script_text}, category)
+        if platform_compliance:
+            for w in platform_compliance:
                 log_event("COMPLIANCE", f"Platform warning: {w[:100]}", "warn")
 
         failed_step = "engagement_cta"
@@ -780,9 +780,9 @@ def generate_long_video(topic: str, category: str, video_id: str, publish_at: st
                 log_event("COMPLIANCE", f"BLOCKED: {topic} (content safety)")
                 update_pipeline_status(False)
                 return False
-        platform_compliance = check_platform_compliance(topic, category)
-        if platform_compliance.get("warnings"):
-            for w in platform_compliance["warnings"]:
+        platform_compliance = check_platform_compliance({"title": topic, "script": script_text}, category)
+        if platform_compliance:
+            for w in platform_compliance:
                 log_event("COMPLIANCE", f"Platform warning: {w[:100]}", "warn")
 
         failed_step = "engagement_cta"
