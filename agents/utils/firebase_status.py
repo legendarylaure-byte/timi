@@ -258,7 +258,7 @@ def delete_old_activity_logs():
     try:
         db = get_firestore_client()
         cutoff = time.time() - ACTIVITY_TTL_DAYS * 86400
-        activities = db.collection('activities').where('timestamp', '<', cutoff).stream()
+        activities = db.collection('activity_logs').where('timestamp', '<', cutoff).stream()
         deleted = 0
         for doc in activities:
             doc.reference.delete()
@@ -268,6 +268,53 @@ def delete_old_activity_logs():
         return deleted
     except Exception as e:
         print(f"[CLEANUP] Activity log cleanup failed: {e}")
+        return 0
+
+
+def delete_old_activity_entries():
+    """Delete activity log entries referencing old children's story titles."""
+    try:
+        db = get_firestore_client()
+        activities = db.collection('activity_logs').stream()
+        deleted = 0
+        for doc in activities:
+            data = doc.to_dict()
+            message = (data.get('message', '') or '')
+            matches_old = any(p.lower() in message.lower() for p in OLD_TITLE_PATTERNS)
+            if matches_old:
+                print(f"[CLEANUP] Deleting old activity: {message[:80]}")
+                doc.reference.delete()
+                deleted += 1
+        if deleted:
+            print(f"[CLEANUP] Deleted {deleted} old activity log entries")
+        return deleted
+    except Exception as e:
+        print(f"[CLEANUP] Activity entry cleanup failed: {e}")
+        return 0
+
+
+def reset_agent_statuses():
+    """Reset all agent status documents to idle/Ready."""
+    try:
+        db = get_firestore_client()
+        agents = db.collection('agent_status').stream()
+        reset = 0
+        for doc in agents:
+            data = doc.to_dict()
+            current_status = data.get('status', '')
+            current_action = data.get('current_action', '')
+            if current_status != 'idle' or ('Magical' in current_action or 'Bedtime' in current_action or 'Father' in current_action or 'Ocean' in current_action or 'Kids' in current_action or 'Children' in current_action or 'Mythology' in current_action):
+                doc.reference.set({
+                    'status': 'idle',
+                    'current_action': 'Ready',
+                    'last_updated': firestore.SERVER_TIMESTAMP,
+                }, merge=True)
+                reset += 1
+        if reset:
+            print(f"[CLEANUP] Reset {reset} stale agent statuses")
+        return reset
+    except Exception as e:
+        print(f"[CLEANUP] Agent status reset failed: {e}")
         return 0
 
 

@@ -1371,6 +1371,14 @@ if __name__ == "__main__":
 
     cleanup_stuck_state()
 
+    from utils.firebase_status import reset_agent_statuses, delete_old_activity_entries, delete_old_videos
+    try:
+        reset_agent_statuses()
+        delete_old_activity_entries()
+        delete_old_videos()
+    except Exception as startup_cleanup_err:
+        log_event("CLEANUP", f"Startup cleanup failed: {startup_cleanup_err}", "warn")
+
     start_heartbeat_monitor(interval=600)
     start_health_server(port=8080)
 

@@ -1,4 +1,4 @@
-from utils.firebase_status import log_activity, delete_old_videos
+from utils.firebase_status import log_activity, delete_old_videos, delete_old_activity_logs, delete_old_activity_entries, reset_agent_statuses
 import os
 import sys
 from pathlib import Path
@@ -106,13 +106,37 @@ def cleanup_after_upload(video_path: str, thumbnail_path: str = None, voice_path
 def run_cleanup():
     print(f"[{datetime.now()}] Starting video cleanup...")
 
-    # Step 0: Clean up old Firestore records
+    # Step 0a: Reset stale agent statuses
+    try:
+        reset = reset_agent_statuses()
+        if reset:
+            print(f"[cleanup] Reset {reset} stale agent statuses")
+    except Exception as e:
+        print(f"[cleanup] Agent status reset skipped: {e}")
+
+    # Step 0b: Clean up old activity entries (children's story references)
+    try:
+        deleted_activity = delete_old_activity_entries()
+        if deleted_activity:
+            print(f"[cleanup] Deleted {deleted_activity} old activity entries")
+    except Exception as e:
+        print(f"[cleanup] Activity entry cleanup skipped: {e}")
+
+    # Step 0c: Clean up old video records
     try:
         deleted = delete_old_videos()
         if deleted:
             print(f"[cleanup] Deleted {deleted} old video records from Firestore")
     except Exception as e:
-        print(f"[cleanup] Firestore cleanup skipped: {e}")
+        print(f"[cleanup] Video cleanup skipped: {e}")
+
+    # Step 0d: Delete stale activity logs (TTL-based)
+    try:
+        stale = delete_old_activity_logs()
+        if stale:
+            print(f"[cleanup] Deleted {stale} stale activity logs")
+    except Exception as e:
+        print(f"[cleanup] Stale log cleanup skipped: {e}")
 
     # Step 1: Clean up R2 cloud videos
     r2_result = {"success": 0, "failed": 0, "errors": []}
