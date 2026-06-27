@@ -533,7 +533,7 @@ def generate_short_video(topic: str, category: str, video_id: str, publish_at: s
         failed_step = "virality_analysis"
         try:
             virality_crew = create_virality_analyst_crew(script=script_text, title=topic, category=category, format_type="shorts")
-            virality_result = virality_crew.kickdown(inputs={"script": script_text, "title": topic, "category": category, "format_type": "shorts"})
+            virality_result = virality_crew.kickoff(inputs={"script": script_text, "title": topic, "category": category, "format_type": "shorts"})
             if not isinstance(virality_result, dict):
                 import json, re
                 m = re.search(r'\{.*\}', str(virality_result), re.DOTALL)
@@ -624,7 +624,7 @@ def generate_short_video(topic: str, category: str, video_id: str, publish_at: s
         title_variants = []
         try:
             title_crew = create_title_optimizer_crew(script=script_text, topic=topic, category=category, format_type="shorts")
-            title_result = title_crew.kickdown(inputs={"script": script_text, "topic": topic, "category": category, "format_type": "shorts"})
+            title_result = title_crew.kickoff(inputs={"script": script_text, "topic": topic, "category": category, "format_type": "shorts"})
             if not isinstance(title_result, dict):
                 import json, re
                 m = re.search(r'\{.*\}', str(title_result), re.DOTALL)
@@ -823,7 +823,7 @@ def generate_long_video(topic: str, category: str, video_id: str, publish_at: st
         failed_step = "virality_analysis"
         try:
             virality_crew = create_virality_analyst_crew(script=script_text, title=topic, category=category, format_type="long")
-            virality_result = virality_crew.kickdown(inputs={"script": script_text, "title": topic, "category": category, "format_type": "long"})
+            virality_result = virality_crew.kickoff(inputs={"script": script_text, "title": topic, "category": category, "format_type": "long"})
             if not isinstance(virality_result, dict):
                 import json, re
                 m = re.search(r'\{.*\}', str(virality_result), re.DOTALL)
@@ -915,7 +915,7 @@ def generate_long_video(topic: str, category: str, video_id: str, publish_at: st
         title_variants = []
         try:
             title_crew = create_title_optimizer_crew(script=script_text, topic=topic, category=category, format_type="long")
-            title_result = title_crew.kickdown(inputs={"script": script_text, "topic": topic, "category": category, "format_type": "long"})
+            title_result = title_crew.kickoff(inputs={"script": script_text, "topic": topic, "category": category, "format_type": "long"})
             if not isinstance(title_result, dict):
                 import json, re
                 m = re.search(r'\{.*\}', str(title_result), re.DOTALL)
@@ -1260,7 +1260,7 @@ def weekly_monetization_job():
         log_event("MONETIZATION", f"Growth summary: {growth_summary[:200]}")
         try:
             crew = create_monetization_review_crew()
-            review = crew.kickdown(inputs={})
+            review = crew.kickoff(inputs={})
             log_event("MONETIZATION", "Monetization review complete")
         except Exception as e:
             log_event("MONETIZATION", f"Review crew failed: {e}", "warn")
