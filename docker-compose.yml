@@ -6,7 +6,9 @@ services:
     container_name: timi-pipeline
     restart: unless-stopped
     environment:
+      - PYTHONUNBUFFERED=1
       - OLLAMA_BASE_URL=http://host.docker.internal:11434
+      - OLLAMA_HOST=http://host.docker.internal:11434
       - OLLAMA_MODEL=qwen3.5:9b
       - FIREBASE_SERVICE_ACCOUNT_PATH=/app/firebase/serviceAccountKey.json
     env_file:
