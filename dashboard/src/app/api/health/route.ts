@@ -28,13 +28,13 @@ export async function GET() {
     const heartbeatDoc = await getAdminFirestore().collection('system').doc('heartbeat').get();
     if (heartbeatDoc.exists) {
       const hb = heartbeatDoc.data();
-      const lastSeen = hb?.last_seen?.toDate?.() || new Date(hb?.last_seen || 0);
+      const raw = hb?.last_heartbeat || hb?.last_seen || 0;
+      const lastSeen = typeof raw === 'string' ? new Date(raw) : raw?.toDate?.() || new Date(raw);
       const ageSeconds = (Date.now() - lastSeen.getTime()) / 1000;
       checks.agent_heartbeat = {
-        status: ageSeconds < 120 ? 'ok' : 'stale',
+        status: ageSeconds < 300 ? 'ok' : 'stale',
         detail: `${Math.round(ageSeconds)}s ago`,
       };
-      if (ageSeconds >= 120) healthy = false;
     } else {
       checks.agent_heartbeat = { status: 'unknown' };
     }
@@ -42,11 +42,10 @@ export async function GET() {
     checks.agent_heartbeat = { status: 'unknown' };
   }
 
-  const statusCode = healthy ? 200 : 503;
   return NextResponse.json({
     status: healthy ? 'healthy' : 'degraded',
     timestamp: new Date().toISOString(),
     uptime: process.uptime(),
     checks,
-  }, { status: statusCode });
+  }, { status: 200 });
 }

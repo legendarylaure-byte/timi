@@ -9,17 +9,28 @@ jobs:
   health-check:
     runs-on: ubuntu-latest
     steps:
-      - name: Check dashboard health endpoint
+      - name: Check dashboard landing page
         run: |
-          RESPONSE=$(curl -s -o /dev/null -w "%{http_code}" --max-time 15 \
-            "https://timi.vyomai.cloud/api/health" 2>&1)
-          if [ "$RESPONSE" != "200" ]; then
-            echo "Health check failed with status: $RESPONSE"
+          STATUS=$(curl -s -o /dev/null -w "%{http_code}" --max-time 15 \
+            "https://timi.vyomai.cloud" 2>&1)
+          if [ "$STATUS" != "200" ]; then
+            echo "Landing page returned $STATUS"
             exit 1
           fi
-          echo "Health check passed (HTTP $RESPONSE)"
+          echo "Landing page OK (HTTP $STATUS)"
+
+      - name: Check API health endpoint
+        run: |
+          RESPONSE=$(curl -s --max-time 15 \
+            "https://timi.vyomai.cloud/api/health" 2>&1)
+          HTTP_STATUS=$(echo "$RESPONSE" | python3 -c "import sys,json; print(json.load(sys.stdin).get('checks',{}).get('firestore',{}).get('status','unknown'))" 2>/dev/null || echo "parse_failed")
+          if [ "$HTTP_STATUS" != "ok" ]; then
+            echo "Firestore health check failed: $RESPONSE"
+            exit 1
+          fi
+          echo "Health endpoint OK (firestore=$HTTP_STATUS)"
 
       - name: Notify on failure
         if: failure()
         run: |
-          echo "::warning::Dashboard health endpoint unreachable (HTTP $RESPONSE)"
+          echo "::warning::Health check failed — timi.vyomai.cloud is unreachable or degraded"
