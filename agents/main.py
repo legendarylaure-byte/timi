@@ -43,6 +43,8 @@ from utils.title_tester import TitleTester
 from utils.analytics_feedback import analyze_recent_performance, get_optimization_prompt_injection
 from utils.llm_helper import force_fallback
 from utils.series_builder import register_video_in_series
+from utils.checkpoint import save_checkpoint, load_checkpoint, clear_checkpoint
+from utils.title_optimizer import pick_best_title
 from crew.affiliate_manager import build_affiliate_section
 from datetime import datetime
 from apscheduler.schedulers.blocking import BlockingScheduler
@@ -446,6 +448,11 @@ def generate_short_video(topic: str, category: str, video_id: str, publish_at: s
     update_pipeline_status(True, video_id)
     add_video_record(video_id, topic, "shorts", "generating", category=category)
     log_event("PIPELINE", f"Starting SHORT video generation: {topic}")
+
+    cp = load_checkpoint(video_id)
+    if cp:
+        log_event("CHECKPOINT", f"Resuming from step: {cp.get('step', 'unknown')}")
+
     failed_step = "setup"
     try:
         failed_step = "scriptwriting"
@@ -455,6 +462,7 @@ def generate_short_video(topic: str, category: str, video_id: str, publish_at: s
             script_kwargs["extra_context"] = opt_injection
         script = run_agent_step("scriptwriter", "Scriptwriter", f"Writing script for: {topic}", create_scriptwriter_crew, script_kwargs, timeout_minutes=20)  # noqa: E501
         script_text = str(script)
+        save_checkpoint(video_id, "scriptwriting", {"script_preview": script_text[:200]})
 
         failed_step = "hook_scoring"
         hook_score_result = score_hook(script_text)
@@ -532,6 +540,7 @@ def generate_short_video(topic: str, category: str, video_id: str, publish_at: s
         except Exception as e:
             log_event("VIRALITY", f"Virality analysis CRASHED: {e}", "error")
             log_pipeline_error(video_id, f"Virality analysis failed: {e}", "virality")
+        save_checkpoint(video_id, "quality_scoring", {"quality_score": quality["overall_score"]})
 
         failed_step = "director_script_review"
         script_review = run_director_review("script", topic, category, "shorts", script_text)
@@ -557,6 +566,7 @@ def generate_short_video(topic: str, category: str, video_id: str, publish_at: s
 
         failed_step = "video_pipeline"
         video_result = run_video_pipeline(script_text, str(storyboard), category, "shorts", video_id, 120)
+        save_checkpoint(video_id, "video_pipeline", {"video_path": video_result.get("video_path", "")})
 
         failed_step = "review_gate"
         review_decision = apply_review_gate(video_id, topic, "shorts", script_text, quality, category)
@@ -601,6 +611,7 @@ def generate_short_video(topic: str, category: str, video_id: str, publish_at: s
             desc_result["full_description"] = full_desc
 
         failed_step = "title_optimization"
+        title_variants = []
         try:
             title_crew = create_title_optimizer_crew(script=script_text, topic=topic, category=category, format_type="shorts")
             title_result = title_crew.kickdown(inputs={"script": script_text, "topic": topic, "category": category, "format_type": "shorts"})
@@ -609,10 +620,15 @@ def generate_short_video(topic: str, category: str, video_id: str, publish_at: s
                 m = re.search(r'\{.*\}', str(title_result), re.DOTALL)
                 title_result = json.loads(m.group()) if m else {}
             title_variants = title_result.get("variants", [])
-            log_event("TITLE", f"Generated {len(title_variants)} title variants")
+            log_event("TITLE", f"Generated {len(title_variants)} title variants via CrewAI")
         except Exception as e:
-            log_event("TITLE", f"Title optimization skipped: {e}", "warn")
-            title_variants = []
+            log_event("TITLE", f"CrewAI title optimization failed: {e}", "warn")
+        if not title_variants:
+            try:
+                title_variants = [pick_best_title(topic, keywords=[category], count=5)]
+                log_event("TITLE", f"Fallback title generated: '{title_variants[0]}'")
+            except Exception as fallback_err:
+                log_event("TITLE", f"Fallback title gen failed: {fallback_err}", "debug")
 
         failed_step = "publishing"
         platforms_to_publish = ['youtube', 'tiktok', 'instagram']
@@ -629,6 +645,7 @@ def generate_short_video(topic: str, category: str, video_id: str, publish_at: s
         publish_status = "scheduled" if publish_at else "Published"
         log_event(
             "PUBLISH", f"{publish_status} to {publish_result['success_count']}/{publish_result['total_count']} platforms")  # noqa: E501
+        save_checkpoint(video_id, "publishing", {"publish_count": publish_result.get("success_count", 0)})
 
         if publish_result.get("success_count", 0) > 0:
             log_event("CLEANUP", "Cleaning up intermediate files after successful upload")
@@ -690,6 +707,7 @@ def generate_short_video(topic: str, category: str, video_id: str, publish_at: s
         })
         log_event("PIPELINE", f"SHORT video generation SUCCESS: {topic}")
         update_pipeline_status(False)
+        clear_checkpoint(video_id)
         try:
             from bot.notifications import send_upload_notification
             video_dur = video_result.get("duration", 0)
@@ -706,6 +724,7 @@ def generate_short_video(topic: str, category: str, video_id: str, publish_at: s
         add_video_record(video_id, topic, "shorts", "failed", category=category)
         update_pipeline_status(False, paused_by_user=False)
         log_event("PIPELINE", f"SHORT video FAILED at {failed_step}: {error_msg}", "error")
+        clear_checkpoint(video_id)
         log_event("CLEANUP", "Intermediate files cleaned by scheduled daily_cleanup_job")
         try:
             from bot.notifications import send_error_notification
@@ -719,6 +738,11 @@ def generate_long_video(topic: str, category: str, video_id: str, publish_at: st
     update_pipeline_status(True, video_id)
     add_video_record(video_id, topic, "long", "generating", category=category)
     log_event("PIPELINE", f"Starting LONG video generation: {topic}")
+
+    cp = load_checkpoint(video_id)
+    if cp:
+        log_event("CHECKPOINT", f"Resuming from step: {cp.get('step', 'unknown')}")
+
     failed_step = "setup"
     try:
         failed_step = "scriptwriting"
@@ -728,6 +752,7 @@ def generate_long_video(topic: str, category: str, video_id: str, publish_at: st
             script_kwargs["extra_context"] = opt_injection
         script = run_agent_step("scriptwriter", "Scriptwriter", f"Writing script for: {topic}", create_scriptwriter_crew, script_kwargs, timeout_minutes=30)  # noqa: E501
         script_text = str(script)
+        save_checkpoint(video_id, "scriptwriting", {"script_preview": script_text[:200]})
 
         failed_step = "hook_scoring"
         hook_score_result = score_hook(script_text)
@@ -805,6 +830,7 @@ def generate_long_video(topic: str, category: str, video_id: str, publish_at: st
         except Exception as e:
             log_event("VIRALITY", f"Virality analysis CRASHED: {e}", "error")
             log_pipeline_error(video_id, f"Virality analysis failed: {e}", "virality")
+        save_checkpoint(video_id, "quality_scoring", {"quality_score": quality["overall_score"]})
 
         failed_step = "director_script_review"
         script_review = run_director_review("script", topic, category, "long", script_text)
@@ -830,6 +856,7 @@ def generate_long_video(topic: str, category: str, video_id: str, publish_at: st
 
         failed_step = "video_pipeline"
         video_result = run_video_pipeline(script_text, str(storyboard), category, "long", video_id, LONG_MAX_DURATION)
+        save_checkpoint(video_id, "video_pipeline", {"video_path": video_result.get("video_path", "")})
 
         failed_step = "review_gate"
         review_decision = apply_review_gate(video_id, topic, "long", script_text, quality, category)
@@ -875,6 +902,7 @@ def generate_long_video(topic: str, category: str, video_id: str, publish_at: st
             desc_result["full_description"] = full_desc
 
         failed_step = "title_optimization"
+        title_variants = []
         try:
             title_crew = create_title_optimizer_crew(script=script_text, topic=topic, category=category, format_type="long")
             title_result = title_crew.kickdown(inputs={"script": script_text, "topic": topic, "category": category, "format_type": "long"})
@@ -883,10 +911,15 @@ def generate_long_video(topic: str, category: str, video_id: str, publish_at: st
                 m = re.search(r'\{.*\}', str(title_result), re.DOTALL)
                 title_result = json.loads(m.group()) if m else {}
             title_variants = title_result.get("variants", [])
-            log_event("TITLE", f"Generated {len(title_variants)} title variants")
+            log_event("TITLE", f"Generated {len(title_variants)} title variants via CrewAI")
         except Exception as e:
-            log_event("TITLE", f"Title optimization skipped: {e}", "warn")
-            title_variants = []
+            log_event("TITLE", f"CrewAI title optimization failed: {e}", "warn")
+        if not title_variants:
+            try:
+                title_variants = [pick_best_title(topic, keywords=[category], count=5)]
+                log_event("TITLE", f"Fallback title generated: '{title_variants[0]}'")
+            except Exception as fallback_err:
+                log_event("TITLE", f"Fallback title gen failed: {fallback_err}", "debug")
 
         failed_step = "publishing"
         platforms_to_publish = ['youtube', 'facebook']
@@ -903,6 +936,7 @@ def generate_long_video(topic: str, category: str, video_id: str, publish_at: st
         publish_status = "scheduled" if publish_at else "Published"
         log_event(
             "PUBLISH", f"{publish_status} to {publish_result['success_count']}/{publish_result['total_count']} platforms")  # noqa: E501
+        save_checkpoint(video_id, "publishing", {"publish_count": publish_result.get("success_count", 0)})
 
         if publish_result.get("success_count", 0) > 0:
             log_event("CLEANUP", "Cleaning up intermediate files after successful upload")
@@ -966,6 +1000,7 @@ def generate_long_video(topic: str, category: str, video_id: str, publish_at: st
         add_video_record(video_id, topic, "long", "uploaded", category=category)
         log_event("PIPELINE", f"LONG video generation SUCCESS: {topic}")
         update_pipeline_status(False)
+        clear_checkpoint(video_id)
         try:
             from bot.notifications import send_upload_notification
             video_dur = video_result.get("duration", 0)
@@ -982,6 +1017,7 @@ def generate_long_video(topic: str, category: str, video_id: str, publish_at: st
         add_video_record(video_id, topic, "long", "failed", category=category)
         update_pipeline_status(False, paused_by_user=False)
         log_event("PIPELINE", f"LONG video FAILED at {failed_step}: {error_msg}", "error")
+        clear_checkpoint(video_id)
         log_event("CLEANUP", "Intermediate files cleaned by scheduled daily_cleanup_job")
         try:
             from bot.notifications import send_error_notification

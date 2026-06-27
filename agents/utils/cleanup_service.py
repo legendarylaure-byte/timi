@@ -1,4 +1,4 @@
-from utils.firebase_status import log_activity
+from utils.firebase_status import log_activity, delete_old_videos
 import os
 import sys
 from pathlib import Path
@@ -105,6 +105,14 @@ def cleanup_after_upload(video_path: str, thumbnail_path: str = None, voice_path
 
 def run_cleanup():
     print(f"[{datetime.now()}] Starting video cleanup...")
+
+    # Step 0: Clean up old Firestore records
+    try:
+        deleted = delete_old_videos()
+        if deleted:
+            print(f"[cleanup] Deleted {deleted} old video records from Firestore")
+    except Exception as e:
+        print(f"[cleanup] Firestore cleanup skipped: {e}")
 
     # Step 1: Clean up R2 cloud videos
     r2_result = {"success": 0, "failed": 0, "errors": []}

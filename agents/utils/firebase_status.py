@@ -238,6 +238,62 @@ def update_channel_stats(stats: dict):
     print(f"[FIRESTORE] Channel stats updated: {stats.get('subscribers', '?')} subs, {total_watch_hours:.1f} watch hours")
 
 
+OLD_TITLE_PATTERNS = [
+    "Magical Bedtime Adventure", "Father's Day Songs", "Fathers Day",
+    "Ocean Adventure", "Kids Story", "Children Story",
+    "Bedtime Story", "Mythology", "Mythological",
+]
+
+TECH_CATEGORIES = [
+    "AI Explained", "Deep Tech", "Paper Breakdowns", "Tool Tutorials",
+    "Industry Analysis", "Code & Build", "AI News", "Career & Learning",
+]
+
+
+ACTIVITY_TTL_DAYS = 30
+
+
+def delete_old_activity_logs():
+    """Delete activity logs older than ACTIVITY_TTL_DAYS."""
+    try:
+        db = get_firestore_client()
+        cutoff = time.time() - ACTIVITY_TTL_DAYS * 86400
+        activities = db.collection('activities').where('timestamp', '<', cutoff).stream()
+        deleted = 0
+        for doc in activities:
+            doc.reference.delete()
+            deleted += 1
+        if deleted:
+            print(f"[CLEANUP] Deleted {deleted} stale activity logs")
+        return deleted
+    except Exception as e:
+        print(f"[CLEANUP] Activity log cleanup failed: {e}")
+        return 0
+
+
+def delete_old_videos():
+    """Delete legacy children's story records from Firestore."""
+    try:
+        db = get_firestore_client()
+        snapshot = db.collection('videos').stream()
+        deleted = 0
+        for doc in snapshot:
+            data = doc.to_dict()
+            title = (data.get('title', '') or '').strip()
+            category = data.get('category', '') or ''
+            matches_old = any(p.lower() in title.lower() for p in OLD_TITLE_PATTERNS)
+            if matches_old or (category and category not in TECH_CATEGORIES):
+                print(f"[CLEANUP] Deleting old video: {title} ({doc.id})")
+                doc.reference.delete()
+                deleted += 1
+        if deleted:
+            print(f"[CLEANUP] Deleted {deleted} old video records")
+        return deleted
+    except Exception as e:
+        print(f"[CLEANUP] Failed: {e}")
+        return 0
+
+
 def log_pipeline_error(video_id: str, error: str, step: str = "unknown"):
     """Log a pipeline error to both video record and activity log."""
     db = get_firestore_client()

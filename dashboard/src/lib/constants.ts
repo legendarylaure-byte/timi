@@ -6,20 +6,106 @@ export const APP_URL = process.env.NEXT_PUBLIC_APP_URL || (() => {
   return 'http://localhost:3000';
 })();
 
-export const AGENT_ROLES = [
-  { id: 'scriptwriter', name: 'Scriptwriter', emoji: 'writer', color: '#FF6B6B' },
-  { id: 'storyboard', name: 'Storyboard Artist', emoji: 'artist', color: '#4ECDC4' },
-  { id: 'voice', name: 'Voice Actor', emoji: 'voice', color: '#FFD93D' },
-  { id: 'composer', name: 'Composer', emoji: 'composer', color: '#A29BFE' },
-  { id: 'animator', name: 'Animator', emoji: 'animator', color: '#00D2FF' },
-  { id: 'editor', name: 'Video Editor', emoji: 'editor', color: '#F39C12' },
-  { id: 'thumbnail', name: 'Thumbnail Creator', emoji: 'designer', color: '#E056FD' },
-  { id: 'metadata', name: 'Metadata Writer', emoji: 'writer', color: '#22A6B3' },
-  { id: 'publisher', name: 'Publisher', emoji: 'publisher', color: '#7ED6DF' },
-  { id: 'quality_scorer', name: 'Quality Scorer', emoji: 'quality', color: '#10B981' },
-  { id: 'trend_discovery', name: 'Trend Scout', emoji: 'trends', color: '#F97316' },
-  { id: 'repurposer', name: 'Content Repurposer', emoji: 'repurpose', color: '#06B6D4' },
-  { id: 'scheduler', name: 'Scheduler AI', emoji: 'scheduler', color: '#06D6A0' },
+export interface AgentRole {
+  id: string;
+  name: string;
+  emoji: string;
+  color: string;
+  description: string;
+}
+
+export const AGENT_ROLES: AgentRole[] = [
+  {
+    id: 'scriptwriter',
+    name: 'Scriptwriter',
+    emoji: '📝',
+    color: '#FF6B6B',
+    description: 'Writes a complete script for your video — like a TV show writer planning every scene and what the narrator will say',
+  },
+  {
+    id: 'storyboard',
+    name: 'Storyboard Artist',
+    emoji: '🎨',
+    color: '#4ECDC4',
+    description: 'Draws a picture-by-picture plan of what viewers will see on screen for every scene',
+  },
+  {
+    id: 'voice',
+    name: 'Voice Actor',
+    emoji: '🎙️',
+    color: '#FFD93D',
+    description: 'Records the narration using AI voices so your video has professional-sounding audio',
+  },
+  {
+    id: 'composer',
+    name: 'Composer',
+    emoji: '🎵',
+    color: '#A29BFE',
+    description: 'Creates custom background music that matches the mood of each scene',
+  },
+  {
+    id: 'animator',
+    name: 'Animator',
+    emoji: '🎬',
+    color: '#00D2FF',
+    description: 'Gathers all the visuals — stock footage, screen recordings, diagrams, and code snippets',
+  },
+  {
+    id: 'editor',
+    name: 'Video Editor',
+    emoji: '✂️',
+    color: '#F39C12',
+    description: 'Stitches voice, music, and visuals together into the final video you can watch',
+  },
+  {
+    id: 'thumbnail',
+    name: 'Thumbnail Creator',
+    emoji: '🖼️',
+    color: '#E056FD',
+    description: 'Designs the clickable cover image that makes people want to watch your video',
+  },
+  {
+    id: 'metadata',
+    name: 'Metadata Writer',
+    emoji: '🏷️',
+    color: '#22A6B3',
+    description: 'Writes the title, description, and tags so YouTube and search engines can find your video',
+  },
+  {
+    id: 'publisher',
+    name: 'Publisher',
+    emoji: '🚀',
+    color: '#7ED6DF',
+    description: 'Uploads your finished video to YouTube, TikTok, Instagram, and Facebook',
+  },
+  {
+    id: 'quality_scorer',
+    name: 'Quality Scorer',
+    emoji: '⭐',
+    color: '#10B981',
+    description: 'Reads the script and predicts how much viewers will love it before we invest time making it',
+  },
+  {
+    id: 'trend_discovery',
+    name: 'Trend Scout',
+    emoji: '🔍',
+    color: '#F97316',
+    description: 'Scans YouTube and the internet to find what topics are hot right now',
+  },
+  {
+    id: 'repurposer',
+    name: 'Content Repurposer',
+    emoji: '🔄',
+    color: '#06B6D4',
+    description: 'Splits long videos into short clips so you get more content from less work',
+  },
+  {
+    id: 'scheduler',
+    name: 'Scheduler AI',
+    emoji: '📅',
+    color: '#06D6A0',
+    description: 'Plans the best times to publish each video so the most people see it',
+  },
 ];
 
 export const AGENT_STATUS = {

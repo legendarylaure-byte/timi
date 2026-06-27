@@ -8,6 +8,7 @@ from datetime import datetime
 from utils.firebase_status import get_firestore_client, log_activity, update_video_record
 from compliance.ai_disclosure import get_ai_disclosure
 from utils.sanitize import safe_log
+from utils.platform_captions import optimize_for_platform
 
 PLATFORMS = {
     'youtube': {
@@ -451,8 +452,9 @@ def multi_platform_publish(video_id: str, title: str, description: str, video_pa
 
     for platform in platforms:
         try:
+            platform_desc = optimize_for_platform(title, description, platform)
             log_activity('publisher', f"Uploading to {PLATFORMS[platform]['name']}...", 'info')
-            result = upload_to_platform(platform, title, description, video_path,
+            result = upload_to_platform(platform, title, platform_desc, video_path,
                                         thumbnail_path, format_type, publish_at)
             results['platforms'][platform] = result
 

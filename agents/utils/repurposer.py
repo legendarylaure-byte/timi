@@ -90,8 +90,9 @@ def _fallback_repurpose(title: str, duration: int) -> dict:
 
         hook = random.randint(65, 96)
 
+        clip_title = f"{key_words[0] if key_words else 'Tech'}: {random.choice(['How', 'Why', 'What', 'Learn', 'Discover'])} {random.choice(['AI', 'Code', 'Tips', 'Hacks', 'Insights'])}"  # noqa: E501
         clips.append({
-            "title": f"{key_words[0] if key_words else 'Clip'}: {random.choice(['Amazing', 'Fun', 'Learn', 'Discover', 'Why'])} {random.choice(['Fact', 'Story', 'Song', 'Magic', 'Secret'])}",  # noqa: E501
+            "title": clip_title,
             "start_time": start,
             "end_time": end,
             "duration": clip_duration,
@@ -145,6 +146,12 @@ def _save_repurpose_job(video_id: str, title: str, duration: int, result: dict):
         print(f"[REPURPOSE] Failed to save: {e}")
 
 
+TECH_CATEGORIES = [
+    "AI Explained", "Deep Tech", "Paper Breakdowns", "Tool Tutorials",
+    "Industry Analysis", "Code & Build", "AI News", "Career & Learning",
+]
+
+
 def batch_reprocess_all_videos() -> dict:
     """Scan all long-form videos and find repurposing opportunities."""
     try:
@@ -154,6 +161,9 @@ def batch_reprocess_all_videos() -> dict:
         results = []
         for vid in videos:
             data = vid.to_dict()
+            category = data.get('category', '') or ''
+            if category not in TECH_CATEGORIES:
+                continue
             if not data.get('repurposed'):
                 result = repurpose_video(vid.id, data.get('title', 'Unknown'), data.get('duration', 300))
                 results.append({"video_id": vid.id, "title": data.get('title'), "clips": result['total_clips']})

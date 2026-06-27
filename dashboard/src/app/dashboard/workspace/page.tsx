@@ -6,6 +6,7 @@ import { db } from '@/lib/firebase';
 import { collection, onSnapshot, doc, updateDoc } from 'firebase/firestore';
 import { AGENT_ROLES } from '@/lib/constants';
 import { useToast } from '@/components/ui/Toast';
+import Tooltip from '@/components/ui/Tooltip';
 import Image from 'next/image';
 
 function getContrastTextColor(hex: string): string {
@@ -111,12 +112,14 @@ export default function WorkspacePage() {
               transition={{ delay: i * 0.08 }}
               className="flex flex-col items-center gap-2"
             >
-              <div className="w-16 h-16 rounded-2xl flex items-center justify-center text-xl font-bold relative" style={{ backgroundColor: agent.color, color: getContrastTextColor(agent.color) }}>
-                {agent.name.charAt(0)}
-                {agent.status === 'working' && (
-                  <div className="absolute -top-1 -right-1 w-4 h-4 bg-emerald-500 rounded-full animate-pulse border-2 border-white dark:border-gray-800" />
-                )}
-              </div>
+              <Tooltip content={AGENT_ROLES.find(r => r.id === agent.id)?.description || agent.name} color={agent.color}>
+                <div className="w-16 h-16 rounded-2xl flex items-center justify-center text-xl font-bold relative cursor-help" style={{ backgroundColor: agent.color, color: getContrastTextColor(agent.color) }}>
+                  {agent.name.charAt(0)}
+                  {agent.status === 'working' && (
+                    <div className="absolute -top-1 -right-1 w-4 h-4 bg-emerald-500 rounded-full animate-pulse border-2 border-white dark:border-gray-800" />
+                  )}
+                </div>
+              </Tooltip>
               <span className="text-xs text-light-text/70 dark:text-gray-300 font-medium text-center max-w-20 truncate">{agent.name}</span>
             </motion.div>
           ))}
@@ -137,9 +140,11 @@ export default function WorkspacePage() {
             className="rounded-2xl p-5 glass-strong border border-light-border/50 dark:border-white/10 hover:shadow-lg hover:-translate-y-1 transition-all duration-300"
           >
             <div className="flex items-center gap-3 mb-3">
-              <div className="w-10 h-10 rounded-xl flex items-center justify-center font-bold shrink-0" style={{ backgroundColor: agent.color, color: getContrastTextColor(agent.color) }}>
-                {agent.name.charAt(0)}
-              </div>
+              <Tooltip content={AGENT_ROLES.find(r => r.id === agent.id)?.description || agent.name} color={agent.color}>
+                <div className="w-10 h-10 rounded-xl flex items-center justify-center font-bold shrink-0 cursor-help" style={{ backgroundColor: agent.color, color: getContrastTextColor(agent.color) }}>
+                  {agent.name.charAt(0)}
+                </div>
+              </Tooltip>
               <div className="flex-1 min-w-0">
                 <h3 className="font-semibold text-light-text dark:text-white text-sm truncate">{agent.name}</h3>
                 <span className={`text-xs px-2 py-0.5 rounded-full ${statusColors[agent.status] || statusColors.idle}`}>
