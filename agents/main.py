@@ -72,6 +72,24 @@ os.environ["GRPC_VERBOSITY"] = "ERROR"
 os.environ["GLOG_minloglevel"] = "2"
 
 
+def _extract_json(data):
+    import json, re
+    raw = getattr(data, 'raw', None) or getattr(data, 'json_dict', None) or str(data)
+    if isinstance(raw, dict):
+        return raw
+    s = str(raw).strip()
+    if s.startswith('{') and s.endswith('}'):
+        return json.loads(s)
+    for pat in [r'\{[\s\S]*?\}', r'\{[\s\S]*\}']:
+        m = re.search(pat, s)
+        if m:
+            try:
+                return json.loads(m.group())
+            except json.JSONDecodeError:
+                continue
+    return json.loads('{' + s + '}')
+
+
 def _run_async(coro):
     """Run an async coroutine safely, even from a threaded context with a running loop."""
     try:
@@ -433,20 +451,7 @@ def run_director_review(stage: str, topic: str, category: str, format_type: str,
             "format": format_type,
             "topic": topic,
         })
-        import json
-        raw = getattr(result, 'raw', None) or getattr(result, 'json_dict', None) or str(result)
-        if isinstance(raw, dict):
-            review = raw
-        else:
-            try:
-                review = json.loads(raw)
-            except json.JSONDecodeError:
-                import re
-                json_match = re.search(r'\{.*\}', raw, re.DOTALL)
-                if json_match:
-                    review = json.loads(json_match.group())
-                else:
-                    raise
+        review = _extract_json(result)
         log_event("DIRECTOR", f"[{stage}] Score: {review.get('score', 0)}/100, Decision: {review.get('decision', 'unknown')}")
         if review.get("issues"):
             for issue in review["issues"][:3]:
@@ -536,15 +541,7 @@ def generate_short_video(topic: str, category: str, video_id: str, publish_at: s
         failed_step = "virality_analysis"
         try:
             virality_crew = create_virality_analyst_crew(script=script_text, title=topic, category=category, format_type="shorts")
-            virality_result = virality_crew.kickoff(inputs={"script": script_text, "title": topic, "category": category, "format_type": "shorts"})
-            if not isinstance(virality_result, dict):
-                import json, re
-                raw = getattr(virality_result, 'raw', None) or getattr(virality_result, 'json_dict', None) or str(virality_result)
-                if isinstance(raw, dict):
-                    virality_result = raw
-                else:
-                    m = re.search(r'\{.*\}', str(raw), re.DOTALL)
-                    virality_result = json.loads(m.group()) if m else {}
+            virality_result = _extract_json(virality_crew.kickoff(inputs={"script": script_text, "title": topic, "category": category, "format_type": "shorts"}))
             v_score = virality_result.get("overall_virality_score", 70)
             update_video_record(video_id, {"virality_prediction": virality_result})
             if v_score < get_virality_threshold():
@@ -631,15 +628,7 @@ def generate_short_video(topic: str, category: str, video_id: str, publish_at: s
         title_variants = []
         try:
             title_crew = create_title_optimizer_crew(script=script_text, topic=topic, category=category, format_type="shorts")
-            title_result = title_crew.kickoff(inputs={"script": script_text, "topic": topic, "category": category, "format_type": "shorts"})
-            if not isinstance(title_result, dict):
-                import json, re
-                raw = getattr(title_result, 'raw', None) or getattr(title_result, 'json_dict', None) or str(title_result)
-                if isinstance(raw, dict):
-                    title_result = raw
-                else:
-                    m = re.search(r'\{.*\}', str(raw), re.DOTALL)
-                    title_result = json.loads(m.group()) if m else {}
+            title_result = _extract_json(title_crew.kickoff(inputs={"script": script_text, "topic": topic, "category": category, "format_type": "shorts"}))
             title_variants = title_result.get("variants", [])
             log_event("TITLE", f"Generated {len(title_variants)} title variants via CrewAI")
         except Exception as e:
@@ -834,15 +823,7 @@ def generate_long_video(topic: str, category: str, video_id: str, publish_at: st
         failed_step = "virality_analysis"
         try:
             virality_crew = create_virality_analyst_crew(script=script_text, title=topic, category=category, format_type="long")
-            virality_result = virality_crew.kickoff(inputs={"script": script_text, "title": topic, "category": category, "format_type": "long"})
-            if not isinstance(virality_result, dict):
-                import json, re
-                raw = getattr(virality_result, 'raw', None) or getattr(virality_result, 'json_dict', None) or str(virality_result)
-                if isinstance(raw, dict):
-                    virality_result = raw
-                else:
-                    m = re.search(r'\{.*\}', str(raw), re.DOTALL)
-                    virality_result = json.loads(m.group()) if m else {}
+            virality_result = _extract_json(virality_crew.kickoff(inputs={"script": script_text, "title": topic, "category": category, "format_type": "long"}))
             v_score = virality_result.get("overall_virality_score", 70)
             update_video_record(video_id, {"virality_prediction": virality_result})
             if v_score < get_virality_threshold():
@@ -930,15 +911,7 @@ def generate_long_video(topic: str, category: str, video_id: str, publish_at: st
         title_variants = []
         try:
             title_crew = create_title_optimizer_crew(script=script_text, topic=topic, category=category, format_type="long")
-            title_result = title_crew.kickoff(inputs={"script": script_text, "topic": topic, "category": category, "format_type": "long"})
-            if not isinstance(title_result, dict):
-                import json, re
-                raw = getattr(title_result, 'raw', None) or getattr(title_result, 'json_dict', None) or str(title_result)
-                if isinstance(raw, dict):
-                    title_result = raw
-                else:
-                    m = re.search(r'\{.*\}', str(raw), re.DOTALL)
-                    title_result = json.loads(m.group()) if m else {}
+            title_result = _extract_json(title_crew.kickoff(inputs={"script": script_text, "topic": topic, "category": category, "format_type": "long"}))
             title_variants = title_result.get("variants", [])
             log_event("TITLE", f"Generated {len(title_variants)} title variants via CrewAI")
         except Exception as e:
