@@ -183,7 +183,20 @@ else
 fi
 
 # ──────────────────────────────────────
-header "Step 5 — Final Checks"
+header "Step 5 — Firestore Indexes Status"
+
+echo ""
+python3 "$REPO_DIR/scripts/deploy_indexes.py" 2>&1 || true
+
+echo ""
+echo "To deploy missing indexes, run:"
+echo "  1. python3 scripts/deploy_indexes.py --deploy"
+echo "     (after setting FIREBASE_TOKEN or authenticating gcloud)"
+echo "  2. Or open Firebase Console and create them manually:"
+echo "     https://console.firebase.google.com/project/timi-childern-stories/firestore/indexes"
+echo ""
+
+header "Step 6 — Final Checks"
 
 echo ""
 echo "=== Vercel Env Vars ==="
