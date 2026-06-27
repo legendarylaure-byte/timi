@@ -1,6 +1,11 @@
 name: Deploy to Vercel
 
 on:
+  push:
+    branches: [main]
+    paths:
+      - 'dashboard/**'
+      - '.github/workflows/deploy.yml'
   workflow_dispatch:
 
 env:
