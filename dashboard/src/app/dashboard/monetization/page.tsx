@@ -3,7 +3,7 @@
 import { useState, useEffect } from 'react';
 import { motion } from 'framer-motion';
 import { db } from '@/lib/firebase';
-import { collection, onSnapshot, doc } from 'firebase/firestore';
+import { collection, onSnapshot, doc, query, where } from 'firebase/firestore';
 import { DollarSign, Calendar, BarChart3, TrendingUp, Users, Clock, Smartphone, Music, Camera, CheckCircle, Loader2, Shield, FileText, Bot, Film, Globe, Pencil } from 'lucide-react';
 import { getThresholds, type PlatformThresholds, DEFAULT_THRESHOLDS } from '@/lib/thresholds';
 
@@ -109,7 +109,7 @@ export default function MonetizationPage() {
       }
     );
 
-    const unsubVideos = onSnapshot(collection(db, 'videos'),
+    const unsubVideos = onSnapshot(query(collection(db, 'videos'), where('format', 'in', ['shorts', 'long'])),
       (snap) => {
         let totalViews = 0;
         let uploadedCount = 0;

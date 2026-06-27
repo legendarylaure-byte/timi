@@ -271,11 +271,15 @@ def delete_old_activity_logs():
         return 0
 
 
-def delete_old_activity_entries():
-    """Delete activity log entries referencing old children's story titles."""
+def delete_old_activity_entries(batch_size: int = 500):
+    """Delete activity log entries referencing old children's story titles.
+
+    Args:
+        batch_size: Max documents to scan per run to avoid OOM on large collections.
+    """
     try:
         db = get_firestore_client()
-        activities = db.collection('activity_logs').stream()
+        activities = db.collection('activity_logs').limit(batch_size).stream()
         deleted = 0
         for doc in activities:
             data = doc.to_dict()

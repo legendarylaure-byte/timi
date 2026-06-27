@@ -3,7 +3,7 @@
 import { useEffect, useState, useCallback } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { db } from '@/lib/firebase';
-import { collection, onSnapshot, doc, updateDoc, query, orderBy, limit, addDoc, serverTimestamp } from 'firebase/firestore';
+import { collection, onSnapshot, doc, updateDoc, query, orderBy, limit, addDoc, serverTimestamp, where } from 'firebase/firestore';
 import { AGENT_ROLES, CONTENT_CATEGORIES } from '@/lib/constants';
 import { GradientCard } from '@/components/ui/GradientCard';
 import { StatusBadge } from '@/components/ui/StatusBadge';
@@ -173,7 +173,7 @@ export default function DashboardPage() {
   }, [agentStatuses, activityLogs]);
 
   useEffect(() => {
-    const q = collection(db, 'videos');
+    const q = query(collection(db, 'videos'), where('format', 'in', ['shorts', 'long']));
     const unsubscribe = onSnapshot(q,
       (snapshot) => {
         const vids: VideoDoc[] = [];
