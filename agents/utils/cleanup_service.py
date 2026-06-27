@@ -1,4 +1,4 @@
-from utils.firebase_status import log_activity, delete_old_videos, delete_old_activity_logs, delete_old_activity_entries, reset_agent_statuses
+from utils.firebase_status import log_activity, delete_old_videos, delete_old_activity_logs, delete_old_activity_entries, delete_old_pipeline_triggers, reset_agent_statuses
 import os
 import sys
 from pathlib import Path
@@ -113,6 +113,14 @@ def run_cleanup():
             print(f"[cleanup] Reset {reset} stale agent statuses")
     except Exception as e:
         print(f"[cleanup] Agent status reset skipped: {e}")
+
+    # Step 0a2: Clean up old pipeline triggers
+    try:
+        purged = delete_old_pipeline_triggers()
+        if purged:
+            print(f"[cleanup] Purged {purged} old pipeline triggers")
+    except Exception as e:
+        print(f"[cleanup] Pipeline trigger cleanup skipped: {e}")
 
     # Step 0b: Clean up old activity entries (children's story references)
     try:

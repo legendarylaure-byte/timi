@@ -1371,11 +1371,12 @@ if __name__ == "__main__":
 
     cleanup_stuck_state()
 
-    from utils.firebase_status import reset_agent_statuses, delete_old_activity_entries, delete_old_videos
+    from utils.firebase_status import reset_agent_statuses, delete_old_activity_entries, delete_old_videos, delete_old_pipeline_triggers
     try:
         reset_agent_statuses()
         delete_old_activity_entries()
         delete_old_videos()
+        delete_old_pipeline_triggers()
     except Exception as startup_cleanup_err:
         log_event("CLEANUP", f"Startup cleanup failed: {startup_cleanup_err}", "warn")
 

@@ -318,6 +318,41 @@ def reset_agent_statuses():
         return 0
 
 
+PIPELINE_TRIGGER_TTL_DAYS = 7
+
+
+def delete_old_pipeline_triggers():
+    """Delete pipeline triggers with old children's story topics and stale completed/failed triggers."""
+    try:
+        db = get_firestore_client()
+        triggers = db.collection('pipeline_triggers').stream()
+        deleted = 0
+        cutoff = time.time() - PIPELINE_TRIGGER_TTL_DAYS * 86400
+        for doc in triggers:
+            data = doc.to_dict()
+            topic = (data.get('topic', '') or '')
+            status = data.get('status', '')
+            created_at = data.get('created_at')
+            ts = None
+            if created_at:
+                if hasattr(created_at, 'timestamp'):
+                    ts = created_at.timestamp()
+                elif isinstance(created_at, (int, float)):
+                    ts = created_at
+            matches_old = any(p.lower() in topic.lower() for p in OLD_TITLE_PATTERNS)
+            is_stale = status in ('completed', 'failed', 'skipped') and ts and ts < cutoff
+            if matches_old or is_stale:
+                print(f"[CLEANUP] Deleting trigger: {topic} ({status})")
+                doc.reference.delete()
+                deleted += 1
+        if deleted:
+            print(f"[CLEANUP] Deleted {deleted} old pipeline triggers")
+        return deleted
+    except Exception as e:
+        print(f"[CLEANUP] Pipeline trigger cleanup failed: {e}")
+        return 0
+
+
 def delete_old_videos():
     """Delete legacy children's story records from Firestore."""
     try:
