@@ -75,17 +75,22 @@ export default function SeriesPage() {
   };
 
   const loadPlans = () => {
-    const unsub = onSnapshot(collection(db, 'series_plans'), (snap) => {
-      const items: SeriesPlan[] = [];
-      snap.forEach(d => {
-        items.push({ id: d.id, ...d.data() } as SeriesPlan);
-      });
-      setPlans(items.sort((a, b) => {
-        const aTime = a.created_at?.toDate?.()?.getTime() || 0;
-        const bTime = b.created_at?.toDate?.()?.getTime() || 0;
-        return bTime - aTime;
-      }));
-    });
+    const unsub = onSnapshot(collection(db, 'series_plans'),
+      (snap) => {
+        const items: SeriesPlan[] = [];
+        snap.forEach(d => {
+          items.push({ id: d.id, ...d.data() } as SeriesPlan);
+        });
+        setPlans(items.sort((a, b) => {
+          const aTime = a.created_at?.toDate?.()?.getTime() || 0;
+          const bTime = b.created_at?.toDate?.()?.getTime() || 0;
+          return bTime - aTime;
+        }));
+      },
+      (error) => {
+        console.error('[Series] series_plans:', error);
+      }
+    );
     return () => unsub();
   };
 

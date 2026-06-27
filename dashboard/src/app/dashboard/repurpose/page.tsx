@@ -36,14 +36,20 @@ export default function RepurposePage() {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    const unsub = onSnapshot(query(collection(db, 'repurpose_jobs'), orderBy('created_at', 'desc'), limit(20)), (snap) => {
-      if (!snap.empty) {
-        setJobs(snap.docs.map(d => ({ id: d.id, ...d.data() } as RepurposeJob)));
-      } else {
-        setJobs([]);
+    const unsub = onSnapshot(query(collection(db, 'repurpose_jobs'), orderBy('created_at', 'desc'), limit(20)),
+      (snap) => {
+        if (!snap.empty) {
+          setJobs(snap.docs.map(d => ({ id: d.id, ...d.data() } as RepurposeJob)));
+        } else {
+          setJobs([]);
+        }
+        setLoading(false);
+      },
+      (error) => {
+        console.error('[Repurpose] repurpose_jobs:', error);
+        setLoading(false);
       }
-      setLoading(false);
-    });
+    );
     return () => unsub();
   }, []);
 

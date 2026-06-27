@@ -39,21 +39,32 @@ export default function PublishingPage() {
   const [selectedPlatform, setSelectedPlatform] = useState<string | null>(null);
 
   useEffect(() => {
-    const unsub = onSnapshot(collection(db, 'platform_settings'), (snap) => {
-      if (!snap.empty) {
-        setPlatforms(snap.docs.map(d => ({ id: d.id, ...d.data() } as PlatformConfig)));
+    const unsub = onSnapshot(collection(db, 'platform_settings'),
+      (snap) => {
+        if (!snap.empty) {
+          setPlatforms(snap.docs.map(d => ({ id: d.id, ...d.data() } as PlatformConfig)));
+        }
+        setLoading(false);
+      },
+      (error) => {
+        console.error('[Publishing] platform_settings:', error);
+        setLoading(false);
       }
-      setLoading(false);
-    });
+    );
     return () => unsub();
   }, []);
 
   useEffect(() => {
-    const unsub = onSnapshot(query(collection(db, 'upload_queue'), orderBy('created_at', 'desc'), limit(20)), (snap) => {
-      if (!snap.empty) {
-        setQueue(snap.docs.map(d => ({ id: d.id, ...d.data() } as UploadQueueItem)));
+    const unsub = onSnapshot(query(collection(db, 'upload_queue'), orderBy('created_at', 'desc'), limit(20)),
+      (snap) => {
+        if (!snap.empty) {
+          setQueue(snap.docs.map(d => ({ id: d.id, ...d.data() } as UploadQueueItem)));
+        }
+      },
+      (error) => {
+        console.error('[Publishing] upload_queue:', error);
       }
-    });
+    );
     return () => unsub();
   }, []);
 

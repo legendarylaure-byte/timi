@@ -367,7 +367,7 @@ def run_video_pipeline(script_text: str, storyboard_text: str, category: str, fo
     }
 
 
-def apply_review_gate(video_id: str, topic: str, format_type: str, script_text: str, quality: dict):
+def apply_review_gate(video_id: str, topic: str, format_type: str, script_text: str, quality: dict, category: str = ""):
     if not ENABLE_REVIEW_GATE:
         log_event("REVIEW", "Review gate disabled - auto-publishing")
         return "auto_approve"
@@ -386,11 +386,11 @@ def apply_review_gate(video_id: str, topic: str, format_type: str, script_text: 
     })
 
     if decision["action"] == "block":
-        add_video_record(video_id, topic, format_type, "blocked_review")
+        add_video_record(video_id, topic, format_type, "blocked_review", category=category)
         log_event("REVIEW", f"BLOCKED: {topic}")
         return "block"
     elif decision["action"] == "manual_review":
-        add_video_record(video_id, topic, format_type, "pending_review")
+        add_video_record(video_id, topic, format_type, "pending_review", category=category)
         log_event("REVIEW", f"PENDING REVIEW: {topic}")
         return "pending_review"
 
@@ -433,7 +433,7 @@ def run_director_review(stage: str, topic: str, category: str, format_type: str,
 
 def generate_short_video(topic: str, category: str, video_id: str, publish_at: str = None):
     update_pipeline_status(True, video_id)
-    add_video_record(video_id, topic, "shorts", "generating")
+    add_video_record(video_id, topic, "shorts", "generating", category=category)
     log_event("PIPELINE", f"Starting SHORT video generation: {topic}")
     failed_step = "setup"
     try:
@@ -460,7 +460,7 @@ def generate_short_video(topic: str, category: str, video_id: str, publish_at: s
                 log_event("COMPLIANCE", f"  [{issue['severity']}] {issue.get('message', '')[:100]}")
             if any(i.get("severity") == "error" for i in issues):
                 log_pipeline_error(video_id, "Blocked by content safety check", "compliance")
-                add_video_record(video_id, topic, "shorts", "blocked_compliance")
+                add_video_record(video_id, topic, "shorts", "blocked_compliance", category=category)
                 log_event("COMPLIANCE", f"BLOCKED: {topic} (content safety)")
                 update_pipeline_status(False)
                 return False
@@ -489,7 +489,7 @@ def generate_short_video(topic: str, category: str, video_id: str, publish_at: s
 
         if quality["recommendation"] == "block":
             log_pipeline_error(video_id, f"Blocked by quality score: {quality['overall_score']}", "quality_check")
-            add_video_record(video_id, topic, "shorts", "blocked")
+            add_video_record(video_id, topic, "shorts", "blocked", category=category)
             log_event("QUALITY", f"BLOCKED: {topic} (score: {quality['overall_score']})")
             update_pipeline_status(False)
             return False
@@ -507,7 +507,7 @@ def generate_short_video(topic: str, category: str, video_id: str, publish_at: s
             if v_score < get_virality_threshold():
                 log_event("VIRALITY", f"Virality score {v_score}/100 below threshold — blocking")
                 log_pipeline_error(video_id, f"Blocked by virality analyst: {v_score}/100", "virality")
-                add_video_record(video_id, topic, "shorts", "blocked_virality")
+                add_video_record(video_id, topic, "shorts", "blocked_virality", category=category)
                 update_pipeline_status(False)
                 return False
             log_event("VIRALITY", f"Virality score: {v_score}/100 — approved")
@@ -518,7 +518,7 @@ def generate_short_video(topic: str, category: str, video_id: str, publish_at: s
         script_review = run_director_review("script", topic, category, "shorts", script_text)
         if script_review.get("decision") == "block":
             log_pipeline_error(video_id, f"Blocked by Director (script): {script_review.get('feedback', '')[:200]}", "director_review")
-            add_video_record(video_id, topic, "shorts", "blocked")
+            add_video_record(video_id, topic, "shorts", "blocked", category=category)
             log_event("DIRECTOR", f"BLOCKED at script review: {topic}")
             update_pipeline_status(False)
             return False
@@ -531,7 +531,7 @@ def generate_short_video(topic: str, category: str, video_id: str, publish_at: s
         sb_review = run_director_review("storyboard", topic, category, "shorts", script_text, str(storyboard))
         if sb_review.get("decision") == "block":
             log_pipeline_error(video_id, f"Blocked by Director (storyboard)", "director_review")
-            add_video_record(video_id, topic, "shorts", "blocked")
+            add_video_record(video_id, topic, "shorts", "blocked", category=category)
             log_event("DIRECTOR", f"BLOCKED at storyboard review: {topic}")
             update_pipeline_status(False)
             return False
@@ -540,7 +540,7 @@ def generate_short_video(topic: str, category: str, video_id: str, publish_at: s
         video_result = run_video_pipeline(script_text, str(storyboard), category, "shorts", video_id, 120)
 
         failed_step = "review_gate"
-        review_decision = apply_review_gate(video_id, topic, "shorts", script_text, quality)
+        review_decision = apply_review_gate(video_id, topic, "shorts", script_text, quality, category)
         if review_decision == "block":
             update_pipeline_status(False)
             return False
@@ -549,7 +549,7 @@ def generate_short_video(topic: str, category: str, video_id: str, publish_at: s
         final_review = run_director_review("final", topic, category, "shorts", script_text, str(storyboard))
         if final_review.get("decision") == "block":
             log_pipeline_error(video_id, f"Blocked by Director (final)", "director_review")
-            add_video_record(video_id, topic, "shorts", "blocked")
+            add_video_record(video_id, topic, "shorts", "blocked", category=category)
             log_event("DIRECTOR", f"BLOCKED at final review: {topic}")
             update_pipeline_status(False)
             return False
@@ -684,7 +684,7 @@ def generate_short_video(topic: str, category: str, video_id: str, publish_at: s
     except Exception as e:
         error_msg = str(e)[:500]
         log_pipeline_error(video_id, f"[{failed_step}] {error_msg}", "short_video_pipeline")
-        add_video_record(video_id, topic, "shorts", "failed")
+        add_video_record(video_id, topic, "shorts", "failed", category=category)
         update_pipeline_status(False, paused_by_user=False)
         log_event("PIPELINE", f"SHORT video FAILED at {failed_step}: {error_msg}", "error")
         log_event("CLEANUP", "Intermediate files cleaned by scheduled daily_cleanup_job")
@@ -698,7 +698,7 @@ def generate_short_video(topic: str, category: str, video_id: str, publish_at: s
 
 def generate_long_video(topic: str, category: str, video_id: str, publish_at: str = None):
     update_pipeline_status(True, video_id)
-    add_video_record(video_id, topic, "long", "generating")
+    add_video_record(video_id, topic, "long", "generating", category=category)
     log_event("PIPELINE", f"Starting LONG video generation: {topic}")
     failed_step = "setup"
     try:
@@ -725,7 +725,7 @@ def generate_long_video(topic: str, category: str, video_id: str, publish_at: st
                 log_event("COMPLIANCE", f"  [{issue['severity']}] {issue.get('message', '')[:100]}")
             if any(i.get("severity") == "error" for i in issues):
                 log_pipeline_error(video_id, "Blocked by content safety check", "compliance")
-                add_video_record(video_id, topic, "long", "blocked_compliance")
+                add_video_record(video_id, topic, "long", "blocked_compliance", category=category)
                 log_event("COMPLIANCE", f"BLOCKED: {topic} (content safety)")
                 update_pipeline_status(False)
                 return False
@@ -754,7 +754,7 @@ def generate_long_video(topic: str, category: str, video_id: str, publish_at: st
 
         if quality["recommendation"] == "block":
             log_pipeline_error(video_id, f"Blocked by quality score: {quality['overall_score']}", "quality_check")
-            add_video_record(video_id, topic, "long", "blocked")
+            add_video_record(video_id, topic, "long", "blocked", category=category)
             log_event("QUALITY", f"BLOCKED: {topic} (score: {quality['overall_score']})")
             update_pipeline_status(False)
             return False
@@ -772,7 +772,7 @@ def generate_long_video(topic: str, category: str, video_id: str, publish_at: st
             if v_score < get_virality_threshold():
                 log_event("VIRALITY", f"Virality score {v_score}/100 below threshold — blocking")
                 log_pipeline_error(video_id, f"Blocked by virality analyst: {v_score}/100", "virality")
-                add_video_record(video_id, topic, "long", "blocked_virality")
+                add_video_record(video_id, topic, "long", "blocked_virality", category=category)
                 update_pipeline_status(False)
                 return False
             log_event("VIRALITY", f"Virality score: {v_score}/100 — approved")
@@ -783,7 +783,7 @@ def generate_long_video(topic: str, category: str, video_id: str, publish_at: st
         script_review = run_director_review("script", topic, category, "long", script_text)
         if script_review.get("decision") == "block":
             log_pipeline_error(video_id, f"Blocked by Director (script): {script_review.get('feedback', '')[:200]}", "director_review")
-            add_video_record(video_id, topic, "long", "blocked")
+            add_video_record(video_id, topic, "long", "blocked", category=category)
             log_event("DIRECTOR", f"BLOCKED at script review: {topic}")
             update_pipeline_status(False)
             return False
@@ -796,7 +796,7 @@ def generate_long_video(topic: str, category: str, video_id: str, publish_at: st
         sb_review = run_director_review("storyboard", topic, category, "long", script_text, str(storyboard))
         if sb_review.get("decision") == "block":
             log_pipeline_error(video_id, f"Blocked by Director (storyboard)", "director_review")
-            add_video_record(video_id, topic, "long", "blocked")
+            add_video_record(video_id, topic, "long", "blocked", category=category)
             log_event("DIRECTOR", f"BLOCKED at storyboard review: {topic}")
             update_pipeline_status(False)
             return False
@@ -805,7 +805,7 @@ def generate_long_video(topic: str, category: str, video_id: str, publish_at: st
         video_result = run_video_pipeline(script_text, str(storyboard), category, "long", video_id, LONG_MAX_DURATION)
 
         failed_step = "review_gate"
-        review_decision = apply_review_gate(video_id, topic, "long", script_text, quality)
+        review_decision = apply_review_gate(video_id, topic, "long", script_text, quality, category)
         if review_decision == "block":
             update_pipeline_status(False)
             return False
@@ -814,7 +814,7 @@ def generate_long_video(topic: str, category: str, video_id: str, publish_at: st
         final_review = run_director_review("final", topic, category, "long", script_text, str(storyboard))
         if final_review.get("decision") == "block":
             log_pipeline_error(video_id, f"Blocked by Director (final)", "director_review")
-            add_video_record(video_id, topic, "long", "blocked")
+            add_video_record(video_id, topic, "long", "blocked", category=category)
             log_event("DIRECTOR", f"BLOCKED at final review: {topic}")
             update_pipeline_status(False)
             return False
@@ -936,7 +936,7 @@ def generate_long_video(topic: str, category: str, video_id: str, publish_at: st
             "is_above_8min": video_result.get("duration", 0) >= 480,
         })
 
-        add_video_record(video_id, topic, "long", "uploaded")
+        add_video_record(video_id, topic, "long", "uploaded", category=category)
         log_event("PIPELINE", f"LONG video generation SUCCESS: {topic}")
         update_pipeline_status(False)
         try:
@@ -952,7 +952,7 @@ def generate_long_video(topic: str, category: str, video_id: str, publish_at: st
     except Exception as e:
         error_msg = str(e)[:500]
         log_pipeline_error(video_id, f"[{failed_step}] {error_msg}", "long_video_pipeline")
-        add_video_record(video_id, topic, "long", "failed")
+        add_video_record(video_id, topic, "long", "failed", category=category)
         update_pipeline_status(False, paused_by_user=False)
         log_event("PIPELINE", f"LONG video FAILED at {failed_step}: {error_msg}", "error")
         log_event("CLEANUP", "Intermediate files cleaned by scheduled daily_cleanup_job")

@@ -1,0 +1,24 @@
+services:
+  pipeline:
+    build:
+      context: ./agents
+      dockerfile: Dockerfile
+    container_name: timi-pipeline
+    restart: unless-stopped
+    environment:
+      - OLLAMA_BASE_URL=http://host.docker.internal:11434
+      - OLLAMA_MODEL=qwen3.5:9b
+      - FIREBASE_SERVICE_ACCOUNT_PATH=/app/firebase/serviceAccountKey.json
+    env_file:
+      - ./agents/.env
+    volumes:
+      - ./firebase/serviceAccountKey.json:/app/firebase/serviceAccountKey.json:ro
+      - ./agents/youtube_token.json:/app/youtube_token.json
+      - ./agents/output:/app/output
+      - ./agents/data:/app/data
+    healthcheck:
+      test: ["CMD", "python", "-c", "import firebase_admin; firebase_admin.get_app()"]
+      interval: 60s
+      timeout: 10s
+      retries: 3
+      start_period: 30s

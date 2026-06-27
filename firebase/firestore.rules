@@ -88,6 +88,47 @@ service cloud.firestore {
       allow read, write: if request.auth != null && request.auth.uid == docId;
     }
 
+    // Dashboard collections — read by auth'd users, write by backend
+    match /agent_status/{docId} {
+      allow read: if request.auth != null;
+      allow write: if isBackend();
+    }
+
+    match /activity_logs/{docId} {
+      allow read: if request.auth != null;
+      allow write: if isBackend();
+    }
+
+    match /trends/{docId} {
+      allow read: if request.auth != null;
+      allow write: if isBackend();
+    }
+
+    match /monetization/{docId} {
+      allow read: if request.auth != null;
+      allow write: if isBackend();
+    }
+
+    match /repurpose_jobs/{docId} {
+      allow read, create: if request.auth != null;
+      allow update, delete: if request.auth != null && resource.data.createdBy == request.auth.uid;
+    }
+
+    match /upload_queue/{docId} {
+      allow read: if request.auth != null;
+      allow write: if isBackend();
+    }
+
+    match /content_plan/{docId} {
+      allow read: if request.auth != null;
+      allow write: if isBackend();
+    }
+
+    match /series/{docId} {
+      allow read: if request.auth != null;
+      allow write: if isBackend();
+    }
+
     // Deny everything else
     match /{document=**} {
       allow read, write: if false;

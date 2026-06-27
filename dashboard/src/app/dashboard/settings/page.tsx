@@ -58,17 +58,22 @@ export default function SettingsPage() {
   }, []);
 
   useEffect(() => {
-    const unsub = onSnapshot(collection(db, 'platform_settings'), (snap) => {
-      const connections: Record<string, { connected: boolean; followers: number }> = {};
-      snap.forEach(doc => {
-        const d = doc.data();
-        connections[doc.id] = {
-          connected: d.connected || false,
-          followers: d.followers || 0,
-        };
-      });
-      setPlatformConnections(connections);
-    });
+    const unsub = onSnapshot(collection(db, 'platform_settings'),
+      (snap) => {
+        const connections: Record<string, { connected: boolean; followers: number }> = {};
+        snap.forEach(doc => {
+          const d = doc.data();
+          connections[doc.id] = {
+            connected: d.connected || false,
+            followers: d.followers || 0,
+          };
+        });
+        setPlatformConnections(connections);
+      },
+      (error) => {
+        console.error('[Settings] platform_settings:', error);
+      }
+    );
     return () => unsub();
   }, []);
 

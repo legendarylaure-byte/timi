@@ -3,7 +3,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { db } from '@/lib/firebase';
-import { collection, query, orderBy, limit, startAfter, onSnapshot, doc, getDoc, deleteDoc } from 'firebase/firestore';
+import { collection, query, orderBy, limit, startAfter, onSnapshot, getDocs, doc, getDoc, deleteDoc } from 'firebase/firestore';
 import { DocumentSnapshot } from 'firebase/firestore';
 import { CONTENT_CATEGORIES } from '@/lib/constants';
 import Image from 'next/image';
@@ -13,6 +13,7 @@ interface VideoDoc {
   title: string;
   format: string;
   status: string;
+  category?: string;
   views: number;
   created_at: any;
   updated_at: any;
@@ -26,7 +27,7 @@ interface VideoDoc {
   };
 }
 
-const PAGE_SIZE = 12;
+const PAGE_SIZE = 48;
 
 export default function ArchivePage() {
   const [videos, setVideos] = useState<VideoDoc[]>([]);
@@ -40,23 +41,30 @@ export default function ArchivePage() {
 
   useEffect(() => {
     const q = query(collection(db, 'videos'), orderBy('created_at', 'desc'), limit(PAGE_SIZE));
-    const unsub = onSnapshot(q, (snapshot) => {
-      const items: VideoDoc[] = [];
-      snapshot.docs.forEach((d) => {
-        items.push({ id: d.id, ...d.data() } as VideoDoc);
-      });
-      setVideos(items);
-      setHasMore(snapshot.docs.length === PAGE_SIZE);
-      setLastVisible(snapshot.docs[snapshot.docs.length - 1] || null);
-      setLoading(false);
-    });
+    const unsub = onSnapshot(q,
+      (snapshot) => {
+        const items: VideoDoc[] = [];
+        snapshot.docs.forEach((d) => {
+          items.push({ id: d.id, ...d.data() } as VideoDoc);
+        });
+        setVideos(items);
+        setHasMore(snapshot.docs.length === PAGE_SIZE);
+        setLastVisible(snapshot.docs[snapshot.docs.length - 1] || null);
+        setLoading(false);
+      },
+      (error) => {
+        console.error('[Archive] videos:', error);
+        setLoading(false);
+      }
+    );
     return () => unsub();
   }, []);
 
-  const loadMore = useCallback(() => {
+  const loadMore = useCallback(async () => {
     if (!lastVisible || !hasMore) return;
-    const q = query(collection(db, 'videos'), orderBy('created_at', 'desc'), startAfter(lastVisible), limit(PAGE_SIZE));
-    onSnapshot(q, (snapshot) => {
+    try {
+      const q = query(collection(db, 'videos'), orderBy('created_at', 'desc'), startAfter(lastVisible), limit(PAGE_SIZE));
+      const snapshot = await getDocs(q);
       const items: VideoDoc[] = [];
       snapshot.docs.forEach((d) => {
         items.push({ id: d.id, ...d.data() } as VideoDoc);
@@ -64,7 +72,9 @@ export default function ArchivePage() {
       setVideos((prev) => [...prev, ...items]);
       setHasMore(snapshot.docs.length === PAGE_SIZE);
       setLastVisible(snapshot.docs[snapshot.docs.length - 1] || null);
-    });
+    } catch (error) {
+      console.error('[Archive] loadMore:', error);
+    }
   }, [lastVisible, hasMore]);
 
   const formatVideo = (v: VideoDoc) => v.format === 'shorts' ? 'Shorts' : 'Long Form';
@@ -75,17 +85,21 @@ export default function ArchivePage() {
     failed: 'bg-red-500/20 text-red-400 border-red-500/30',
   };
 
-  const filtered = videos.filter((v) => {
+  const baseFiltered = videos.filter((v) => {
+    return !v.category || CONTENT_CATEGORIES.some(c => c.name === v.category);
+  });
+
+  const filtered = baseFiltered.filter((v) => {
     const matchSearch = search === '' || v.title.toLowerCase().includes(search.toLowerCase());
     const matchFormat = formatFilter === 'all' || v.format === formatFilter;
     const matchStatus = statusFilter === 'all' || v.status === statusFilter;
     return matchSearch && matchFormat && matchStatus;
   });
 
-  const totalVideos = videos.length;
-  const totalViews = videos.reduce((sum, v) => sum + (v.views || 0), 0);
-  const uploadedCount = videos.filter((v) => v.status === 'uploaded').length;
-  const generatingCount = videos.filter((v) => v.status === 'generating').length;
+  const totalVideos = baseFiltered.length;
+  const totalViews = baseFiltered.reduce((sum, v) => sum + (v.views || 0), 0);
+  const uploadedCount = baseFiltered.filter((v) => v.status === 'uploaded').length;
+  const generatingCount = baseFiltered.filter((v) => v.status === 'generating').length;
 
   const formatDate = (timestamp: any) => {
     if (!timestamp) return '';

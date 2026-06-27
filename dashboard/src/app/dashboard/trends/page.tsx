@@ -39,13 +39,19 @@ export default function TrendsPage() {
 
   useEffect(() => {
     loadTrends();
-    const unsub = onSnapshot(collection(db, 'trends'), (snap) => {
-      if (!snap.empty) {
-        const items = snap.docs.map(d => ({ id: d.id, ...d.data() } as TrendItem));
-        setTrends(items);
+    const unsub = onSnapshot(collection(db, 'trends'),
+      (snap) => {
+        if (!snap.empty) {
+          const items = snap.docs.map(d => ({ ...d.data(), id: d.id } as TrendItem));
+          setTrends(items);
+        }
+        setLoading(false);
+      },
+      (error) => {
+        console.error('[Trends]', error);
+        setLoading(false);
       }
-      setLoading(false);
-    });
+    );
     return () => unsub();
   }, []);
 
@@ -54,7 +60,7 @@ export default function TrendsPage() {
       const q = query(collection(db, 'trends'), orderBy('created_at', 'desc'), limit(50));
       const snap = await getDocs(q);
       if (!snap.empty) {
-        setTrends(snap.docs.map(d => ({ id: d.id, ...d.data() } as TrendItem)));
+        setTrends(snap.docs.map(d => ({ ...d.data(), id: d.id } as TrendItem)));
       }
     } catch {
       setTrends([]);

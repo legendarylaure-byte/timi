@@ -33,27 +33,32 @@ export default function WorkspacePage() {
 
   useEffect(() => {
     const q = collection(db, 'agent_status');
-    const unsubscribe = onSnapshot(q, (snapshot) => {
-      const liveData: Record<string, any> = {};
-      snapshot.docs.forEach((d) => {
-        liveData[d.id] = d.data();
-      });
+    const unsubscribe = onSnapshot(q,
+      (snapshot) => {
+        const liveData: Record<string, any> = {};
+        snapshot.docs.forEach((d) => {
+          liveData[d.id] = d.data();
+        });
 
-      const merged = AGENT_ROLES.map((role) => {
-        const live = liveData[role.id] || {};
-        return {
-          id: role.id,
-          name: role.name,
-          emoji: role.emoji,
-          color: role.color,
-          status: live.status || 'idle',
-          currentAction: live.current_action || 'Waiting for next task',
-          enabled: live.enabled !== false,
-          lastUpdated: live.last_updated,
-        };
-      });
-      setAgents(merged);
-    });
+        const merged = AGENT_ROLES.map((role) => {
+          const live = liveData[role.id] || {};
+          return {
+            id: role.id,
+            name: role.name,
+            emoji: role.emoji,
+            color: role.color,
+            status: live.status || 'idle',
+            currentAction: live.current_action || 'Waiting for next task',
+            enabled: live.enabled !== false,
+            lastUpdated: live.last_updated,
+          };
+        });
+        setAgents(merged);
+      },
+      (error) => {
+        console.error('[Workspace] agent_status:', error);
+      }
+    );
     return () => unsubscribe();
   }, []);
 

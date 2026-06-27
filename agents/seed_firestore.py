@@ -1,10 +1,18 @@
 """Seed Firestore with initial pipeline data for dashboard monitoring."""
 import os
+import json
+import base64
 import firebase_admin
 from firebase_admin import credentials, firestore
 from datetime import datetime, timezone
 
-cred = credentials.Certificate('firebase/serviceAccountKey.json')
+sa_key = os.getenv('FIREBASE_SERVICE_ACCOUNT_KEY', '')
+sa_path = os.getenv('FIREBASE_SERVICE_ACCOUNT_PATH', 'firebase/serviceAccountKey.json')
+
+if sa_key:
+    cred = credentials.Certificate(json.loads(base64.b64decode(sa_key)))
+else:
+    cred = credentials.Certificate(sa_path)
 # NOTE: 'timi-childern-stories' is legacy — update when new Firebase project is created
 project_id = os.getenv('FIREBASE_PROJECT_ID', 'timi-childern-stories')
 firebase_admin.initialize_app(cred, {

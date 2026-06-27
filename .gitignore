@@ -41,3 +41,7 @@ agents/data/
 agents/*.pid
 youtube_token.json
 keys/
+
+# Docker
+agents/.venv-docker/
+docker-data/

@@ -22,13 +22,18 @@ export function NotificationCenter() {
 
   useEffect(() => {
     const q = query(collection(db, 'activity_logs'), orderBy('timestamp', 'desc'), limit(30));
-    const unsub = onSnapshot(q, (snapshot) => {
-      const items: Notification[] = [];
-      snapshot.docs.forEach((d) => {
-        items.push({ id: d.id, ...d.data() } as Notification);
-      });
-      setNotifications(items);
-    });
+    const unsub = onSnapshot(q,
+      (snapshot) => {
+        const items: Notification[] = [];
+        snapshot.docs.forEach((d) => {
+          items.push({ id: d.id, ...d.data() } as Notification);
+        });
+        setNotifications(items);
+      },
+      (error) => {
+        console.error('[NotificationCenter] activity_logs:', error);
+      }
+    );
     return () => unsub();
   }, []);
 

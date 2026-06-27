@@ -89,39 +89,55 @@ export default function MonetizationPage() {
   }, []);
 
   useEffect(() => {
-    const unsubRevenue = onSnapshot(doc(db, 'monetization', 'revenue'), (snap) => {
-      if (snap.exists()) setRevenue(snap.data() as RevenueData);
-      setLoading(false);
-    });
+    const unsubRevenue = onSnapshot(doc(db, 'monetization', 'revenue'),
+      (snap) => {
+        if (snap.exists()) setRevenue(snap.data() as RevenueData);
+        setLoading(false);
+      },
+      (error) => {
+        console.error('[Monetization] monetization/revenue:', error);
+        setLoading(false);
+      }
+    );
 
-    const unsubChannel = onSnapshot(doc(db, 'system', 'channel_stats'), (snap) => {
-      if (snap.exists()) setPlatformStats(snap.data() as Record<string, PlatformStats>);
-    });
+    const unsubChannel = onSnapshot(doc(db, 'system', 'channel_stats'),
+      (snap) => {
+        if (snap.exists()) setPlatformStats(snap.data() as Record<string, PlatformStats>);
+      },
+      (error) => {
+        console.error('[Monetization] system/channel_stats:', error);
+      }
+    );
 
-    const unsubVideos = onSnapshot(collection(db, 'videos'), (snap) => {
-      let totalViews = 0;
-      let uploadedCount = 0;
-      const catMap: Record<string, { views: number; count: number }> = {};
-      snap.forEach(d => {
-        const data = d.data();
-        totalViews += data.views || 0;
-        if (data.status === 'uploaded' || data.status === 'completed') uploadedCount++;
-        const cat = data.category || 'Uncategorized';
-        if (!catMap[cat]) catMap[cat] = { views: 0, count: 0 };
-        catMap[cat].views += data.views || 0;
-        catMap[cat].count += 1;
-      });
-      const totalCatViews = Object.values(catMap).reduce((s, c) => s + c.views, 0);
-      const cats = Object.entries(catMap).map(([category, stats]) => ({
-        category,
-        views: stats.views,
-        estimatedRevenue: stats.views * 0.005,
-        videos: stats.count,
-        percentage: totalCatViews > 0 ? (stats.views / totalCatViews) * 100 : 0,
-      })).sort((a, b) => b.views - a.views);
-      setCategoryRevenue(cats);
-      setVideoStats({ totalVideos: snap.size, totalViews, uploadedCount });
-    });
+    const unsubVideos = onSnapshot(collection(db, 'videos'),
+      (snap) => {
+        let totalViews = 0;
+        let uploadedCount = 0;
+        const catMap: Record<string, { views: number; count: number }> = {};
+        snap.forEach(d => {
+          const data = d.data();
+          totalViews += data.views || 0;
+          if (data.status === 'uploaded' || data.status === 'completed') uploadedCount++;
+          const cat = data.category || 'Uncategorized';
+          if (!catMap[cat]) catMap[cat] = { views: 0, count: 0 };
+          catMap[cat].views += data.views || 0;
+          catMap[cat].count += 1;
+        });
+        const totalCatViews = Object.values(catMap).reduce((s, c) => s + c.views, 0);
+        const cats = Object.entries(catMap).map(([category, stats]) => ({
+          category,
+          views: stats.views,
+          estimatedRevenue: stats.views * 0.005,
+          videos: stats.count,
+          percentage: totalCatViews > 0 ? (stats.views / totalCatViews) * 100 : 0,
+        })).sort((a, b) => b.views - a.views);
+        setCategoryRevenue(cats);
+        setVideoStats({ totalVideos: snap.size, totalViews, uploadedCount });
+      },
+      (error) => {
+        console.error('[Monetization] videos:', error);
+      }
+    );
 
     return () => { unsubRevenue(); unsubChannel(); unsubVideos(); };
   }, []);

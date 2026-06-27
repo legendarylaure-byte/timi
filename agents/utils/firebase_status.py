@@ -5,8 +5,16 @@ import firebase_admin
 from firebase_admin import credentials, firestore
 from datetime import datetime
 
-_service_account_path = os.path.join(os.path.dirname(os.path.dirname(
-    os.path.abspath(__file__))), 'firebase', 'serviceAccountKey.json')
+_service_account_path = ''
+_env_key = os.getenv('FIREBASE_SERVICE_ACCOUNT_KEY', '')
+_env_path = os.getenv('FIREBASE_SERVICE_ACCOUNT_PATH', '')
+if _env_key:
+    _service_account_path = _env_key
+elif _env_path:
+    _service_account_path = _env_path
+else:
+    _service_account_path = os.path.join(os.path.dirname(os.path.dirname(
+        os.path.abspath(__file__))), 'firebase', 'serviceAccountKey.json')
 _db = None
 
 
@@ -34,13 +42,26 @@ def get_firestore_client():
     if _db is not None:
         return _db
     sa_path = _service_account_path
-    if not os.path.exists(sa_path):
+    if _env_key:
+        try:
+            import json
+            import base64
+            key_bytes = base64.b64decode(_env_key)
+            cred = credentials.Certificate(json.loads(key_bytes))
+        except Exception as e:
+            print(f"[FIRESTORE] Failed to parse FIREBASE_SERVICE_ACCOUNT_KEY: {e}")
+            return None
+    elif os.path.exists(sa_path):
+        try:
+            cred = credentials.Certificate(sa_path)
+        except Exception as e:
+            print(f"[FIRESTORE] Failed to load service account file: {e}")
+            return None
+    else:
         print(f"[FIRESTORE] Service account file not found: {sa_path}")
         return None
     try:
-        cred = credentials.Certificate(sa_path)
         firebase_admin.initialize_app(cred, {
-            # NOTE: 'timi-childern-stories' is legacy — update when new Firebase project is created
             'projectId': os.getenv('FIREBASE_PROJECT_ID', 'timi-childern-stories'),
         })
     except ValueError as e:
@@ -125,7 +146,7 @@ def update_pipeline_status(running: bool, current_video: str = "", paused_by_use
     _retry_firestore("Pipeline status update", _do)
 
 
-def add_video_record(video_id: str, title: str, format_type: str, status: str = "generating", r2_key: str = ""):
+def add_video_record(video_id: str, title: str, format_type: str, status: str = "generating", r2_key: str = "", category: str = ""):
     """Add or update a video record in Firestore."""
     db = get_firestore_client()
     if db is None:
@@ -139,6 +160,7 @@ def add_video_record(video_id: str, title: str, format_type: str, status: str = 
             'format': format_type,
             'status': status,
             'r2_key': r2_key,
+            'category': category,
             'views': 0,
             'created_at': firestore.SERVER_TIMESTAMP,
             'updated_at': firestore.SERVER_TIMESTAMP,

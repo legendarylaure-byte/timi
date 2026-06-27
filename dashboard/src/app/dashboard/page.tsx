@@ -84,94 +84,129 @@ export default function DashboardPage() {
 
   useEffect(() => {
     const q = query(collection(db, 'agent_status'));
-    const unsubscribe = onSnapshot(q, (snapshot) => {
-      const newStatuses: Record<string, AgentStatus> = {};
-      snapshot.docs.forEach((doc) => {
-        newStatuses[doc.id] = { agent_id: doc.id, ...doc.data() } as AgentStatus;
-      });
-      setAgentStatuses(newStatuses);
-    });
+    const unsubscribe = onSnapshot(q,
+      (snapshot) => {
+        const newStatuses: Record<string, AgentStatus> = {};
+        snapshot.docs.forEach((doc) => {
+          newStatuses[doc.id] = { agent_id: doc.id, ...doc.data() } as AgentStatus;
+        });
+        setAgentStatuses(newStatuses);
+      },
+      (error) => {
+        console.error('[Dashboard] agent_status:', error);
+      }
+    );
     return () => unsubscribe();
   }, []);
 
   useEffect(() => {
     const q = query(collection(db, 'activity_logs'), orderBy('timestamp', 'desc'), limit(20));
-    const unsubscribe = onSnapshot(q, (snapshot) => {
-      const logs: ActivityLog[] = [];
-      snapshot.docs.forEach((doc) => {
-        logs.push({ id: doc.id, ...doc.data() } as ActivityLog);
-      });
-      setActivityLogs(logs);
-    });
+    const unsubscribe = onSnapshot(q,
+      (snapshot) => {
+        const logs: ActivityLog[] = [];
+        snapshot.docs.forEach((doc) => {
+          logs.push({ id: doc.id, ...doc.data() } as ActivityLog);
+        });
+        setActivityLogs(logs);
+      },
+      (error) => {
+        console.error('[Dashboard] activity_logs:', error);
+      }
+    );
     return () => unsubscribe();
   }, []);
 
   useEffect(() => {
     const docRef = doc(db, 'system', 'pipeline');
-    const unsubscribe = onSnapshot(docRef, (docSnap) => {
-      if (docSnap.exists()) {
-        setPipelineStatus(docSnap.data() as any);
+    const unsubscribe = onSnapshot(docRef,
+      (docSnap) => {
+        if (docSnap.exists()) {
+          setPipelineStatus(docSnap.data() as any);
+        }
+      },
+      (error) => {
+        console.error('[Dashboard] system/pipeline:', error);
       }
-    });
+    );
     return () => unsubscribe();
   }, []);
 
   useEffect(() => {
     const q = collection(db, 'videos');
-    const unsubscribe = onSnapshot(q, (snapshot) => {
-      const vids: VideoDoc[] = [];
-      snapshot.docs.forEach((d) => {
-        vids.push({ id: d.id, ...d.data() } as VideoDoc);
-      });
+    const unsubscribe = onSnapshot(q,
+      (snapshot) => {
+        const vids: VideoDoc[] = [];
+        snapshot.docs.forEach((d) => {
+          vids.push({ id: d.id, ...d.data() } as VideoDoc);
+        });
 
-      setTotalVideos(vids.length);
-      setTotalViews(vids.reduce((sum, v) => sum + (v.views || 0), 0));
+        setTotalVideos(vids.length);
+        setTotalViews(vids.reduce((sum, v) => sum + (v.views || 0), 0));
 
-      const todayVids = vids.filter((v) => isToday(v.created_at));
-      setVideosToday(todayVids.length);
+        const todayVids = vids.filter((v) => isToday(v.created_at));
+        setVideosToday(todayVids.length);
 
-      const shortsDone = todayVids.filter((v) => v.format === 'shorts' && v.status === 'uploaded').length;
-      const longDone = todayVids.filter((v) => v.format === 'long' && v.status === 'uploaded').length;
-      setShortsTodayDone(shortsDone);
-      setLongTodayDone(longDone);
-    });
+        const shortsDone = todayVids.filter((v) => v.format === 'shorts' && v.status === 'uploaded').length;
+        const longDone = todayVids.filter((v) => v.format === 'long' && v.status === 'uploaded').length;
+        setShortsTodayDone(shortsDone);
+        setLongTodayDone(longDone);
+      },
+      (error) => {
+        console.error('[Dashboard] videos:', error);
+      }
+    );
     return () => unsubscribe();
   }, []);
 
   useEffect(() => {
-    const unsub = onSnapshot(doc(db, 'settings', 'general'), (snap) => {
-      if (snap.exists()) {
-        const data = snap.data();
-        if (data.shortsPerDay !== undefined) setShortsQuota(data.shortsPerDay);
-        if (data.longPerDay !== undefined) setLongQuota(data.longPerDay);
+    const unsub = onSnapshot(doc(db, 'settings', 'general'),
+      (snap) => {
+        if (snap.exists()) {
+          const data = snap.data();
+          if (data.shortsPerDay !== undefined) setShortsQuota(data.shortsPerDay);
+          if (data.longPerDay !== undefined) setLongQuota(data.longPerDay);
+        }
+      },
+      (error) => {
+        console.error('[Dashboard] settings/general:', error);
       }
-    });
+    );
     return () => unsub();
   }, []);
 
   useEffect(() => {
     const q = query(collection(db, 'pipeline_triggers'), orderBy('created_at', 'desc'), limit(5));
-    const unsubscribe = onSnapshot(q, (snapshot) => {
-      const items: PipelineTrigger[] = [];
-      snapshot.docs.forEach((d) => {
-        items.push({ id: d.id, ...d.data() } as PipelineTrigger);
-      });
-      setTriggers(items);
-    });
+    const unsubscribe = onSnapshot(q,
+      (snapshot) => {
+        const items: PipelineTrigger[] = [];
+        snapshot.docs.forEach((d) => {
+          items.push({ id: d.id, ...d.data() } as PipelineTrigger);
+        });
+        setTriggers(items);
+      },
+      (error) => {
+        console.error('[Dashboard] pipeline_triggers:', error);
+      }
+    );
     return () => unsubscribe();
   }, []);
 
   useEffect(() => {
-    const unsub = onSnapshot(doc(db, 'analytics', 'insights'), (snap) => {
-      if (snap.exists()) {
-        const data = snap.data();
-        setInsights({
-          best_category: data.best_category || '',
-          best_format: data.best_format || '',
-          recommendations: data.recommendations || [],
-        });
+    const unsub = onSnapshot(doc(db, 'analytics', 'insights'),
+      (snap) => {
+        if (snap.exists()) {
+          const data = snap.data();
+          setInsights({
+            best_category: data.best_category || '',
+            best_format: data.best_format || '',
+            recommendations: data.recommendations || [],
+          });
+        }
+      },
+      (error) => {
+        console.error('[Dashboard] analytics/insights:', error);
       }
-    });
+    );
     return () => unsub();
   }, []);
 
