@@ -8,6 +8,8 @@ import { AGENT_ROLES, CONTENT_CATEGORIES } from '@/lib/constants';
 import { GradientCard } from '@/components/ui/GradientCard';
 import { StatusBadge } from '@/components/ui/StatusBadge';
 import { useToast } from '@/components/ui/Toast';
+import { ErrorBoundary } from '@/components/ui/ErrorBoundary';
+import { LoadingSkeleton, SkeletonGrid } from '@/components/ui/LoadingSkeleton';
 import Image from 'next/image';
 import { Play, FolderOpen, Eye, Bot, Rocket, Calendar, TrendingUp, BarChart3, Lightbulb } from 'lucide-react';
 
@@ -61,6 +63,7 @@ function isToday(timestamp: any): boolean {
 
 export default function DashboardPage() {
   const [currentTime, setCurrentTime] = useState(new Date());
+  const [loading, setLoading] = useState(true);
   const [agentStatuses, setAgentStatuses] = useState<Record<string, AgentStatus>>({});
   const [activityLogs, setActivityLogs] = useState<ActivityLog[]>([]);
   const [pipelineStatus, setPipelineStatus] = useState({ running: false, current_video: '' });
@@ -176,6 +179,7 @@ export default function DashboardPage() {
     const q = query(collection(db, 'videos'), where('format', 'in', ['shorts', 'long']));
     const unsubscribe = onSnapshot(q,
       (snapshot) => {
+        setLoading(false);
         const vids: VideoDoc[] = [];
         snapshot.docs.forEach((d) => {
           vids.push({ id: d.id, ...d.data() } as VideoDoc);
@@ -193,6 +197,7 @@ export default function DashboardPage() {
         setLongTodayDone(longDone);
       },
       (error) => {
+        setLoading(false);
         console.error('[Dashboard] videos:', error);
       }
     );
@@ -405,7 +410,11 @@ export default function DashboardPage() {
       </AnimatePresence>
 
       {/* Stats Cards */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+      <ErrorBoundary>
+        {loading ? (
+          <SkeletonGrid cols={3} cards={3} />
+        ) : (
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
           {[
             { label: 'Videos Today', value: `${videosToday}`, suffix: `/${shortsQuota + longQuota}`, icon: Play, gradient: 'primary' as const },
             { label: 'Total Videos', value: `${totalVideos}`, icon: FolderOpen, gradient: 'warm' as const },
@@ -437,8 +446,11 @@ export default function DashboardPage() {
             </GradientCard>
             );
           })}
-      </div>
+        </div>
+        )}
+      </ErrorBoundary>
 
+      <ErrorBoundary>
       {/* System Health */}
       <GradientCard gradient="cool">
         <h2 className="text-lg font-bold text-light-text dark:text-dark-text mb-4 flex items-center gap-2"><BarChart3 className="w-5 h-5" /> System Health</h2>
@@ -606,6 +618,7 @@ export default function DashboardPage() {
           </div>
         </GradientCard>
       </div>
+      </ErrorBoundary>
 
       {/* Quick Run Pipeline */}
       <GradientCard gradient="primary">
@@ -718,6 +731,7 @@ export default function DashboardPage() {
         )}
       </GradientCard>
 
+      <ErrorBoundary>
       {/* Analytics Insights */}
       {insights && insights.best_category && (
         <GradientCard gradient="success">
@@ -748,7 +762,9 @@ export default function DashboardPage() {
           )}
         </GradientCard>
       )}
+      </ErrorBoundary>
 
+      <ErrorBoundary>
       {/* Content Schedule */}
       <GradientCard gradient="warm">
         <h2 className="text-lg font-bold text-light-text dark:text-dark-text mb-4 flex items-center gap-2"><Calendar className="w-5 h-5" /> Today&apos;s Content Schedule</h2>
@@ -783,6 +799,7 @@ export default function DashboardPage() {
           </div>
         </div>
       </GradientCard>
+      </ErrorBoundary>
     </div>
   );
 }

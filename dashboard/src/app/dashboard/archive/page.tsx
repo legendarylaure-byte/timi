@@ -37,6 +37,7 @@ export default function ArchivePage() {
   const [search, setSearch] = useState('');
   const [formatFilter, setFormatFilter] = useState('all');
   const [statusFilter, setStatusFilter] = useState('all');
+  const [categoryFilter, setCategoryFilter] = useState('all');
   const [selectedVideo, setSelectedVideo] = useState<VideoDoc | null>(null);
 
   useEffect(() => {
@@ -93,7 +94,8 @@ export default function ArchivePage() {
     const matchSearch = search === '' || v.title.toLowerCase().includes(search.toLowerCase());
     const matchFormat = formatFilter === 'all' || v.format === formatFilter;
     const matchStatus = statusFilter === 'all' || v.status === statusFilter;
-    return matchSearch && matchFormat && matchStatus;
+    const matchCategory = categoryFilter === 'all' || v.category === categoryFilter;
+    return matchSearch && matchFormat && matchStatus && matchCategory;
   });
 
   const totalVideos = baseFiltered.length;
@@ -175,6 +177,16 @@ export default function ArchivePage() {
           <option value="uploaded">Uploaded</option>
           <option value="generating">Generating</option>
           <option value="failed">Failed</option>
+        </select>
+        <select
+          value={categoryFilter}
+          onChange={(e) => setCategoryFilter(e.target.value)}
+          className="px-4 py-2.5 rounded-xl bg-light-bg dark:bg-dark-bg border border-light-border/50 dark:border-white/10 text-light-text dark:text-dark-text text-sm focus:outline-none focus:ring-2 focus:ring-light-primary/50"
+        >
+          <option value="all">All Categories</option>
+          {CONTENT_CATEGORIES.map(cat => (
+            <option key={cat.name} value={cat.name}>{cat.name}</option>
+          ))}
         </select>
       </div>
 
