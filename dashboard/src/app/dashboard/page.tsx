@@ -77,6 +77,14 @@ export default function DashboardPage() {
   const [insights, setInsights] = useState<{ best_category: string; best_format: string; recommendations: string[] } | null>(null);
   const { addToast } = useToast();
 
+  const [systemHealth, setSystemHealth] = useState({
+    lastPipelineRun: null as Date | null,
+    hoursSinceLastRun: null as number | null,
+    errors24h: 0,
+    staleAgents: [] as string[],
+    allAgentsFresh: true,
+  });
+
   useEffect(() => {
     const timer = setInterval(() => setCurrentTime(new Date()), 1000);
     return () => clearInterval(timer);
@@ -130,6 +138,39 @@ export default function DashboardPage() {
     );
     return () => unsubscribe();
   }, []);
+
+  useEffect(() => {
+    const now = new Date();
+    const dayAgo = new Date(now.getTime() - 86400000);
+
+    const publishLogs = activityLogs.filter(
+      l => l.level === 'success' && l.message.toLowerCase().includes('publish')
+    );
+    const lastRun = publishLogs.length > 0
+      ? (publishLogs[0].timestamp?.toDate?.() ?? new Date(publishLogs[0].timestamp))
+      : null;
+
+    const recentErrors = activityLogs.filter(l => {
+      const t = l.timestamp?.toDate?.() ?? new Date(l.timestamp);
+      return l.level === 'error' && t >= dayAgo;
+    }).length;
+
+    const stale: string[] = [];
+    Object.entries(agentStatuses).forEach(([, status]) => {
+      if (status.last_updated) {
+        const updated = status.last_updated.toDate?.() ?? new Date(status.last_updated);
+        if ((now.getTime() - updated.getTime()) / 3600000 > 1) stale.push(status.agent_id);
+      }
+    });
+
+    setSystemHealth({
+      lastPipelineRun: lastRun,
+      hoursSinceLastRun: lastRun ? (now.getTime() - lastRun.getTime()) / 3600000 : null,
+      errors24h: recentErrors,
+      staleAgents: stale,
+      allAgentsFresh: stale.length === 0,
+    });
+  }, [agentStatuses, activityLogs]);
 
   useEffect(() => {
     const q = collection(db, 'videos');
@@ -327,6 +368,42 @@ export default function DashboardPage() {
         )}
       </AnimatePresence>
 
+      {/* Stale pipeline alert */}
+      <AnimatePresence>
+        {systemHealth.hoursSinceLastRun !== null && systemHealth.hoursSinceLastRun >= 24 && (
+          <motion.div
+            initial={{ opacity: 0, y: -20 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: -20 }}
+            className="flex items-center gap-3 p-4 rounded-xl bg-light-primary/10 border border-light-primary/30 text-light-primary dark:text-red-300"
+          >
+            <div className="w-2.5 h-2.5 rounded-full bg-light-primary animate-pulse shrink-0" />
+            <div className="flex-1 min-w-0">
+              <p className="text-sm font-semibold">Pipeline Stale</p>
+              <p className="text-xs opacity-80">
+                No successful publish in {Math.floor(systemHealth.hoursSinceLastRun)}h — click Run Pipeline to restart
+              </p>
+            </div>
+          </motion.div>
+        )}
+        {!systemHealth.allAgentsFresh && (
+          <motion.div
+            initial={{ opacity: 0, y: -20 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: -20 }}
+            className="flex items-center gap-3 p-4 rounded-xl bg-yellow-400/10 border border-yellow-400/30 text-yellow-600 dark:text-yellow-300"
+          >
+            <div className="w-2.5 h-2.5 rounded-full bg-yellow-400 animate-pulse shrink-0" />
+            <div className="flex-1 min-w-0">
+              <p className="text-sm font-semibold">Agents Unresponsive</p>
+              <p className="text-xs opacity-80">
+                {systemHealth.staleAgents.length} agent{systemHealth.staleAgents.length > 1 ? 's' : ''} stale for over 1 hour
+              </p>
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
       {/* Stats Cards */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
           {[
@@ -361,6 +438,62 @@ export default function DashboardPage() {
             );
           })}
       </div>
+
+      {/* System Health */}
+      <GradientCard gradient="cool">
+        <h2 className="text-lg font-bold text-light-text dark:text-dark-text mb-4 flex items-center gap-2"><BarChart3 className="w-5 h-5" /> System Health</h2>
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+          {/* Pipeline staleness */}
+          <div className="flex items-center gap-3 p-3 rounded-xl bg-light-bg dark:bg-dark-bg/50">
+            <div className={`w-3 h-3 rounded-full shrink-0 ${
+              systemHealth.hoursSinceLastRun === null ? 'bg-light-muted' :
+              systemHealth.hoursSinceLastRun < 6 ? 'bg-light-success' :
+              systemHealth.hoursSinceLastRun < 24 ? 'bg-yellow-400' :
+              'bg-light-primary animate-pulse'
+            }`} />
+            <div className="min-w-0">
+              <p className="text-sm font-medium text-light-text dark:text-dark-text">Pipeline</p>
+              <p className="text-xs text-light-muted dark:text-dark-muted truncate">
+                {systemHealth.hoursSinceLastRun === null ? 'No runs yet' :
+                 systemHealth.hoursSinceLastRun < 1 ? 'Just ran' :
+                 systemHealth.hoursSinceLastRun < 24
+                   ? `${Math.floor(systemHealth.hoursSinceLastRun)}h ago`
+                   : `>24h ago`}
+              </p>
+            </div>
+          </div>
+
+          {/* Error rate */}
+          <div className="flex items-center gap-3 p-3 rounded-xl bg-light-bg dark:bg-dark-bg/50">
+            <div className={`w-3 h-3 rounded-full shrink-0 ${
+              systemHealth.errors24h === 0 ? 'bg-light-success' :
+              systemHealth.errors24h < 5 ? 'bg-yellow-400' :
+              'bg-light-primary animate-pulse'
+            }`} />
+            <div className="min-w-0">
+              <p className="text-sm font-medium text-light-text dark:text-dark-text">Errors (24h)</p>
+              <p className="text-xs text-light-muted dark:text-dark-muted">
+                {systemHealth.errors24h === 0 ? 'None' : `${systemHealth.errors24h} errors`}
+              </p>
+            </div>
+          </div>
+
+          {/* Agent heartbeats */}
+          <div className="flex items-center gap-3 p-3 rounded-xl bg-light-bg dark:bg-dark-bg/50">
+            <div className={`w-3 h-3 rounded-full shrink-0 ${
+              systemHealth.allAgentsFresh ? 'bg-light-success' : 'bg-light-primary animate-pulse'
+            }`} />
+            <div className="min-w-0">
+              <p className="text-sm font-medium text-light-text dark:text-dark-text">Agents</p>
+              <p className="text-xs text-light-muted dark:text-dark-muted">
+                {systemHealth.allAgentsFresh
+                  ? 'All healthy'
+                  : `${systemHealth.staleAgents.length} stale`}
+              </p>
+            </div>
+          </div>
+        </div>
+      </GradientCard>
 
       {/* Agent Status + Activity Feed */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
