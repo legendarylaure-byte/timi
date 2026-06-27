@@ -85,34 +85,42 @@ def _extract_json(data):
     if m:
         text = m.group(1)
     first = text.find('{')
-    last = text.rfind('}')
-    if first >= 0 and last > first:
-        text = text[first:last+1]
-    else:
+    if first < 0:
         first_q = text.find('"')
         if first_q >= 0:
             text = '{' + text[first_q:] + '}'
         else:
             text = '{' + text + '}'
+        return json.loads(text)
+    text = text[first:]
+    candidates = [i for i, ch in enumerate(text) if ch == '}']
     text = re.sub(r'(?<=:)\s*True\b', ' true', text)
     text = re.sub(r'(?<=:)\s*False\b', ' false', text)
     text = re.sub(r'(?<=:)\s*None\b', ' null', text)
     text = re.sub(r',\s*([}\]])', r'\1', text)
-    try:
-        return json.loads(text)
-    except json.JSONDecodeError:
-        raise ValueError(f"Failed to parse crew output: {repr(text[:200])}")
+    for pos in reversed(candidates):
+        try:
+            return json.loads(text[:pos+1])
+        except json.JSONDecodeError:
+            continue
+    raise ValueError(f"Failed to parse crew output: {repr(text[:200])}")
 
 
 def _execute_single_task(crew_factory, inputs=None, **factory_kwargs):
     crew = crew_factory(**factory_kwargs)
-    try:
-        result = crew.kickoff(inputs=inputs or {})
-        raw = getattr(result, 'raw', str(result))
-        if raw and len(raw) > 20:
-            return raw
-    except Exception:
-        pass
+    for attempt in range(2):
+        try:
+            result = crew.kickoff(inputs=inputs or {})
+            raw = getattr(result, 'raw', str(result))
+            if raw and len(raw) > 20:
+                return raw
+        except Exception as e:
+            if 'rate_limit' in str(e).lower() and attempt == 0:
+                import json as _json
+                print(_json.dumps({"level": "WARN", "agent": "LLM", "message": "Rate-limited in _execute_single_task, sleeping 5s then retrying"}))
+                time.sleep(5)
+                continue
+            break
     from crewai import Task as CrewAITask
     agent = crew.agents[0]
     task = crew.tasks[0]

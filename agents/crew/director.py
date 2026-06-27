@@ -3,7 +3,7 @@ from utils.llm_helper import get_llm
 
 
 def create_director_crew():
-    llm = get_llm(temperature=0.3, max_tokens=2000)
+    llm = get_llm(temperature=0.3, max_tokens=4000)
 
     director = Agent(
         role="Tech Content Director & Quality Reviewer",

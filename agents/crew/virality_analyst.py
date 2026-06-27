@@ -5,7 +5,7 @@ MIN_VIRALITY_SCORE = 50
 
 
 def create_virality_analyst_crew(script: str = "", title: str = "", category: str = "", format_type: str = "shorts"):
-    llm = get_llm(temperature=0.3, max_tokens=2000)
+    llm = get_llm(temperature=0.3, max_tokens=4000)
 
     analyst = Agent(
         role="Viral Content Analyst",
