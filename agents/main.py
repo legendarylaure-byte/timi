@@ -81,6 +81,9 @@ def _extract_json(data):
         return json_dict
     raw = getattr(data, 'raw', data)
     text = raw if isinstance(raw, str) else str(raw)
+    m = re.search(r'```(?:json)?\s*([\s\S]*?)\s*```', text)
+    if m:
+        text = m.group(1)
     first = text.find('{')
     last = text.rfind('}')
     if first >= 0 and last > first:
@@ -91,10 +94,38 @@ def _extract_json(data):
             text = '{' + text[first_q:] + '}'
         else:
             text = '{' + text + '}'
+    text = re.sub(r'(?<=:)\s*True\b', ' true', text)
+    text = re.sub(r'(?<=:)\s*False\b', ' false', text)
+    text = re.sub(r'(?<=:)\s*None\b', ' null', text)
+    text = re.sub(r',\s*([}\]])', r'\1', text)
     try:
         return json.loads(text)
     except json.JSONDecodeError:
-        raise ValueError(f"CrewOutput raw (first 200): {repr(getattr(data, 'raw', data))[:200]}")
+        raise ValueError(f"Failed to parse crew output: {repr(text[:200])}")
+
+
+def _execute_single_task(crew_factory, inputs=None, **factory_kwargs):
+    crew = crew_factory(**factory_kwargs)
+    try:
+        result = crew.kickoff(inputs=inputs or {})
+        raw = getattr(result, 'raw', str(result))
+        if raw and len(raw) > 20:
+            return raw
+    except Exception:
+        pass
+    from crewai import Task as CrewAITask
+    agent = crew.agents[0]
+    task = crew.tasks[0]
+    desc = task.description
+    for key, val in (inputs or {}).items():
+        desc = desc.replace('{' + key + '}', str(val))
+    new_task = CrewAITask(
+        description=desc,
+        expected_output=task.expected_output,
+        agent=agent,
+    )
+    result = agent.execute_task(task=new_task, context=None, tools=None)
+    return result or ""
 
 
 def _run_async(coro):
@@ -450,15 +481,14 @@ def run_director_review(stage: str, topic: str, category: str, format_type: str,
         return {"decision": "pass", "score": 100, "issues": [], "feedback": "Director review disabled"}
     try:
         from crew.director import create_director_crew
-        crew = create_director_crew()
-        result = crew.kickoff(inputs={
+        raw = _execute_single_task(create_director_crew, {
             "script": script,
             "storyboard": storyboard or "N/A",
             "category": category,
             "format": format_type,
             "topic": topic,
         })
-        review = _extract_json(result)
+        review = _extract_json(raw)
         log_event("DIRECTOR", f"[{stage}] Score: {review.get('score', 0)}/100, Decision: {review.get('decision', 'unknown')}")
         if review.get("issues"):
             for issue in review["issues"][:3]:
@@ -547,8 +577,8 @@ def generate_short_video(topic: str, category: str, video_id: str, publish_at: s
 
         failed_step = "virality_analysis"
         try:
-            virality_crew = create_virality_analyst_crew(script=script_text, title=topic, category=category, format_type="shorts")
-            virality_result = _extract_json(virality_crew.kickoff(inputs={"script": script_text, "title": topic, "category": category, "format_type": "shorts"}))
+            raw = _execute_single_task(create_virality_analyst_crew, {"script": script_text, "title": topic, "category": category, "format_type": "shorts"}, script=script_text, title=topic, category=category, format_type="shorts")
+            virality_result = _extract_json(raw)
             v_score = virality_result.get("overall_virality_score", 70)
             update_video_record(video_id, {"virality_prediction": virality_result})
             if v_score < get_virality_threshold():
@@ -634,8 +664,8 @@ def generate_short_video(topic: str, category: str, video_id: str, publish_at: s
         failed_step = "title_optimization"
         title_variants = []
         try:
-            title_crew = create_title_optimizer_crew(script=script_text, topic=topic, category=category, format_type="shorts")
-            title_result = _extract_json(title_crew.kickoff(inputs={"script": script_text, "topic": topic, "category": category, "format_type": "shorts"}))
+            raw = _execute_single_task(create_title_optimizer_crew, {"script": script_text, "topic": topic, "category": category, "format_type": "shorts"}, script=script_text, topic=topic, category=category, format_type="shorts")
+            title_result = _extract_json(raw)
             title_variants = title_result.get("variants", [])
             log_event("TITLE", f"Generated {len(title_variants)} title variants via CrewAI")
         except Exception as e:
@@ -829,8 +859,8 @@ def generate_long_video(topic: str, category: str, video_id: str, publish_at: st
 
         failed_step = "virality_analysis"
         try:
-            virality_crew = create_virality_analyst_crew(script=script_text, title=topic, category=category, format_type="long")
-            virality_result = _extract_json(virality_crew.kickoff(inputs={"script": script_text, "title": topic, "category": category, "format_type": "long"}))
+            raw = _execute_single_task(create_virality_analyst_crew, {"script": script_text, "title": topic, "category": category, "format_type": "long"}, script=script_text, title=topic, category=category, format_type="long")
+            virality_result = _extract_json(raw)
             v_score = virality_result.get("overall_virality_score", 70)
             update_video_record(video_id, {"virality_prediction": virality_result})
             if v_score < get_virality_threshold():
@@ -917,8 +947,8 @@ def generate_long_video(topic: str, category: str, video_id: str, publish_at: st
         failed_step = "title_optimization"
         title_variants = []
         try:
-            title_crew = create_title_optimizer_crew(script=script_text, topic=topic, category=category, format_type="long")
-            title_result = _extract_json(title_crew.kickoff(inputs={"script": script_text, "topic": topic, "category": category, "format_type": "long"}))
+            raw = _execute_single_task(create_title_optimizer_crew, {"script": script_text, "topic": topic, "category": category, "format_type": "long"}, script=script_text, topic=topic, category=category, format_type="long")
+            title_result = _extract_json(raw)
             title_variants = title_result.get("variants", [])
             log_event("TITLE", f"Generated {len(title_variants)} title variants via CrewAI")
         except Exception as e:
