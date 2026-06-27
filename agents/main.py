@@ -74,20 +74,27 @@ os.environ["GLOG_minloglevel"] = "2"
 
 def _extract_json(data):
     import json, re
-    raw = getattr(data, 'raw', None) or getattr(data, 'json_dict', None) or str(data)
-    if isinstance(raw, dict):
-        return raw
-    s = str(raw).strip()
-    if s.startswith('{') and s.endswith('}'):
-        return json.loads(s)
-    for pat in [r'\{[\s\S]*?\}', r'\{[\s\S]*\}']:
-        m = re.search(pat, s)
-        if m:
-            try:
-                return json.loads(m.group())
-            except json.JSONDecodeError:
-                continue
-    return json.loads('{' + s + '}')
+    if isinstance(data, dict):
+        return data
+    json_dict = getattr(data, 'json_dict', None)
+    if isinstance(json_dict, dict):
+        return json_dict
+    raw = getattr(data, 'raw', data)
+    text = raw if isinstance(raw, str) else str(raw)
+    first = text.find('{')
+    last = text.rfind('}')
+    if first >= 0 and last > first:
+        text = text[first:last+1]
+    else:
+        first_q = text.find('"')
+        if first_q >= 0:
+            text = '{' + text[first_q:] + '}'
+        else:
+            text = '{' + text + '}'
+    try:
+        return json.loads(text)
+    except json.JSONDecodeError:
+        raise ValueError(f"CrewOutput raw (first 200): {repr(getattr(data, 'raw', data))[:200]}")
 
 
 def _run_async(coro):
