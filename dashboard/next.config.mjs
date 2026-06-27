@@ -11,4 +11,17 @@ const nextConfig = {
   },
 };
 
-export default withSentryConfig(nextConfig);
+const sentryConfig = {
+  org: process.env.SENTRY_ORG || '',
+  project: process.env.SENTRY_PROJECT || '',
+  authToken: process.env.SENTRY_AUTH_TOKEN || '',
+  telemetry: false,
+  hideSourceMaps: true,
+  disableLogger: true,
+  autoInstrumentServerFunctions: false,
+  sourcemaps: {
+    disable: true,
+  },
+};
+
+export default withSentryConfig(nextConfig, sentryConfig);
