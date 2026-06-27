@@ -116,13 +116,13 @@ def get_llm(temperature: float = 0.7, max_tokens: int = 2000, agent_id: str = No
     if not _force_next_provider and verify_ollama_model():
         return _get_ollama_llm(temperature, max_tokens)
 
+    gemini_key = os.getenv("GEMINI_API_KEY", "")
+    if gemini_key:
+        return _get_gemini_llm(temperature, max_tokens)
+
     groq_key = os.getenv("GROQ_API_KEY", "")
     groq_model = os.getenv("GROQ_MODEL", "llama-3.3-70b-versatile")
     if groq_key and _groq_has_quota():
         return _get_groq_llm(temperature, max_tokens)
-
-    gemini_key = os.getenv("GEMINI_API_KEY", "")
-    if gemini_key:
-        return _get_gemini_llm(temperature, max_tokens)
 
     raise RuntimeError("No LLM available: Ollama model not found, Groq unavailable, no GEMINI_API_KEY")
