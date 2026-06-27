@@ -18,5 +18,10 @@ services:
       - ./agents/youtube_token.json:/app/youtube_token.json
       - ./agents/output:/app/output
       - ./agents/data:/app/data
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
     healthcheck:
       disable: true
