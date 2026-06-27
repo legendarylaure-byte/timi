@@ -26,3 +26,4 @@ modal==1.5.1
 diffusers==0.38.0
 huggingface_hub==1.21.0
 sentry-sdk>=2.30.0
+setuptools>=75.0.0
