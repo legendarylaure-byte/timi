@@ -50,17 +50,58 @@ def get_existing_indexes(client):
     """Fetch all existing composite indexes from Firestore."""
     indexes = {}
     try:
-        # List all collection groups
         for idx in client.list_indexes(parent=f"{PARENT_TEMPLATE}/-"):
-            # Extract collection group from the index name
-            # name format: projects/.../collectionGroups/{col}/indexes/{idx}
             parts = idx.name.split("/")
             col = parts[parts.index("collectionGroups") + 1] if "collectionGroups" in parts else "?"
             indexes.setdefault(col, []).append(idx)
     except PermissionDenied:
         print("  ⚠️  No permission to list indexes")
-        return indexes
     return indexes
+
+
+def get_field_overrides(client):
+    """Fetch single-field index overrides (exemptions) for fields we care about."""
+    overrides = {}
+    # Query specific fields we know we need
+    targets = [
+        ("activity_logs", "timestamp"),
+        ("pipeline_triggers", "created_at"),
+        ("activity_logs", "level"),
+        ("videos", "format"),
+        ("videos", "status"),
+        ("videos", "created_at"),
+    ]
+    for col, fp in targets:
+        try:
+            name = f"{PARENT_TEMPLATE}/{col}/fields/{fp}"
+            field = client.get_field(name=name)
+            idx_config = field.index_config
+            if idx_config and idx_config.indexes:
+                configs = []
+                for idx_entry in idx_config.indexes:
+                    for f in idx_entry.fields:
+                        scope = _scope_name(idx_entry.query_scope)
+                        order = _order_name(f.order)
+                        configs.append((scope, order))
+                overrides[(col, fp)] = configs
+        except Exception:
+            pass
+    return overrides
+
+
+def single_field_matches(desired, overrides):
+    """Check if a desired single-field index is covered by a field override."""
+    if len(desired.get("fields", [])) != 1:
+        return False
+    field = desired["fields"][0]
+    fp = field["fieldPath"]
+    desired_order = field.get("order", "")
+    desired_scope = desired.get("queryScope", "COLLECTION")
+    configs = overrides.get((desired["collectionGroup"], fp), [])
+    for scope, order in configs:
+        if scope == desired_scope and order == desired_order:
+            return True
+    return False
 
 
 def _scope_name(val):
@@ -144,8 +185,10 @@ def main():
     print("Connecting to Firestore Admin API...")
     client = get_client()
     existing = get_existing_indexes(client)
-    total_existing = sum(len(v) for v in existing.values())
-    print(f"Existing indexes: {total_existing}")
+    overrides = get_field_overrides(client)
+    total_composite = sum(len(v) for v in existing.values())
+    total_overrides = len(overrides)
+    print(f"Existing composites: {total_composite}, field overrides: {total_overrides}")
     print()
 
     # Show status
@@ -158,8 +201,12 @@ def main():
             f"{f['fieldPath']}({f.get('order','') or f.get('arrayConfig','')})"
             for f in idx.get("fields", [])
         )
+        # Composite index match
         col_existing = existing.get(col, [])
         found = any(index_matches(idx, ex) for ex in col_existing)
+        # Single-field override match (for 1-field indexes)
+        if not found and len(idx.get("fields", [])) == 1:
+            found = single_field_matches(idx, overrides)
         if found:
             print(f"{col:<25} {fields_desc:<55} ✅ Exists")
         else:
