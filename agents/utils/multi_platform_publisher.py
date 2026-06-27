@@ -483,6 +483,26 @@ def multi_platform_publish(video_id: str, title: str, description: str, video_pa
     # Send Telegram notification
     _send_telegram_notification(results)
 
+    # Clean up cloud and local files after successful publish
+    if results['success_count'] > 0:
+        try:
+            from utils.r2_storage import delete_video, delete_thumbnail
+            delete_video(video_id, format_type)
+            if thumbnail_path and thumbnail_path.startswith(('http://', 'https://')):
+                pass
+            else:
+                delete_thumbnail(video_id)
+        except Exception as e:
+            log_activity('publisher', f"R2 cleanup skipped: {e}", 'warn')
+
+        try:
+            if os.path.exists(video_path):
+                size = os.path.getsize(video_path)
+                os.remove(video_path)
+                log_activity('publisher', f"Deleted local output: {video_path} ({size / 1024 / 1024:.1f}MB)", 'info')
+        except Exception as e:
+            log_activity('publisher', f"Local file cleanup skipped: {e}", 'warn')
+
     log_activity(
         'publisher', f"Publish complete: {results['success_count']}/{results['total_count']} successful", 'success')
     return results
