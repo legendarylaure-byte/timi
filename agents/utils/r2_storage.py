@@ -144,3 +144,49 @@ def cleanup_old_videos() -> dict:
 
     print(f"Cleanup complete: {deleted['success']} deleted, {deleted['failed']} failed")
     return deleted
+
+
+def delete_orphan_r2_objects() -> dict:
+    """Delete R2 objects whose video_id no longer exists in Firestore.
+
+    Scans both videos/ and thumbnails/ prefixes, cross-references with
+    Firestore, and removes orphans.
+    """
+    result = {"deleted": 0, "failed": 0, "errors": [], "scanned": 0}
+    try:
+        from utils.firebase_status import get_firestore_client
+        db = get_firestore_client()
+        if db is None:
+            result["errors"].append("Firestore unavailable")
+            return result
+
+        existing_ids = set()
+        for doc in db.collection('videos').stream():
+            existing_ids.add(doc.id)
+
+        client = get_r2_client()
+        for prefix in ("videos/", "thumbnails/"):
+            response = client.list_objects_v2(Bucket=BUCKET, Prefix=prefix)
+            for obj in response.get("Contents", []):
+                result["scanned"] += 1
+                key = obj["Key"]
+                video_id = key.split("/")[-1].replace(".mp4", "").replace(".jpg", "")
+                if "_" in video_id and prefix == "videos/":
+                    video_id = video_id.split("_")[0]
+
+                if video_id not in existing_ids:
+                    try:
+                        client.delete_object(Bucket=BUCKET, Key=key)
+                        result["deleted"] += 1
+                        print(f"[R2] Deleted orphan: {key}")
+                    except Exception as e:
+                        result["failed"] += 1
+                        result["errors"].append(str(e))
+                        print(f"[R2] Failed to delete orphan {key}: {e}")
+
+        if result["deleted"]:
+            print(f"[R2] Orphan cleanup: {result['deleted']} deleted, {result['scanned']} scanned")
+        return result
+    except Exception as e:
+        result["errors"].append(str(e))
+        return result

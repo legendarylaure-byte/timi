@@ -69,6 +69,37 @@ def cleanup_local_files(max_age_hours: int = 24, keep_output_hours: int = 48) ->
     return result
 
 
+def cleanup_old_checkpoints(max_age_hours: int = 168) -> dict:
+    """Delete old pipeline checkpoint files from the project root.
+
+    Args:
+        max_age_hours: Delete checkpoint files older than this (default 7 days).
+
+    Returns:
+        dict with count of deleted files and errors.
+    """
+    result = {"deleted": 0, "freed_bytes": 0, "errors": []}
+    agents_dir = Path(PROJECT_ROOT)
+
+    now = datetime.now()
+    for fpath in agents_dir.glob("checkpoint_*.json"):
+        try:
+            mtime = datetime.fromtimestamp(fpath.stat().st_mtime)
+            age_hours = (now - mtime).total_seconds() / 3600
+            if age_hours >= max_age_hours:
+                size = fpath.stat().st_size
+                fpath.unlink()
+                result["deleted"] += 1
+                result["freed_bytes"] += size
+                print(f"[cleanup] Deleted old checkpoint: {fpath.name}")
+        except Exception as e:
+            result["errors"].append(str(e))
+
+    if result["deleted"]:
+        log_activity("cleanup", f"Deleted {result['deleted']} old checkpoint files", "info")
+    return result
+
+
 def cleanup_after_upload(video_path: str, thumbnail_path: str = None, voice_path: str = None, music_path: str = None, subtitle_path: str = None) -> dict:  # noqa: E501
     """Immediately clean up source/intermediate files after a successful upload.
 
@@ -158,20 +189,42 @@ def run_cleanup():
     except Exception as e:
         print(f"R2 cleanup skipped: {e}")
 
-    # Step 2: Clean up local temp and old output files
+    # Step 2: Clean up old checkpoint files
+    try:
+        checkpoint_result = cleanup_old_checkpoints()
+        if checkpoint_result["deleted"]:
+            print(f"[cleanup] Deleted {checkpoint_result['deleted']} old checkpoint files ({checkpoint_result['freed_bytes'] / 1024:.1f}KB)")
+    except Exception as e:
+        print(f"[cleanup] Checkpoint cleanup skipped: {e}")
+        checkpoint_result = {"deleted": 0, "freed_bytes": 0, "errors": []}
+
+    # Step 2b: Clean up orphan R2 objects (no matching Firestore record)
+    try:
+        from utils.r2_storage import delete_orphan_r2_objects
+        orphan_result = delete_orphan_r2_objects()
+        if orphan_result["deleted"]:
+            print(f"[cleanup] Deleted {orphan_result['deleted']} orphan R2 objects")
+    except Exception as e:
+        print(f"[cleanup] R2 orphan cleanup skipped: {e}")
+        orphan_result = {"deleted": 0, "failed": 0, "errors": [], "scanned": 0}
+
+    # Step 3: Clean up local temp and old output files
     local_result = cleanup_local_files()
 
     # Summary
-    total_freed_mb = local_result["freed_bytes"] / (1024 * 1024)
+    orphan_deleted = orphan_result.get("deleted", 0)
+    checkpoint_freed = checkpoint_result.get("freed_bytes", 0)
+    total_freed_mb = (local_result["freed_bytes"] + checkpoint_freed) / (1024 * 1024)
     message = (
         "🧹 *Auto-Cleanup Complete*\n\n"
-        f"☁️ R2 Deleted: {r2_result.get('success', 0)} videos\n"
+        f"☁️ R2 Deleted: {r2_result.get('success', 0)} auto-delete, {orphan_deleted} orphan\n"
         f"📁 Local: {local_result['deleted_files']} files, {local_result['deleted_dirs']} dirs\n"
+        f"📝 Checkpoints: {checkpoint_result['deleted']} deleted\n"
         f"💾 Freed: {total_freed_mb:.1f}MB\n"
         f"⏰ Time: {datetime.now().strftime('%H:%M:%S')}"
     )
 
-    all_errors = r2_result.get("errors", []) + local_result.get("errors", [])
+    all_errors = r2_result.get("errors", []) + local_result.get("errors", []) + orphan_result.get("errors", []) + checkpoint_result.get("errors", [])
     if all_errors:
         for err in all_errors[:5]:
             err_msg = err.get("key", err) if isinstance(err, dict) else err
