@@ -4,7 +4,7 @@ langchain==0.3.30
 langchain-core==0.3.86
 pydantic==2.10.0
 python-dotenv==1.0.0
-firebase-admin==6.5.0
+firebase-admin==7.4.0
 google-cloud-firestore==2.19.0
 requests==2.32.0
 apscheduler==3.10.4
