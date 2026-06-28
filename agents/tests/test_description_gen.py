@@ -4,7 +4,7 @@ from unittest.mock import patch
 
 
 @pytest.fixture
-def mock_groq():
+def mock_llm():
     with patch("utils.description_gen.generate_completion") as m:
         m.return_value = """
         {
@@ -17,7 +17,7 @@ def mock_groq():
         yield m
 
 
-def test_generate_description_returns_keys(mock_groq):
+def test_generate_description_returns_keys(mock_llm):
     from utils.description_gen import generate_description
     result = generate_description(
         title="Transformers Explained",
@@ -30,7 +30,7 @@ def test_generate_description_returns_keys(mock_groq):
     assert isinstance(result, dict)
 
 
-def test_generate_description_with_chapters(mock_groq):
+def test_generate_description_with_chapters(mock_llm):
     from utils.description_gen import generate_description
     scenes = [
         {"keyword": "Attention Mechanism", "target_duration": 8},
@@ -47,7 +47,7 @@ def test_generate_description_with_chapters(mock_groq):
     assert "seo_title" in result
 
 
-def test_generate_description_with_merch(mock_groq):
+def test_generate_description_with_merch(mock_llm):
     from utils.description_gen import generate_description
     result = generate_description(
         title="Transformers Explained",
@@ -59,7 +59,7 @@ def test_generate_description_with_merch(mock_groq):
     assert isinstance(result, dict)
 
 
-def test_generate_description_with_affiliate(mock_groq):
+def test_generate_description_with_affiliate(mock_llm):
     from utils.description_gen import generate_description
     result = generate_description(
         title="Transformers Explained",
@@ -71,7 +71,7 @@ def test_generate_description_with_affiliate(mock_groq):
     assert isinstance(result, dict)
 
 
-def test_generate_description_short_script(mock_groq):
+def test_generate_description_short_script(mock_llm):
     from utils.description_gen import generate_description
     result = generate_description(
         title="AI",
@@ -82,7 +82,7 @@ def test_generate_description_short_script(mock_groq):
     assert isinstance(result, dict)
 
 
-def test_generate_description_channel_name(mock_groq):
+def test_generate_description_channel_name(mock_llm):
     from utils.description_gen import generate_description
     result = generate_description(
         title="Test",
@@ -94,7 +94,7 @@ def test_generate_description_channel_name(mock_groq):
     assert isinstance(result, dict)
 
 
-def test_generate_description_fallback(mock_groq):
+def test_generate_description_fallback(mock_llm):
     """When LLM returns unparseable, fallback should still work."""
     from utils.description_gen import generate_description
     with patch("utils.description_gen.generate_completion") as m:

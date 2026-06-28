@@ -4,7 +4,7 @@ from unittest.mock import patch, MagicMock
 
 
 @pytest.fixture
-def mock_groq():
+def mock_llm():
     with patch("utils.quality_scorer.generate_completion") as m:
         m.return_value = """
         {
@@ -32,7 +32,7 @@ def mock_firebase():
         yield
 
 
-def test_score_content_returns_all_keys(mock_groq, mock_firebase):
+def test_score_content_returns_all_keys(mock_llm, mock_firebase):
     from utils.quality_scorer import score_content
     result = score_content("Test script about AI", "Red Apple", "AI Explained", "shorts")
     assert "overall_score" in result
@@ -41,7 +41,7 @@ def test_score_content_returns_all_keys(mock_groq, mock_firebase):
     assert "feedback" in result
 
 
-def test_score_content_breakdown_has_all_dimensions(mock_groq, mock_firebase):
+def test_score_content_breakdown_has_all_dimensions(mock_llm, mock_firebase):
     from utils.quality_scorer import score_content
     result = score_content("Test script", "Title", "Science", "shorts")
     dims = ["age_appropriateness", "educational_value", "engagement_potential",
@@ -50,7 +50,7 @@ def test_score_content_breakdown_has_all_dimensions(mock_groq, mock_firebase):
         assert d in result["breakdown"], f"Missing dimension: {d}"
 
 
-def test_score_content_numeric_range(mock_groq, mock_firebase):
+def test_score_content_numeric_range(mock_llm, mock_firebase):
     from utils.quality_scorer import score_content
     result = score_content("Test", "Title", "General", "shorts")
     assert 0 <= result["overall_score"] <= 100
@@ -67,13 +67,13 @@ def test_score_content_fallback_on_parse_failure(mock_firebase):
     assert result["overall_score"] >= 0
 
 
-def test_score_content_empty_script(mock_groq, mock_firebase):
+def test_score_content_empty_script(mock_llm, mock_firebase):
     from utils.quality_scorer import score_content
     result = score_content("", "Empty", "General", "shorts")
     assert isinstance(result, dict)
 
 
-def test_score_content_long_format(mock_groq, mock_firebase):
+def test_score_content_long_format(mock_llm, mock_firebase):
     from utils.quality_scorer import score_content
     result = score_content("Long script " * 50, "Long Video", "Deep Tech", "long")
     assert result["overall_score"] > 0

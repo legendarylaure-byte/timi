@@ -229,8 +229,7 @@ def run_agent_step(agent_id: str, agent_name: str, action: str, crew_factory, in
         except Exception as e:
             err_str = str(e)
             if "rate_limit" in err_str.lower():
-                os.environ['GROQ_RATE_LIMITED'] = '1'
-                log_event(agent_name, "Groq rate-limited, flagging for fallback", "warn")
+                log_event(agent_name, "Rate-limited, flagging for fallback", "warn")
             if "Invalid response from LLM call" in err_str:
                 log_event(agent_name, "LLM returned empty response — forcing provider fallback", "warn")
                 force_fallback()

@@ -203,10 +203,12 @@ def _process_clip(clip: dict, target_w: int, target_h: int, idx: int) -> str | N
             img_resized = img.resize((target_w, target_h), Image.LANCZOS)
             png_path = str(TEMP_DIR / f"still_{idx:03d}.png")
             img_resized.save(png_path)
+            fps = 30
+            total_frames = max(1, int(dur * fps))
             cmd = [
                 _ffmpeg_cmd(), "-y", "-loop", "1", "-i", png_path,
-                "-c:v", "libx264", "-t", str(dur), "-r", "30", "-pix_fmt", "yuv420p",
-                "-vf", f"scale={target_w}:{target_h}",
+                "-c:v", "libx264", "-t", str(dur), "-r", str(fps), "-pix_fmt", "yuv420p",
+                "-vf", f"zoompan=z='min(zoom+0.002,1.5)':d={total_frames}:s={target_w}x{target_h}:fps={fps}",
                 "-preset", "fast", "-crf", "23", out,
             ]
             try:
@@ -231,7 +233,7 @@ def _build_xfade_filter(processed: list[str], transitions: list[str], durations:
 
     labels = []
     filter_parts = []
-    xfade_dur = 0.5
+    xfade_dur = 1.0
 
     for i in range(n):
         label = f"v{i}"
@@ -296,7 +298,7 @@ def add_logo_overlay(video_path: str, logo_path: str, output_path: str,
 def burn_subtitles(video_path: str, subtitle_path: str, output_path: str,
                    fontsize: int = 22) -> bool:
     abs_sub = os.path.abspath(subtitle_path)
-    vf = f"subtitles=filename='{abs_sub}':force_style='FontSize={fontsize},PrimaryColour=&HFFFFFF&,OutlineColour=&H000000&,Outline=2,Shadow=1,Alignment=2,MarginV=60'"
+    vf = f"subtitles=filename='{abs_sub}':force_style='FontSize={fontsize},PrimaryColour=&HFFFFFF&,OutlineColour=&H000000&,Outline=2,Shadow=1,Alignment=2,MarginV=200'"
     cmd = [
         _ffmpeg_cmd(), "-y", "-i", video_path,
         "-vf", vf,
@@ -396,7 +398,7 @@ def composite_video(clips: list[dict], voice_path: str, music_path: Optional[str
 
     if subtitle_path and os.path.exists(subtitle_path):
         with_subs = str(TEMP_DIR / f"subs_{video_id}.mp4")
-        sub_fs = 28 if format_type == "shorts" else 22
+        sub_fs = 16 if format_type == "shorts" else 14
         if burn_subtitles(combined_video, subtitle_path, with_subs, fontsize=sub_fs):
             combined_video = with_subs
 
@@ -411,8 +413,27 @@ def composite_video(clips: list[dict], voice_path: str, music_path: Optional[str
         return None
 
     final_path = str(OUTPUT_DIR / f"{video_id}_{format_type}.mp4")
+    vf_filter = ""
+    if scenes:
+        scene_titles = []
+        for i, s in enumerate(scenes):
+            title = s.get("keyword") or s.get("description") or ""
+            if title:
+                escaped = title.replace("'", "\\'").replace(":", "\\:").replace("-", "\\-")
+                ts = sum(c.get("duration", 8.0) for c in clips[:i])
+                te = ts + clips[i].get("duration", 8.0) - 0.5
+                scene_titles.append(
+                    f"drawtext=text='{escaped}':fontsize=20:fontcolor=white:box=1:boxcolor=black@0.4:"
+                    f"x=(w-text_w)/2:y=h-140:enable='between(t,{ts},{te})'"
+                )
+        if scene_titles:
+            vf_filter = ",".join(scene_titles)
     cmd = [
         _ffmpeg_cmd(), "-y", "-i", combined_video, "-i", mixed_audio,
+    ]
+    if vf_filter:
+        cmd += ["-vf", vf_filter]
+    cmd += [
         "-c:v", "libx264", "-preset", "fast", "-crf", "23",
         "-c:a", "aac", "-b:a", "128k", "-shortest", "-pix_fmt", "yuv420p", final_path,
     ]

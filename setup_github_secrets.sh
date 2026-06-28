@@ -33,8 +33,6 @@ echo
 if [ -f "agents/.env" ]; then
   source agents/.env
   
-  set_secret "GROQ_API_KEY" "$GROQ_API_KEY"
-  set_secret "GROQ_MODEL" "${GROQ_MODEL:-llama-3.3-70b-versatile}"
   set_secret "PEXELS_API_KEY" "$PEXELS_API_KEY"
   set_secret "PIXABAY_API_KEY" "$PIXABAY_API_KEY"
   set_secret "YOUTUBE_CLIENT_ID" "$YOUTUBE_CLIENT_ID"

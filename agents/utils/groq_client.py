@@ -6,8 +6,6 @@ load_dotenv(os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file_
 
 OLLAMA_MODEL = os.getenv("OLLAMA_MODEL", "qwen2.5:7b")
 OLLAMA_BASE_URL = os.getenv("OLLAMA_BASE_URL", "http://localhost:11434")
-GROQ_API_KEY = os.getenv("GROQ_API_KEY", "")
-GROQ_MODEL = os.getenv("GROQ_MODEL", "llama-3.3-70b-versatile")
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "")
 GEMINI_MODEL = os.getenv("GEMINI_MODEL", "gemini-2.5-flash")
 
@@ -41,14 +39,6 @@ def generate_completion(prompt: str, system_prompt: str = "", temperature: float
                 return result
             except Exception as gemini_e:
                 print(f"[GEMINI] Failed: {gemini_e}")
-        if GROQ_API_KEY:
-            print(f"[LLM] Falling back to Groq ({GROQ_MODEL})")
-            try:
-                result = _groq_completion(prompt, system_prompt, temperature, max_tokens)
-                _consecutive_failures = 0
-                return result
-            except Exception as groq_e:
-                print(f"[GROQ] Failed: {groq_e}")
         _consecutive_failures += 1
         _last_failure_time = time.time()
         raise
@@ -72,35 +62,6 @@ def _ollama_completion(prompt: str, system_prompt: str = "", temperature: float 
         },
     )
     return response["message"]["content"]
-
-
-def _groq_completion(prompt: str, system_prompt: str = "", temperature: float = 0.7, max_tokens: int = 2000) -> str:
-    from groq import Groq
-    from groq import RateLimitError
-
-    client = Groq(api_key=GROQ_API_KEY)
-    messages = []
-    if system_prompt:
-        messages.append({"role": "system", "content": system_prompt})
-    messages.append({"role": "user", "content": prompt})
-
-    max_retries = 3
-    for attempt in range(max_retries):
-        try:
-            response = client.chat.completions.create(
-                model=GROQ_MODEL,
-                messages=messages,
-                temperature=temperature,
-                max_tokens=max_tokens,
-            )
-            content = response.choices[0].message.content
-            return content if content is not None else ""
-        except RateLimitError:
-            wait = 10 * (2 ** attempt)
-            print(f"[GROQ] Rate limited (attempt {attempt+1}/{max_retries}), waiting {wait}s")
-            time.sleep(wait)
-    os.environ['GROQ_RATE_LIMITED'] = '1'
-    raise RateLimitError("Groq rate limited after max retries")
 
 
 def _gemini_completion(prompt: str, system_prompt: str = "", temperature: float = 0.7, max_tokens: int = 2000) -> str:
