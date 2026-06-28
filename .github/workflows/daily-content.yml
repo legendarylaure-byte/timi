@@ -45,7 +45,7 @@ concurrency:
 jobs:
   generate-content:
     name: Generate Video Content
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, mac, m5]
     timeout-minutes: 120
     permissions:
       contents: read
@@ -63,6 +63,9 @@ jobs:
       TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
       GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
       GEMINI_MODEL: gemini-2.5-flash
+      LTX_ENGINE: mlx
+      LTX_MODEL_DIR: ${{ runner.home }}/ltx-models
+      LTX_LOW_RAM: true
       FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
 
     steps:
@@ -85,10 +88,14 @@ jobs:
           path: ~/.cache/uv
           key: uv-${{ runner.os }}-${{ hashFiles('./agents/requirements.txt') }}
 
-      - name: Install extra codecs for FFmpeg
+      - name: Install FFmpeg
         run: |
-          sudo apt-get update
-          sudo apt-get install -y ffmpeg libavcodec-extra
+          if [[ "$(uname)" == "Darwin" ]]; then
+            brew list ffmpeg 2>/dev/null && echo "ffmpeg already installed" || brew install ffmpeg
+          else
+            sudo apt-get update
+            sudo apt-get install -y ffmpeg libavcodec-extra
+          fi
 
       - name: Install dependencies
         working-directory: ./agents
@@ -96,6 +103,9 @@ jobs:
           uv venv
           source .venv/bin/activate
           uv pip install -r requirements.txt
+          if [ -f ltx-requirements.txt ]; then
+            uv pip install -r ltx-requirements.txt 2>/dev/null || echo "LTX deps optional, skipping"
+          fi
 
       - name: Configure environment
         working-directory: ./agents

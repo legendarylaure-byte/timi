@@ -5,6 +5,7 @@ from datetime import datetime
 from utils.manim_renderer import render_manim_scene, compose_manim_block
 from utils.screen_capture import render_terminal, render_ide, render_browser, render_code_snippet
 from utils.stock_video import search_videos_for_scenes as _search_stock
+from utils import ltx_engine
 
 logger = logging.getLogger(__name__)
 
@@ -79,6 +80,11 @@ def dispatch_scene(scene: dict, video_id: str, scene_idx: int = 0, format_type: 
             return {"path": path, "duration": min(duration, 10.0), "asset_type": "SCREEN_CAPTURE", "source": "screencap"}
 
     stock_kw = keywords[0] if isinstance(keywords, list) else keywords
+    if ltx_engine.is_available():
+        prompt = description or stock_kw
+        ltx_path = ltx_engine.generate_clip(prompt, int(duration))
+        if ltx_path:
+            return {"path": ltx_path, "duration": duration, "asset_type": "STOCK_FOOTAGE", "source": "ltx"}
     path = _get_stock_clip(stock_kw, orientation, duration)
     if path:
         return {"path": path, "duration": duration, "asset_type": "STOCK_FOOTAGE", "source": "stock"}
