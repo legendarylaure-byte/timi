@@ -1,6 +1,27 @@
 import re
 from utils.groq_client import generate_completion
 
+PROHIBITED_TOPIC_PATTERNS = [
+    r'\bp[\._\s]*[o0][\._\s]*r[\._\s]*n[\._\s]*[o0]\b',
+    r'\bs[\._\s]*e[\._\s]*x[\._\s]*\b',
+    r'\bf[\._\s]*u[\._\s]*c[\._\s]*k\b',
+    r'\bs[\._\s]*h[\._\s]*i[\._\s]*t\b',
+    r'\bn[\._\s]*i[\._\s]*g[\._\s]*g[\._\s]*[e3]\b',
+    r'\bb[\._\s]*i[\._\s]*t[\._\s]*c[\._\s]*h\b',
+    r'\bd[\._\s]*i[\._\s]*c[\._\s]*k\b',
+]
+
+
+def has_prohibited_content(topic: str) -> bool:
+    import re
+    topic_lower = topic.lower()
+    for pattern in PROHIBITED_TOPIC_PATTERNS:
+        if re.search(pattern, topic_lower):
+            print(f"[SAFETY] Topic contains prohibited content (matched: {pattern}): {topic[:60]}")
+            return True
+    return False
+
+
 HOOK_FORMULAS = [
     "question — Pose a surprising question the viewer wants answered",
     "bold_claim — Start with a counter-intuitive or impressive statement",
@@ -59,6 +80,8 @@ A hook is UNACCEPTABLE (approved=false) if:
 
 
 def score_hook(script_text: str, category: str = "", format_type: str = "shorts") -> dict:
+    if has_prohibited_content(script_text):
+        return {"score": 0, "hook_score": 0, "approved": False, "weaknesses": ["Topic contains prohibited content"], "suggested_alternatives": []}
     hook = extract_hook(script_text)
     if not hook:
         return {"score": 0, "hook_score": 0, "approved": False, "weaknesses": ["No narration text found"], "suggested_alternatives": ["Start with a surprising question about your topic"]}
@@ -109,6 +132,10 @@ def check_and_improve_hook(script_text: str, category: str = "", format_type: st
     if result.get("approved") and result.get("hook_score", 0) >= min_score:
         return {"passed": True, "result": result, "rewrite": None}
     alternatives = result.get("suggested_alternatives", [])
+    if not alternatives:
+        category_hints = {"gaming": "surprising game mechanic or a bold claim about player skill", "AI News": "counter-intuitive AI fact or a surprising prediction", "tech": "mind-blowing tech statistic or a curiosity gap"}
+        hint = category_hints.get(category.lower(), "bold claim or question")
+        alternatives = [f"Start with a {hint}"]
     rewrite_prompt = f"""Rewrite the opening of this script to have a stronger hook.
 Current hook issues: {', '.join(result.get('weaknesses', ['weak']))}
 Try one of these formulas: {', '.join(alternatives[:2]) if alternatives else 'bold claim or question'}

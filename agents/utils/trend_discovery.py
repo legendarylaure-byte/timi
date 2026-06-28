@@ -76,6 +76,9 @@ def fetch_youtube_trending(max_results: int = 20, region_code: str = "US") -> li
 
             predicted_search_volume = max(view_count // 5, 100000)
 
+            if any(cat in TECH_CATEGORIES for cat in [category]) and _is_non_tech_topic(title):
+                print(f"[TRENDS] Skipping non-tech topic in tech category: {title}")
+                continue
             trends.append({
                 "title": title,
                 "category": category,

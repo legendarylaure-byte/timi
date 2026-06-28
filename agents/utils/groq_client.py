@@ -33,6 +33,14 @@ def generate_completion(prompt: str, system_prompt: str = "", temperature: float
         return result
     except Exception as e:
         print(f"[OLLAMA] Failed: {e}")
+        if GEMINI_API_KEY:
+            print(f"[LLM] Falling back to Gemini ({GEMINI_MODEL})")
+            try:
+                result = _gemini_completion(prompt, system_prompt, temperature, max_tokens)
+                _consecutive_failures = 0
+                return result
+            except Exception as gemini_e:
+                print(f"[GEMINI] Failed: {gemini_e}")
         if GROQ_API_KEY:
             print(f"[LLM] Falling back to Groq ({GROQ_MODEL})")
             try:
@@ -41,17 +49,6 @@ def generate_completion(prompt: str, system_prompt: str = "", temperature: float
                 return result
             except Exception as groq_e:
                 print(f"[GROQ] Failed: {groq_e}")
-                print(f"[LLM] Falling back to Gemini ({GEMINI_MODEL})")
-        if GEMINI_API_KEY:
-            try:
-                result = _gemini_completion(prompt, system_prompt, temperature, max_tokens)
-                _consecutive_failures = 0
-                return result
-            except Exception as gemini_e:
-                print(f"[GEMINI] Failed: {gemini_e}")
-                _consecutive_failures += 1
-                _last_failure_time = time.time()
-                raise
         _consecutive_failures += 1
         _last_failure_time = time.time()
         raise

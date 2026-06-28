@@ -103,6 +103,11 @@ def _extract_json(data):
             return json.loads(text[:pos+1])
         except json.JSONDecodeError:
             continue
+    for extra_braces in range(1, 20):
+        try:
+            return json.loads(text + '}' * extra_braces)
+        except json.JSONDecodeError:
+            continue
     raise ValueError(f"Failed to parse crew output: {repr(text[:200])}")
 
 
