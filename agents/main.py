@@ -19,7 +19,7 @@ from utils.health_monitor import start_heartbeat_monitor, start_health_server, c
 from utils.description_gen import generate_description
 from utils.subtitle_gen import generate_subtitles_for_video
 from utils.translate import translate_script
-from utils.video_compositor import composite_video
+
 from utils.music_gen import generate_background_music
 from utils.voice_gen import generate_voiceover
 from utils.stock_video import search_videos_for_scenes
@@ -436,6 +436,7 @@ def run_video_pipeline(script_text: str, storyboard_text: str, category: str, fo
     anim_label = " with Asset Router" if use_asset_router else " with FFmpeg"
     update_agent_status("editor", "working", f"Compositing video{anim_label}")
 
+    from utils.video_compositor import composite_video
     if use_asset_router:
         final_path = composite_video(clips=clips, voice_path=voice_result["path"], music_path=music_path, format_type=format_type, video_id=video_id, subtitle_path=subtitle_path, chapters=chapters, category=category, scenes=scenes)
     else:

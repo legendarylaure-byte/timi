@@ -250,7 +250,7 @@ function HelpPopover({ pillId, pills, onClose }: { pillId: string; pills: Status
   const content = !isOk && pill ? STATUS_HELP[pill.id]?.[pill.status as 'warn' | 'error'] : null;
   if (!content && !okContent) return null;
   const statusDotColor = pill ? statusColor[pill.status] : 'bg-gray-400';
-  const statusLabel = pill?.status === 'error' ? 'Error' : pill?.status === 'warn' ? 'Warning' : '';
+  const statusLabel = pill?.status === 'error' ? 'Error' : pill?.status === 'warn' ? 'Notice' : '';
   const displayTitle = isOk ? okContent!.title : content!.title;
   const displayDescription = isOk ? okContent!.description : content!.description;
   const displayReasons = isOk ? null : content!.reasons;
