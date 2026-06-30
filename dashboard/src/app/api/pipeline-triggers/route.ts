@@ -24,6 +24,12 @@ export async function POST(request: Request) {
       created_at: Timestamp.now(),
     });
 
+    await db.collection('system').doc('pipeline').set({
+      running: true,
+      current_video: `Triggered: "${topic.slice(0, 50)}${topic.length > 50 ? '...' : ''}"`,
+      last_updated: Timestamp.now(),
+    }, { merge: true });
+
     return NextResponse.json({
       success: true,
       id: doc.id,

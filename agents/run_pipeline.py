@@ -5,6 +5,8 @@ from main import daily_content_job, generate_short_video, generate_long_video, l
 
 def main():
     cleanup_stuck_state()
+    from main import update_pipeline_status
+    update_pipeline_status(True, 'Workflow triggered')
     topic = os.environ.get('TOPIC', '')
     format_type = os.environ.get('FORMAT', 'shorts')
     category = os.environ.get('CATEGORY', 'AI Explained')
