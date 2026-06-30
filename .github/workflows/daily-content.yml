@@ -64,7 +64,6 @@ jobs:
       GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
       GEMINI_MODEL: gemini-2.5-flash
       LTX_ENGINE: mlx
-      LTX_MODEL_DIR: ${{ runner.home }}/ltx-models
       LTX_LOW_RAM: true
       ENABLE_DIRECTOR_REVIEW: false
       HF_TOKEN: ${{ secrets.HF_TOKEN }}
