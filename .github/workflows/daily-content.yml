@@ -108,19 +108,13 @@ jobs:
           if [ -f ltx-requirements.txt ]; then
             uv pip install -r ltx-requirements.txt
           fi
-          # Install LTX-2 MLX backend (dgrauet packages)
           if [ -d /tmp/ltx-2-mlx ]; then
             echo "Installing LTX backend from /tmp/ltx-2-mlx"
             uv pip install /tmp/ltx-2-mlx
           else
             echo "Cloning and installing LTX backend from GitHub"
             git clone https://github.com/dgrauet/ltx-2-mlx.git /tmp/ltx-2-mlx
-            python3 -c "
-import re
-with open('/tmp/ltx-2-mlx/pyproject.toml') as f: c = f.read()
-c = re.sub(r'classifiers = \[.*?\]', '', c, flags=re.DOTALL)
-with open('/tmp/ltx-2-mlx/pyproject.toml', 'w') as f: f.write(c)
-"
+            sed -i '' '/^classifiers/,/^]/d' /tmp/ltx-2-mlx/pyproject.toml
             uv pip install /tmp/ltx-2-mlx
           fi
 
