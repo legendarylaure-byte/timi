@@ -254,13 +254,15 @@ export default function ArchivePage() {
         {selectedVideo && (
           <>
             <motion.div
+              key="backdrop"
               initial={{ opacity: 0 }}
               animate={{ opacity: 1 }}
               exit={{ opacity: 0 }}
-              className="fixed inset-0 bg-black/40 z-40"
+              className="fixed inset-0 bg-black/60 z-50"
               onClick={() => setSelectedVideo(null)}
             />
             <motion.div
+              key="modal"
               initial={{ opacity: 0, scale: 0.95, y: 20 }}
               animate={{ opacity: 1, scale: 1, y: 0 }}
               exit={{ opacity: 0, scale: 0.95, y: 20 }}

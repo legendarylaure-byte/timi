@@ -14,7 +14,7 @@ function getContrastTextColor(hex: string): string {
   const g = parseInt(hex.slice(3, 5), 16);
   const b = parseInt(hex.slice(5, 7), 16);
   const luminance = (0.299 * r + 0.587 * g + 0.114 * b) / 255;
-  return luminance > 0.5 ? '#1a1a1a' : '#ffffff';
+  return luminance > 0.5 ? '#111827' : '#ffffff';
 }
 
 interface WorkspaceAgent {
@@ -65,8 +65,8 @@ export default function WorkspacePage() {
 
   const toggleAgent = useCallback(async (agentId: string, currentEnabled: boolean) => {
     try {
-      const docRef = doc(db, 'agent_status', agentId);
-      await updateDoc(docRef, { enabled: !currentEnabled });
+      const res = await fetch(`/api/agents/${agentId}/toggle`, { method: 'PATCH' });
+      if (!res.ok) throw new Error('Failed to toggle');
       addToast(
         `${AGENT_ROLES.find((a) => a.id === agentId)?.name || agentId} ${!currentEnabled ? 'resumed' : 'paused'}`,
         !currentEnabled ? 'success' : 'info'
@@ -102,7 +102,7 @@ export default function WorkspacePage() {
         </div>
       </motion.div>
 
-      <div className="relative h-64 rounded-2xl overflow-hidden border border-light-border/50 dark:border-white/10" style={{ background: 'linear-gradient(135deg, rgba(255,107,107,0.05), rgba(78,205,196,0.05), rgba(255,217,61,0.05))' }}>
+      <div className="relative h-64 rounded-2xl overflow-hidden border border-light-border/50 dark:border-white/10 bg-gradient-to-br from-light-primary/[0.03] via-transparent to-light-secondary/[0.03]">
         <div className="absolute inset-0 flex items-center justify-center gap-8 flex-wrap p-6">
           {agents.map((agent, i) => (
             <motion.div

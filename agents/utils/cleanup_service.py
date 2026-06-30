@@ -153,7 +153,7 @@ def run_cleanup():
     except Exception as e:
         print(f"[cleanup] Pipeline trigger cleanup skipped: {e}")
 
-    # Step 0b: Clean up old activity entries (children's story references)
+    # Step 0b: Clean up old activity entries
     try:
         deleted_activity = delete_old_activity_entries()
         if deleted_activity:

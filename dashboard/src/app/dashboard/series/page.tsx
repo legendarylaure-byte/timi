@@ -161,7 +161,7 @@ export default function SeriesPage() {
           body: JSON.stringify(seriesData),
         });
       }
-      await deleteDoc(doc(db, 'series_plans', plan.id));
+      await fetch(`/api/series-plans/${plan.id}`, { method: 'DELETE' });
       await loadSeries();
     } catch (e) { console.error(e); }
     finally { setPromoting(null); }
@@ -170,7 +170,7 @@ export default function SeriesPage() {
   const deletePlan = async (id: string) => {
     if (!confirm('Delete this auto-generated plan?')) return;
     try {
-      await deleteDoc(doc(db, 'series_plans', id));
+      await fetch(`/api/series-plans/${id}`, { method: 'DELETE' });
     } catch (e) { console.error(e); }
   };
 

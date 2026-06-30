@@ -66,7 +66,7 @@ def get_firestore_client():
         return None
     try:
         firebase_admin.initialize_app(cred, {
-            'projectId': os.getenv('FIREBASE_PROJECT_ID', 'timi-childern-stories'),
+            'projectId': os.getenv('FIREBASE_PROJECT_ID', 'timi-ai-tech'),
         })
     except ValueError as e:
         print(f"[FIRESTORE] Firebase init failed: {e}")
@@ -238,12 +238,6 @@ def update_channel_stats(stats: dict):
     print(f"[FIRESTORE] Channel stats updated: {stats.get('subscribers', '?')} subs, {total_watch_hours:.1f} watch hours")
 
 
-OLD_TITLE_PATTERNS = [
-    "Magical Bedtime Adventure", "Father's Day Songs", "Fathers Day",
-    "Ocean Adventure", "Kids Story", "Children Story",
-    "Bedtime Story", "Mythology", "Mythological",
-]
-
 TECH_CATEGORIES = [
     "AI Explained", "Deep Tech", "Paper Breakdowns", "Tool Tutorials",
     "Industry Analysis", "Code & Build", "AI News", "Career & Learning",
@@ -272,21 +266,20 @@ def delete_old_activity_logs():
 
 
 def delete_old_activity_entries(batch_size: int = 500):
-    """Delete activity log entries referencing old children's story titles.
+    """Delete activity log entries older than ACTIVITY_TTL_DAYS.
 
     Args:
         batch_size: Max documents to scan per run to avoid OOM on large collections.
     """
     try:
         db = get_firestore_client()
+        cutoff = time.time() - ACTIVITY_TTL_DAYS * 86400
         activities = db.collection('activity_logs').limit(batch_size).stream()
         deleted = 0
         for doc in activities:
             data = doc.to_dict()
-            message = (data.get('message', '') or '')
-            matches_old = any(p.lower() in message.lower() for p in OLD_TITLE_PATTERNS)
-            if matches_old:
-                print(f"[CLEANUP] Deleting old activity: {message[:80]}")
+            ts = data.get('timestamp')
+            if ts and hasattr(ts, 'timestamp') and ts.timestamp() < cutoff:
                 doc.reference.delete()
                 deleted += 1
         if deleted:
@@ -306,8 +299,7 @@ def reset_agent_statuses():
         for doc in agents:
             data = doc.to_dict()
             current_status = data.get('status', '')
-            current_action = data.get('current_action', '')
-            if current_status != 'idle' or ('Magical' in current_action or 'Bedtime' in current_action or 'Father' in current_action or 'Ocean' in current_action or 'Kids' in current_action or 'Children' in current_action or 'Mythology' in current_action):
+            if current_status != 'idle':
                 doc.reference.set({
                     'status': 'idle',
                     'current_action': 'Ready',
@@ -326,7 +318,7 @@ PIPELINE_TRIGGER_TTL_DAYS = 7
 
 
 def delete_old_pipeline_triggers():
-    """Delete pipeline triggers with old children's story topics and stale completed/failed triggers."""
+    """Delete stale completed/failed/skipped pipeline triggers older than TTL."""
     try:
         db = get_firestore_client()
         triggers = db.collection('pipeline_triggers').stream()
@@ -343,14 +335,13 @@ def delete_old_pipeline_triggers():
                     ts = created_at.timestamp()
                 elif isinstance(created_at, (int, float)):
                     ts = created_at
-            matches_old = any(p.lower() in topic.lower() for p in OLD_TITLE_PATTERNS)
             is_stale = status in ('completed', 'failed', 'skipped') and ts and ts < cutoff
-            if matches_old or is_stale:
-                print(f"[CLEANUP] Deleting trigger: {topic} ({status})")
+            if is_stale:
+                print(f"[CLEANUP] Deleting stale trigger: {topic} ({status})")
                 doc.reference.delete()
                 deleted += 1
         if deleted:
-            print(f"[CLEANUP] Deleted {deleted} old pipeline triggers")
+            print(f"[CLEANUP] Deleted {deleted} stale pipeline triggers")
         return deleted
     except Exception as e:
         print(f"[CLEANUP] Pipeline trigger cleanup failed: {e}")
@@ -358,7 +349,7 @@ def delete_old_pipeline_triggers():
 
 
 def delete_old_videos():
-    """Delete legacy children's story records from Firestore."""
+    """Delete video records with non-tech categories from Firestore."""
     try:
         db = get_firestore_client()
         snapshot = db.collection('videos').stream()
@@ -367,13 +358,12 @@ def delete_old_videos():
             data = doc.to_dict()
             title = (data.get('title', '') or '').strip()
             category = data.get('category', '') or ''
-            matches_old = any(p.lower() in title.lower() for p in OLD_TITLE_PATTERNS)
-            if matches_old or (category and category not in TECH_CATEGORIES):
-                print(f"[CLEANUP] Deleting old video: {title} ({doc.id})")
+            if category and category not in TECH_CATEGORIES:
+                print(f"[CLEANUP] Deleting non-tech video: {title} ({doc.id})")
                 doc.reference.delete()
                 deleted += 1
         if deleted:
-            print(f"[CLEANUP] Deleted {deleted} old video records")
+            print(f"[CLEANUP] Deleted {deleted} non-tech video records")
         return deleted
     except Exception as e:
         print(f"[CLEANUP] Failed: {e}")

@@ -79,15 +79,16 @@ def dispatch_scene(scene: dict, video_id: str, scene_idx: int = 0, format_type: 
         if path:
             return {"path": path, "duration": min(duration, 10.0), "asset_type": "SCREEN_CAPTURE", "source": "screencap"}
 
-    stock_kw = keywords[0] if isinstance(keywords, list) else keywords
+    kw_list = keywords if isinstance(keywords, list) else [keywords]
     if ltx_engine.is_available():
-        prompt = description or stock_kw
+        prompt = description or ", ".join(kw_list)
         ltx_path = ltx_engine.generate_clip(prompt, int(duration))
         if ltx_path:
             return {"path": ltx_path, "duration": duration, "asset_type": "STOCK_FOOTAGE", "source": "ltx"}
-    path = _get_stock_clip(stock_kw, orientation, duration)
-    if path:
-        return {"path": path, "duration": duration, "asset_type": "STOCK_FOOTAGE", "source": "stock"}
+    for kw in kw_list:
+        path = _get_stock_clip(kw, orientation, duration)
+        if path:
+            return {"path": path, "duration": duration, "asset_type": "STOCK_FOOTAGE", "source": "stock"}
     fallback = _get_stock_clip("technology", orientation, duration)
     if fallback:
         return {"path": fallback, "duration": duration, "asset_type": "STOCK_FOOTAGE", "source": "stock"}

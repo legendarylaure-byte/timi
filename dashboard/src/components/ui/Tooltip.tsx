@@ -24,6 +24,7 @@ export default function Tooltip({ content, children, color = '#6366f1' }: Toolti
       <AnimatePresence>
         {show && (
           <motion.div
+            key="tooltip"
             initial={{ opacity: 0, y: 8, scale: 0.96 }}
             animate={{ opacity: 1, y: 0, scale: 1 }}
             exit={{ opacity: 0, y: 8, scale: 0.96 }}

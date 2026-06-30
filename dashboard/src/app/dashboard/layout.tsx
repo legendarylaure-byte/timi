@@ -15,6 +15,7 @@ import {
   Upload, TrendingUp, DollarSign, Clapperboard as SeriesIcon, Clock,
   Settings, Eye, LogOut, Menu, X,
 } from 'lucide-react';
+import { GlobalStatusBar } from '@/components/status/GlobalStatusBar';
 
 const navItems = [
   { label: 'Dashboard', icon: LayoutDashboard, path: '/dashboard' },
@@ -216,20 +217,20 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
       {/* Mobile Menu Overlay */}
       <AnimatePresence>
         {mobileMenuOpen && (
-          <>
-            <motion.div
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
-              exit={{ opacity: 0 }}
-              className="md:hidden fixed inset-0 bg-black/50 z-40"
-              onClick={() => setMobileMenuOpen(false)}
-            />
+          <motion.div
+            key="mobile-menu"
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="md:hidden fixed inset-0 z-40"
+          >
+            <div className="fixed inset-0 bg-black/50" onClick={() => setMobileMenuOpen(false)} />
             <motion.div
               initial={{ x: -300 }}
               animate={{ x: 0 }}
               exit={{ x: -300 }}
               transition={{ type: 'spring', damping: 30 }}
-              className="md:hidden fixed left-0 top-0 bottom-0 w-72 glass-strong z-50 flex flex-col p-4"
+              className="fixed left-0 top-0 bottom-0 w-72 glass-strong z-50 flex flex-col p-4"
             >
               <div className="flex items-center justify-between mb-6">
                 <div className="flex items-center gap-3">
@@ -274,7 +275,6 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
                   {user.photoURL && <img src={user.photoURL} alt="" className="w-8 h-8 rounded-full ring-2 ring-light-primary/30" />}
                   <div className="flex-1 min-w-0">
                     <p className="text-sm font-medium text-light-text dark:text-dark-text truncate">{user.displayName}</p>
-                    <p className="text-xs text-light-muted dark:text-dark-muted truncate">{user.email}</p>
                   </div>
                 </div>
                 <button
@@ -286,7 +286,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
                 </button>
               </div>
             </motion.div>
-          </>
+          </motion.div>
         )}
       </AnimatePresence>
 
@@ -321,7 +321,8 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
           </div>
         )}
 
-        <div className="p-4 md:p-6 lg:p-8">
+        <div className="p-4 md:p-6 lg:p-8 space-y-4">
+          <GlobalStatusBar />
           {children}
         </div>
       </main>

@@ -75,18 +75,31 @@ export default function PublishingPage() {
 
   const formatFollowers = (n: number) => n >= 1000000 ? (n / 1000000).toFixed(1) + 'M' : n >= 1000 ? (n / 1000).toFixed(1) + 'K' : n.toString();
 
+  const savePlatformSetting = async (platformId: string, updated: any) => {
+    try {
+      const res = await fetch(`/api/platform-settings/${platformId}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(updated),
+      });
+      if (!res.ok) throw new Error('Failed to save');
+    } catch (e) {
+      console.error('Failed to save platform setting:', e);
+    }
+  };
+
   const toggleConnection = async (platformId: string) => {
     const platform = platforms.find(p => p.id === platformId);
     if (!platform) return;
     const updated = { ...platform, connected: !platform.connected };
-    await setDoc(doc(db, 'platform_settings', platformId), updated, { merge: true });
+    await savePlatformSetting(platformId, updated);
   };
 
   const toggleAutoPublish = async (platformId: string) => {
     const platform = platforms.find(p => p.id === platformId);
     if (!platform) return;
     const updated = { ...platform, autoPublish: !platform.autoPublish };
-    await setDoc(doc(db, 'platform_settings', platformId), updated, { merge: true });
+    await savePlatformSetting(platformId, updated);
   };
 
   return (
@@ -206,6 +219,7 @@ export default function PublishingPage() {
             <AnimatePresence>
               {selectedPlatform === platform.id && (
                 <motion.div
+                  key="details"
                   initial={{ height: 0, opacity: 0 }}
                   animate={{ height: 'auto', opacity: 1 }}
                   exit={{ height: 0, opacity: 0 }}

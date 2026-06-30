@@ -143,6 +143,82 @@ export const PLATFORMS = {
   FACEBOOK: { name: 'Facebook', color: '#1877F2' },
 };
 
+export const PIPELINE_STEPS = [
+  { key: 'script', label: 'Script Generation', agentId: 'scriptwriter' },
+  { key: 'storyboard', label: 'Storyboarding', agentId: 'storyboard' },
+  { key: 'voice_generation', label: 'Voice Generation', agentId: 'voice' },
+  { key: 'composition', label: 'Music Composition', agentId: 'composer' },
+  { key: 'animation', label: 'Animation', agentId: 'animator' },
+  { key: 'video_pipeline', label: 'Video Assembly', agentId: 'editor' },
+  { key: 'editing', label: 'Editing', agentId: 'editor' },
+  { key: 'thumbnail', label: 'Thumbnail Design', agentId: 'thumbnail' },
+  { key: 'metadata', label: 'Metadata Optimization', agentId: 'metadata' },
+  { key: 'publishing', label: 'Publishing', agentId: 'publisher' },
+];
+
+export const AGENT_COLORS: Record<string, string> = {
+  scriptwriter: '#FF6B6B',
+  storyboard: '#4ECDC4',
+  voice: '#FFD93D',
+  composer: '#A29BFE',
+  animator: '#00D2FF',
+  editor: '#F39C12',
+  thumbnail: '#E056FD',
+  metadata: '#22A6B3',
+  publisher: '#7ED6DF',
+};
+
+export const RENDERING_STEPS = [
+  'script', 'storyboard', 'voice_generation', 'composition', 'animation',
+  'video_pipeline', 'editing', 'thumbnail', 'metadata', 'publishing',
+];
+
+export const SCHEDULE_HOUR_UTC = 6;
+export const KATHMANDU_TZ = 'Asia/Kathmandu';
+
+export interface TimeRemaining {
+  hours: number;
+  minutes: number;
+  seconds: number;
+  totalMinutes: number;
+  totalSeconds: number;
+}
+
+export function calcTimeRemaining(): TimeRemaining {
+  const now = new Date();
+  const utcTotalSec = now.getUTCHours() * 3600 + now.getUTCMinutes() * 60 + now.getUTCSeconds();
+  const scheduleTotalSec = SCHEDULE_HOUR_UTC * 3600;
+  let diffSec = utcTotalSec < scheduleTotalSec
+    ? scheduleTotalSec - utcTotalSec
+    : (24 * 3600) - utcTotalSec + scheduleTotalSec;
+  diffSec = Math.max(0, diffSec);
+  return {
+    hours: Math.floor(diffSec / 3600),
+    minutes: Math.floor((diffSec % 3600) / 60),
+    seconds: diffSec % 60,
+    totalMinutes: Math.floor(diffSec / 60),
+    totalSeconds: diffSec,
+  };
+}
+
+export function formatNPT(date: Date): string {
+  return date.toLocaleTimeString('en-US', {
+    timeZone: KATHMANDU_TZ,
+    hour: '2-digit',
+    minute: '2-digit',
+    hour12: true,
+  });
+}
+
+export function getNextUploadDisplay() {
+  const rem = calcTimeRemaining();
+  const nextDate = new Date(Date.now() + rem.totalSeconds * 1000);
+  return {
+    ...rem,
+    nptTime: formatNPT(nextDate),
+  };
+}
+
 export const HUMAN_READABLE_ACTIONS: Record<string, string> = {
   scriptwriting: 'writing the script',
   storyboarding: 'planning visuals',

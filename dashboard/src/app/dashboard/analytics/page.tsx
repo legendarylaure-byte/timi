@@ -168,7 +168,7 @@ export default function AnalyticsPage() {
     <div className="space-y-6">
       <motion.div initial={{ opacity: 0, y: -20 }} animate={{ opacity: 1, y: 0 }}>
         <div className="flex items-center gap-4 mb-2">
-          <div className="w-12 h-12 rounded-2xl flex items-center justify-center" style={{ background: 'linear-gradient(135deg, #FF6969, #C80036)' }}>
+          <div className="w-12 h-12 rounded-2xl flex items-center justify-center bg-gradient-to-br from-light-primary to-dark-primary">
             <BarChart3 className="w-6 h-6 text-white" />
           </div>
           <div>
@@ -318,7 +318,7 @@ export default function AnalyticsPage() {
       {/* Prediction Section */}
       <motion.div initial={{ opacity: 0, y: -20 }} animate={{ opacity: 1, y: 0 }}>
         <div className="flex items-center gap-4 mb-2 mt-8">
-          <div className="w-12 h-12 rounded-2xl flex items-center justify-center" style={{ background: 'linear-gradient(135deg, #FF6969, #C80036)' }}>
+          <div className="w-12 h-12 rounded-2xl flex items-center justify-center bg-gradient-to-br from-light-primary to-dark-primary">
             <Rocket className="w-6 h-6 text-white" />
           </div>
           <div>
@@ -384,8 +384,7 @@ export default function AnalyticsPage() {
         <button
           onClick={runPrediction}
           disabled={loading || !title.trim()}
-          className="mt-4 w-full py-3 rounded-xl text-white font-semibold text-sm hover:opacity-90 disabled:opacity-50 disabled:cursor-not-allowed transition-opacity"
-          style={{ background: 'linear-gradient(135deg, #FF6969, #C80036)' }}
+          className="mt-4 w-full py-3 rounded-xl text-white font-semibold text-sm hover:opacity-90 disabled:opacity-50 disabled:cursor-not-allowed transition-opacity bg-gradient-to-r from-light-primary to-dark-primary"
         >
           {loading ? 'Analyzing...' : 'Predict Performance'}
         </button>

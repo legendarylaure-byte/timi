@@ -1,9 +1,10 @@
 import os
 import sys
-from main import daily_content_job, generate_short_video, generate_long_video, log_event
+from main import daily_content_job, generate_short_video, generate_long_video, log_event, cleanup_stuck_state
 
 
 def main():
+    cleanup_stuck_state()
     topic = os.environ.get('TOPIC', '')
     format_type = os.environ.get('FORMAT', 'shorts')
     category = os.environ.get('CATEGORY', 'AI Explained')

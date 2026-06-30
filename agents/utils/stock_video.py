@@ -349,22 +349,6 @@ def search_videos_for_scenes(scenes: list[dict], orientation: str = "landscape")
 
         if not clip and attempt == max_retries_per_scene - 1:
             print(f"[stock_video] -> FAILED for '{keyword}' after {max_retries_per_scene} attempts")
-            if clips:
-                prev_clip = clips[-1]
-                fallback_path = str(CLIPS_DIR / f"fallback_{keyword[:20]}_{int(time.time())}.mp4")
-                try:
-                    shutil.copy2(prev_clip["path"], fallback_path)
-                except Exception:
-                    fallback_path = prev_clip["path"]
-                clips.append({
-                    "path": fallback_path,
-                    "duration": prev_clip["duration"] * 0.5,
-                    "width": prev_clip["width"],
-                    "height": prev_clip["height"],
-                    "source": "fallback",
-                    "keyword": keyword,
-                })
-                print("[stock_video] -> Using fallback clip from previous scene")
 
         time.sleep(0.5)
 

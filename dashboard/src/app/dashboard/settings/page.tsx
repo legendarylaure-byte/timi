@@ -91,19 +91,24 @@ export default function SettingsPage() {
 
   const handleSave = async (section: string) => {
     try {
-      await setDoc(doc(db, 'settings', 'general'), {
-        notifications,
-        autoUpload,
-        shortsPerDay,
-        longPerDay,
-        selectedCategories,
-        notifSuccess,
-        notifWarning,
-        notifError,
-        notifInfo,
-        desktopNotifs,
-        updatedAt: new Date().toISOString(),
-      }, { merge: true });
+      const res = await fetch('/api/settings', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          notifications,
+          autoUpload,
+          shortsPerDay,
+          longPerDay,
+          selectedCategories,
+          notifSuccess,
+          notifWarning,
+          notifError,
+          notifInfo,
+          desktopNotifs,
+          updatedAt: new Date().toISOString(),
+        }),
+      });
+      if (!res.ok) throw new Error('Failed to save');
       addToast(`${section} settings saved`, 'success');
     } catch (error) {
       addToast('Failed to save settings', 'error');
@@ -210,11 +215,10 @@ export default function SettingsPage() {
               key={cat.name}
               onClick={() => toggleCategory(cat.name)}
               className={`px-4 py-2 rounded-xl text-sm font-medium transition-all ${
-                selectedCategories.includes(cat.name)
-                  ? 'text-white'
-                  : 'bg-light-border dark:bg-dark-border text-light-muted dark:text-dark-muted'
-              }`}
-              style={selectedCategories.includes(cat.name) ? { background: 'linear-gradient(135deg, #FF4D6D, #7C3AED)' } : {}}
+                 selectedCategories.includes(cat.name)
+                   ? 'text-white bg-gradient-to-r from-light-primary to-purple-600'
+                   : 'bg-light-border dark:bg-dark-border text-light-muted dark:text-dark-muted'
+               }`}
             >
               {cat.name}
             </button>
@@ -342,8 +346,7 @@ export default function SettingsPage() {
         whileHover={{ scale: 1.02 }}
         whileTap={{ scale: 0.98 }}
         onClick={() => handleSave('All')}
-        className="w-full py-4 rounded-2xl text-white font-semibold text-lg"
-        style={{ background: 'linear-gradient(135deg, #FF4D6D, #7C3AED)' }}
+        className="w-full py-4 rounded-2xl text-white font-semibold text-lg bg-gradient-to-r from-light-primary to-purple-600 hover:shadow-lg transition-shadow"
       >
         Save All Settings
       </motion.button>

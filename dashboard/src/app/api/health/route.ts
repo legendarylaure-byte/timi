@@ -1,6 +1,20 @@
 import { NextResponse } from 'next/server';
 import { getAdminFirestore } from '@/lib/firebase-admin';
 
+async function writeHeartbeat(db: FirebaseFirestore.Firestore) {
+  try {
+    await db.collection('system').doc('heartbeat').set({
+      last_heartbeat: new Date().toISOString(),
+      source: 'dashboard-server',
+      pid: process.pid,
+      uptime_minutes: Math.round(process.uptime() / 60),
+      node_version: process.version,
+    }, { merge: true });
+  } catch {
+    // heartbeat write is best-effort
+  }
+}
+
 export async function GET() {
   const checks: Record<string, { status: string; detail?: string }> = {};
   let healthy = true;
@@ -11,6 +25,10 @@ export async function GET() {
       last_check: new Date().toISOString(),
     }, { merge: true });
     checks.firestore = { status: 'ok' };
+
+    // Write a heartbeat so the dashboard always sees fresh data
+    // while the Next.js server is running
+    await writeHeartbeat(db);
   } catch (e: any) {
     checks.firestore = { status: 'error', detail: e.message };
     healthy = false;
@@ -33,7 +51,7 @@ export async function GET() {
       const ageSeconds = (Date.now() - lastSeen.getTime()) / 1000;
       checks.agent_heartbeat = {
         status: ageSeconds < 300 ? 'ok' : 'stale',
-        detail: `${Math.round(ageSeconds)}s ago`,
+        detail: `${Math.round(ageSeconds)}s ago (${hb?.source || 'python agent'})`,
       };
     } else {
       checks.agent_heartbeat = { status: 'unknown' };

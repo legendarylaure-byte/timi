@@ -67,7 +67,11 @@ export function NotificationCenter() {
     newRead.add(id);
     setReadIds(newRead);
     try {
-      await setDoc(doc(db, 'notifications', 'user'), { read_ids: Array.from(newRead) }, { merge: true });
+      await fetch('/api/notifications/read', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ read_ids: Array.from(newRead) }),
+      });
     } catch {}
   };
 
@@ -75,7 +79,11 @@ export function NotificationCenter() {
     const allIds = notifications.map((n) => n.id);
     setReadIds(new Set(allIds));
     try {
-      await setDoc(doc(db, 'notifications', 'user'), { read_ids: allIds }, { merge: true });
+      await fetch('/api/notifications/read', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ all_ids: allIds }),
+      });
     } catch {}
   };
 
@@ -116,6 +124,7 @@ export function NotificationCenter() {
       <AnimatePresence>
         {open && (
           <motion.div
+            key="panel"
             initial={{ opacity: 0, y: 8, scale: 0.95 }}
             animate={{ opacity: 1, y: 0, scale: 1 }}
             exit={{ opacity: 0, y: 8, scale: 0.95 }}

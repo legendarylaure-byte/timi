@@ -13,8 +13,7 @@ if sa_key:
     cred = credentials.Certificate(json.loads(base64.b64decode(sa_key)))
 else:
     cred = credentials.Certificate(sa_path)
-# NOTE: 'timi-childern-stories' is legacy — update when new Firebase project is created
-project_id = os.getenv('FIREBASE_PROJECT_ID', 'timi-childern-stories')
+project_id = os.getenv('FIREBASE_PROJECT_ID', 'timi-ai-tech')
 firebase_admin.initialize_app(cred, {
     'projectId': project_id,
 })

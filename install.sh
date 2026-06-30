@@ -17,7 +17,7 @@ err()   { echo -e "${RED}✗${NC} $1"; }
 REPO="legendarylaure-byte/timi"
 WORK_DIR="$HOME/timi-runner"
 LTX_MODEL_DIR="$HOME/ltx-models"
-PYTHON_MIN="3.11"
+PYTHON_TARGET="3.12"
 
 echo "==========================================="
 echo "  Timi Mac Setup — LTX-2.3 MLX + Runner"
@@ -46,12 +46,14 @@ if ! command -v brew &>/dev/null; then
 fi
 log "Homebrew installed"
 
-if ! command -v python3 &>/dev/null; then
-    warn "Python 3 not found. Installing via Homebrew..."
-    brew install python@3.11
+# Python 3.14 not supported by many deps — install 3.12 via brew
+if ! brew list python@$PYTHON_TARGET &>/dev/null; then
+    warn "Installing Python $PYTHON_TARGET via Homebrew..."
+    brew install "python@$PYTHON_TARGET"
 fi
-PY_VER=$(python3 --version 2>&1 | awk '{print $2}')
-log "Python $PY_VER"
+PYTHON_BIN="$(brew --prefix python@$PYTHON_TARGET)/bin/python3"
+PY_VER=$("$PYTHON_BIN" --version 2>&1 | awk '{print $2}')
+log "Python $PY_VER (brew)"
 
 if ! command -v ffmpeg &>/dev/null; then
     warn "FFmpeg not found. Installing..."
@@ -96,7 +98,7 @@ log "Repo at $WORK_DIR"
 echo ""
 echo "--- Step 4/8: Python virtual environment ---"
 cd "$WORK_DIR/agents"
-python3 -m venv .venv
+"$PYTHON_BIN" -m venv .venv
 source .venv/bin/activate
 pip install --upgrade pip uv
 uv pip install -r requirements.txt
@@ -148,7 +150,7 @@ echo ""
 echo "--- Step 7/8: Testing LTX generation ---"
 cd "$WORK_DIR/agents"
 TEST_OUTPUT="$WORK_DIR/test_ltx_clip.mp4"
-python3 -c "
+"$PYTHON_BIN" -c "
 from utils.ltx_engine import generate_clip
 result = generate_clip(prompt='neural network with glowing nodes', duration=5, output_path='$TEST_OUTPUT')
 if result:

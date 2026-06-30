@@ -133,6 +133,7 @@ export default function RepurposePage() {
             <AnimatePresence>
               {selectedJob?.id === job.id && (
                 <motion.div
+                  key="details"
                   initial={{ height: 0, opacity: 0 }}
                   animate={{ height: 'auto', opacity: 1 }}
                   exit={{ height: 0, opacity: 0 }}

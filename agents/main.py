@@ -1356,7 +1356,7 @@ def scheduled_publish_job():
 
 
 def cleanup_stuck_state():
-    """Reset agent status on startup. Skips Firestore-heavy cleanup when quota is low."""
+    """Reset stale pipeline state on startup. Recovers from crashes."""
     log_event("SYSTEM", "Resetting agent status...")
     for agent_id in AGENT_MAP.values():
         try:
@@ -1364,6 +1364,21 @@ def cleanup_stuck_state():
         except Exception as e:
             log_event("SYSTEM", f"Failed to reset {agent_id}: {e}", "error")
     log_event("SYSTEM", "All agents reset to idle")
+
+    # Reset stale pipeline.running flag (left true by a crash)
+    try:
+        from utils.firebase_status import get_firestore_client
+        db = get_firestore_client()
+        if db:
+            doc = db.collection('system').document('pipeline').get()
+            if doc.exists and doc.to_dict().get('running'):
+                db.collection('system').document('pipeline').set({
+                    'running': False,
+                    'current_video': '',
+                }, merge=True)
+                log_event("SYSTEM", "Reset stale pipeline.running flag (crash recovery)")
+    except Exception as e:
+        log_event("SYSTEM", f"Pipeline crash recovery failed: {e}", "error")
 
 
 def _handle_pipeline_trigger(topic: str, category: str, format_type: str, trigger_id: str, publish_at: str = None):
