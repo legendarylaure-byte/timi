@@ -187,8 +187,8 @@ const STATUS_HELP: Record<string, Partial<Record<'warn' | 'error', StatusHelpCon
 
 const OK_MESSAGES: Record<string, { title: string; description: string }> = {
   pipeline: {
-    title: 'Pipeline — Ready & Waiting',
-    description: 'The pipeline is idle and waiting for the next scheduled daily run at 11:45 AM NPT, or you can trigger a video manually anytime from the "Run Pipeline" section.',
+    title: 'Pipeline — Running',
+    description: 'A video is being generated right now — agents are working through the pipeline steps from script to publishing.',
   },
   docker: {
     title: 'Docker — All Good',
@@ -474,7 +474,7 @@ export function GlobalStatusBar() {
 
   useEffect(() => {
     poll();
-    const interval = setInterval(poll, 30000);
+    const interval = setInterval(poll, 10000);
     return () => clearInterval(interval);
   }, [poll]);
 

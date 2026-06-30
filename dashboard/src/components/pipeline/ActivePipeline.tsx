@@ -149,9 +149,9 @@ export function ActivePipeline() {
             <div className="p-4 pt-3">
               <div className="space-y-0">
                 {PIPELINE_STEPS.map((step, i) => {
-                  const isComplete = checkpoints.some(c => c.step === step.key);
+                  const isComplete = checkpoints.some(c => c.step === step.key) || agent?.status === 'completed';
                   const checkpoint = checkpoints.find(c => c.step === step.key);
-                  const isCurrent = i === currentStepIndex;
+                  const isCurrent = i === currentStepIndex || agent?.status === 'working';
                   const isPast = i < currentStepIndex;
                   const isExpanded = expandedStep === step.key;
                   const hasState = checkpoint && checkpoint.state && Object.keys(checkpoint.state).length > 0;
@@ -167,7 +167,7 @@ export function ActivePipeline() {
                       <button
                         onClick={() => setExpandedStep(isExpanded ? null : hasState ? step.key : null)}
                         aria-expanded={isExpanded}
-                        className={`w-full flex items-start gap-2.5 py-2 px-1 rounded-lg transition-colors ${
+                        className={`w-full flex items-start gap-3 py-2.5 px-1 rounded-lg transition-colors ${
                           isExpanded ? 'bg-light-bg/50 dark:bg-dark-bg/50' : 'hover:bg-light-bg/30 dark:hover:bg-dark-bg/30'
                         } ${hasState ? 'cursor-pointer' : 'cursor-default'}`}
                       >
@@ -191,7 +191,7 @@ export function ActivePipeline() {
                           </div>
                           {/* Particle flow along connector */}
                           {i < PIPELINE_STEPS.length - 1 && (
-                            <div className="relative w-0.5 h-5">
+                            <div className="relative w-0.5 h-6">
                               <div className={`absolute inset-0 rounded-full ${
                                 isPast && !isCurrent ? 'bg-emerald-400/50' :
                                 isComplete ? 'bg-emerald-500/50' :
@@ -262,7 +262,7 @@ export function ActivePipeline() {
                               >
                                 <div
                                   className={`
-                                    inline-flex items-center gap-1.5 px-2 py-1 rounded-lg text-[10px]
+                                    flex flex-col gap-1 px-3 py-2 min-h-[48px] rounded-lg text-[10px]
                                     backdrop-blur-sm border transition-all
                                     ${isCurrent
                                       ? 'border-cyan-500/30 bg-cyan-500/5 shadow-[0_0_8px_rgba(6,182,212,0.15)]'
@@ -270,15 +270,20 @@ export function ActivePipeline() {
                                     }
                                   `}
                                 >
-                                  <span className="text-xs">{AGENT_ICONS[step.agentId] || '🤖'}</span>
-                                  <span
-                                    className="font-medium"
-                                    style={{ color: agentColor }}
-                                  >
-                                    {agentName}
-                                  </span>
+                                  <div className="flex items-center gap-1.5">
+                                    <span className="text-xs">{AGENT_ICONS[step.agentId] || '🤖'}</span>
+                                    <span
+                                      className="font-medium"
+                                      style={{ color: agentColor }}
+                                    >
+                                      {agentName}
+                                    </span>
+                                    {isComplete && !isCurrent && (
+                                      <span className="text-emerald-500 ml-1">✓ Done</span>
+                                    )}
+                                  </div>
                                   {isCurrent && agentIsWorking && agentAction && (
-                                    <span className="text-light-muted dark:text-dark-muted ml-1 max-w-[200px] truncate">
+                                    <div className="flex items-center gap-1 text-light-muted dark:text-dark-muted">
                                       <motion.span
                                         initial={{ opacity: 0 }}
                                         animate={{ opacity: 1 }}
@@ -286,10 +291,7 @@ export function ActivePipeline() {
                                       >
                                         ⚡ {agentAction}
                                       </motion.span>
-                                    </span>
-                                  )}
-                                  {isComplete && !isCurrent && (
-                                    <span className="text-emerald-500 ml-1">✓ Done</span>
+                                    </div>
                                   )}
                                 </div>
                               </motion.div>
