@@ -61,53 +61,38 @@ def _run_mlx_pipeline(prompt: str, num_frames: int, output_path: str) -> bool:
         f"cinematic lighting, consistent color palette, 24fps, high quality"
     )
 
-    attempts = [
-        # Try ltx-video-mlx (appautomaton) first
-        {
-            "module": "ltx_video_mlx.cli",
-            "args": [
-                sys.executable, "-m", "ltx_video_mlx.cli", "generate",
-                "--model-dir", LTX_MODEL_DIR,
-                "--prompt", ltx_prompt,
-                "--output", output_path,
-                "--num-frames", str(num_frames),
-                "--fps", "24",
-                "--width", "768",
-                "--height", "448",
-            ],
-        },
-        # Fall back to ltx-pipelines-mlx (dgrauet)
-        {
-            "module": "ltx_pipelines_mlx.text_to_video",
-            "args": [
-                sys.executable, "-m", "ltx_pipelines_mlx.text_to_video",
-                "--model", LTX_MODEL_DIR,
-                "--prompt", ltx_prompt,
-                "--output", output_path,
-                "--num-frames", str(num_frames),
-                "--fps", "24",
-                "--width", "768",
-                "--height", "448",
-            ],
-        },
+    gemma_id = os.getenv("LTX_GEMMA_MODEL", "mlx-community/gemma-3-12b-it-4bit")
+    distilled_lora = os.getenv("LTX_DISTILLED_LORA",
+                               "ltx-2.3-22b-distilled-lora-384-1.1.safetensors")
+
+    cmd = [
+        sys.executable, "-m", "ltx_pipelines_mlx", "generate",
+        "--distilled",
+        "--model", LTX_MODEL_DIR,
+        "--gemma", gemma_id,
+        "--distilled-lora", distilled_lora,
+        "--prompt", ltx_prompt,
+        "--output", output_path,
+        "--frames", str(num_frames),
+        "--frame-rate", "24",
+        "--width", "704",
+        "--height", "448",
+        "--seed", "-1",
+        "--quiet",
+        "--low-ram",
     ]
 
-    for attempt in attempts:
-        cmd = list(attempt["args"])
-        if LTX_LOW_RAM:
-            cmd.append("--low-ram")
-        try:
-            result = subprocess.run(
-                cmd, capture_output=True, text=True, timeout=600
-            )
-            if result.returncode == 0:
-                return True
-            logger.warning("[LTX] %s failed (rc=%d): %s",
-                           attempt["module"], result.returncode,
-                           result.stderr[:200])
-        except FileNotFoundError:
-            logger.warning("[LTX] %s not installed, trying next", attempt["module"])
-        except Exception as e:
-            logger.warning("[LTX] %s error: %s", attempt["module"], e)
+    try:
+        logger.info("[LTX] Generating: '%s' (%d frames, %ds)",
+                     prompt[:60], num_frames, int(num_frames / 24))
+        result = subprocess.run(
+            cmd, capture_output=True, text=True, timeout=1800
+        )
+        if result.returncode == 0:
+            return True
+        logger.warning("[LTX] Failed (rc=%d): %s",
+                       result.returncode, result.stderr[:300])
+    except Exception as e:
+        logger.warning("[LTX] Error: %s", e)
 
     return False

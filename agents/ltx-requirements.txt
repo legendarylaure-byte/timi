@@ -4,8 +4,3 @@ mlx>=0.20.0
 mlx-lm>=0.20.0
 huggingface_hub>=0.27.0
 numpy<2.0
-# Uncomment one of the following depending on which LTX variant you install:
-# ltx-video-mlx @ git+https://github.com/appautomaton/ltx-video-mlx.git
-# or
-# git+https://github.com/dgrauet/ltx-2-mlx.git#subdirectory=ltx-core-mlx
-# git+https://github.com/dgrauet/ltx-2-mlx.git#subdirectory=ltx-pipelines-mlx
