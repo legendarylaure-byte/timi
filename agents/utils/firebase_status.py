@@ -82,16 +82,37 @@ def get_firestore_client():
         return None
 
 
+AGENT_NAME_MAP = {
+    'scriptwriter': ('Scriptwriter', '#FF6B6B'),
+    'storyboard': ('Storyboard Artist', '#4ECDC4'),
+    'voice': ('Voice Actor', '#FFD93D'),
+    'composer': ('Composer', '#A29BFE'),
+    'animator': ('Animator', '#00D2FF'),
+    'editor': ('Video Editor', '#F39C12'),
+    'thumbnail': ('Thumbnail Creator', '#E056FD'),
+    'metadata': ('Metadata Writer', '#22A6B3'),
+    'publisher': ('Publisher', '#7ED6DF'),
+    'quality_scorer': ('Quality Scorer', '#10B981'),
+    'trend_discovery': ('Trend Scout', '#F97316'),
+    'repurposer': ('Content Repurposer', '#06B6D4'),
+    'scheduler': ('Scheduler AI', '#06D6A0'),
+}
+
+
 def update_agent_status(agent_id: str, status: str, action: str = "", error_message: str = ""):
     """Update agent status in Firestore for real-time dashboard updates."""
     db = get_firestore_client()
     if db is None:
         return
 
+    name, color = AGENT_NAME_MAP.get(agent_id, (agent_id, '#888888'))
+
     def _do():
         doc_ref = db.collection('agent_status').document(agent_id)
         doc_ref.set({
             'agent_id': agent_id,
+            'name': name,
+            'color': color,
             'status': status,
             'current_action': action,
             'last_updated': firestore.SERVER_TIMESTAMP,

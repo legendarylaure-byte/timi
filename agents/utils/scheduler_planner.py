@@ -297,7 +297,7 @@ def generate_content_plan(force_llm: bool = False) -> list:
     longs = [v for v in videos if v.get("format") == "long"]
 
     shorts_per_day = int(os.getenv("SCHEDULE_SHORTS_PER_DAY", 2))
-    long_per_day = int(os.getenv("SCHEDULE_LONG_PER_DAY", 2))
+    long_per_day = int(os.getenv("SCHEDULE_LONG_PER_DAY", 1))
 
     selected = shorts[:max(shorts_per_day, 1)] + longs[:max(long_per_day, 1)]
     selected.sort(key=lambda x: x.get("priority", 50), reverse=True)

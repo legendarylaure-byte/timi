@@ -1,6 +1,7 @@
 from utils.groq_client import generate_completion
 from utils.json_utils import extract_json
 from compliance.ai_disclosure import get_disclosure_text
+import re
 
 SYSTEM_PROMPT = """You are an expert YouTube SEO specialist for technology educational content.
 Generate optimized video descriptions that:
@@ -127,7 +128,27 @@ def _fallback_description(title: str, category: str, format_type: str, hook: str
     }
 
 
-def get_tech_metadata(category: str, format_type: str = "shorts") -> dict:
+def _extract_title_tags(title: str) -> list[str]:
+    stopwords = {"the", "a", "an", "is", "are", "was", "were", "be", "been", "how",
+                 "what", "why", "when", "where", "who", "which", "with", "for", "and",
+                 "or", "not", "of", "in", "to", "explained", "understand", "works"}
+    words = re.findall(r'[A-Za-z]{4,}', title)
+    return [w.lower() for w in words if w.lower() not in stopwords][:5]
+
+
+def get_tech_metadata(category: str, format_type: str = "shorts", title: str = "") -> dict:
+    title_tags = _extract_title_tags(title) if title else []
+    base_tags = [
+        "technology",
+        "artificial intelligence",
+        "educational",
+        category.lower(),
+        "ai generated",
+        "science and technology",
+        "tech explainer",
+        "machine learning",
+    ]
+    all_tags = list(dict.fromkeys(title_tags + base_tags))
     return {
         "madeForKids": False,
         "selfDeclaredMadeForKids": False,
@@ -138,14 +159,5 @@ def get_tech_metadata(category: str, format_type: str = "shorts") -> dict:
         "embeddable": True,
         "license": "youtube",
         "publicStatsViewable": True,
-        "tags": [
-            "technology",
-            "artificial intelligence",
-            "educational",
-            category.lower(),
-            "ai generated",
-            "science and technology",
-            "tech explainer",
-            "machine learning",
-        ],
+        "tags": all_tags[:15],
     }

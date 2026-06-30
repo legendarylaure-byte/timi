@@ -90,6 +90,26 @@ def resize_to_target(input_path: str, output_path: str, target_w: int, target_h:
         return False
 
 
+def pad_with_blurred_background(input_path: str, output_path: str, target_w: int, target_h: int) -> bool:
+    vf = (
+        f"scale={target_w}:{target_h}:force_original_aspect_ratio=increase,"
+        f"split[fg][bg];"
+        f"[bg]scale={target_w}:{target_h}:force_original_aspect_ratio=increase,crop={target_w}:{target_h},"
+        f"boxblur=20:5[bg];"
+        f"[bg][fg]overlay=(W-w)/2:(H-h)/2"
+    )
+    cmd = [
+        _ffmpeg_cmd(), "-y", "-i", input_path,
+        "-vf", vf,
+        "-c:v", "libx264", "-preset", "fast", "-crf", "23",
+        "-r", "30", "-an", "-pix_fmt", "yuv420p", output_path,
+    ]
+    try:
+        return subprocess.run(cmd, capture_output=True, text=True, timeout=120, env=_get_env()).returncode == 0
+    except Exception:
+        return False
+
+
 def apply_ken_burns(input_path: str, output_path: str, target_w: int, target_h: int, duration: float, preset_idx: int = 0) -> bool:
     trim_path = str(TEMP_DIR / f"kb_trim_{preset_idx:03d}.mp4")
     if not trim_clip(input_path, trim_path, 0, duration):
@@ -184,41 +204,23 @@ def _apply_ducking(music: AudioSegment, voice: AudioSegment, duck_db: float = -6
         return music
 
 
-NON_TIMED_ASSETS = {"DIAGRAM_ANIMATION", "SCREEN_CAPTURE", "CODE_SNIPPET"}
-
-
-def _process_clip(clip: dict, target_w: int, target_h: int, idx: int) -> str | None:
+def _process_clip(clip: dict, target_w: int, target_h: int, idx: int, format_type: str = "shorts") -> str | None:
     src = clip["path"]
     dur = clip.get("duration", 8.0)
     out = str(TEMP_DIR / f"clip_{idx:03d}.mp4")
-    asset_type = clip.get("asset_type", "STOCK_FOOTAGE")
 
-    if asset_type in NON_TIMED_ASSETS or not (src.endswith(".mp4") and os.path.getsize(src) > 10000):
-        if src.endswith(".mp4") and os.path.getsize(src) > 10000:
-            if not resize_to_target(src, out, target_w, target_h):
+    if src.endswith(".mp4") and os.path.getsize(src) > 10000:
+        trimmed = str(TEMP_DIR / f"kb_trim_{idx:03d}.mp4")
+        if not trim_clip(src, trimmed, 0, dur):
+            return None
+        if format_type == "shorts" and target_h > target_w:
+            if not pad_with_blurred_background(trimmed, out, target_w, target_h):
                 return None
         else:
-            from PIL import Image
-            img = Image.open(src)
-            img_resized = img.resize((target_w, target_h), Image.LANCZOS)
-            png_path = str(TEMP_DIR / f"still_{idx:03d}.png")
-            img_resized.save(png_path)
-            fps = 30
-            total_frames = max(1, int(dur * fps))
-            cmd = [
-                _ffmpeg_cmd(), "-y", "-loop", "1", "-i", png_path,
-                "-c:v", "libx264", "-t", str(dur), "-r", str(fps), "-pix_fmt", "yuv420p",
-                "-vf", f"zoompan=z='min(zoom+0.002,1.5)':d={total_frames}:s={target_w}x{target_h}:fps={fps}",
-                "-preset", "fast", "-crf", "23", out,
-            ]
-            try:
-                subprocess.run(cmd, capture_output=True, text=True, timeout=120, env=_get_env())
-            except Exception:
+            if not apply_ken_burns(trimmed, out, target_w, target_h, dur, idx):
                 return None
-        actual_dur = _get_duration(out) if os.path.exists(out) else 0
-        clip["duration"] = actual_dur if actual_dur > 0 else dur
     else:
-        if not apply_ken_burns(src, out, target_w, target_h, dur, idx):
+        if not resize_to_target(src, out, target_w, target_h):
             return None
 
     return out if os.path.exists(out) and os.path.getsize(out) > 1000 else None
@@ -298,7 +300,12 @@ def add_logo_overlay(video_path: str, logo_path: str, output_path: str,
 def burn_subtitles(video_path: str, subtitle_path: str, output_path: str,
                    fontsize: int = 22) -> bool:
     abs_sub = os.path.abspath(subtitle_path)
-    vf = f"subtitles=filename='{abs_sub}':force_style='FontSize={fontsize},PrimaryColour=&HFFFFFF&,OutlineColour=&H000000&,Outline=2,Shadow=1,Alignment=2,MarginV=200'"
+    vf = (
+        f"subtitles=filename='{abs_sub}':force_style="
+        f"'FontSize={fontsize},PrimaryColour=&HFFFFFF&,OutlineColour=&H000000&,"
+        f"Outline=0,Shadow=0,BorderStyle=3,BackColour=&H80000000&,"
+        f"Alignment=2,MarginV=40,FontName=Arial'"
+    )
     cmd = [
         _ffmpeg_cmd(), "-y", "-i", video_path,
         "-vf", vf,
@@ -347,7 +354,7 @@ def composite_video(clips: list[dict], voice_path: str, music_path: Optional[str
     transitions = []
     durations = []
     for i, clip in enumerate(clips):
-        out = _process_clip(clip, tw, th, i)
+        out = _process_clip(clip, tw, th, i, format_type)
         if out is None:
             continue
         processed.append(out)
@@ -398,7 +405,7 @@ def composite_video(clips: list[dict], voice_path: str, music_path: Optional[str
 
     if subtitle_path and os.path.exists(subtitle_path):
         with_subs = str(TEMP_DIR / f"subs_{video_id}.mp4")
-        sub_fs = 16 if format_type == "shorts" else 14
+        sub_fs = 9 if format_type == "shorts" else 10
         if burn_subtitles(combined_video, subtitle_path, with_subs, fontsize=sub_fs):
             combined_video = with_subs
 

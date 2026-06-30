@@ -13,6 +13,7 @@ Return ONLY a valid JSON array of scene objects. Each scene object has this exac
   "duration": 8.0,
   "asset_type": "STOCK_FOOTAGE|SCREEN_CAPTURE|DIAGRAM_ANIMATION|CODE_SNIPPET|STATIC_IMAGE",
   "asset_keywords": ["keyword1", "keyword2"],
+  "ltx_prompt": "Describe the scene in 2-3 vivid sentences optimized for AI video generation. Include camera angle, lighting, composition, colors, and motion. Be specific.",
   "text": [
     {
       "text": "Spoken narration text shown on screen",
@@ -33,6 +34,7 @@ RULES:
 - Each scene should be 5-12 seconds
 - Use asset_type to specify what visual content to show
 - asset_keywords should describe what to search for or render
+- ltx_prompt is CRITICAL: Write a detailed 2-3 sentence visual description optimized for text-to-video AI. Include: camera angle (close-up, wide, tracking, dolly, over-the-shoulder, top-down), lighting (neon glow, soft diffused, dramatic side, volumetric, rim light), composition (subject placement, depth layers), colors, and motion. Example: "Close-up of futuristic circuit board with glowing neon blue pathways, dramatic side lighting casting long shadows, camera slowly pulling back to reveal a glowing central processor chip, sparks of light traveling along the circuits, deep teal and purple color palette, cinematic 24fps quality"
 - Text should be short phrases (3-8 words), not full sentences
 - Background should match the scene mood
 - camera.zoom of 1.0 means no zoom, >1 zooms in
@@ -74,7 +76,7 @@ def _llm_scene_parse(
     if len(script_text) > 6000:
         script_text = script_text[:6000] + "\n...[truncated]"
 
-    prompt = f"""Convert this tech/AI educational video script into structured scenes with asset types.
+    prompt = f"""Convert this tech/AI educational video script into structured scenes with asset types. CRITICAL: Each scene MUST include a vivid "ltx_prompt" field — a 2-3 sentence visual description optimized for AI text-to-video generation. Include camera angle, lighting, composition, colors, and motion.
 
 Title: {title}
 Category: {category}
@@ -88,6 +90,8 @@ Storyboard:
 
 Important: Choose asset types that fit the category:
 - {category} related assets: {_get_suggested_assets(category)}
+
+The ltx_prompt is the most important field — it's what gets sent to the video generation AI. Make it specific and cinematic.
 
 Return ONLY valid JSON array of scene objects."""
 
@@ -161,6 +165,7 @@ def _rule_based_parse(script_text: str, storyboard_text: str, format_type: str, 
             "duration": duration,
             "asset_type": asset_type,
             "asset_keywords": asset_keywords,
+            "ltx_prompt": _infer_ltx_prompt(block, title, i),
             "text": text,
             "effects": effects,
             "transition": transition,
@@ -254,29 +259,111 @@ def _infer_background(text: str) -> str:
     return "solid_black"
 
 
-def _infer_asset_type(text: str) -> str:
+CAMERA_ANGLES = [
+    "close-up shot with macro detail",
+    "wide establishing shot",
+    "smooth cinematic dolly moving forward",
+    "over-the-shoulder angle",
+    "top-down birds eye view",
+    "low angle looking up",
+    "tracking shot moving sideways",
+    "aerial drone-style view",
+    "Dutch angle tilted for drama",
+    "reverse shot from behind subject",
+]
+
+LIGHTING_STYLES = [
+    "dramatic neon side lighting",
+    "soft cinematic volumetric lighting with god rays",
+    "warm key light with cool fill",
+    "rim lighting with dark ambient fill",
+    "diffused overhead with soft shadows",
+    "colorful LED strip lighting in cyan and magenta",
+    "dramatic chiaroscuro high contrast",
+    "cold blue ambient with warm accent light",
+    "backlit silhouette with glowing edges",
+    "natural soft window light style",
+]
+
+
+def _infer_ltx_prompt(text: str, title: str = "", scene_index: int = 0) -> str:
     text_lower = text.lower()
-    if any(w in text_lower for w in ["code", "function", "implementation", "syntax", "import", "class", "def "]):  # noqa: E501
-        return "CODE_SNIPPET"
-    if any(w in text_lower for w in ["tutorial", "walkthrough", "click", "install", "terminal", "command"]):
-        return "SCREEN_CAPTURE"
-    if any(w in text_lower for w in ["architecture", "diagram", "network", "layer", "flow", "neural", "transformer", "attention", "algorithm", "process"]):  # noqa: E501
-        return "DIAGRAM_ANIMATION"
-    if any(w in text_lower for w in ["chart", "graph", "comparison", "benchmark", "stat", "table"]):
-        return "STATIC_IMAGE"
+    keywords = _infer_keywords(text, title)
+    cam = CAMERA_ANGLES[scene_index % len(CAMERA_ANGLES)]
+    lighting = LIGHTING_STYLES[(scene_index + len(keywords)) % len(LIGHTING_STYLES)]
+    return f"Cinematic shot of {', '.join(keywords[:2])}, {keywords[-1] if len(keywords) > 2 else 'technology'} visualization, {cam}, {lighting}, rich colors, professional educational style, 24fps, high quality"  # noqa: E501
+
+
+def _infer_asset_type(text: str) -> str:
     return "STOCK_FOOTAGE"
 
 
 def _infer_keywords(text: str, title: str = "") -> list[str]:
     text_lower = text.lower()
+    title_clean = title.lower().replace(" how ", " ").replace(" what ", " ").replace(" explained", "").strip()[:40]
+    stopwords = {"the", "a", "an", "is", "are", "was", "were", "be", "been", "being",
+                 "have", "has", "had", "do", "does", "did", "will", "would", "could",
+                 "should", "may", "might", "can", "shall", "to", "of", "in", "for",
+                 "on", "with", "at", "by", "from", "as", "into", "through", "during",
+                 "before", "after", "above", "below", "between", "out", "off", "over",
+                 "under", "again", "further", "then", "once", "here", "there", "when",
+                 "where", "why", "how", "all", "each", "every", "both", "few", "more",
+                 "most", "other", "some", "such", "no", "nor", "not", "only", "own",
+                 "same", "so", "than", "too", "very", "just", "because", "but", "and",
+                 "or", "if", "while", "about", "up", "down", "like", "also", "its",
+                 "let", "see", "way", "use", "used", "using", "make", "made", "get"}
+
+    words = re.findall(r'\b[a-zA-Z]{4,}\b', text_lower)
+    words = [w for w in words if w not in stopwords]
+
+    from collections import Counter
+    word_freq = Counter(words)
+    top_words = [w for w, _ in word_freq.most_common(15)]
+
     tech_terms = ["AI", "machine learning", "deep learning", "neural network", "transformer",
                   "GPT", "LLM", "data", "algorithm", "code", "GPU", "training", "inference",
                   "automation", "cloud", "API", "model", "embedding", "attention",
-                  "token", "pipeline", "architecture", "framework", "PyTorch", "TensorFlow"]
-    found = [term for term in tech_terms if term.lower() in text_lower]
-    if title:
-        found.insert(0, title[:40])
-    return found[:5] if found else ["technology", title[:30] if title else "tech"]
+                  "token", "pipeline", "architecture", "framework", "PyTorch", "TensorFlow",
+                  "layer", "weight", "bias", "gradient", "vector", "matrix"]
+    found_tech = [t for t in tech_terms if t.lower() in text_lower]
+
+    visual_map = {
+        "transformer": "neural network architecture with flowing attention connections",
+        "attention": "data streams connecting across a neural grid",
+        "neural": "glowing neural pathways and synaptic connections",
+        "algorithm": "algorithm visualization with flowing data patterns",
+        "data": "streaming data visualization with glowing particles",
+        "model": "abstract 3D model rotating with data layers",
+        "network": "interconnected nodes pulsing with data flow",
+        "training": "neural network training visualization with loss curves",
+        "token": "word embeddings floating in vector space",
+        "learning": "brain with glowing neural connections forming patterns",
+        "layer": "transparent stacked layers with data flowing between them",
+        "vector": "vectors in multidimensional space with directional arrows",
+        "matrix": "matrix multiplication visualization with glowing cells",
+        "GPU": "processor chip with parallel data pathways",
+        "inference": "data flowing through a pipeline with processing nodes",
+        "embedding": "word vectors arranged in semantic space",
+    }
+    found_visual = []
+    for word in top_words[:5] + found_tech:
+        key = word.lower().replace(" ", "_")
+        if key in visual_map and visual_map[key] not in found_visual:
+            found_visual.append(visual_map[key])
+        elif key not in found_visual:
+            for vk, vv in visual_map.items():
+                if vk in word.lower() and vv not in found_visual:
+                    found_visual.append(vv)
+                    break
+
+    title_terms = [t.strip() for t in title_clean.replace(" and ", " ").replace(" with ", " ").split() if len(t.strip()) > 3]
+    combined = []
+    if title_terms:
+        combined.append(title_clean)
+    combined.extend(found_tech[:3])
+    combined.extend(found_visual[:3])
+
+    return combined[:6] if combined else ["technology", "abstract", "digital"]
 
 
 def _infer_text(text: str) -> list[dict]:

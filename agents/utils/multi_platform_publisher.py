@@ -71,7 +71,7 @@ def _upload_youtube(title: str, description: str, video_path: str, thumbnail_pat
         from utils.youtube_upload import upload_video_to_youtube
         from utils.description_gen import get_tech_metadata
 
-        tech_meta = get_tech_metadata("tech educational", format_type)
+        tech_meta = get_tech_metadata("tech educational", format_type, title)
 
         tags = tech_meta.get("tags", []) + [format_type, "vyom-ai-cloud", "ai", "technology"]
 

@@ -39,6 +39,8 @@ print('Seeding agent_status...')
 for agent_id, name, color, status, action in AGENT_ROLES:
     db.collection('agent_status').document(agent_id).set({
         'agent_id': agent_id,
+        'name': name,
+        'color': color,
         'status': status,
         'current_action': action,
         'enabled': True,

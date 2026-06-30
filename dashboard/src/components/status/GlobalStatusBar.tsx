@@ -8,7 +8,7 @@ import { getNextUploadDisplay } from '@/lib/constants';
 
 interface StatusPill {
   id: string;
-  status: 'ok' | 'warn' | 'error' | 'unknown';
+  status: 'ok' | 'warn' | 'error' | 'unknown' | 'working';
   value: string;
   tooltip: string;
 }
@@ -187,8 +187,8 @@ const STATUS_HELP: Record<string, Partial<Record<'warn' | 'error', StatusHelpCon
 
 const OK_MESSAGES: Record<string, { title: string; description: string }> = {
   pipeline: {
-    title: 'Pipeline — Running',
-    description: 'A video is being generated right now — agents are working through the pipeline steps from script to publishing.',
+    title: 'Pipeline — Idle',
+    description: 'The pipeline is idle and waiting for the next scheduled daily run at 11:45 AM NPT, or you can trigger a video manually anytime from the "Run Pipeline" section.',
   },
   docker: {
     title: 'Docker — All Good',
@@ -212,6 +212,13 @@ const OK_MESSAGES: Record<string, { title: string; description: string }> = {
   },
 };
 
+const WORKING_MESSAGES: Record<string, { title: string; description: string }> = {
+  pipeline: {
+    title: 'Pipeline — Running',
+    description: 'A video is being generated right now — agents are working through the pipeline steps from script to publishing.',
+  },
+};
+
 async function fetchJson(url: string): Promise<any> {
   try {
     const res = await fetch(url, { signal: AbortSignal.timeout(8000) });
@@ -224,6 +231,7 @@ const pillIds = ['pipeline', 'docker', 'firebase', 'storage', 'agents', 'nextUpl
 
 const statusColor: Record<string, string> = {
   ok: 'bg-emerald-500',
+  working: 'bg-purple-500',
   warn: 'bg-amber-400',
   error: 'bg-red-500',
   unknown: 'bg-gray-400',
@@ -245,16 +253,18 @@ function SkeletonPill() {
 
 function HelpPopover({ pillId, pills, onClose }: { pillId: string; pills: StatusPill[]; onClose: () => void }) {
   const pill = pills.find(p => p.id === pillId);
-  const isOk = pill?.status === 'ok';
-  const okContent = isOk && pill ? OK_MESSAGES[pill.id] : null;
-  const content = !isOk && pill ? STATUS_HELP[pill.id]?.[pill.status as 'warn' | 'error'] : null;
-  if (!content && !okContent) return null;
-  const statusDotColor = pill ? statusColor[pill.status] : 'bg-gray-400';
-  const statusLabel = pill?.status === 'error' ? 'Error' : pill?.status === 'warn' ? 'Notice' : '';
-  const displayTitle = isOk ? okContent!.title : content!.title;
-  const displayDescription = isOk ? okContent!.description : content!.description;
-  const displayReasons = isOk ? null : content!.reasons;
-  const displayFixes = isOk ? null : content!.fixes;
+          const isOk = pill?.status === 'ok';
+          const isWorking = pill?.status === 'working';
+          const okContent = isOk && pill ? OK_MESSAGES[pill.id] : null;
+          const workingContent = isWorking && pill ? WORKING_MESSAGES[pill.id] : null;
+          const content = !isOk && !isWorking && pill ? STATUS_HELP[pill.id]?.[pill.status as 'warn' | 'error'] : null;
+          if (!content && !okContent && !workingContent) return null;
+          const statusDotColor = pill ? statusColor[pill.status] : 'bg-gray-400';
+          const statusLabel = pill?.status === 'error' ? 'Error' : pill?.status === 'warn' ? 'Notice' : '';
+          const displayTitle = isOk ? okContent!.title : isWorking ? workingContent!.title : content!.title;
+          const displayDescription = isOk ? okContent!.description : isWorking ? workingContent!.description : content!.description;
+          const displayReasons = isOk || isWorking ? null : content!.reasons;
+          const displayFixes = isOk || isWorking ? null : content!.fixes;
   return (
     <motion.div
       key="help-popover"
@@ -347,10 +357,13 @@ export function GlobalStatusBar() {
       if (snap.exists()) setPipelineRunning(snap.data().running || false);
     }, () => {});
     const unsubAgents = onSnapshot(collection(db, 'agent_status'), (snap) => {
+      const now = Date.now();
       let count = 0;
       snap.docs.forEach(d => {
         const data = d.data();
-        if (data.status === 'working') count++;
+        const date = data.last_updated?.toDate ? data.last_updated.toDate() : new Date(data.last_updated);
+        const stale = (now - date.getTime()) > 5 * 60 * 1000;
+        if (data.status === 'working' && !stale) count++;
       });
       setAgentsWorking(count);
     }, () => {});
@@ -369,21 +382,21 @@ export function GlobalStatusBar() {
 
     if (pipelineRunning) {
       newPills.push({
-        id: 'pipeline', status: 'ok',
+        id: 'pipeline', status: 'working',
         value: 'Running',
-        tooltip: 'A video is being generated right now — agents are working through the steps from script to publishing',
+        tooltip: 'A video is being generated right now — agents are working through the pipeline steps from script to publishing',
       });
     } else if (agentsWorking > 0) {
       newPills.push({
-        id: 'pipeline', status: 'warn',
+        id: 'pipeline', status: 'ok',
         value: `Idle — ${agentsWorking} active`,
-        tooltip: `The main video pipeline is idle, but ${agentsWorking} agent${agentsWorking > 1 ? 's are' : ' is'} running scheduled tasks like analytics or content planning`,
+        tooltip: `The pipeline is idle, but ${agentsWorking} agent${agentsWorking > 1 ? 's are' : ' is'} finishing up tasks from a recent run.`,
       });
     } else {
       newPills.push({
-        id: 'pipeline', status: 'warn',
+        id: 'pipeline', status: 'ok',
         value: 'Idle',
-        tooltip: 'No videos are being generated right now. The next automatic run is scheduled for 11:45 AM Nepal time',
+        tooltip: 'The pipeline is idle and waiting for the next scheduled daily run at 11:45 AM NPT, or you can trigger a video manually.',
       });
     }
 

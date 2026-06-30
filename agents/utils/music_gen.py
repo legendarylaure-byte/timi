@@ -1,28 +1,34 @@
-from dotenv import load_dotenv
-from typing import Optional
-from pydub.generators import Sine, Triangle
-from pydub import AudioSegment
 import os
 import random
 import sys
 import json
+import requests
+import logging
 from pathlib import Path
+from typing import Optional
 
-_FFMPEG_BIN = None
-for _candidate in ["/opt/homebrew/opt/ffmpeg-full/bin", "/usr/local/bin", "/usr/bin"]:
-    if os.path.exists(os.path.join(_candidate, "ffmpeg")):
-        _FFMPEG_BIN = _candidate
-        break
-if _FFMPEG_BIN and _FFMPEG_BIN not in os.environ.get("PATH", ""):
-    os.environ["PATH"] = _FFMPEG_BIN + ":" + os.environ.get("PATH", "")
-
+from dotenv import load_dotenv
+from pydub import AudioSegment
+from pydub.generators import Sine, Triangle
 
 load_dotenv()
+
+logger = logging.getLogger(__name__)
 
 MUSIC_DIR = Path(__file__).parent.parent / "tmp" / "music"
 MUSIC_DIR.mkdir(parents=True, exist_ok=True)
 
-USE_MUSICGEN = os.getenv("USE_MUSICGEN", "true").lower() == "true"
+PIXABAY_API_KEY = os.getenv("PIXABAY_API_KEY", "")
+USE_MUSICGEN = os.getenv("USE_MUSICGEN", "false").lower() == "true"
+
+MOOD_TO_PIXABAY_QUERY = {
+    "focused": "ambient electronic background study",
+    "energetic": "upbeat motivational corporate technology",
+    "cinematic": "cinematic orchestral epic trailer",
+    "ambient": "ambient atmospheric meditation drone",
+    "modern": "modern electronic rhythmic tech",
+    "uplifting": "uplifting inspirational happy corporate",
+}
 
 MOOD_CONFIGS = {
     "focused": {"bpm": 85, "notes": [196.00, 220.00, 261.63, 329.63, 392.00, 440.00], "waveform": "sine"},
@@ -49,11 +55,72 @@ def detect_mood(category: str) -> str:
 
 
 # ---------------------------------------------------------------------------
-# MusicGen integration (AI-generated music)
+# Pixabay music search (primary)
+# ---------------------------------------------------------------------------
+
+def _search_pixabay_music(query: str, duration: float) -> list[dict]:
+    if not PIXABAY_API_KEY:
+        return []
+    params = {
+        "key": PIXABAY_API_KEY,
+        "q": query,
+        "duration": f"0,{int(duration) + 30}",
+        "per_page": 5,
+    }
+    try:
+        resp = requests.get("https://pixabay.com/api/audio/", params=params, timeout=15)
+        resp.raise_for_status()
+        data = resp.json()
+        hits = []
+        for track in data.get("hits", []):
+            hits.append({
+                "id": track.get("id"),
+                "url": track.get("audio_url", ""),
+                "duration": track.get("duration", 0),
+                "tags": track.get("tags", ""),
+                "title": track.get("title", ""),
+            })
+        return hits
+    except Exception as e:
+        logger.warning(f"[music_gen] Pixabay search failed: {e}")
+        return []
+
+
+def _download_pixabay_track(url: str, output_path: str) -> bool:
+    try:
+        resp = requests.get(url, timeout=60, stream=True)
+        resp.raise_for_status()
+        with open(output_path, "wb") as f:
+            for chunk in resp.iter_content(chunk_size=8192):
+                f.write(chunk)
+        return os.path.exists(output_path) and os.path.getsize(output_path) > 1000
+    except Exception as e:
+        logger.warning(f"[music_gen] Pixabay download failed: {e}")
+        return False
+
+
+def _try_pixabay_music(category: str, mood: str, duration: float, output_path: str) -> bool:
+    query = MOOD_TO_PIXABAY_QUERY.get(mood, "ambient electronic background")
+    logger.info(f"[music_gen] Searching Pixabay: '{query}'")
+    tracks = _search_pixabay_music(query, duration)
+    if not tracks:
+        logger.info("[music_gen] No Pixabay tracks found")
+        return False
+
+    best = tracks[0]
+    logger.info(f"[music_gen] Downloading: {best.get('title', 'unknown')} ({best.get('duration', 0)}s)")
+    if _download_pixabay_track(best["url"], output_path):
+        logger.info(f"[music_gen] Pixabay track saved -> {output_path}")
+        return True
+
+    return False
+
+
+# ---------------------------------------------------------------------------
+# MusicGen integration (secondary — requires MPS or CUDA)
 # ---------------------------------------------------------------------------
 
 def _build_musicgen_prompt(category: str, scene_moods: list[str]) -> str:
-    """Build a descriptive prompt for MusicGen from category + per-scene moods."""
     cat_lower = category.lower()
     style_keywords = []
     if any(k in cat_lower for k in ("explained", "tutorial", "basics", "intro")):
@@ -69,7 +136,6 @@ def _build_musicgen_prompt(category: str, scene_moods: list[str]) -> str:
     else:
         style_keywords = ["modern", "educational", "electronic background"]
 
-    # Build arc description from scene moods
     unique_moods = []
     for m in scene_moods:
         if not unique_moods or unique_moods[-1] != m:
@@ -77,28 +143,21 @@ def _build_musicgen_prompt(category: str, scene_moods: list[str]) -> str:
 
     if unique_moods:
         mood_labels = {
-            "focused": "focused and clear",
-            "energetic": "energetic and driving",
-            "cinematic": "epic and cinematic",
-            "ambient": "ambient and atmospheric",
-            "modern": "modern and rhythmic",
-            "uplifting": "uplifting and inspiring",
-            "focused": "focused and clear",
-            "dreamy": "dreamy and whimsical",
+            "focused": "focused and clear", "energetic": "energetic and driving",
+            "cinematic": "epic and cinematic", "ambient": "ambient and atmospheric",
+            "modern": "modern and rhythmic", "uplifting": "uplifting and inspiring",
         }
         arc_parts = [mood_labels.get(m, m) for m in unique_moods]
-        arc = ", then transitions to ".join(arc_parts)
-        arc = f"The music starts {arc}."
+        arc = f"The music starts {' and then transitions to '.join(arc_parts)}."
     else:
         arc = ""
 
-    prompt = (
+    return (
         f"{' and '.join(style_keywords)} background music for an educational tech video. "
         f"{arc} "
         f"Clean studio recording, no vocals, suitable for narration voiceover. "
         f"Professional, modern instrumental."
     )
-    return prompt
 
 
 def _generate_musicgen_local(prompt: str, duration_seconds: float, output_path: str) -> bool:
@@ -108,70 +167,49 @@ def _generate_musicgen_local(prompt: str, duration_seconds: float, output_path: 
         import scipy.io.wavfile as wavfile
         import numpy as np
     except ImportError:
-        print("[music_gen] torch/transformers not installed, cannot run MusicGen locally")
         return False
 
-    if not torch.cuda.is_available():
-        print("[music_gen] No GPU available for local MusicGen")
+    device = None
+    if torch.cuda.is_available():
+        device = "cuda"
+    elif torch.backends.mps.is_available():
+        device = "mps"
+    else:
         return False
 
     try:
-        print(f"[music_gen] Loading MusicGen-small on GPU...")
-        device = "cuda"
+        logger.info(f"[music_gen] Loading MusicGen-small on {device}...")
         processor = AutoProcessor.from_pretrained("facebook/musicgen-small")
         model = MusicgenForConditionalGeneration.from_pretrained("facebook/musicgen-small").to(device)
 
         inputs = processor(text=[prompt], padding=True, return_tensors="pt").to(device)
         max_new_tokens = int(duration_seconds * 50)
         audio_values = model.generate(
-            **inputs,
-            max_new_tokens=max_new_tokens,
-            guidance_scale=3.0,
+            **inputs, max_new_tokens=max_new_tokens, guidance_scale=3.0,
         )
 
         sampling_rate = model.config.audio_encoder.sampling_rate
         audio = audio_values[0, 0].cpu().numpy()
         wavfile.write(output_path, sampling_rate, audio)
-        print(f"[music_gen] MusicGen generated -> {output_path}")
+        logger.info(f"[music_gen] MusicGen generated -> {output_path}")
         return True
     except Exception as e:
-        print(f"[music_gen] Local MusicGen failed: {e}")
+        logger.warning(f"[music_gen] Local MusicGen failed: {e}")
         return False
-
-
-def _generate_musicgen_modal(prompt: str, duration_seconds: float, output_path: str) -> bool:
-    try:
-        sys.path.insert(0, str(Path(__file__).parent.parent.parent / "pipeline"))
-        from gpu.musicgen import generate_music
-        result_path = generate_music.remote(prompt, int(duration_seconds))
-        if result_path and os.path.exists(result_path):
-            import shutil
-            shutil.copy(result_path, output_path)
-            print(f"[music_gen] Modal MusicGen generated -> {output_path}")
-            return True
-    except Exception as e:
-        print(f"[music_gen] Modal MusicGen failed: {e}")
-    return False
 
 
 def _try_musicgen(category: str, duration: float, scene_moods: list[str], output_path: str) -> bool:
     if not USE_MUSICGEN:
         return False
-
     prompt = _build_musicgen_prompt(category, scene_moods)
-    print(f"[music_gen] MusicGen prompt: {prompt}")
-
+    logger.info(f"[music_gen] MusicGen prompt: {prompt}")
     if _generate_musicgen_local(prompt, duration, output_path):
         return True
-    if _generate_musicgen_modal(prompt, duration, output_path):
-        return True
-
-    print("[music_gen] All MusicGen methods failed, falling back to procedural")
     return False
 
 
 # ---------------------------------------------------------------------------
-# Procedural music generation (fallback / default)
+# Procedural music generation (last resort)
 # ---------------------------------------------------------------------------
 
 def generate_melody(duration_seconds: float, mood: str = "focused", output_path: Optional[str] = None) -> Optional[str]:
@@ -202,6 +240,10 @@ def generate_melody(duration_seconds: float, mood: str = "focused", output_path:
     return output_path
 
 
+# ---------------------------------------------------------------------------
+# Main entry point
+# ---------------------------------------------------------------------------
+
 def generate_background_music(category: str, duration: float = 60, output_filename: Optional[str] = None, scene_moods: Optional[list[str]] = None) -> dict:
     MUSIC_DIR.mkdir(parents=True, exist_ok=True)
     mood = detect_mood(category)
@@ -209,23 +251,32 @@ def generate_background_music(category: str, duration: float = 60, output_filena
         output_filename = f"bg_{mood}.wav"
     output_path = str(MUSIC_DIR / output_filename)
 
-    scene_moods = scene_moods or [mood]
+    source = None
+    music_path = None
 
-    # Try MusicGen first (if enabled)
-    musicgen_ok = _try_musicgen(category, duration, scene_moods, output_path)
-
-    if not musicgen_ok:
-        # Fall back to procedural
-        music_path = generate_melody(duration, mood, output_path)
-    else:
+    # Try Pixabay first
+    if _try_pixabay_music(category, mood, duration, output_path):
+        source = "pixabay"
         music_path = output_path
+
+    # Try MusicGen (if enabled)
+    if not music_path:
+        scene_moods = scene_moods or [mood]
+        if _try_musicgen(category, duration, scene_moods, output_path):
+            source = "musicgen"
+            music_path = output_path
+
+    # Fall back to procedural
+    if not music_path:
+        logger.info("[music_gen] All external music sources failed, using procedural fallback")
+        music_path = generate_melody(duration, mood, output_path)
+        source = "procedural"
 
     if music_path and os.path.exists(music_path):
         try:
             audio = AudioSegment.from_file(music_path)
-            return {"path": music_path, "duration": len(audio) / 1000.0, "mood": mood, "success": True, "source": "musicgen" if musicgen_ok else "procedural"}
+            return {"path": music_path, "duration": len(audio) / 1000.0, "mood": mood, "success": True, "source": source}
         except Exception as e:
-            print(f"[music_gen] Generated music file is corrupt/unreadable: {e}")
-    else:
-        print(f"[music_gen] Music generation produced no output file")
+            logger.warning(f"[music_gen] Generated music file is corrupt: {e}")
+
     return {"path": None, "duration": 0, "mood": mood, "success": False}

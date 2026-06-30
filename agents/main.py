@@ -14,7 +14,7 @@ from utils.content_calendar import (
 )
 from utils.analytics_tracker import track_video, update_metrics, get_performance_summary
 from utils.scheduler_planner import generate_content_plan
-from utils.thumbnail_gen import generate_thumbnail_image
+from utils.thumbnail_gen import generate_thumbnail_image, pick_best_thumbnail
 from utils.health_monitor import start_heartbeat_monitor, start_health_server, check_ollama_health
 from utils.description_gen import generate_description
 from utils.subtitle_gen import generate_subtitles_for_video
@@ -190,7 +190,7 @@ MULTI_LANG_CODES = os.getenv("MULTI_LANG_CODES", "es,de,fr").split(",")
 PIPELINE_TIMEOUT_MINUTES = int(os.getenv("PIPELINE_TIMEOUT_MINUTES", 90))
 MAX_RETRIES_PER_TOPIC = int(os.getenv("MAX_RETRIES_PER_TOPIC", 2))
 USE_ANIMATION_ENGINE = os.getenv("USE_ANIMATION_ENGINE", "true").lower() == "true"
-LONG_MAX_DURATION = int(os.getenv("LONG_MAX_DURATION", 600))
+LONG_MAX_DURATION = int(os.getenv("LONG_MAX_DURATION", 180))
 
 
 def _run_with_timeout(func, args, timeout_minutes: int):
@@ -320,7 +320,7 @@ def _run_stock_footage_pipeline(script_text: str, storyboard_text: str, category
     scenes = parse_scenes_from_storyboard(storyboard_text, format_type)
     log_event("PIPELINE", f"Found {len(scenes)} scenes to source video for")
     if format_type == "long":
-        min_scenes = max(16, max_duration // 30)
+        min_scenes = max(12, max_duration // 30)
         while len(scenes) < min_scenes:
             scenes.append({"keyword": "transition", "target_duration": 5.0, "description": "transition scene"})
         log_event("PIPELINE", f"Extended to {len(scenes)} scenes for >8min long-form")
@@ -346,10 +346,11 @@ def _run_asset_router_pipeline(script_text: str, storyboard_text: str, category:
     scenes = parse_script_to_scenes(script_text, title=video_id, category=category, format_type=format_type, storyboard_text=str(storyboard_text))
     scenes = inject_intro_outro(scenes, category, format_type)
     log_event("PIPELINE", f"Asset Router: {len(scenes)} scenes")
-    update_agent_status("animator", "working", f"Dispatching {len(scenes)} scenes via Asset Router")
+    total = len(scenes)
+    update_agent_status("animator", "working", f"Generating {total} scenes via AI video engine")
+    log_activity("pipeline", f"Asset Router: generating {total} scenes (LTX AI + stock fallback)", "info")
     clips = dispatch_scenes(scenes, video_id, format_type)
-    log_event("ASSET_ROUTER", f"Generated {len(clips)} assets from {len(scenes)} scenes")
-    update_agent_status("animator", "completed", f"Generated {len(clips)} video assets")
+    update_agent_status("animator", "completed", f"Generated {len(clips)}/{total} video assets")
     total_duration = sum(c.get("duration", 8.0) for c in clips)
     return scenes, clips, total_duration
 
@@ -513,7 +514,7 @@ def run_director_review(stage: str, topic: str, category: str, format_type: str,
 
 
 def generate_short_video(topic: str, category: str, video_id: str, publish_at: str = None):
-    update_pipeline_status(True, video_id)
+    update_pipeline_status(True, topic)
     add_video_record(video_id, topic, "shorts", "generating", category=category)
     log_event("PIPELINE", f"Starting SHORT video generation: {topic}")
 
@@ -690,6 +691,12 @@ def generate_short_video(topic: str, category: str, video_id: str, publish_at: s
             except Exception as fallback_err:
                 log_event("TITLE", f"Fallback title gen failed: {fallback_err}", "debug")
 
+        failed_step = "thumbnail_video_frame"
+        if video_result.get("video_path") and thumbnail_path:
+            video_thumb = pick_best_thumbnail(thumbnail_path, video_result["video_path"], topic, format_type="shorts")
+            if video_thumb:
+                thumbnail_path = video_thumb
+
         failed_step = "publishing"
         platforms_to_publish = ['youtube', 'tiktok', 'instagram']
         publish_result = multi_platform_publish(
@@ -795,7 +802,7 @@ def generate_short_video(topic: str, category: str, video_id: str, publish_at: s
 
 
 def generate_long_video(topic: str, category: str, video_id: str, publish_at: str = None):
-    update_pipeline_status(True, video_id)
+    update_pipeline_status(True, topic)
     add_video_record(video_id, topic, "long", "generating", category=category)
     log_event("PIPELINE", f"Starting LONG video generation: {topic}")
 
@@ -973,6 +980,12 @@ def generate_long_video(topic: str, category: str, video_id: str, publish_at: st
             except Exception as fallback_err:
                 log_event("TITLE", f"Fallback title gen failed: {fallback_err}", "debug")
 
+        failed_step = "thumbnail_video_frame"
+        if video_result.get("video_path") and thumbnail_path:
+            video_thumb = pick_best_thumbnail(thumbnail_path, video_result["video_path"], topic, format_type="long")
+            if video_thumb:
+                thumbnail_path = video_thumb
+
         failed_step = "publishing"
         platforms_to_publish = ['youtube', 'facebook']
         publish_result = multi_platform_publish(
@@ -1102,7 +1115,7 @@ def daily_content_job():
         trends = []
 
     shorts_per_day = int(os.getenv("SCHEDULE_SHORTS_PER_DAY", 2))
-    long_per_day = int(os.getenv("SCHEDULE_LONG_PER_DAY", 2))
+    long_per_day = int(os.getenv("SCHEDULE_LONG_PER_DAY", 1))
 
     log_event("SCHEDULER", "Generating content plan via scheduler planner")
     try:

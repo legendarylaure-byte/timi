@@ -209,3 +209,99 @@ def _draw_text_shadow(draw, text, position, font, color, shadow_color=(0, 0, 0),
     for dx, dy in [(-offset, -offset), (offset, -offset), (-offset, offset), (offset, offset), (0, -offset), (0, offset), (-offset, 0), (offset, 0)]:  # noqa: E501
         draw.text((anchor_x + dx, anchor_y + dy), text, font=font, fill=shadow_color)
     draw.text((anchor_x, anchor_y), text, font=font, fill=color)
+
+
+def extract_video_frame(video_path: str, time_sec: float = None) -> str:
+    """Extract a frame from the video at the given timestamp for a thumbnail."""
+    import subprocess
+    import tempfile
+    frame_path = os.path.join(THUMBNAIL_DIR, f"frame_{hash(video_path) % 100000}.jpg")
+    os.makedirs(os.path.dirname(frame_path), exist_ok=True)
+    if time_sec is None:
+        time_sec = 3.0
+    try:
+        subprocess.run(
+            ["ffprobe", "-v", "error", "-show_entries", "format=duration",
+             "-of", "default=noprint_wrappers=1:nokey=1", video_path],
+            capture_output=True, text=True, timeout=10)
+    except Exception:
+        pass
+    try:
+        subprocess.run(
+            ["ffmpeg", "-ss", str(time_sec), "-i", video_path,
+             "-frames:v", "1", "-q:v", "3", "-y", frame_path],
+            capture_output=True, timeout=30, check=True)
+        if os.path.exists(frame_path) and os.path.getsize(frame_path) > 1000:
+            return frame_path
+    except Exception:
+        pass
+    return ""
+
+
+def generate_thumbnail_from_video(video_path: str, title: str, format_type: str = "shorts",
+                                   output_filename: str = None) -> dict:
+    """Generate a thumbnail using a frame from the actual video content."""
+    from PIL import ImageDraw
+    if output_filename is None:
+        output_filename = f"thumb_video_{hash(video_path) % 100000}.png"
+    output_path = os.path.join(THUMBNAIL_DIR, output_filename)
+    os.makedirs(THUMBNAIL_DIR, exist_ok=True)
+
+    frame_path = extract_video_frame(video_path, time_sec=4.0)
+
+    if format_type == "shorts":
+        thumb_w, thumb_h = 1080, 1920
+    else:
+        thumb_w, thumb_h = 1280, 720
+
+    if frame_path:
+        try:
+            frame = Image.open(frame_path).convert("RGB")
+            frame = frame.filter(ImageFilter.GaussianBlur(radius=8))
+            bg = frame.resize((thumb_w, thumb_h), Image.LANCZOS)
+        except Exception:
+            scheme = COLOR_SCHEMES[0]
+            bg = Image.new("RGB", (thumb_w, thumb_h), scheme["bg1"])
+    else:
+        scheme = COLOR_SCHEMES[hash(title) % len(COLOR_SCHEMES)]
+        bg = Image.new("RGB", (thumb_w, thumb_h), scheme["bg1"])
+        for seed_val in range(100, 105):
+            rng = seed_val
+            cx = (rng * 17) % thumb_w
+            cy = (rng * 23) % thumb_h
+            radius = 80 + (rng * 7) % 120
+            color = COLOR_SCHEMES[(seed_val + 1) % len(COLOR_SCHEMES)]["accent"]
+            blob = Image.new("RGBA", (radius * 2, radius * 2), (0, 0, 0, 0))
+            bd = ImageDraw.Draw(blob)
+            bd.ellipse([(0, 0), (radius * 2, radius * 2)], fill=color + (80,))
+            blob = blob.filter(ImageFilter.GaussianBlur(radius=25))
+            bg.paste(blob, (cx - radius, cy - radius), blob)
+
+    draw = ImageDraw.Draw(bg)
+    title_font = _find_font(120 if format_type == "shorts" else 100)
+    max_width = thumb_w - 120
+    title_lines = _wrap_text(title, title_font, max_width)
+    text_y = thumb_h // 3
+    for line in title_lines:
+        _draw_text_shadow(draw, line, (thumb_w // 2, text_y), title_font, (255, 255, 255), offset=5)
+        text_y += title_font.size + 15
+
+    # Add channel branding
+    brand_font = _find_font(40)
+    _draw_text_shadow(draw, "Vyom Ai Cloud", (thumb_w // 2, thumb_h - 120), brand_font, (200, 200, 200), offset=3)
+
+    try:
+        bg.save(output_path, "PNG", quality=95)
+        return {"success": True, "path": output_path, "dimensions": f"{thumb_w}x{thumb_h}", "format": format_type}
+    except Exception as e:
+        return {"success": False, "path": output_path, "error": str(e)}
+
+
+def pick_best_thumbnail(answer_path: str, video_path: str, title: str, format_type: str) -> str:
+    """Preferred: video frame thumbnail. Fallback: abstract art thumbnail."""
+    result = generate_thumbnail_from_video(video_path, title, format_type)
+    if result["success"]:
+        print(f"[THUMBNAIL] Generated video-frame thumbnail: {result['path']}")
+        return result["path"]
+    print(f"[THUMBNAIL] Video frame failed, using abstract art")
+    return answer_path

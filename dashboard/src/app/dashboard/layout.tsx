@@ -163,9 +163,13 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
 
         <div className="p-3 border-t border-light-border/50 dark:border-dark-border/50 space-y-2">
           <div className="flex items-center gap-3 px-3 py-2">
-            {user.photoURL && (
+            {user.photoURL ? (
               <div className="w-8 h-8 rounded-full relative ring-2 ring-light-primary/30 shrink-0">
                 <img src={user.photoURL} alt={user.displayName || 'User avatar'} className="w-full h-full rounded-full object-cover" />
+              </div>
+            ) : (
+              <div className="w-8 h-8 rounded-full bg-gradient-to-br from-light-primary to-purple-500 flex items-center justify-center text-white text-sm font-bold shrink-0">
+                {(user.displayName || user.email || '?')[0].toUpperCase()}
               </div>
             )}
             {sidebarOpen && (
@@ -177,6 +181,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
           </div>
           <button
             onClick={handleLogout}
+            title="Sign Out"
             className="w-full flex items-center gap-3 px-3 py-2 rounded-xl text-light-muted dark:text-dark-muted hover:bg-light-primary/10 hover:text-light-primary transition-colors text-sm"
           >
             <LogOut className="w-4 h-4 shrink-0" />
@@ -272,7 +277,13 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
 
               <div className="border-t border-light-border/50 dark:border-dark-border/50 pt-4 space-y-3">
                 <div className="flex items-center gap-3 px-4">
-                  {user.photoURL && <img src={user.photoURL} alt="" className="w-8 h-8 rounded-full ring-2 ring-light-primary/30" />}
+                  {user.photoURL ? (
+                    <img src={user.photoURL} alt="" className="w-8 h-8 rounded-full ring-2 ring-light-primary/30" />
+                  ) : (
+                    <div className="w-8 h-8 rounded-full bg-gradient-to-br from-light-primary to-purple-500 flex items-center justify-center text-white text-sm font-bold shrink-0">
+                      {(user.displayName || user.email || '?')[0].toUpperCase()}
+                    </div>
+                  )}
                   <div className="flex-1 min-w-0">
                     <p className="text-sm font-medium text-light-text dark:text-dark-text truncate">{user.displayName}</p>
                   </div>

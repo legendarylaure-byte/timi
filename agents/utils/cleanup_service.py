@@ -100,6 +100,37 @@ def cleanup_old_checkpoints(max_age_hours: int = 168) -> dict:
     return result
 
 
+def cleanup_temp_directories() -> dict:
+    """Remove ALL temporary directories to ensure a clean slate for each run."""
+    result = {"deleted_files": 0, "deleted_dirs": 0, "freed_bytes": 0, "errors": []}
+    agents_dir = Path(PROJECT_ROOT)
+
+    subdirs = ["tmp/compositor", "tmp/asset_router", "tmp/music", "tmp/voice",
+               "tmp/subtitles", "tmp/screencaps", "tmp/manim_cache", "tmp/manim_render", "tmp/clips"]
+
+    for rel_path in subdirs:
+        target = agents_dir / rel_path
+        if target.exists():
+            for item in target.rglob("*"):
+                try:
+                    if item.is_file():
+                        size = item.stat().st_size
+                        item.unlink()
+                        result["deleted_files"] += 1
+                        result["freed_bytes"] += size
+                except Exception as e:
+                    result["errors"].append(f"{rel_path}/{item.name}: {e}")
+            for item in sorted(target.rglob("*"), key=lambda p: len(str(p)), reverse=True):
+                try:
+                    if item.is_dir() and item != target:
+                        item.rmdir()
+                        result["deleted_dirs"] += 1
+                except Exception:
+                    pass
+
+    return result
+
+
 def cleanup_after_upload(video_path: str, thumbnail_path: str = None, voice_path: str = None, music_path: str = None, subtitle_path: str = None) -> dict:  # noqa: E501
     """Immediately clean up source/intermediate files after a successful upload.
 
@@ -115,7 +146,6 @@ def cleanup_after_upload(video_path: str, thumbnail_path: str = None, voice_path
     if subtitle_path and os.path.exists(subtitle_path):
         files_to_remove.append(subtitle_path)
     if thumbnail_path and os.path.exists(thumbnail_path):
-        # Keep thumbnail if it's in output/, remove if in tmp/
         if "tmp" in thumbnail_path:
             files_to_remove.append(thumbnail_path)
 
@@ -128,6 +158,10 @@ def cleanup_after_upload(video_path: str, thumbnail_path: str = None, voice_path
             print(f"[cleanup] Removed: {fpath} ({size / 1024:.1f}KB)")
         except Exception as e:
             result["errors"].append(f"{fpath}: {e}")
+
+    tmp_cleanup = cleanup_temp_directories()
+    result["deleted"].extend(tmp_cleanup.get("deleted_files", 0) * ["[tmp_file]"])
+    result["freed_bytes"] += tmp_cleanup.get("freed_bytes", 0)
 
     freed_mb = result["freed_bytes"] / (1024 * 1024)
     print(f"[cleanup] Post-upload cleanup: {len(result['deleted'])} files removed, {freed_mb:.1f}MB freed")

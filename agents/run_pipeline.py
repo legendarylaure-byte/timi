@@ -1,10 +1,13 @@
 import os
 import sys
+from pathlib import Path
 from main import daily_content_job, generate_short_video, generate_long_video, log_event, cleanup_stuck_state
+from utils.cleanup_service import cleanup_temp_directories
 
 
 def main():
     cleanup_stuck_state()
+    cleanup_temp_directories()
     from main import update_pipeline_status
     update_pipeline_status(True, 'Workflow triggered')
     topic = os.environ.get('TOPIC', '')

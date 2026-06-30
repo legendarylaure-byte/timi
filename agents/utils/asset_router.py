@@ -40,48 +40,9 @@ def dispatch_scene(scene: dict, video_id: str, scene_idx: int = 0, format_type: 
     description = scene.get("description", "")
     duration = scene.get("target_duration", scene.get("duration", 8.0))
 
-    if asset_type == "DIAGRAM_ANIMATION":
-        path = render_manim_scene(scene, video_id, scene_idx, quality="h")
-        if path:
-            return {"path": path, "duration": duration, "asset_type": "DIAGRAM_ANIMATION", "source": "manim"}
-
-    if asset_type == "CODE_SNIPPET":
-        code_lines = scene.get("code_lines", [
-            "# Example code",
-            "import torch",
-            "import torch.nn as nn",
-            "",
-            "class Transformer(nn.Module):",
-            "    def __init__(self):",
-            "        super().__init__()",
-            f"    # {description[:50] if description else 'TODO'}",
-        ])
-        path = render_code_snippet(code_lines)
-        if path:
-            return {"path": path, "duration": min(duration, 10.0), "asset_type": "CODE_SNIPPET", "source": "screencap"}
-
-    if asset_type == "SCREEN_CAPTURE":
-        cap_type = scene.get("capture_type", "terminal")
-        code_lines = scene.get("code_lines", [
-            "$ python3 train.py --model transformer --epochs 100",
-            "Epoch 1/100: loss=2.345, acc=0.723",
-            "Epoch 2/100: loss=1.876, acc=0.812",
-            "Epoch 3/100: loss=1.543, acc=0.867",
-            f"# {description[:50] if description else 'Training in progress'}",
-        ])
-        title = scene.get("title", scene.get("keyword", "capture"))
-        if cap_type == "browser":
-            path = render_browser(url=scene.get("url", "https://example.com"))
-        elif cap_type == "ide":
-            path = render_ide(code_lines, title=title)
-        else:
-            path = render_terminal(code_lines, title=title)
-        if path:
-            return {"path": path, "duration": min(duration, 10.0), "asset_type": "SCREEN_CAPTURE", "source": "screencap"}
-
     kw_list = keywords if isinstance(keywords, list) else [keywords]
     if ltx_engine.is_available():
-        prompt = description or ", ".join(kw_list)
+        prompt = scene.get("ltx_prompt", "") or description or ", ".join(kw_list)
         ltx_path = ltx_engine.generate_clip(prompt, int(duration))
         if ltx_path:
             return {"path": ltx_path, "duration": duration, "asset_type": "STOCK_FOOTAGE", "source": "ltx"}

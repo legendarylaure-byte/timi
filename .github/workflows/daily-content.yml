@@ -65,7 +65,7 @@ jobs:
       GEMINI_MODEL: gemini-2.5-flash
       LTX_ENGINE: mlx
       LTX_LOW_RAM: true
-      ENABLE_DIRECTOR_REVIEW: false
+      ENABLE_DIRECTOR_REVIEW: true
       HF_TOKEN: ${{ secrets.HF_TOKEN }}
       FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
 

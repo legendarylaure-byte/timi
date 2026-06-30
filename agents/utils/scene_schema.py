@@ -117,6 +117,8 @@ def scene_to_prompt(scene: dict) -> str:
     parts.append(f"Transition: {scene.get('transition', 'cut')}")
     keywords = scene.get("asset_keywords", [scene.get("keyword", "technology")])
     parts.append(f"Keywords: {', '.join(keywords) if isinstance(keywords, list) else keywords}")
+    if scene.get("ltx_prompt"):
+        parts.append(f"LTX: {scene['ltx_prompt'][:100]}")
     if scene.get("text"):
         texts = [t.get("text", "") for t in scene["text"] if t.get("text")]
         if texts:

@@ -54,12 +54,21 @@ def generate_clip(prompt: str, duration: int = 10,
     return None
 
 
+def _build_prompt(raw_prompt: str) -> str:
+    lower = raw_prompt.lower()
+    if any(w in lower for w in ["animated", "animation", "diagram", "flowing", "node", "graph"]):
+        return raw_prompt
+    if any(w in lower for w in ["code", "terminal", "matrix", "scrolling", "syntax"]):
+        return raw_prompt
+    if any(w in lower for w in ["circuit", "chip", "processor", "server", "data center"]):
+        return f"{raw_prompt}, cinematic lighting, volumetric god rays, 24fps, high quality"
+    if raw_prompt.count(" ") < 15:
+        return f"Tech educational animation, clean professional style, {raw_prompt}, smooth camera motion, cinematic lighting, consistent color palette, 24fps, high quality"
+    return raw_prompt
+
+
 def _run_mlx_pipeline(prompt: str, num_frames: int, output_path: str) -> bool:
-    ltx_prompt = (
-        f"Tech educational animation, clean professional style, "
-        f"{prompt}, smooth camera motion, "
-        f"cinematic lighting, consistent color palette, 24fps, high quality"
-    )
+    ltx_prompt = _build_prompt(prompt)
 
     gemma_id = os.getenv("LTX_GEMMA_MODEL", "mlx-community/gemma-3-12b-it-4bit")
     distilled_lora = os.getenv("LTX_DISTILLED_LORA",

@@ -3,7 +3,7 @@
 import { useEffect, useState, useCallback } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { db } from '@/lib/firebase';
-import { collection, onSnapshot, query, orderBy, limit, Timestamp, where, getDocs } from 'firebase/firestore';
+import { collection, onSnapshot, query, orderBy, limit, Timestamp, where, getDocs, doc } from 'firebase/firestore';
 import { AgentCard } from './AgentCard';
 import { IdleAgentExplainer } from './IdleAgentExplainer';
 
@@ -61,10 +61,24 @@ export function AgentGrid() {
   const [idleInfoAgent, setIdleInfoAgent] = useState<string | null>(null);
 
   useEffect(() => {
+    const unsub = onSnapshot(doc(db, 'system', 'pipeline'), () => {}, () => {});
+    return () => unsub();
+  }, []);
+
+  useEffect(() => {
     const unsub = onSnapshot(collection(db, 'agent_status'), (snap) => {
+      const now = Date.now();
       const map = new Map<string, AgentStatus>();
       snap.docs.forEach(doc => {
-        map.set(doc.id, doc.data() as AgentStatus);
+        const data = doc.data() as AgentStatus;
+        if (data.status === 'working' && data.last_updated) {
+          const date = data.last_updated.toDate ? data.last_updated.toDate() : new Date(data.last_updated as any);
+          if ((now - date.getTime()) > 5 * 60 * 1000) {
+            map.set(doc.id, { ...data, status: 'idle', current_action: 'Ready' });
+            return;
+          }
+        }
+        map.set(doc.id, data);
       });
       setAgentStatuses(map);
     }, () => {});

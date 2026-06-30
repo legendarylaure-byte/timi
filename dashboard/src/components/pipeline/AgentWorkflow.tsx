@@ -53,6 +53,8 @@ export function AgentWorkflow({
 }) {
   const [pipeline, setPipeline] = useState<PipelineDoc | null>(null);
   const [agentStatuses, setAgentStatuses] = useState<Map<string, AgentStatus>>(new Map());
+  const [showComplete, setShowComplete] = useState(false);
+  const [prevRunning, setPrevRunning] = useState(false);
 
   useEffect(() => {
     const unsub = onSnapshot(doc(db, 'system', 'pipeline'), (snap) => {
@@ -73,8 +75,23 @@ export function AgentWorkflow({
     return () => unsub();
   }, []);
 
+  useEffect(() => {
+    if (prevRunning && !pipeline?.running) {
+      setShowComplete(true);
+      const timer = setTimeout(() => setShowComplete(false), 13000);
+      return () => clearTimeout(timer);
+    }
+    setPrevRunning(!!pipeline?.running);
+  }, [pipeline?.running, prevRunning]);
+
+  const isStale = (ts: Timestamp | undefined) => {
+    if (!ts) return true;
+    const date = ts.toDate ? ts.toDate() : new Date(ts as any);
+    return (Date.now() - date.getTime()) > 5 * 60 * 1000;
+  };
+
   const workingCount = Array.from(agentStatuses.values()).filter(
-    a => a.status === 'working'
+    a => a.status === 'working' && !isStale(a.last_updated)
   ).length;
 
   return (
@@ -84,16 +101,14 @@ export function AgentWorkflow({
           <motion.div
             animate={pipeline?.running ? { scale: [1, 1.15, 1], boxShadow: ['0 0 4px rgba(16,185,129,0.4)', '0 0 16px rgba(16,185,129,0.8)', '0 0 4px rgba(16,185,129,0.4)'] } : {}}
             transition={{ repeat: Infinity, duration: 2 }}
-            className={`w-3 h-3 rounded-full ${pipeline?.running ? 'bg-emerald-500' : workingCount > 0 ? 'bg-amber-400' : 'bg-gray-400'}`}
+            className={`w-3 h-3 rounded-full ${pipeline?.running ? 'bg-emerald-500' : workingCount > 0 ? 'bg-violet-400' : 'bg-gray-400'}`}
           />
           <div>
             <h3 className="text-sm font-bold gradient-text">Agent Pipeline</h3>
             <p className="text-[11px] text-light-muted dark:text-dark-muted">
               {pipeline?.running
                 ? (workingCount > 0 ? `${workingCount} agent${workingCount > 1 ? 's' : ''} working` : 'Pipeline active — waiting for agent dispatch')
-                : workingCount > 0
-                  ? `${workingCount} agent${workingCount > 1 ? 's' : ''} running background tasks`
-                  : 'Waiting for next daily run at 11:45 AM NPT'}
+                : 'Waiting for next daily run at 11:45 AM NPT'}
             </p>
           </div>
         </div>
@@ -133,7 +148,7 @@ export function AgentWorkflow({
         {WORKFLOW_STEPS.map((step, i) => {
           const agent = agentStatuses.get(step.key);
           const isWorking = agent?.status === 'working';
-          const isCompleted = agent?.status === 'completed';
+          const isCompleted = agent?.status === 'completed' || showComplete;
           const isIdle = agent?.status === 'idle' || !agent;
 
           return (
@@ -197,6 +212,11 @@ export function AgentWorkflow({
                       ${isCompleted ? 'text-emerald-600 dark:text-emerald-400' : ''}
                       ${isIdle ? 'text-light-muted/60 dark:text-dark-muted/60' : ''}
                     `}>{step.label}</span>
+                    {isWorking && agent?.current_action && (
+                      <span className="text-[8px] text-cyan-500 dark:text-cyan-400 leading-tight text-center max-w-[56px] truncate">
+                        {agent.current_action}
+                      </span>
+                    )}
                   </div>
                 </motion.div>
 
@@ -210,31 +230,6 @@ export function AgentWorkflow({
                     </>
                   )}
                 </div>
-
-                {/* Tooltip with agent action */}
-                <AnimatePresence>
-                  {isWorking && agent?.current_action && (
-                    <motion.div
-                      initial={{ opacity: 0, y: 4, scale: 0.95 }}
-                      animate={{ opacity: 1, y: 0, scale: 1 }}
-                      exit={{ opacity: 0, y: 4, scale: 0.95 }}
-                      className="absolute -top-1 left-1/2 -translate-x-1/2 -translate-y-full z-50"
-                    >
-                      <div className={`
-                        px-2.5 py-1.5 rounded-lg text-[10px] whitespace-nowrap
-                        backdrop-blur-lg border shadow-xl
-                        bg-dark-bg dark:bg-dark-card border-dark-border text-dark-text
-                      `}>
-                        <div className="flex items-center gap-1.5">
-                          <span className="animate-pulse text-emerald-400">●</span>
-                          <span className="font-medium">{agent.name}</span>
-                          <span className="text-dark-muted">—</span>
-                          <span className="text-dark-muted max-w-[140px] truncate">{agent.current_action}</span>
-                        </div>
-                      </div>
-                    </motion.div>
-                  )}
-                </AnimatePresence>
               </motion.div>
 
               {i < WORKFLOW_STEPS.length - 1 && (

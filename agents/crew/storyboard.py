@@ -26,7 +26,8 @@ For each scene, specify the VISUAL ASSET TYPE to use."""
 You translate scripts into detailed visual plans that the video pipeline can execute.
 Your storyboards specify which asset type to use per scene: stock footage for atmosphere,
 screen captures for tool demonstrations, diagram animations for conceptual explanations,
-and code snippets for technical deep-dives. You match visual style to content type.""",
+and code snippets for technical deep-dives. You match visual style to content type.
+You specify camera angles, lighting, and composition to ensure each scene is visually engaging.""",
         llm=llm,
         verbose=True,
         allow_delegation=False,
@@ -42,18 +43,22 @@ For EACH scene output:
 1. Scene number and timing (e.g., "Scene 1: 0-12s")
 2. ASSET TYPE: one of [STOCK_FOOTAGE, SCREEN_CAPTURE, DIAGRAM_ANIMATION, CODE_SNIPPET, STATIC_IMAGE]
 3. Visual description: what the viewer sees — screen content, diagram elements, footage subject
-4. Text overlay: any text that should appear on screen (titles, labels, bullet points, code)
-5. Transition to next scene (cut, fade, slide)
+4. Camera angle: specify the shot type (e.g., close-up on hands typing, wide shot of server room, over-the-shoulder at monitor, top-down of circuit board, dolly-in on neural network visualization, smooth pan across architecture diagram, macro shot of chip components)
+5. Lighting: specify lighting style (e.g., dramatic side lighting, soft diffused overhead, neon glow from screens, warm key light with cool fill, volumetric god rays through server vents, rim lighting on subject, cinematic low-key for mystery)
+6. Text overlay: any text that should appear on screen (titles, labels, bullet points, code)
+7. Transition to next scene (cut, fade, slide)
 
 OUTPUT FORMAT — one block per scene:
 --SCENE 1 (0-12s)--
 ASSET_TYPE: [STOCK_FOOTAGE | SCREEN_CAPTURE | DIAGRAM_ANIMATION | CODE_SNIPPET | STATIC_IMAGE]
 VISUAL: [what the viewer sees]
+CAMERA: [shot type, camera movement]
+LIGHTING: [lighting style]
 TEXT_OVERLAY: [any on-screen text, or NONE]
 TRANSITION: [cut | fade | slide]
 
-NUMBER scenes consecutively. Ensure visual descriptions are specific enough for an automated pipeline to execute.""",
-        expected_output=f"A detailed visual plan with {'6-10' if is_long else '5-8'} scenes, each with asset type, visual description, text overlay, and transition.",
+Visual descriptions MUST be vivid and specific enough for an AI video generation model to interpret: describe colors, composition, movement, and focal points. For example, instead of "a person using a computer" say "a developer in a dark room with neon blue screen glow on their face, typing rapidly, camera slowly dollying in on the monitor showing streaming code". NUMBER scenes consecutively.""",
+        expected_output=f"A detailed visual plan with {'6-10' if is_long else '5-8'} scenes, each with asset type, visual description, camera angle, lighting, text overlay, and transition.",
         agent=storyboard_artist,
     )
 
