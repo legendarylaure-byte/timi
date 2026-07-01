@@ -55,6 +55,34 @@ def get_youtube_credentials():
     return creds
 
 
+def get_youtube_service() -> object | None:
+    creds = get_youtube_credentials()
+    if not creds:
+        return None
+    return build("youtube", "v3", credentials=creds)
+
+
+def update_youtube_video_title(video_id: str, new_title: str) -> bool:
+    try:
+        youtube = get_youtube_service()
+        if not youtube:
+            return False
+        request = youtube.videos().list(part="snippet", id=video_id)
+        response = request.execute()
+        if not response.get("items"):
+            print(f"[YOUTUBE] Video {video_id} not found for title update")
+            return False
+        video = response["items"][0]
+        video["snippet"]["title"] = new_title
+        update = youtube.videos().update(part="snippet", body=video)
+        update.execute()
+        print(f"[YOUTUBE] Title updated to: {new_title}")
+        return True
+    except Exception as e:
+        print(f"[YOUTUBE] Title update failed: {e}")
+        return False
+
+
 def upload_video_to_youtube(
     video_file: str,
     title: str,
@@ -206,13 +234,41 @@ def fetch_video_stats(video_id: str) -> dict:
                 duration_seconds = 0
         except Exception:
             duration_seconds = 0
-        return {
+
+        result = {
             "views": int(stats.get("viewCount", 0)),
             "likes": int(stats.get("likeCount", 0)),
             "comments": int(stats.get("commentCount", 0)),
             "favorites": int(stats.get("favoriteCount", 0)),
             "duration_seconds": duration_seconds,
         }
+
+        try:
+            from googleapiclient.discovery import build as analytics_build
+            analytics = analytics_build("youtubeAnalytics", "v2", credentials=creds)
+            report = analytics.reports().query(
+                ids="channel==MINE",
+                startDate="2015-01-01",
+                endDate=datetime.utcnow().strftime("%Y-%m-%d"),
+                metrics="estimatedImpressions,estimatedClicks,averageViewDuration",
+                filters=f"video=={video_id}",
+            ).execute()
+            rows = report.get("rows", [])
+            if rows and len(rows) > 0:
+                impressions = int(rows[0][0]) if len(rows[0]) > 0 else 0
+                clicks = int(rows[0][1]) if len(rows[0]) > 1 else 0
+                avg_view_duration = float(rows[0][2]) if len(rows[0]) > 2 else 0.0
+                result["impressions"] = impressions
+                result["clicks"] = clicks
+                result["ctr"] = round(clicks / max(impressions, 1) * 100, 2)
+                result["average_view_duration_seconds"] = round(avg_view_duration, 1)
+        except Exception:
+            result["impressions"] = 0
+            result["clicks"] = 0
+            result["ctr"] = 0.0
+            result["average_view_duration_seconds"] = 0.0
+
+        return result
     except HttpError as e:
         print(f"[YOUTUBE] Failed to fetch stats for video {video_id}: {e}")
         return {"error": str(e)}

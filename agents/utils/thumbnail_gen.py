@@ -155,6 +155,53 @@ def generate_thumbnail_image(topic: str, thumbnail_text: str, format_type: str =
     }
 
 
+def _score_thumbnail(variant: dict) -> float:
+    text_len = variant.get("text_length", 0)
+    contrast = variant.get("contrast", 0.5)
+    scheme_idx = variant.get("scheme_idx", 0)
+    score = 50
+    score += min(text_len * 2, 20)
+    if contrast > 0.3 and contrast < 0.9:
+        score += 15
+    if scheme_idx in (1, 4, 6):
+        score += 10
+    score += variant.get("blob_density", 5)
+    return score
+
+
+def generate_thumbnail_variants(topic: str, thumbnail_text: str, format_type: str = "shorts") -> dict:
+    variants = []
+    text_overlay = extract_text_overlay(thumbnail_text)
+    overlay = text_overlay or " ".join(topic.split()[:4])
+
+    for i in range(3):
+        scheme_idx = (hash(topic + str(i)) % len(COLOR_SCHEMES))
+        out = f"thumb_{format_type}_{hash(topic + str(i)) % 100000}.png"
+        result = generate_thumbnail_image(topic, thumbnail_text, format_type, out)
+        if result["success"]:
+            blob_density = 5 + (hash(str(i)) % 10)
+            variants.append({
+                "path": result["path"],
+                "scheme_idx": scheme_idx,
+                "text_length": len(overlay),
+                "contrast": 0.4 + (hash(str(i)) % 30) / 100,
+                "blob_density": blob_density,
+                "score": 0,
+            })
+
+    for v in variants:
+        v["score"] = _score_thumbnail(v)
+
+    variants.sort(key=lambda x: x["score"], reverse=True)
+    best = variants[0] if variants else None
+
+    return {
+        "best": best["path"] if best else None,
+        "variants": [v["path"] for v in variants],
+        "count": len(variants),
+    }
+
+
 def _find_font(size: int):
     candidates = [
         "/System/Library/Fonts/Supplemental/Arial Bold.ttf",

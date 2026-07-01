@@ -51,16 +51,17 @@ Generate scenes that follow the narrative arc of the script. Maintain visual con
 
 def parse_script_to_scenes(
     script_text: str, title: str = "", category: str = "",
-    format_type: str = "shorts", storyboard_text: str = ""
+    format_type: str = "shorts", storyboard_text: str = "",
+    max_duration: int = None
 ) -> list[dict]:
     log_activity("scene_parser", f"Parsing script: {title}", "info")
     print(f"[SCENE_PARSER] Parsing script for '{title}' ({format_type})")
 
-    scenes = _llm_scene_parse(script_text, title, category, format_type, storyboard_text)
+    scenes = _llm_scene_parse(script_text, title, category, format_type, storyboard_text, max_duration)
     if scenes:
         return scenes
 
-    scenes = _rule_based_parse(script_text, storyboard_text, format_type, title)
+    scenes = _rule_based_parse(script_text, storyboard_text, format_type, title, max_duration)
     if scenes:
         print(f"[SCENE_PARSER] Rule-based parse produced {len(scenes)} scenes")
         return scenes
@@ -71,16 +72,24 @@ def parse_script_to_scenes(
 
 
 def _llm_scene_parse(
-    script_text: str, title: str, category: str, format_type: str, storyboard_text: str
+    script_text: str, title: str, category: str, format_type: str, storyboard_text: str,
+    max_duration: int = None
 ) -> list[dict] | None:
     if len(script_text) > 6000:
         script_text = script_text[:6000] + "\n...[truncated]"
+
+    target_hint = ""
+    if max_duration:
+        if format_type == "long":
+            target_hint = f"\nCRITICAL: The TOTAL duration of ALL scenes combined must be approximately {max_duration} seconds (sum of all 'duration' fields). Generate enough scenes to fill this time — typically 10-15 scenes for long-form, each 12-20 seconds."
+        else:
+            target_hint = f"\nAim for total duration around {max_duration} seconds across all scenes."
 
     prompt = f"""Convert this tech/AI educational video script into structured scenes with asset types. CRITICAL: Each scene MUST include a vivid "ltx_prompt" field — a 2-3 sentence visual description optimized for AI text-to-video generation. Include camera angle, lighting, composition, colors, and motion.
 
 Title: {title}
 Category: {category}
-Format: {format_type}
+Format: {format_type}{target_hint}
 
 Script:
 {script_text}
@@ -119,7 +128,7 @@ Return ONLY valid JSON array of scene objects."""
 
         if validated:
             print(f"[SCENE_PARSER] LLM parsed {len(validated)} scenes successfully")
-            return _adjust_scenes_for_format(validated, format_type)
+            return _adjust_scenes_for_format(validated, format_type, max_duration)
 
     except Exception as e:
         print(f"[SCENE_PARSER] LLM parse failed: {e}")
@@ -127,7 +136,7 @@ Return ONLY valid JSON array of scene objects."""
     return None
 
 
-def _rule_based_parse(script_text: str, storyboard_text: str, format_type: str, title: str = "") -> list[dict]:
+def _rule_based_parse(script_text: str, storyboard_text: str, format_type: str, title: str = "", max_duration: int = None) -> list[dict]:
     scenes = []
 
     combined = script_text + "\n" + (storyboard_text or "")
@@ -152,7 +161,7 @@ def _rule_based_parse(script_text: str, storyboard_text: str, format_type: str, 
     scene_blocks = scene_blocks[:target_scene_count]
 
     for i, block in enumerate(scene_blocks):
-        duration = _estimate_scene_duration(block, format_type, len(scene_blocks))
+        duration = _estimate_scene_duration(block, format_type, len(scene_blocks), max_duration)
         background = _infer_background(block)
         asset_type = _infer_asset_type(block)
         asset_keywords = _infer_keywords(block, title)
@@ -165,7 +174,7 @@ def _rule_based_parse(script_text: str, storyboard_text: str, format_type: str, 
             "duration": duration,
             "asset_type": asset_type,
             "asset_keywords": asset_keywords,
-            "ltx_prompt": _infer_ltx_prompt(block, title, i),
+            "ltx_prompt": _infer_ltx_prompt(block, title, i, scene),
             "text": text,
             "effects": effects,
             "transition": transition,
@@ -225,13 +234,13 @@ def _extract_json_array(text: str) -> list | None:
     return None
 
 
-def _estimate_scene_duration(block: str, format_type: str, total_scenes: int) -> float:
+def _estimate_scene_duration(block: str, format_type: str, total_scenes: int, max_duration: int = None) -> float:
     word_count = len(block.split())
     if format_type == "shorts":
-        total_duration = 60.0
+        total_seconds = float(max_duration) if max_duration else 60.0
     else:
-        total_duration = 480.0
-    per_scene = total_duration / max(total_scenes, 1)
+        total_seconds = float(max_duration) if max_duration else 480.0
+    per_scene = total_seconds / max(total_scenes, 1)
     per_scene = max(per_scene, 4.0)
     if word_count < 10:
         per_scene = min(per_scene, 5.0)
@@ -286,12 +295,91 @@ LIGHTING_STYLES = [
 ]
 
 
-def _infer_ltx_prompt(text: str, title: str = "", scene_index: int = 0) -> str:
+def _pick_camera_by_content(text_lower: str, keywords: list, scene_index: int) -> str:
+    if any(w in text_lower for w in ["chip", "circuit", "processor", "silicon", "microchip", "transistor"]):
+        return "extreme macro close-up with shallow depth of field"
+    if any(w in text_lower for w in ["server", "data center", "warehouse", "cluster", "rack"]):
+        return "wide establishing shot of large-scale infrastructure"
+    if any(w in text_lower for w in ["neural", "network", "brain", "synapse", "layers"]):
+        return "smooth cinematic dolly through interconnected layers"
+    if any(w in text_lower for w in ["code", "terminal", "screen", "monitor", "algorithm"]):
+        return "close-up tracking shot along glowing lines of code"
+    if any(w in text_lower for w in ["training", "learning", "evolution", "growth"]):
+        return "slow push-in revealing evolving patterns"
+    if any(w in text_lower for w in ["data", "flow", "pipeline", "stream", "input", "output"]):
+        return "tracking shot moving alongside flowing data streams"
+    if any(w in text_lower for w in ["diagram", "graph", "chart", "architecture", "system"]):
+        return "top-down birds eye view of structural diagram"
+    return CAMERA_ANGLES[scene_index % len(CAMERA_ANGLES)]
+
+
+def _pick_lighting_by_content(text_lower: str, mood: str, scene_index: int) -> str:
+    mood_map = {
+        "energetic": "bright dynamic LED lighting with rapid color shifts",
+        "cinematic": "dramatic chiaroscuro with deep shadows and key light",
+        "focused": "clean diffused overhead lighting for maximum clarity",
+        "modern": "cool blue ambient with crisp white highlights",
+        "uplifting": "warm golden hour style with soft fill light",
+        "ambient": "soft volumetric lighting with gentle color gradients",
+    }
+    if mood in mood_map:
+        return mood_map[mood]
+    if any(w in text_lower for w in ["neon", "glow", "digital", "cyber", "hologram", "futuristic"]):
+        return "colorful neon edge lighting in cyan and magenta"
+    if any(w in text_lower for w in ["dark", "night", "shadow", "mystery", "deep"]):
+        return "rim lighting with dark ambient fill and backlight"
+    return LIGHTING_STYLES[scene_index % len(LIGHTING_STYLES)]
+
+
+def _infer_ltx_prompt(text: str, title: str = "", scene_index: int = 0, scene: dict = None) -> str:
     text_lower = text.lower()
     keywords = _infer_keywords(text, title)
-    cam = CAMERA_ANGLES[scene_index % len(CAMERA_ANGLES)]
-    lighting = LIGHTING_STYLES[(scene_index + len(keywords)) % len(LIGHTING_STYLES)]
-    return f"Cinematic shot of {', '.join(keywords[:2])}, {keywords[-1] if len(keywords) > 2 else 'technology'} visualization, {cam}, {lighting}, rich colors, professional educational style, 24fps, high quality"  # noqa: E501
+    mood = scene.get("music_mood", "") if scene else ""
+
+    if scene:
+        cam = _pick_camera_by_content(text_lower, keywords, scene_index)
+        lighting = _pick_lighting_by_content(text_lower, mood, scene_index)
+    else:
+        cam = CAMERA_ANGLES[scene_index % len(CAMERA_ANGLES)]
+        lighting = LIGHTING_STYLES[(scene_index + len(keywords)) % len(LIGHTING_STYLES)]
+
+    bg_hint = ""
+    if scene:
+        bg = scene.get("background", "")
+        if bg in ("gradient_neon", "gradient_dark_tech"):
+            bg_hint = "against a dark gradient with neon accents, "
+        elif bg in ("gradient_blueprint",):
+            bg_hint = "over a technical blueprint background, "
+        elif bg in ("gradient_corporate", "gradient_minimal"):
+            bg_hint = "on a clean professional background, "
+
+    asset_hint = ""
+    if scene:
+        at = scene.get("asset_type", "")
+        if at == "DIAGRAM_ANIMATION":
+            asset_hint = "animated diagram elements with glowing connections, "
+        elif at == "CODE_SNIPPET":
+            asset_hint = "syntax-highlighted code on screen, "
+
+    text_hint = ""
+    if scene:
+        texts = scene.get("text", [])
+        if texts and isinstance(texts, list) and len(texts) > 0:
+            first = texts[0].get("text", "") if isinstance(texts[0], dict) else ""
+            if first:
+                text_hint = f"showing \"{first[:40]}\" as text overlay, "
+
+    transition_hint = ""
+    if scene:
+        trans = scene.get("transition", "")
+        if trans == "slide_left":
+            transition_hint = "subject positioned on right side for slide transition, "
+        elif trans == "slide_right":
+            transition_hint = "subject positioned on left side for slide transition, "
+        elif trans == "fade":
+            transition_hint = "slow fading edges for smooth transition, "
+
+    return f"Cinematic shot of {', '.join(keywords[:2])}, {keywords[-1] if len(keywords) > 2 else 'technology'} visualization, {bg_hint}{asset_hint}{text_hint}{transition_hint}{cam}, {lighting}, rich colors, professional educational style, 24fps, high quality"  # noqa: E501
 
 
 def _infer_asset_type(text: str) -> str:
@@ -451,11 +539,46 @@ def _default_scene(index: int) -> dict:
     }
 
 
-def _adjust_scenes_for_format(scenes: list[dict], format_type: str) -> list[dict]:
+def _adjust_scenes_for_format(scenes: list[dict], format_type: str, max_allowed: int = None) -> list[dict]:
     if format_type == "shorts":
-        max_duration = sum(s.get("duration", 6) for s in scenes)
-        if max_duration > 60:
-            scale = 60 / max_duration
-            for s in scenes:
-                s["duration"] = round(max(s.get("duration", 6) * scale, 3), 1)
+        cap = 60
+    else:
+        cap = float(max_allowed) if max_allowed else 480.0
+    current_total = sum(s.get("duration", 6) for s in scenes)
+    if cap and current_total != cap:
+        scale = cap / max(current_total, 1)
+        for s in scenes:
+            s["duration"] = round(max(s.get("duration", 6) * scale, 3), 1)
     return scenes
+
+
+def add_end_scene(scenes: list[dict]) -> list[dict]:
+    end = {
+        "background": "solid_black",
+        "duration": 5.0,
+        "asset_type": "STOCK_FOOTAGE",
+        "asset_keywords": ["subscribe", "technology", "animated"],
+        "ltx_prompt": "Cinematic shot of glowing subscribe button with neon light burst, camera slowly zooming in, dark background with particle effects, professional call-to-action style, rich colors, high quality",
+        "text": [
+            {"text": "Subscribe for more AI Tech", "style": "title", "position": "center"},
+            {"text": "vyomcloud.com", "style": "caption", "position": "bottom"},
+        ],
+        "transition": "fade",
+        "camera": {"zoom": 1.05, "pan_x": 0, "pan_y": 0},
+        "music_mood": "uplifting",
+    }
+    return scenes + [end]
+
+
+def build_timestamps(scenes: list[dict]) -> str:
+    total = 0.0
+    lines = []
+    for i, s in enumerate(scenes):
+        dur = s.get("duration", 5.0)
+        mins = int(total // 60)
+        secs = int(total % 60)
+        timestamp = f"{mins}:{secs:02d}"
+        title = s.get("keyword") or s.get("description") or s.get("asset_keywords", [None])[0] if s.get("asset_keywords") else f"Scene {i + 1}"
+        lines.append(f"{timestamp} - {title}")
+        total += dur
+    return "\n".join(lines)

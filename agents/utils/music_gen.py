@@ -64,7 +64,7 @@ def _search_pixabay_music(query: str, duration: float) -> list[dict]:
     params = {
         "key": PIXABAY_API_KEY,
         "q": query,
-        "duration": f"0,{int(duration) + 30}",
+        "duration": f"0,{int(duration) + 60}",
         "per_page": 5,
     }
     try:

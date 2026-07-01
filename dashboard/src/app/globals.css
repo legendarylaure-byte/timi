@@ -64,7 +64,7 @@
 
 @layer utilities {
   .aurora-bg {
-    background: linear-gradient(135deg, #ec133e, #bd0f32, #f4718b, #FFFFFF, #fde7ec, #ec133e);
+    background: linear-gradient(135deg, #ec133e, #bd0f32, #f4718b, #F5F4FA, #E6E3F0, #ec133e);
     background-size: 400% 400%;
     animation: aurora 15s ease-in-out infinite;
   }
@@ -94,9 +94,9 @@
   100% { background-position: 0% 50%; }
 }
 
-.glass-warm {
-  @apply bg-[#fef9f7]/90 dark:bg-dark-card/70 backdrop-blur-2xl border border-light-border/40 dark:border-white/15;
-}
+  .glass-warm {
+    @apply bg-white/90 dark:bg-dark-card/70 backdrop-blur-2xl border border-light-border/40 dark:border-white/15;
+  }
 
 .glow-red {
   box-shadow: 0 0 20px rgba(236, 19, 62, 0.1);

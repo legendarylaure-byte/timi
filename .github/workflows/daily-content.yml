@@ -2,7 +2,9 @@ name: Daily Content Generation
 
 on:
   schedule:
-    - cron: '30 6 * * *'  # Run daily at 6:30 AM UTC (jittered)
+    - cron: '30 6 * * *'  # Morning: 6:30 AM UTC
+    - cron: '0 14 * * *'  # Afternoon: 2:00 PM UTC
+    - cron: '30 20 * * *' # Evening: 8:30 PM UTC
   workflow_dispatch:
     inputs:
       topic:
@@ -39,7 +41,7 @@ on:
           - 'false'
 
 concurrency:
-  group: daily-content
+  group: daily-content-${{ github.ref_name }}${{ github.event.schedule }}
   cancel-in-progress: false
 
 jobs:
@@ -153,12 +155,28 @@ jobs:
           echo "  ✅ Disk space: $((AVAIL_KB / 1024))MB available"
           echo "=== All pre-flight checks passed ==="
 
+      - name: Determine content slot
+        id: slot
+        run: |
+          HOUR=$(date -u +%H)
+          if [ "$HOUR" = "06" ] || [ "$HOUR" = "07" ]; then
+            echo "SLOT=morning" >> $GITHUB_OUTPUT
+          elif [ "$HOUR" = "14" ] || [ "$HOUR" = "15" ]; then
+            echo "SLOT=afternoon" >> $GITHUB_OUTPUT
+          elif [ "$HOUR" = "20" ] || [ "$HOUR" = "21" ]; then
+            echo "SLOT=evening" >> $GITHUB_OUTPUT
+          else
+            echo "SLOT=unscheduled" >> $GITHUB_OUTPUT
+          fi
+          echo "Content slot: ${{ steps.slot.outputs.SLOT }}"
+
       - name: Run daily content pipeline
         working-directory: ./agents
         env:
           TOPIC: ${{ github.event.inputs.topic }}
           FORMAT: ${{ github.event.inputs.format || 'shorts' }}
           CATEGORY: ${{ github.event.inputs.category || 'AI Explained' }}
+          SLOT: ${{ steps.slot.outputs.SLOT }}
         run: |
           source .venv/bin/activate
           python3 run_pipeline.py

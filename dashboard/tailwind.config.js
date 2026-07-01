@@ -8,7 +8,7 @@ module.exports = {
     extend: {
       colors: {
         light: {
-          bg: '#FFFFFF',
+          bg: '#F5F4FA',
           card: '#FFFFFF',
           primary: '#ec133e',
           secondary: '#bd0f32',
@@ -18,7 +18,7 @@ module.exports = {
           warning: '#D97706',
           text: '#1a1a1a',
           muted: '#6B7280',
-          border: '#fde7ec',
+          border: '#E6E3F0',
         },
         dark: {
           bg: '#0C1844',

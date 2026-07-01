@@ -169,6 +169,41 @@ _CATEGORIES = [
     "AI News", "Career & Learning",
 ]
 
+CONTENT_PILLARS = {
+    "AI Explained": {
+        "description": "Explain AI concepts simply for beginners",
+        "series": ["How Diffusion Works", "Transformer Architecture Explained", "Understanding LLMs"],
+        "ratio": 0.25,
+    },
+    "Build with AI": {
+        "description": "Tutorials building real projects with AI tools",
+        "series": ["Build a RAG App", "AI Agent Tutorial", "Fine-Tuning Guide"],
+        "ratio": 0.20,
+    },
+    "Deep Tech": {
+        "description": "Deep dives into ML research and architecture",
+        "series": ["Attention Mechanisms", "Loss Functions Deep Dive", "Optimization Algorithms"],
+        "ratio": 0.15,
+    },
+    "AI News": {
+        "description": "Weekly AI news and updates",
+        "series": ["This Week in AI", "Model Release Roundup", "Funding & Acquisition News"],
+        "ratio": 0.15,
+    },
+    "Tool Tutorials": {
+        "description": "Hands-on tool walkthroughs",
+        "series": ["Cursor IDE Mastery", "Claude Tips & Tricks", "Local LLM Setup"],
+        "ratio": 0.15,
+    },
+    "Career & Learning": {
+        "description": "AI career advice and learning paths",
+        "series": ["AI Learning Roadmap", "Interview Prep Guide", "Portfolio Projects"],
+        "ratio": 0.10,
+    },
+}
+
+PILLAR_NAMES = list(CONTENT_PILLARS.keys())
+
 _SEASONAL_TOPICS = {
     1: ["AI Predictions for New Year", "Best Tech of Previous Year", "Getting Started with AI"],
     2: ["AI Love: Valentine's Tech", "Machine Learning Basics", "Neural Networks Explained"],
@@ -189,21 +224,38 @@ def _fallback_plan() -> list:
     month = datetime.now().month
     seasonal_topics = _SEASONAL_TOPICS.get(month, ["AI News", "Tool Tutorial", "Tech Explained"])
 
-    category_cycle = ["AI Explained", "Tool Tutorials", "Code & Build", "Industry Analysis", "Deep Tech", "Paper Breakdowns"]
+    category_cycle = PILLAR_NAMES
     videos = []
 
     for i, title in enumerate(seasonal_topics[:4]):
-        category = category_cycle[i % len(category_cycle)]
+        pillar_name = category_cycle[i % len(category_cycle)]
+        pillar = CONTENT_PILLARS.get(pillar_name, {})
+        series_list = pillar.get("series", [])
+        series_name = series_list[i // len(category_cycle) % len(series_list)] if series_list else ""
         fmt = "shorts" if i < 2 else "long"
         videos.append({
             "title": title,
-            "category": category,
+            "category": pillar_name,
             "format": fmt,
             "priority": max(50, 95 - i * 5),
-            "reasoning": f"Seasonal/trending tech content in {category}",
+            "reasoning": f"Content pillar: {pillar.get('description', pillar_name)}",
         })
 
     return videos
+
+
+def build_series_plan() -> list[dict]:
+    """Build a plan of series-based videos from content pillars."""
+    series_plan = []
+    for pillar_name, pillar in CONTENT_PILLARS.items():
+        for series_title in pillar.get("series", []):
+            series_plan.append({
+                "series_title": series_title,
+                "pillar": pillar_name,
+                "format": "long" if "Explained" in pillar_name or "Deep" in pillar_name else "shorts",
+                "completed_parts": 0,
+            })
+    return series_plan
 
 
 def _load_firestore_video_history() -> dict:
@@ -258,7 +310,7 @@ def load_plan() -> dict:
     return {"videos": []}
 
 
-def generate_content_plan(force_llm: bool = False) -> list:
+def generate_content_plan(force_llm: bool = False, slot: str = "", extra_context: str = "") -> list:
     logger.info("Generating content plan...")
     try:
         from utils.firebase_status import update_agent_status
@@ -296,8 +348,14 @@ def generate_content_plan(force_llm: bool = False) -> list:
     shorts = [v for v in videos if v.get("format") == "shorts"]
     longs = [v for v in videos if v.get("format") == "long"]
 
-    shorts_per_day = int(os.getenv("SCHEDULE_SHORTS_PER_DAY", 2))
-    long_per_day = int(os.getenv("SCHEDULE_LONG_PER_DAY", 1))
+    slot_allocs = {
+        "morning": {"shorts": 2, "longs": 0},
+        "afternoon": {"shorts": 1, "longs": 0},
+        "evening": {"shorts": 0, "longs": 1},
+    }
+    alloc = slot_allocs.get(slot, {"shorts": 1, "longs": 0})
+    shorts_per_day = alloc["shorts"]
+    long_per_day = alloc["longs"]
 
     selected = shorts[:max(shorts_per_day, 1)] + longs[:max(long_per_day, 1)]
     selected.sort(key=lambda x: x.get("priority", 50), reverse=True)

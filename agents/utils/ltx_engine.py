@@ -54,17 +54,25 @@ def generate_clip(prompt: str, duration: int = 10,
     return None
 
 
+NEGATIVE_PROMPT = "distorted faces, glitchy motion, flickering lights, inconsistent lighting, warped geometry, artifacts, blurry, low quality, watermark, text"
+
+QUALITY_SUFFIX = "cinematic lighting, volumetric god rays, smooth camera motion, consistent color palette, 24fps, high quality"
+
+
 def _build_prompt(raw_prompt: str) -> str:
     lower = raw_prompt.lower()
-    if any(w in lower for w in ["animated", "animation", "diagram", "flowing", "node", "graph"]):
-        return raw_prompt
-    if any(w in lower for w in ["code", "terminal", "matrix", "scrolling", "syntax"]):
-        return raw_prompt
-    if any(w in lower for w in ["circuit", "chip", "processor", "server", "data center"]):
-        return f"{raw_prompt}, cinematic lighting, volumetric god rays, 24fps, high quality"
-    if raw_prompt.count(" ") < 15:
-        return f"Tech educational animation, clean professional style, {raw_prompt}, smooth camera motion, cinematic lighting, consistent color palette, 24fps, high quality"
-    return raw_prompt
+    word_count = raw_prompt.count(" ") + 1
+
+    if word_count < 12:
+        return f"Tech educational animation, clean professional style, {raw_prompt}, smooth camera motion, cinematic lighting, consistent color palette, 24fps, high quality, negative: {NEGATIVE_PROMPT}"
+
+    if any(w in lower for w in ["circuit", "chip", "processor", "server", "data center", "infrastructure"]):
+        return f"{raw_prompt}, {QUALITY_SUFFIX}, negative: {NEGATIVE_PROMPT}"
+
+    if any(w in lower for w in ["neural", "network", "brain", "synapse", "digital", "data"]):
+        return f"{raw_prompt}, {QUALITY_SUFFIX}, negative: {NEGATIVE_PROMPT}"
+
+    return f"{raw_prompt}, {QUALITY_SUFFIX}, negative: {NEGATIVE_PROMPT}"
 
 
 def _run_mlx_pipeline(prompt: str, num_frames: int, output_path: str) -> bool:

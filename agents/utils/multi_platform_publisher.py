@@ -433,7 +433,8 @@ def _upload_facebook(title: str, description: str, video_path: str) -> dict:
 
 def multi_platform_publish(video_id: str, title: str, description: str, video_path: str,
                            thumbnail_path: str, format_type: str = 'shorts',
-                           platforms: list = None, publish_at: str = None) -> dict:
+                           platforms: list = None, publish_at: str = None,
+                           category: str = "") -> dict:
     """Publish to multiple platforms with progress tracking."""
     if platforms is None:
         platforms = ['youtube']
@@ -478,6 +479,7 @@ def multi_platform_publish(video_id: str, title: str, description: str, video_pa
     yt_result = results['platforms'].get('youtube', {})
     if yt_result.get('success') and yt_result.get('video_id'):
         update_data['youtube_id'] = yt_result['video_id']
+        _register_in_playlist(yt_result['video_id'], category)
     update_video_record(video_id, update_data)
 
     # Send Telegram notification
@@ -506,6 +508,37 @@ def multi_platform_publish(video_id: str, title: str, description: str, video_pa
     log_activity(
         'publisher', f"Publish complete: {results['success_count']}/{results['total_count']} successful", 'success')
     return results
+
+
+def _register_in_playlist(youtube_id: str, category: str) -> None:
+    if not category:
+        return
+    try:
+        from utils.youtube_upload import get_youtube_credentials
+        from utils.series_router import pick_series_for_category
+        from utils.series_builder import create_youtube_playlist, add_video_to_playlist, register_video_in_series
+
+        service = get_youtube_credentials()
+        if not service:
+            return
+        series = pick_series_for_category(category)
+        if not series:
+            return
+        series_id = series.get("id", "")
+        playlist_id = series.get("playlist_id", "")
+        if not playlist_id:
+            playlist_id = create_youtube_playlist(service, series["title"], series.get("description", ""))
+            if not playlist_id:
+                return
+            series_map = load_series()
+            if series_id in series_map:
+                series_map[series_id]["playlist_id"] = playlist_id
+                save_series(series_map)
+        add_video_to_playlist(service, playlist_id, youtube_id)
+        register_video_in_series(series_id, youtube_id, "", series.get("current_part", 0) + 1)
+        log_activity("publisher", f"Added video to playlist '{series['title']}' ({playlist_id})", "info")
+    except Exception as e:
+        log_activity("publisher", f"Playlist registration failed: {e}", "warn")
 
 
 def _update_queue(video_id: str, platform: str, success: bool):

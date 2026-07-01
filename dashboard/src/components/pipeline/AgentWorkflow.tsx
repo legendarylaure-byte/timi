@@ -148,7 +148,7 @@ export function AgentWorkflow({
         {WORKFLOW_STEPS.map((step, i) => {
           const agent = agentStatuses.get(step.key);
           const isWorking = agent?.status === 'working';
-          const isCompleted = agent?.status === 'completed' || showComplete;
+          const isCompleted = showComplete || (agent?.status === 'completed' && pipeline?.running);
           const isIdle = agent?.status === 'idle' || !agent;
 
           return (

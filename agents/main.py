@@ -14,7 +14,7 @@ from utils.content_calendar import (
 )
 from utils.analytics_tracker import track_video, update_metrics, get_performance_summary
 from utils.scheduler_planner import generate_content_plan
-from utils.thumbnail_gen import generate_thumbnail_image, pick_best_thumbnail
+from utils.thumbnail_gen import generate_thumbnail_image, generate_thumbnail_variants, pick_best_thumbnail
 from utils.health_monitor import start_heartbeat_monitor, start_health_server, check_ollama_health
 from utils.description_gen import generate_description
 from utils.subtitle_gen import generate_subtitles_for_video
@@ -339,12 +339,13 @@ def _run_stock_footage_pipeline(script_text: str, storyboard_text: str, category
     return scenes, clips, total_duration
 
 
-def _run_asset_router_pipeline(script_text: str, storyboard_text: str, category: str, format_type: str, video_id: str) -> tuple[list[dict], list[dict], float]:  # noqa: E501
+def _run_asset_router_pipeline(script_text: str, storyboard_text: str, category: str, format_type: str, video_id: str, max_duration: int = None) -> tuple[list[dict], list[dict], float]:  # noqa: E501
     from utils.asset_router import dispatch_scenes
-    from utils.scene_parser import parse_script_to_scenes
+    from utils.scene_parser import parse_script_to_scenes, add_end_scene
     from utils.series_router import inject_intro_outro
-    scenes = parse_script_to_scenes(script_text, title=video_id, category=category, format_type=format_type, storyboard_text=str(storyboard_text))
+    scenes = parse_script_to_scenes(script_text, title=video_id, category=category, format_type=format_type, storyboard_text=str(storyboard_text), max_duration=max_duration)
     scenes = inject_intro_outro(scenes, category, format_type)
+    scenes = add_end_scene(scenes)
     log_event("PIPELINE", f"Asset Router: {len(scenes)} scenes")
     total = len(scenes)
     update_agent_status("animator", "working", f"Generating {total} scenes via AI video engine")
@@ -360,7 +361,7 @@ def run_video_pipeline(script_text: str, storyboard_text: str, category: str, fo
     use_asset_router = USE_ANIMATION_ENGINE
 
     if use_asset_router:
-        scenes, clips, total_video_duration = _run_asset_router_pipeline(script_text, storyboard_text, category, format_type, video_id)
+        scenes, clips, total_video_duration = _run_asset_router_pipeline(script_text, storyboard_text, category, format_type, video_id, max_duration)
     else:
         scenes, clips, total_video_duration = _run_stock_footage_pipeline(script_text, storyboard_text, category, format_type, video_id, max_duration)
 
@@ -405,6 +406,8 @@ def run_video_pipeline(script_text: str, storyboard_text: str, category: str, fo
         except Exception as e:
             log_event("SPOTLIGHT", f"Word spotlights skipped: {e}", "debug")
 
+    update_agent_status("voice", "completed", "Voice processing complete")
+
     log_event("PIPELINE", "Step 3: Generating background music")
     update_agent_status("composer", "working", "Creating background music")
     scene_moods = [s.get("music_mood", "happy") for s in scenes if isinstance(s, dict) and s.get("music_mood")]
@@ -420,16 +423,33 @@ def run_video_pipeline(script_text: str, storyboard_text: str, category: str, fo
     if format_type == "long":
         chapters = []
         current_time = 0
+
+        def _chapter_title(scene: dict, idx: int) -> str:
+            kw = scene.get("keyword") or ""
+            if kw:
+                return kw[:50]
+            keywords = scene.get("asset_keywords", [])
+            if keywords and isinstance(keywords, list) and keywords[0]:
+                return keywords[0][:50]
+            ltx = scene.get("ltx_prompt", "")
+            if ltx:
+                words = ltx.split()[:6]
+                return " ".join(words)[:50]
+            title = scene.get("scene_title", "")
+            if title:
+                return title[:50]
+            return f"Chapter {idx + 1}"
+
         if use_asset_router and scenes:
             for i, s in enumerate(scenes):
                 dur = s.get("duration", s.get("target_duration", 8.0))
-                chapters.append({"start_time": current_time, "end_time": current_time + dur, "title": s.get("keyword", s.get("scene_title", f"Chapter {i+1}"))})
+                chapters.append({"start_time": current_time, "end_time": current_time + dur, "title": _chapter_title(s, i)})
                 current_time += dur
         elif clips and scenes:
             clip_count = len(clips)
             for i, scene in enumerate(scenes[:clip_count]):
                 clip_dur = clips[i]["duration"] if i < len(clips) else 5.0
-                chapters.append({"start_time": current_time, "end_time": current_time + clip_dur, "title": scene.get("keyword", f"Chapter {i+1}")})
+                chapters.append({"start_time": current_time, "end_time": current_time + clip_dur, "title": _chapter_title(scene, i)})
                 current_time += clip_dur
         log_event("PIPELINE", f"Generated {len(chapters)} chapter markers")
 
@@ -652,14 +672,14 @@ def generate_short_video(topic: str, category: str, video_id: str, publish_at: s
         thumbnail = run_agent_step("thumbnail", "Thumbnail Creator", "Creating thumbnail",
                                    create_thumbnail_crew, {"topic": topic, "format": "shorts"})
         thumbnail_text = str(thumbnail)
-        thumb_result = generate_thumbnail_image(
-            topic, thumbnail_text, format_type="shorts", output_filename=f"thumb_{video_id}.png")
-        thumbnail_path = thumb_result["path"] if thumb_result.get("success") else None
+        thumb_result = generate_thumbnail_variants(
+            topic, thumbnail_text, format_type="shorts")
+        thumbnail_path = thumb_result.get("best") or thumb_result.get("variants", [None])[0]
         if not thumbnail_path:
             thumbnail_path = str(thumbnail)
             log_event("THUMBNAIL", "Using text-based thumbnail (image generation fallback)")
         else:
-            log_event("THUMBNAIL", f"Generated thumbnail image: {thumbnail_path}")
+            log_event("THUMBNAIL", f"Generated {thumb_result['count']} thumbnail variants, selected: {thumbnail_path}")
 
         failed_step = "description"
         desc_result = generate_description(
@@ -708,6 +728,7 @@ def generate_short_video(topic: str, category: str, video_id: str, publish_at: s
             format_type="shorts",
             platforms=platforms_to_publish,
             publish_at=publish_at,
+            category=category,
         )
         publish_status = "scheduled" if publish_at else "Published"
         log_event(
@@ -814,7 +835,7 @@ def generate_long_video(topic: str, category: str, video_id: str, publish_at: st
     try:
         failed_step = "scriptwriting"
         opt_injection = get_optimization_prompt_injection()
-        script_kwargs = {"topic": topic, "category": category, "format": "long", "max_duration": 600}
+        script_kwargs = {"topic": topic, "category": category, "format": "long", "max_duration": LONG_MAX_DURATION}
         if opt_injection:
             script_kwargs["extra_context"] = opt_injection
         script = run_agent_step("scriptwriter", "Scriptwriter", f"Writing script for: {topic}", create_scriptwriter_crew, script_kwargs, timeout_minutes=30)  # noqa: E501
@@ -940,14 +961,14 @@ def generate_long_video(topic: str, category: str, video_id: str, publish_at: st
         thumbnail = run_agent_step("thumbnail", "Thumbnail Creator", "Creating thumbnail",
                                    create_thumbnail_crew, {"topic": topic, "format": "long"})
         thumbnail_text = str(thumbnail)
-        thumb_result = generate_thumbnail_image(
-            topic, thumbnail_text, format_type="long", output_filename=f"thumb_{video_id}.png")
-        thumbnail_path = thumb_result["path"] if thumb_result.get("success") else None
+        thumb_result = generate_thumbnail_variants(
+            topic, thumbnail_text, format_type="long")
+        thumbnail_path = thumb_result.get("best") or thumb_result.get("variants", [None])[0]
         if not thumbnail_path:
             thumbnail_path = str(thumbnail)
             log_event("THUMBNAIL", "Using text-based thumbnail (image generation fallback)")
         else:
-            log_event("THUMBNAIL", f"Generated thumbnail image: {thumbnail_path}")
+            log_event("THUMBNAIL", f"Generated {thumb_result['count']} thumbnail variants, selected: {thumbnail_path}")
 
         failed_step = "description"
         desc_result = generate_description(
@@ -997,6 +1018,7 @@ def generate_long_video(topic: str, category: str, video_id: str, publish_at: st
             format_type="long",
             platforms=platforms_to_publish,
             publish_at=publish_at,
+            category=category,
         )
         publish_status = "scheduled" if publish_at else "Published"
         log_event(
@@ -1120,7 +1142,7 @@ def daily_content_job():
     log_event("SCHEDULER", "Generating content plan via scheduler planner")
     try:
         opt_injection = get_optimization_prompt_injection()
-        plan = generate_content_plan(extra_context=opt_injection)
+        plan = generate_content_plan(extra_context=opt_injection, slot=os.getenv("SLOT", ""))
         if opt_injection:
             log_event("SCHEDULER", f"Optimization context: {opt_injection[:100]}...")
     except Exception as e:
@@ -1341,6 +1363,36 @@ def daily_feedback_job():
         log_event("FEEDBACK", f"Analytics feedback loop failed: {e}", "warn")
 
 
+def daily_title_test_job():
+    log_event("TITLE_TEST", "Checking active title A/B tests")
+    try:
+        import json, glob
+        from utils.title_tester import advance_title_test
+        from utils.youtube_upload import update_youtube_video_title
+        test_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "data", "title_tests")
+        if not os.path.exists(test_dir):
+            return
+        for f in glob.glob(os.path.join(test_dir, "*.json")):
+            try:
+                with open(f) as fh:
+                    test = json.load(fh)
+                if test.get("status") != "testing":
+                    continue
+                video_id = test.get("video_id", "")
+                result = advance_title_test(video_id, update_youtube_video_title)
+                status = result.get("status", "")
+                if status == "waiting":
+                    log_event("TITLE_TEST", f"Test for {video_id}: {result.get('hours_remaining', 0)}h remaining")
+                elif status == "testing":
+                    log_event("TITLE_TEST", f"Test advanced for {video_id}")
+                elif status == "completed":
+                    log_event("TITLE_TEST", f"Test completed for {video_id}, winner: {result.get('winner', {})}")
+            except Exception as e:
+                log_event("TITLE_TEST", f"Test advancement error: {e}", "warn")
+    except Exception as e:
+        log_event("TITLE_TEST", f"Title test job failed: {e}", "warn")
+
+
 def scheduled_publish_job():
     """Check for videos scheduled to publish now and process them."""
     try:
@@ -1490,6 +1542,7 @@ if __name__ == "__main__":
     scheduler.add_job(scheduled_publish_job, "interval", minutes=15)
     scheduler.add_job(weekly_monetization_job, "cron", day_of_week="mon", hour=12, minute=0, misfire_grace_time=86400)
     scheduler.add_job(daily_feedback_job, "cron", hour=10, minute=0, misfire_grace_time=86400)
+    scheduler.add_job(daily_title_test_job, "cron", hour=12, minute=0, misfire_grace_time=86400)
     log_event("SCHEDULER", "Daily content job scheduled at 06:00 UTC")
     log_event("SCHEDULER", "Daily analytics pull scheduled at 08:00 UTC")
     log_event("SCHEDULER", "Daily revenue computation scheduled at 08:30 UTC")

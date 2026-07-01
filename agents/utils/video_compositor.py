@@ -29,6 +29,10 @@ FFMPEG_XFADE_MAP = {
     "cut": "cut",
 }
 
+OUTPUT_FPS = 24
+CRF = "18"
+PRESET = "medium"
+
 
 def _get_env():
     return os.environ.copy()
@@ -66,9 +70,9 @@ def _get_duration(path: str) -> float:
 
 def trim_clip(input_path: str, output_path: str, start: float = 0, duration: float = 5) -> bool:
     cmd = [
-        _ffmpeg_cmd(), "-y", "-i", input_path,
+        _ffmpeg_cmd(), "-y", "-i", input_path, *_sws_flags(),
         "-ss", str(start), "-t", str(duration),
-        "-c:v", "libx264", "-preset", "fast", "-crf", "23",
+        "-c:v", "libx264", "-preset", PRESET, "-crf", CRF,
         "-an", "-pix_fmt", "yuv420p", output_path,
     ]
     try:
@@ -79,10 +83,10 @@ def trim_clip(input_path: str, output_path: str, start: float = 0, duration: flo
 
 def resize_to_target(input_path: str, output_path: str, target_w: int, target_h: int) -> bool:
     cmd = [
-        _ffmpeg_cmd(), "-y", "-i", input_path,
-        "-vf", f"scale={target_w}:{target_h}:force_original_aspect_ratio=increase,crop={target_w}:{target_h}",
-        "-c:v", "libx264", "-preset", "fast", "-crf", "23",
-        "-r", "30", "-an", "-pix_fmt", "yuv420p", output_path,
+        _ffmpeg_cmd(), "-y", "-i", input_path, *_sws_flags(),
+        "-vf", f"scale={target_w}:{target_h}:flags=lanczos:force_original_aspect_ratio=increase,crop={target_w}:{target_h}",
+        "-c:v", "libx264", "-preset", PRESET, "-crf", CRF,
+        "-r", str(OUTPUT_FPS), "-an", "-pix_fmt", "yuv420p", output_path,
     ]
     try:
         return subprocess.run(cmd, capture_output=True, text=True, timeout=120, env=_get_env()).returncode == 0
@@ -92,17 +96,17 @@ def resize_to_target(input_path: str, output_path: str, target_w: int, target_h:
 
 def pad_with_blurred_background(input_path: str, output_path: str, target_w: int, target_h: int) -> bool:
     vf = (
-        f"scale={target_w}:{target_h}:force_original_aspect_ratio=increase,"
+        f"scale={target_w}:{target_h}:flags=lanczos:force_original_aspect_ratio=increase,"
         f"split[fg][bg];"
-        f"[bg]scale={target_w}:{target_h}:force_original_aspect_ratio=increase,crop={target_w}:{target_h},"
+        f"[bg]scale={target_w}:{target_h}:flags=lanczos:force_original_aspect_ratio=increase,crop={target_w}:{target_h},"
         f"boxblur=20:5[bg];"
         f"[bg][fg]overlay=(W-w)/2:(H-h)/2"
     )
     cmd = [
-        _ffmpeg_cmd(), "-y", "-i", input_path,
+        _ffmpeg_cmd(), "-y", "-i", input_path, *_sws_flags(),
         "-vf", vf,
-        "-c:v", "libx264", "-preset", "fast", "-crf", "23",
-        "-r", "30", "-an", "-pix_fmt", "yuv420p", output_path,
+        "-c:v", "libx264", "-preset", PRESET, "-crf", CRF,
+        "-r", str(OUTPUT_FPS), "-an", "-pix_fmt", "yuv420p", output_path,
     ]
     try:
         return subprocess.run(cmd, capture_output=True, text=True, timeout=120, env=_get_env()).returncode == 0
@@ -140,12 +144,12 @@ def apply_ken_burns(input_path: str, output_path: str, target_w: int, target_h: 
         x_expr = f"({src_w} - {crop_w}) / 2"
         y_expr = f"min({max_y}*t/{duration},{max_y})"
 
-    vf = f"crop={crop_w}:{crop_h}:{x_expr}:{y_expr},scale={target_w}:{target_h}"
+    vf = f"crop={crop_w}:{crop_h}:{x_expr}:{y_expr},flags=lanczos,scale={target_w}:{target_h}:flags=lanczos"
     cmd = [
-        _ffmpeg_cmd(), "-y", "-i", trim_path,
+        _ffmpeg_cmd(), "-y", "-i", trim_path, *_sws_flags(),
         "-vf", vf,
-        "-c:v", "libx264", "-preset", "fast", "-crf", "23",
-        "-r", "30", "-an", "-pix_fmt", "yuv420p", output_path,
+        "-c:v", "libx264", "-preset", PRESET, "-crf", CRF,
+        "-r", str(OUTPUT_FPS), "-an", "-pix_fmt", "yuv420p", output_path,
     ]
     try:
         result = subprocess.run(cmd, capture_output=True, text=True, timeout=120, env=_get_env())
@@ -267,9 +271,9 @@ def add_text_overlay(video_path: str, text: str, output_path: str,
     pos = positions.get(position, positions["center"])
     escaped = text.replace("'", "\\'").replace(":", "\\:").replace("-", "\\-")
     cmd = [
-        _ffmpeg_cmd(), "-y", "-i", video_path,
+        _ffmpeg_cmd(), "-y", "-i", video_path, *_sws_flags(),
         "-vf", f"drawtext=text='{escaped}':fontsize={fontsize}:fontcolor={color}:x={pos}:enable='between(t,{start_time},{start_time+duration})'",
-        "-c:v", "libx264", "-preset", "fast", "-crf", "23",
+        "-c:v", "libx264", "-preset", PRESET, "-crf", CRF,
         "-c:a", "copy", "-pix_fmt", "yuv420p", output_path,
     ]
     try:
@@ -286,9 +290,9 @@ def add_logo_overlay(video_path: str, logo_path: str, output_path: str,
                  "top_left": "20:20"}
     pos = positions.get(position, positions["bottom_right"])
     cmd = [
-        _ffmpeg_cmd(), "-y", "-i", video_path, "-i", logo_path,
+        _ffmpeg_cmd(), "-y", "-i", video_path, "-i", logo_path, *_sws_flags(),
         "-filter_complex", f"[1:v]scale=iw*{scale}:ih*{scale}[logo];[0:v][logo]overlay={pos}",
-        "-c:v", "libx264", "-preset", "fast", "-crf", "23",
+        "-c:v", "libx264", "-preset", PRESET, "-crf", CRF,
         "-c:a", "copy", "-pix_fmt", "yuv420p", output_path,
     ]
     try:
@@ -307,9 +311,9 @@ def burn_subtitles(video_path: str, subtitle_path: str, output_path: str,
         f"Alignment=2,MarginV=40,FontName=Arial'"
     )
     cmd = [
-        _ffmpeg_cmd(), "-y", "-i", video_path,
+        _ffmpeg_cmd(), "-y", "-i", video_path, *_sws_flags(),
         "-vf", vf,
-        "-c:v", "libx264", "-preset", "fast", "-crf", "23",
+        "-c:v", "libx264", "-preset", PRESET, "-crf", CRF,
         "-c:a", "copy", "-pix_fmt", "yuv420p", output_path,
     ]
     try:
@@ -376,10 +380,10 @@ def composite_video(clips: list[dict], voice_path: str, music_path: Optional[str
         for p in processed:
             inputs.extend(["-i", p])
         cmd = [
-            _ffmpeg_cmd(), "-y", *inputs,
+            _ffmpeg_cmd(), "-y", *inputs, *_sws_flags(),
             "-filter_complex", filter_str,
             "-map", f"[{out_label}]",
-            "-c:v", "libx264", "-preset", "fast", "-crf", "23",
+            "-c:v", "libx264", "-preset", PRESET, "-crf", CRF,
             "-pix_fmt", "yuv420p", combined_video,
         ]
         try:
@@ -391,8 +395,8 @@ def composite_video(clips: list[dict], voice_path: str, music_path: Optional[str
                     for p in processed:
                         f.write(f"file '{p}'\n")
                 cmd = [
-                    _ffmpeg_cmd(), "-y", "-f", "concat", "-safe", "0", "-i", concat_list,
-                    "-c:v", "libx264", "-preset", "fast", "-crf", "23",
+                    _ffmpeg_cmd(), "-y", "-f", "concat", "-safe", "0", "-i", concat_list, *_sws_flags(),
+                    "-c:v", "libx264", "-preset", PRESET, "-crf", CRF,
                     "-pix_fmt", "yuv420p", combined_video,
                 ]
                 subprocess.run(cmd, capture_output=True, text=True, timeout=300, env=_get_env())
@@ -435,14 +439,20 @@ def composite_video(clips: list[dict], voice_path: str, music_path: Optional[str
                 )
         if scene_titles:
             vf_filter = ",".join(scene_titles)
-    cmd = [
-        _ffmpeg_cmd(), "-y", "-i", combined_video, "-i", mixed_audio,
-    ]
+    quality_filters = ["eq=saturation=1.15:contrast=1.1", "unsharp=5:5:0.8:3:3:0.4"]
     if vf_filter:
-        cmd += ["-vf", vf_filter]
+        vf_filter = vf_filter + "," + ",".join(quality_filters)
+    else:
+        vf_filter = ",".join(quality_filters)
+    cmd = [
+        _ffmpeg_cmd(), "-y", "-i", combined_video, "-i", mixed_audio, *_sws_flags(),
+    ]
+    cmd += ["-vf", vf_filter] if vf_filter else []
     cmd += [
-        "-c:v", "libx264", "-preset", "fast", "-crf", "23",
-        "-c:a", "aac", "-b:a", "128k", "-shortest", "-pix_fmt", "yuv420p", final_path,
+        "-c:v", "libx264", "-preset", PRESET, "-crf", CRF,
+        "-r", str(OUTPUT_FPS),
+        "-af", "compand=attacks=0.1:decays=0.3:points=-80/-80|-30/-18|-10/-5|0/-3:gain=3:volume=auto,loudnorm=I=-16:LRA=11:TP=-1.5",
+        "-c:a", "aac", "-b:a", "192k", "-shortest", "-pix_fmt", "yuv420p", final_path,
     ]
     try:
         result = subprocess.run(cmd, capture_output=True, text=True, timeout=300, env=_get_env())

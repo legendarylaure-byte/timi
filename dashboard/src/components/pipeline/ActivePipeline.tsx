@@ -44,6 +44,8 @@ export function ActivePipeline() {
   const [checkpoints, setCheckpoints] = useState<Checkpoint[]>([]);
   const [expanded, setExpanded] = useState(false);
   const [agents, setAgents] = useState<Map<string, AgentInfo>>(new Map());
+  const [showComplete, setShowComplete] = useState(false);
+  const [prevRunning, setPrevRunning] = useState(false);
 
   useEffect(() => {
     const unsub = onSnapshot(collection(db, 'agent_status'), (snap) => {
@@ -79,6 +81,15 @@ export function ActivePipeline() {
     return () => unsub();
   }, [pipeline?.running]);
 
+  useEffect(() => {
+    if (prevRunning && !pipeline?.running) {
+      setShowComplete(true);
+      const timer = setTimeout(() => setShowComplete(false), 13000);
+      return () => clearTimeout(timer);
+    }
+    setPrevRunning(!!pipeline?.running);
+  }, [pipeline?.running, prevRunning]);
+
   if (!pipeline) {
     return (
       <div className="rounded-2xl border border-light-border/60 dark:border-dark-border/60 bg-light-card dark:bg-dark-card overflow-hidden glow-red animate-pulse">
@@ -100,7 +111,7 @@ export function ActivePipeline() {
     a => a.status === 'working' && !isStale(a.last_updated)
   );
   const completedAgents = Array.from(agents.values()).filter(
-    a => a.status === 'completed'
+    a => a.status === 'completed' && (running || showComplete)
   );
   const errorAgents = Array.from(agents.values()).filter(
     a => a.status === 'error'
