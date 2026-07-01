@@ -45,3 +45,4 @@ keys/
 # Docker
 agents/.venv-docker/
 docker-data/
+.playwright-mcp/
