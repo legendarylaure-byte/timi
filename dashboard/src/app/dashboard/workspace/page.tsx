@@ -30,6 +30,7 @@ interface WorkspaceAgent {
 
 export default function WorkspacePage() {
   const [agents, setAgents] = useState<WorkspaceAgent[]>([]);
+  const [resetting, setResetting] = useState(false);
   const { addToast } = useToast();
 
   useEffect(() => {
@@ -76,6 +77,24 @@ export default function WorkspacePage() {
     }
   }, [addToast]);
 
+  const handleReset = useCallback(async () => {
+    if (!window.confirm('Reset all agent statuses to idle and clear the pipeline flag? This will NOT affect any running processes.')) return;
+    setResetting(true);
+    try {
+      const res = await fetch('/api/pipeline/reset', { method: 'POST' });
+      const data = await res.json();
+      if (data.success) {
+        addToast(`Reset ${data.resetCount || 0} agent statuses`, 'success');
+      } else {
+        addToast(data.error || 'Reset failed', 'error');
+      }
+    } catch {
+      addToast('Network error — could not reach reset endpoint', 'error');
+    } finally {
+      setResetting(false);
+    }
+  }, [addToast]);
+
   const statusColors: Record<string, string> = {
     working: 'text-emerald-400 bg-emerald-400/10',
     idle: 'text-gray-400 bg-gray-400/10',
@@ -90,15 +109,24 @@ export default function WorkspacePage() {
     <div className="space-y-6">
       <motion.div initial={{ opacity: 0, y: -20 }} animate={{ opacity: 1, y: 0 }}>
         <div className="flex items-center gap-4 mb-2">
-          <div className="w-12 h-12 rounded-2xl overflow-hidden relative">
+          <div className="w-12 h-12 rounded-2xl overflow-hidden relative shrink-0">
             <Image src="/logo.svg" alt="Vyom Ai Cloud" fill className="object-cover" />
           </div>
-          <div>
+          <div className="flex-1 min-w-0">
             <h1 className="text-2xl font-bold text-light-text dark:text-white">Agent Workspace</h1>
             <p className="text-light-muted dark:text-gray-400">
               {activeCount} active &middot; {idleCount} standby
             </p>
           </div>
+          <Tooltip content="Resets all agent statuses to idle and clears the pipeline running flag. Use this if agents appear stuck after a crash or cancellation." color="#EF4444">
+            <button
+              onClick={handleReset}
+              disabled={resetting}
+              className="shrink-0 px-4 py-2 rounded-xl text-xs font-medium transition-all border border-red-400/30 text-red-400 hover:bg-red-400/10 disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              {resetting ? 'Resetting...' : 'Reset Agent Statuses'}
+            </button>
+          </Tooltip>
         </div>
       </motion.div>
 

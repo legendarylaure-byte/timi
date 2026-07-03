@@ -5,6 +5,8 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { db } from '@/lib/firebase';
 import { collection, doc, onSnapshot, query, orderBy, limit, Timestamp } from 'firebase/firestore';
 import { PIPELINE_STEPS, AGENT_ROLES } from '@/lib/constants';
+import { useToast } from '@/components/ui/Toast';
+import Tooltip from '@/components/ui/Tooltip';
 
 interface PipelineStatus {
   running: boolean;
@@ -46,6 +48,26 @@ export function ActivePipeline() {
   const [agents, setAgents] = useState<Map<string, AgentInfo>>(new Map());
   const [showComplete, setShowComplete] = useState(false);
   const [prevRunning, setPrevRunning] = useState(false);
+  const [resetting, setResetting] = useState(false);
+  const { addToast } = useToast();
+
+  const handleReset = async () => {
+    if (!window.confirm('Reset all agent statuses to idle and clear the pipeline flag? This will NOT affect any running processes.')) return;
+    setResetting(true);
+    try {
+      const res = await fetch('/api/pipeline/reset', { method: 'POST' });
+      const data = await res.json();
+      if (data.success) {
+        addToast(`Reset ${data.resetCount || 0} agent statuses`, 'success');
+      } else {
+        addToast(data.error || 'Reset failed', 'error');
+      }
+    } catch {
+      addToast('Network error — could not reach reset endpoint', 'error');
+    } finally {
+      setResetting(false);
+    }
+  };
 
   useEffect(() => {
     const unsub = onSnapshot(collection(db, 'agent_status'), (snap) => {
@@ -333,6 +355,17 @@ export function ActivePipeline() {
                   Or start one manually using &quot;Run Pipeline&quot; above.
                 </p>
               )}
+              <div className="pt-3">
+                <Tooltip content="Resets all agent statuses to idle and clears the pipeline running flag. Use this if agents appear stuck after a crash or cancellation." color="#EF4444">
+                  <button
+                    onClick={handleReset}
+                    disabled={resetting}
+                    className="px-4 py-2 rounded-xl text-xs font-medium transition-all border border-red-400/30 text-red-400 hover:bg-red-400/10 disabled:opacity-50 disabled:cursor-not-allowed"
+                  >
+                    {resetting ? 'Resetting...' : 'Reset Agent Statuses'}
+                  </button>
+                </Tooltip>
+              </div>
             </div>
           </motion.div>
         )}
