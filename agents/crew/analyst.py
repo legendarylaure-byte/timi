@@ -114,6 +114,9 @@ Return as JSON:
         agents=[analyst],
         tasks=[analysis_task],
         verbose=True,
+        memory=False,
+        planning=False,
+        cache=False,
     )
 
 

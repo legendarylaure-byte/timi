@@ -56,7 +56,7 @@ Return EXACTLY this JSON:
         agent=planner,
     )
 
-    return Crew(agents=[planner], tasks=[task], verbose=True)
+    return Crew(agents=[planner], tasks=[task], verbose=True, memory=False, planning=False, cache=False)
 
 
 def save_series_plan(series_data: dict):

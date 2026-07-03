@@ -3,7 +3,7 @@ from utils.llm_helper import get_llm
 from utils.thumbnail_renderer import generate_thumbnail_variants
 
 
-def create_thumbnail_crew(topic: str = "", format: str = "shorts"):
+def create_thumbnail_crew(topic: str = "", fmt: str = "shorts"):
     llm = get_llm(temperature=0.7, max_tokens=2000)
 
     thumbnail_creator = Agent(
@@ -21,7 +21,7 @@ question hooks, and bold statements.""",
 
     thumbnail_task = Task(
         description=f"""Design and generate thumbnails for a video about: "{topic}"
-Format: {format}
+Format: {fmt}
 
 Style guidelines:
 - Dark background (#0A0A0F) with indigo (#6366F1) and cyan (#22D3EE) accents
@@ -36,7 +36,7 @@ The system will render them automatically. Return the rendering parameters.""",
         agent=thumbnail_creator,
     )
 
-    return Crew(agents=[thumbnail_creator], tasks=[thumbnail_task], verbose=True)
+    return Crew(agents=[thumbnail_creator], tasks=[thumbnail_task], verbose=True, memory=False, planning=False, cache=False)
 
 
 def render_thumbnails(topic: str, category: str = "") -> list:

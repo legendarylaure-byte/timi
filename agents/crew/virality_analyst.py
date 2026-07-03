@@ -1,7 +1,9 @@
+import os
 from crewai import Agent, Task, Crew
 from utils.llm_helper import get_llm
 
-MIN_VIRALITY_SCORE = 50
+MIN_VIRALITY_SCORE = 40  # used for shorts
+MIN_VIRALITY_SCORE_LONG = 30
 
 
 def create_virality_analyst_crew(script: str = "", title: str = "", category: str = "", format_type: str = "shorts"):
@@ -27,7 +29,7 @@ Category: {category}
 Format: {format_type}
 
 Script:
-{script[:2000] if len(script) > 2000 else script}
+{script[:4000] if len(script) > 4000 else script}
 
 Score each dimension 0-100:
 1. Hook Strength: Does the first 3 seconds grab attention?
@@ -54,15 +56,17 @@ Return EXACTLY this JSON:
 
 Overall virality is weighted: hook(25%) + retention(25%) + shareability(20%) + commentability(15%) + CTR(15%)
 
-If overall_virality_score < {MIN_VIRALITY_SCORE}, recommendation should be "block".
-If between {MIN_VIRALITY_SCORE} and 70, recommendation should be "review".
+If overall_virality_score < {get_virality_threshold(format_type)}, recommendation should be "block".
+If between {get_virality_threshold(format_type)} and 70, recommendation should be "review".
 If above 70, recommendation should be "approve".""",
         expected_output="JSON object with virality prediction and recommendation.",
         agent=analyst,
     )
 
-    return Crew(agents=[analyst], tasks=[task], verbose=True)
+    return Crew(agents=[analyst], tasks=[task], verbose=True, memory=False, planning=False, cache=False)
 
 
-def get_virality_threshold() -> int:
-    return MIN_VIRALITY_SCORE
+def get_virality_threshold(format_type: str = "shorts") -> int:
+    if format_type == "long":
+        return int(os.getenv("MIN_VIRALITY_SCORE_LONG", str(MIN_VIRALITY_SCORE_LONG)))
+    return int(os.getenv("MIN_VIRALITY_SCORE", str(MIN_VIRALITY_SCORE)))

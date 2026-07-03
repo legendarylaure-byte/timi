@@ -49,4 +49,4 @@ Return EXACTLY this JSON format:
         agent=optimizer,
     )
 
-    return Crew(agents=[optimizer], tasks=[task], verbose=True)
+    return Crew(agents=[optimizer], tasks=[task], verbose=True, memory=False, planning=False, cache=False)

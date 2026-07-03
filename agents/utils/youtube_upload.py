@@ -1,5 +1,6 @@
 import os
 import hashlib
+import time
 import threading
 from datetime import datetime
 from googleapiclient.discovery import build
@@ -47,7 +48,11 @@ def get_youtube_credentials():
                     }
                 }
                 flow = InstalledAppFlow.from_client_config(client_config, SCOPES)
-                creds = flow.run_local_server(port=8080, open_browser=True)
+                try:
+                    creds = flow.run_local_server(port=8080, open_browser=True)
+                except Exception as _oauth_err:
+                    print(f"[YOUTUBE] Local server failed ({_oauth_err}), trying console flow...")
+                    creds = flow.run_console()
 
             with open(TOKEN_FILE, "w") as token:
                 token.write(creds.to_json())
@@ -83,6 +88,48 @@ def update_youtube_video_title(video_id: str, new_title: str) -> bool:
         return False
 
 
+def _upload_with_retry(
+    youtube,
+    video_file: str,
+    body: dict,
+) -> tuple[object, str]:
+    """Upload video with retry on transient errors. Returns (response, video_id)."""
+    media = MediaFileUpload(video_file, chunksize=-1, resumable=True)
+    request = youtube.videos().insert(
+        part="snippet,status",
+        body=body,
+        media_body=media,
+    )
+    max_retries = 3
+    for attempt in range(max_retries):
+        try:
+            response = None
+            while response is None:
+                status, response = request.next_chunk()
+                if status:
+                    print(f"Upload progress: {int(status.progress() * 100)}%")
+            video_id = response["id"]
+            return response, video_id
+        except (HttpError, ConnectionError, TimeoutError, OSError) as e:
+            is_retryable = True
+            if isinstance(e, HttpError):
+                code = e.resp.status if hasattr(e, 'resp') else 0
+                if code in (400, 401, 403, 404):
+                    is_retryable = False
+            if not is_retryable or attempt == max_retries - 1:
+                raise
+            wait = (2 ** attempt) * 5
+            print(f"[YOUTUBE] Upload failed (attempt {attempt + 1}/{max_retries}), retrying in {wait}s: {e}")
+            time.sleep(wait)
+            media = MediaFileUpload(video_file, chunksize=-1, resumable=True)
+            request = youtube.videos().insert(
+                part="snippet,status",
+                body=body,
+                media_body=media,
+            )
+    raise RuntimeError("Upload failed after all retries")
+
+
 def upload_video_to_youtube(
     video_file: str,
     title: str,
@@ -107,11 +154,13 @@ def upload_video_to_youtube(
     md5_before = file_hash.hexdigest()
     print(f"[YOUTUBE] Uploading: {title} ({file_size / 1e6:.1f} MB, md5: {md5_before[:12]}...)")
     creds = get_youtube_credentials()
+    if not creds:
+        return {"success": False, "error": "No YouTube credentials available"}
     youtube = build("youtube", "v3", credentials=creds)
 
     if publish_at:
         try:
-            pub_dt = datetime.strptime(publish_at.replace("Z", "").replace("z", ""), "%Y-%m-%dT%H:%M:%S")
+            pub_dt = datetime.fromisoformat(publish_at.replace("Z", "+00:00"))
             if pub_dt < datetime.utcnow():
                 print(f"[YOUTUBE] publish_at {publish_at} is in the past, uploading as public instead")
                 publish_at = None
@@ -139,21 +188,7 @@ def upload_video_to_youtube(
         },
     }
 
-    media = MediaFileUpload(video_file, chunksize=-1, resumable=True)
-
-    request = youtube.videos().insert(
-        part="snippet,status",
-        body=body,
-        media_body=media,
-    )
-
-    response = None
-    while response is None:
-        status, response = request.next_chunk()
-        if status:
-            print(f"Upload progress: {int(status.progress() * 100)}%")
-
-    video_id = response["id"]
+    response, video_id = _upload_with_retry(youtube, video_file, body)
     video_url = f"https://www.youtube.com/watch?v={video_id}"
     if is_shorts:
         video_url = f"https://www.youtube.com/shorts/{video_id}"
@@ -168,6 +203,28 @@ def upload_video_to_youtube(
         print(f"[YOUTUBE] WARNING: file md5 changed during upload ({md5_before[:12]} → {md5_after[:12]})")
     else:
         print(f"[YOUTUBE] File integrity verified (md5: {md5_before[:12]})")
+
+    result = {
+        "success": True,
+        "platform": "YouTube",
+        "video_id": video_id,
+        "video_url": video_url,
+        "title": title,
+        "publish_at": publish_at,
+        "upload_time": datetime.utcnow().isoformat(),
+    }
+
+    # Set thumbnail BEFORE scheduling so default thumbnail isn't shown if it fails
+    if thumbnail_file and os.path.exists(thumbnail_file):
+        try:
+            youtube.thumbnails().set(
+                videoId=video_id,
+                media_body=MediaFileUpload(thumbnail_file),
+            ).execute()
+            result["thumbnail_set"] = True
+        except HttpError as e:
+            print(f"Thumbnail upload failed: {e}")
+            result["thumbnail_set"] = False
 
     if publish_at:
         try:
@@ -185,30 +242,12 @@ def upload_video_to_youtube(
                 },
             ).execute()
             print(f"Video scheduled for {publish_at}")
+            result["status"] = "scheduled"
         except HttpError as e:
             print(f"Failed to set publish time: {e}")
-
-    result = {
-        "success": True,
-        "platform": "YouTube",
-        "video_id": video_id,
-        "video_url": video_url,
-        "title": title,
-        "status": "scheduled" if publish_at else "published",
-        "publish_at": publish_at,
-        "upload_time": datetime.utcnow().isoformat(),
-    }
-
-    if thumbnail_file and os.path.exists(thumbnail_file):
-        try:
-            youtube.thumbnails().set(
-                videoId=video_id,
-                media_body=MediaFileUpload(thumbnail_file),
-            ).execute()
-            result["thumbnail_set"] = True
-        except HttpError as e:
-            print(f"Thumbnail upload failed: {e}")
-            result["thumbnail_set"] = False
+            result["status"] = "published"
+    else:
+        result["status"] = "published"
 
     print(f"YouTube upload complete: {video_url}")
     return result

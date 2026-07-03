@@ -5,7 +5,7 @@ from datetime import datetime
 from utils.manim_renderer import render_manim_scene, compose_manim_block
 from utils.screen_capture import render_terminal, render_ide, render_browser, render_code_snippet
 from utils.stock_video import search_videos_for_scenes as _search_stock
-from utils import ltx_engine
+from models import get_video_model
 
 logger = logging.getLogger(__name__)
 
@@ -41,11 +41,12 @@ def dispatch_scene(scene: dict, video_id: str, scene_idx: int = 0, format_type: 
     duration = scene.get("target_duration", scene.get("duration", 8.0))
 
     kw_list = keywords if isinstance(keywords, list) else [keywords]
-    if ltx_engine.is_available():
+    model = get_video_model()
+    if model and model.is_available():
         prompt = scene.get("ltx_prompt", "") or description or ", ".join(kw_list)
-        ltx_path = ltx_engine.generate_clip(prompt, int(duration))
-        if ltx_path:
-            return {"path": ltx_path, "duration": duration, "asset_type": "STOCK_FOOTAGE", "source": "ltx"}
+        clip_path = model.generate_clip(prompt, int(duration))
+        if clip_path:
+            return {"path": clip_path, "duration": duration, "asset_type": "STOCK_FOOTAGE", "source": "ltx"}
     for kw in kw_list:
         path = _get_stock_clip(kw, orientation, duration)
         if path:
@@ -57,15 +58,36 @@ def dispatch_scene(scene: dict, video_id: str, scene_idx: int = 0, format_type: 
 
 
 def dispatch_scenes(scenes: list[dict], video_id: str, format_type: str = "long") -> list[dict]:
-    clips = []
+    clips_map = {}
     manim_scenes = []
+    ltx_batch = []
+
+    model = get_video_model()
+    use_ltx = model and model.is_available()
+
     for idx, scene in enumerate(scenes):
         if scene.get("asset_type") == "DIAGRAM_ANIMATION":
             manim_scenes.append(scene)
-            continue
-        result = dispatch_scene(scene, video_id, idx, format_type)
-        if result:
-            clips.append(result)
+        elif use_ltx:
+            ltx_batch.append((idx, scene))
+        else:
+            result = dispatch_scene(scene, video_id, idx, format_type)
+            if result:
+                clips_map[idx] = result
+
+    if ltx_batch and use_ltx:
+        ltx_scenes = [s for _, s in ltx_batch]
+        paths = model.generate_clips(ltx_scenes, video_id, format_type)
+        for (idx, scene), path in zip(ltx_batch, paths):
+            if path and os.path.exists(path):
+                dur = scene.get("target_duration", scene.get("duration", 8.0))
+                clips_map[idx] = {"path": path, "duration": dur, "asset_type": "STOCK_FOOTAGE", "source": "ltx"}
+            else:
+                result = dispatch_scene(scene, video_id, idx, format_type)
+                if result:
+                    clips_map[idx] = result
+
+    clips = [clips_map[i] for i in range(len(scenes)) if i in clips_map]
 
     if manim_scenes:
         manim_path = compose_manim_block(manim_scenes, video_id, quality="h")

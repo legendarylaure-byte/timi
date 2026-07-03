@@ -65,4 +65,7 @@ Return: Upload results with URLs for each platform.""",
         agents=[publisher],
         tasks=[publish_task],
         verbose=True,
+        memory=False,
+        planning=False,
+        cache=False,
     )

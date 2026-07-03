@@ -17,7 +17,7 @@ CLIPS_DIR = Path(__file__).parent.parent / "tmp" / "clips"
 CLIPS_DIR.mkdir(parents=True, exist_ok=True)
 
 _API_CACHE = {}
-_PIXABAY_BLOCKED = False
+_PIXABAY_BLOCKED_UNTIL = 0.0
 _PIXABAY_LOCK = threading.Lock()
 _API_LAST_CALL = 0.0
 
@@ -81,14 +81,15 @@ def _keyword_expand(base_keyword: str) -> list[str]:
 
 
 def _handle_rate_limit(resp: requests.Response, source: str, max_retries: int = 1) -> requests.Response:
-    """Handle 429 rate limit. Sets circuit breaker for Pixabay, logs for Pexels."""
-    global _PIXABAY_BLOCKED
+    """Handle 429 rate limit. Sets cooldown for Pixabay, logs for Pexels."""
+    global _PIXABAY_BLOCKED_UNTIL
     if resp.status_code != 429:
         return resp
     if source == "Pixabay":
-        print("[stock_video] Pixabay rate limited (429) — disabling Pixabay for this run")
+        cooldown = 60
+        print(f"[stock_video] Pixabay rate limited (429) — blocking for {cooldown}s")
         with _PIXABAY_LOCK:
-            _PIXABAY_BLOCKED = True
+            _PIXABAY_BLOCKED_UNTIL = time.time() + cooldown
         return resp
     wait_time = 10
     retry_header = resp.headers.get('Retry-After')
@@ -166,7 +167,9 @@ def _search_pixabay_uncached(query: str) -> list[dict]:
         print("[stock_video] PIXABAY_API_KEY is empty — set it in GitHub secrets")
         return []
     with _PIXABAY_LOCK:
-        if _PIXABAY_BLOCKED:
+        if time.time() < _PIXABAY_BLOCKED_UNTIL:
+            remaining = int(_PIXABAY_BLOCKED_UNTIL - time.time())
+            print(f"[stock_video] Pixabay blocked for {remaining}s more — skipping")
             return []
     _rate_limit_delay()
     params = {
@@ -327,30 +330,40 @@ def search_and_download(
     return None
 
 
+def _search_single_scene(args: tuple) -> dict | None:
+    i, scene, orientation, max_retries = args
+    keyword = scene.get("keyword", scene.get("description", ""))
+    target_dur = scene.get("target_duration", 5.0)
+    for attempt in range(max_retries):
+        if attempt > 0:
+            time.sleep(2)
+        clip = search_and_download(keyword, target_duration=target_dur, orientation=orientation, scene_idx=i)
+        if clip:
+            print(f"[stock_video] Scene {i+1}: '{keyword}' -> {clip['path']} ({clip['duration']:.1f}s)")
+            return clip
+    print(f"[stock_video] Scene {i+1}: FAILED for '{keyword}' after {max_retries} attempts")
+    return None
+
+
 def search_videos_for_scenes(scenes: list[dict], orientation: str = "landscape") -> list[dict]:
-    clips = []
     max_retries_per_scene = 2
+    n = len(scenes)
+    from concurrent.futures import ThreadPoolExecutor, as_completed
 
-    for i, scene in enumerate(scenes):
-        keyword = scene.get("keyword", scene.get("description", ""))
-        target_dur = scene.get("target_duration", 5.0)
-        print(f"[stock_video] Scene {i+1}/{len(scenes)}: '{keyword}'")
+    args_list = [(i, scene, orientation, max_retries_per_scene) for i, scene in enumerate(scenes)]
+    clip_map = {}
+    with ThreadPoolExecutor(max_workers=min(n, 8)) as executor:
+        futures = {executor.submit(_search_single_scene, args): i for i, args in enumerate(args_list)}
+        for future in as_completed(futures):
+            idx = futures[future]
+            try:
+                clip = future.result()
+                if clip:
+                    clip_map[idx] = clip
+            except Exception as e:
+                print(f"[stock_video] Scene {idx+1} search failed: {e}")
 
-        for attempt in range(max_retries_per_scene):
-            if attempt > 0:
-                print(f"[stock_video] Retrying scene {i+1} (attempt {attempt+1})")
-                time.sleep(2)
-
-            clip = search_and_download(keyword, target_duration=target_dur, orientation=orientation, scene_idx=i)
-            if clip:
-                clips.append(clip)
-                print(f"[stock_video] -> Found: {clip['path']} ({clip['duration']:.1f}s)")
-                break
-
-        if not clip and attempt == max_retries_per_scene - 1:
-            print(f"[stock_video] -> FAILED for '{keyword}' after {max_retries_per_scene} attempts")
-
-        time.sleep(0.5)
+    clips = [clip_map[i] for i in sorted(clip_map) if clip_map[i] is not None]
 
     if not clips:
         print("[stock_video] CRITICAL: No clips found for any scene. Using universal fallback.")
@@ -358,9 +371,7 @@ def search_videos_for_scenes(scenes: list[dict], orientation: str = "landscape")
             clip = search_and_download(kw, target_duration=5.0, orientation=orientation, scene_idx=len(clips))
             if clip:
                 clips.append(clip)
-                print(f"[stock_video] -> Universal fallback: {clip['path']} ({clip['duration']:.1f}s)")
-            if len(clips) >= min(len(scenes), 5):
+            if len(clips) >= min(n, 5):
                 break
-            time.sleep(0.5)
 
     return clips

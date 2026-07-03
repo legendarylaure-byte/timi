@@ -1,4 +1,4 @@
-from utils.groq_client import generate_completion
+from utils.llm_client import generate_completion
 from utils.json_utils import extract_json
 
 LANGUAGES = {

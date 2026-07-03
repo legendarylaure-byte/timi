@@ -41,4 +41,4 @@ Return JSON with:
         agent=agent,
     )
 
-    return Crew(agents=[agent], tasks=[task], verbose=False)
+    return Crew(agents=[agent], tasks=[task], verbose=False, memory=False, planning=False, cache=False)

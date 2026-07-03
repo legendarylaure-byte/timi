@@ -38,4 +38,4 @@ Output as JSON array: [{"asset_type": "...", "keyword": "...", "target_duration"
         agent=animator,
     )
 
-    return Crew(agents=[animator], tasks=[animation_task], verbose=True)
+    return Crew(agents=[animator], tasks=[animation_task], verbose=True, memory=False, planning=False, cache=False)

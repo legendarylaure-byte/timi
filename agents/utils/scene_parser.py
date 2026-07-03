@@ -1,6 +1,6 @@
 import json
 import re
-from utils.groq_client import generate_completion
+from utils.llm_client import generate_completion
 from utils.firebase_status import log_activity
 from utils.scene_schema import ValidationError
 
@@ -109,12 +109,14 @@ Return ONLY valid JSON array of scene objects."""
             prompt=prompt,
             system_prompt=SYSTEM_PROMPT,
             temperature=0.3,
-            max_tokens=3000,
+            max_tokens=8192,
         )
 
         scenes = _extract_json_array(response)
         if not scenes:
-            print("[SCENE_PARSER] LLM returned no valid JSON")
+            print(f"[SCENE_PARSER] LLM returned no valid JSON (response len={len(response)})")
+            print(f"[SCENE_PARSER] First 200 chars: {response[:200]}")
+            print(f"[SCENE_PARSER] Last 200 chars: {response[-200:]}")
             return None
 
         validated = []
@@ -174,7 +176,7 @@ def _rule_based_parse(script_text: str, storyboard_text: str, format_type: str, 
             "duration": duration,
             "asset_type": asset_type,
             "asset_keywords": asset_keywords,
-            "ltx_prompt": _infer_ltx_prompt(block, title, i, scene),
+            "ltx_prompt": _infer_ltx_prompt(block, title, i, None),
             "text": text,
             "effects": effects,
             "transition": transition,
@@ -230,6 +232,15 @@ def _extract_json_array(text: str) -> list | None:
             if isinstance(wrapped, dict) and "scenes" in wrapped:
                 return wrapped["scenes"]
     except (json.JSONDecodeError, ValueError):
+        pass
+    try:
+        from utils.json_utils import extract_json
+        result = extract_json(text)
+        if isinstance(result, list):
+            return result
+        if isinstance(result, dict) and "scenes" in result:
+            return result["scenes"]
+    except Exception:
         pass
     return None
 
@@ -383,6 +394,11 @@ def _infer_ltx_prompt(text: str, title: str = "", scene_index: int = 0, scene: d
 
 
 def _infer_asset_type(text: str) -> str:
+    m = re.search(r'ASSET_TYPE\s*:\s*(\w+)', text, re.IGNORECASE)
+    if m:
+        at = m.group(1).upper()
+        if at in ("STOCK_FOOTAGE", "SCREEN_CAPTURE", "DIAGRAM_ANIMATION", "CODE_SNIPPET", "STATIC_IMAGE"):
+            return at
     return "STOCK_FOOTAGE"
 
 

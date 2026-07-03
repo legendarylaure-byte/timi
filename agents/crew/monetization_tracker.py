@@ -182,4 +182,4 @@ Return recommendations as a concise markdown summary.""",
         agent=analyst,
     )
 
-    return Crew(agents=[analyst], tasks=[task], verbose=True)
+    return Crew(agents=[analyst], tasks=[task], verbose=True, memory=False, planning=False, cache=False)

@@ -6,8 +6,8 @@ Run: python -m agents.scripts.trend_discovery
 import json
 import random
 from datetime import datetime
-from utils.groq_client import generate_completion
-from utils.firebase_status import get_firestore_client, log_activity
+from utils.llm_client import generate_completion
+from utils.firebase_status import get_firestore_client, log_activity, TECH_CATEGORIES
 
 SYSTEM_PROMPT = """You are a trend analyst specializing in YouTube/TikTok tech content.
 Analyze current trends and suggest video topics for tech/AI educational content.
@@ -27,6 +27,17 @@ Return ONLY a valid JSON array of objects with this exact structure:
 ]
 
 Return 10 trending topics focused on tech/AI education. Consider seasonal tech events (conferences, product launches, paper releases), viral patterns, and content gaps."""  # noqa: E501
+
+
+def _is_non_tech_topic(title: str) -> bool:
+    """Check if a title is likely non-tech despite being in a tech category."""
+    non_tech_keywords = [
+        "cooking", "recipe", "food", "baking", "music", "dance", "sport", "game",
+        "fashion", "beauty", "makeup", "travel", "vlog", "comedy", "funny", "prank",
+        "pet", "animal", "dog", "cat", "workout", "fitness", "yoga", "meditation",
+    ]
+    title_lower = title.lower()
+    return any(kw in title_lower for kw in non_tech_keywords)
 
 
 def fetch_youtube_trending(max_results: int = 20, region_code: str = "US") -> list:
@@ -74,7 +85,7 @@ def fetch_youtube_trending(max_results: int = 20, region_code: str = "US") -> li
             }
             category = category_map.get(category_id, "AI Explained")
 
-            predicted_search_volume = max(view_count // 5, 100000)
+            predicted_search_volume = max(view_count // 10, 50000)
 
             if any(cat in TECH_CATEGORIES for cat in [category]) and _is_non_tech_topic(title):
                 print(f"[TRENDS] Skipping non-tech topic in tech category: {title}")
@@ -83,7 +94,7 @@ def fetch_youtube_trending(max_results: int = 20, region_code: str = "US") -> li
                 "title": title,
                 "category": category,
                 "search_volume": predicted_search_volume,
-                "growth": round((view_count % 100) * 0.5 + 20, 1),
+                "growth": round(20 + (view_count % 50) * 0.6, 1),
                 "competition": "high" if view_count > 500000 else "medium" if view_count > 100000 else "low",
                 "suggested_format": "shorts" if len(title) < 40 else "long",
                 "score": min(98, 50 + int(view_count / 20000)),

@@ -1,5 +1,5 @@
 import re
-from utils.groq_client import generate_completion
+from utils.llm_client import generate_completion
 
 PROHIBITED_TOPIC_PATTERNS = [
     r'\bp[\._\s]*[o0][\._\s]*r[\._\s]*n[\._\s]*[o0]\b',
@@ -10,6 +10,28 @@ PROHIBITED_TOPIC_PATTERNS = [
     r'\bb[\._\s]*i[\._\s]*t[\._\s]*c[\._\s]*h\b',
     r'\bd[\._\s]*i[\._\s]*c[\._\s]*k\b',
 ]
+
+LEAKED_PROMPT_PATTERNS = [
+    "please provide the original script",
+    "i need the existing opening",
+    "i need the original script",
+    "please provide the existing",
+    "original script you want me",
+    "i need the existing",
+    "you want me to rewrite",
+    "provide the original script",
+]
+
+CATEGORY_FALLBACK_HOOKS = {
+    "AI Explained": "--SCENE 1--\nNARRATION: Most people think AI is decades away from being truly useful. What if I told you it's already changing your life in ways you haven't noticed?\nVISUAL: STOCK FOOTAGE: Fast-paced montage of everyday AI interactions - phone notifications, smart home devices, recommendation algorithms, with text overlay 'AI Is Already Here'",
+    "Deep Tech": "--SCENE 1--\nNARRATION: There's a technology so advanced that most engineers don't fully understand how it works. Yet it's powering the next generation of computing.\nVISUAL: DIAGRAM ANIMATION: Abstract visualization of a complex neural network with data flowing through layers, glowing nodes activating in sequence",
+    "Code & Build": "--SCENE 1--\nNARRATION: You've been writing code for months. But there's one concept that separates beginners from senior engineers - and it's simpler than you think.\nVISUAL: CODE SNIPPET: A split screen showing messy code on the left transforming into clean, well-structured code on the right",
+    "Tool Tutorials": "--SCENE 1--\nNARRATION: Everyone's talking about this tool. But 90% of people are using it wrong. Here's the right way that actually gets results.\nVISUAL: SCREEN RECORDING: A cursor navigating through a popular tool interface, with a '90% do it wrong' overlay appearing",
+    "AI News": "--SCENE 1--\nNARRATION: This week, something happened in AI that barely made the news. And it might be the most important development of the year.\nVISUAL: STOCK FOOTAGE: News-style footage with headlines flashing, zooming into one specific headline that glows",
+    "Paper Breakdowns": "--SCENE 1--\nNARRATION: A research paper was just published that quietly solves one of AI's biggest problems. Here's what it means for everyone.\nVISUAL: DIAGRAM ANIMATION: A stylized academic paper with key equations highlighted, then a 'problem solved' animation",
+    "Industry Analysis": "--SCENE 1--\nNARRATION: The industry is about to change. Not in five years. Not next year. Right now. And most companies aren't ready.\nVISUAL: STOCK FOOTAGE: Corporate buildings with a clock overlay ticking, then a graph showing a sudden market shift",
+    "Career & Learning": "--SCENE 1--\nNARRATION: The skills that got you hired last year won't keep you employed next year. Here's what's changing and how to stay ahead.\nVISUAL: STATIC IMAGE: A roadmap showing old skills fading out and new skills emerging, with a 'future-proof' path highlighted",
+}
 
 
 def has_prohibited_content(topic: str) -> bool:
@@ -33,6 +55,15 @@ HOOK_FORMULAS = [
 ]
 
 
+def _detect_leaked_prompt(text: str) -> bool:
+    """Check if text contains leaked meta-prompt instructions instead of actual script content."""
+    lower = text.lower()
+    for pattern in LEAKED_PROMPT_PATTERNS:
+        if pattern in lower:
+            return True
+    return False
+
+
 def extract_hook(script_text: str, max_chars: int = 300) -> str:
     lines = script_text.strip().split("\n")
     narration_lines = []
@@ -42,7 +73,13 @@ def extract_hook(script_text: str, max_chars: int = 300) -> str:
             narration_lines.append(text.strip())
         elif line.upper().startswith("--SCENE"):
             continue
+    if not narration_lines:
+        return script_text[:max_chars]
+    if len(narration_lines) > 0 and _detect_leaked_prompt(narration_lines[0]):
+        narration_lines = narration_lines[1:]
     first_narration = " ".join(narration_lines) if narration_lines else script_text
+    if _detect_leaked_prompt(first_narration):
+        return ""
     return first_narration[:max_chars]
 
 
@@ -85,6 +122,8 @@ def score_hook(script_text: str, category: str = "", format_type: str = "shorts"
     hook = extract_hook(script_text)
     if not hook:
         return {"score": 0, "hook_score": 0, "approved": False, "weaknesses": ["No narration text found"], "suggested_alternatives": ["Start with a surprising question about your topic"]}
+    if _detect_leaked_prompt(hook):
+        return {"score": 70, "hook_score": 70, "approved": True, "hook_text": hook, "weaknesses": ["Leaked meta-text detected, auto-approved"], "suggested_alternatives": []}
     prompt = f"""Script category: {category}
 Format: {format_type}
 Hook text (first {len(hook)} chars):
@@ -92,7 +131,7 @@ Hook text (first {len(hook)} chars):
 
 Score this hook and suggest improvements."""
     try:
-        response = generate_completion(prompt=prompt, system_prompt=SCORING_PROMPT, temperature=0.3, max_tokens=800)
+        response = generate_completion(prompt=prompt, system_prompt=SCORING_PROMPT, temperature=0.3, max_tokens=800, caller_id="hook_scorer")
         import json
         json_start = response.find("{")
         json_end = response.rfind("}") + 1
@@ -108,23 +147,51 @@ Score this hook and suggest improvements."""
         "score": 50,
         "hook_score": 50,
         "hook_text": hook,
-        "approved": True,
+        "approved": False,
         "strengths": [],
-        "weaknesses": ["Could not evaluate with LLM, using default approval"],
+        "weaknesses": ["Could not evaluate with LLM, needs rewrite"],
         "suggested_alternatives": [],
     }
 
 
-def enforce_rewrite(script_text: str) -> str:
-    result = check_and_improve_hook(script_text)
+def _is_valid_rewrite(text: str) -> bool:
+    stripped = text.strip()
+    has_scene_marker = stripped.upper().startswith("--SCENE 1") or "NARRATION:" in stripped.upper()
+    has_narration = "NARRATION:" in stripped.upper()
+    has_no_meta = (
+        "original script" not in stripped.lower()
+        and "please provide" not in stripped.lower()
+        and "i need the existing" not in stripped.lower()
+        and "rewrite" not in stripped.lower()[:50]
+    )
+    return has_scene_marker and has_narration and has_no_meta
+
+
+def _get_fallback_hook(category: str) -> str:
+    for cat_key in CATEGORY_FALLBACK_HOOKS:
+        if cat_key.lower() in category.lower():
+            return CATEGORY_FALLBACK_HOOKS[cat_key]
+    return CATEGORY_FALLBACK_HOOKS["AI Explained"]
+
+
+def enforce_rewrite(script_text: str, category: str = "") -> str:
+    result = check_and_improve_hook(script_text, category)
     if result["passed"] or not result.get("rewrite"):
         return script_text
     rewrite = result["rewrite"].strip()
+    if _is_valid_rewrite(rewrite):
+        lines = script_text.split("\n")
+        for i, line in enumerate(lines):
+            if i > 0 and line.strip().upper().startswith("--SCENE"):
+                return rewrite + "\n" + "\n".join(lines[i:])
+        return rewrite + "\n" + script_text
+    fallback = _get_fallback_hook(category)
+    print(f"[HOOK] Using curated fallback hook for category: {category}")
     lines = script_text.split("\n")
     for i, line in enumerate(lines):
-        if i > 0 and line.strip().upper().startswith("--SCENE"):
-            return rewrite + "\n" + "\n".join(lines[i:])
-    return rewrite + "\n" + script_text
+        if line.strip().upper().startswith("--SCENE"):
+            return fallback + "\n" + "\n".join(lines[i:])
+    return fallback + "\n" + script_text
 
 
 def check_and_improve_hook(script_text: str, category: str = "", format_type: str = "shorts", min_score: int = 60) -> dict:
@@ -140,12 +207,12 @@ def check_and_improve_hook(script_text: str, category: str = "", format_type: st
 Current hook issues: {', '.join(result.get('weaknesses', ['weak']))}
 Try one of these formulas: {', '.join(alternatives[:2]) if alternatives else 'bold claim or question'}
 Keep the same topic and educational tone. Only change the first 1-3 sentences.
-Return ONLY the rewritten first scene in this format:
+CRITICAL: Return ONLY the rewritten first scene in this exact format — no commentary, no explanation:
 --SCENE 1--
 NARRATION: [rewritten hook]
 VISUAL: [matching visual]"""
     try:
-        rewrite = generate_completion(prompt=rewrite_prompt, system_prompt="You rewrite video script hooks for maximum engagement.", temperature=0.7, max_tokens=500)
+        rewrite = generate_completion(prompt=rewrite_prompt, system_prompt="You rewrite video script hooks for maximum engagement. Return ONLY the rewritten scene — no preamble, no commentary.", temperature=0.7, max_tokens=500, caller_id="hook_rewrite")
         return {"passed": False, "result": result, "rewrite": rewrite}
     except Exception:
         return {"passed": False, "result": result, "rewrite": None}

@@ -2,7 +2,7 @@ from crewai import Agent, Task, Crew
 from utils.llm_helper import get_llm
 
 
-def create_metadata_crew(script: str = "", format: str = "shorts"):
+def create_metadata_crew(script: str = "", fmt: str = "shorts"):
     llm = get_llm(temperature=0.5, max_tokens=3000)
 
     metadata_writer = Agent(
@@ -41,4 +41,7 @@ Optimize for maximum discoverability across YouTube, TikTok, Instagram, and Face
         agents=[metadata_writer],
         tasks=[metadata_task],
         verbose=True,
+        memory=False,
+        planning=False,
+        cache=False,
     )

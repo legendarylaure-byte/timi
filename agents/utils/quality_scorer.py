@@ -1,6 +1,6 @@
 import json
 import threading
-from utils.groq_client import generate_completion
+from utils.llm_client import generate_completion
 from utils.firebase_status import get_firestore_client, update_agent_status, log_activity
 from utils.validators import validate_script_content
 from utils.json_utils import extract_json
@@ -47,15 +47,19 @@ def score_content(script: str, title: str, category: str, format_type: str = "sh
     """Score video content using Groq AI and return quality metrics."""
     update_agent_status("quality_scorer", "working", f"Evaluating: {title}")
 
-    content_prompt = """Evaluate this tech educational video content:
+    format_bonus = {
+        "shorts": "\n(Short-form: fast-paced, single concept, 55s max)",
+        "long": "\n(Long-form: structured breakdown, 5-15 min)",
+    }.get(format_type, "")
+
+    content_prompt = f"""Evaluate this tech educational video content:
 
 Title: {title}
 Format: {format_type}
 Category: {category}
 
 Script/Content:
-{script}
-{format_bonus}
+{script}{format_bonus}
 
 Score each dimension and return the JSON object as specified."""
 

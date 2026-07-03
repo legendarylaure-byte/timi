@@ -90,4 +90,7 @@ TOPIC: {topic}""",
         agents=[director],
         tasks=[review_task],
         verbose=True,
+        memory=False,
+        planning=False,
+        cache=False,
     )

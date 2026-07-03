@@ -128,7 +128,7 @@ def _get_seasonal_context() -> str:
 
 
 def _llm_plan(analytics_context: str, calendar_context: str, seasonal: str) -> Optional[list]:
-    from utils.groq_client import generate_completion
+    from utils.llm_client import generate_completion
 
     prompt = f"""Create a content plan for {datetime.now().strftime('%Y-%m-%d')}.
 

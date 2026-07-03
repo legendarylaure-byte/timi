@@ -71,4 +71,4 @@ The system will auto-inject appropriate links from the affiliate database.""",
         agent=manager,
     )
 
-    return Crew(agents=[manager], tasks=[task], verbose=True)
+    return Crew(agents=[manager], tasks=[task], verbose=True, memory=False, planning=False, cache=False)

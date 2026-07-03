@@ -30,12 +30,16 @@ FFMPEG_XFADE_MAP = {
 }
 
 OUTPUT_FPS = 24
-CRF = "18"
+CRF = "23"
 PRESET = "medium"
 
 
 def _get_env():
     return os.environ.copy()
+
+
+def _sws_flags() -> list:
+    return ["-sws_flags", "lanczos+accurate_rnd+full_chroma_int"]
 
 
 def _ffmpeg_cmd() -> str:
@@ -407,12 +411,6 @@ def composite_video(clips: list[dict], voice_path: str, music_path: Optional[str
     if not os.path.exists(combined_video):
         return None
 
-    if subtitle_path and os.path.exists(subtitle_path):
-        with_subs = str(TEMP_DIR / f"subs_{video_id}.mp4")
-        sub_fs = 9 if format_type == "shorts" else 10
-        if burn_subtitles(combined_video, subtitle_path, with_subs, fontsize=sub_fs):
-            combined_video = with_subs
-
     if chapters and format_type == "long":
         with_chapters = str(TEMP_DIR / f"chapters_{video_id}.mp4")
         if add_chapter_markers(combined_video, chapters, with_chapters):
@@ -424,26 +422,35 @@ def composite_video(clips: list[dict], voice_path: str, music_path: Optional[str
         return None
 
     final_path = str(OUTPUT_DIR / f"{video_id}_{format_type}.mp4")
-    vf_filter = ""
+    vf_parts = []
+
     if scenes:
-        scene_titles = []
         for i, s in enumerate(scenes):
+            if i >= len(clips):
+                break
             title = s.get("keyword") or s.get("description") or ""
             if title:
                 escaped = title.replace("'", "\\'").replace(":", "\\:").replace("-", "\\-")
                 ts = sum(c.get("duration", 8.0) for c in clips[:i])
                 te = ts + clips[i].get("duration", 8.0) - 0.5
-                scene_titles.append(
+                vf_parts.append(
                     f"drawtext=text='{escaped}':fontsize=20:fontcolor=white:box=1:boxcolor=black@0.4:"
                     f"x=(w-text_w)/2:y=h-140:enable='between(t,{ts},{te})'"
                 )
-        if scene_titles:
-            vf_filter = ",".join(scene_titles)
-    quality_filters = ["eq=saturation=1.15:contrast=1.1", "unsharp=5:5:0.8:3:3:0.4"]
-    if vf_filter:
-        vf_filter = vf_filter + "," + ",".join(quality_filters)
-    else:
-        vf_filter = ",".join(quality_filters)
+
+    if subtitle_path and os.path.exists(subtitle_path):
+        abs_sub = os.path.abspath(subtitle_path)
+        sub_fs = 9 if format_type == "shorts" else 10
+        vf_parts.append(
+            f"subtitles=filename='{abs_sub}':force_style="
+            f"'FontSize={sub_fs},PrimaryColour=&HFFFFFF&,OutlineColour=&H000000&,"
+            f"Outline=0,Shadow=0,BorderStyle=3,BackColour=&H80000000&,"
+            f"Alignment=2,MarginV=40,FontName=Arial'"
+        )
+
+    vf_parts.extend(["eq=saturation=1.15:contrast=1.1", "unsharp=5:5:0.8:3:3:0.4"])
+    vf_filter = ",".join(vf_parts)
+
     cmd = [
         _ffmpeg_cmd(), "-y", "-i", combined_video, "-i", mixed_audio, *_sws_flags(),
     ]
@@ -451,7 +458,7 @@ def composite_video(clips: list[dict], voice_path: str, music_path: Optional[str
     cmd += [
         "-c:v", "libx264", "-preset", PRESET, "-crf", CRF,
         "-r", str(OUTPUT_FPS),
-        "-af", "compand=attacks=0.1:decays=0.3:points=-80/-80|-30/-18|-10/-5|0/-3:gain=3:volume=auto,loudnorm=I=-16:LRA=11:TP=-1.5",
+        "-af", "compand=attacks=0.1:decays=0.3:points=-80/-80|-30/-18|-10/-5|0/-3:gain=3,loudnorm=I=-16:LRA=11:TP=-1.5",
         "-c:a", "aac", "-b:a", "192k", "-shortest", "-pix_fmt", "yuv420p", final_path,
     ]
     try:

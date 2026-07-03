@@ -5,7 +5,7 @@ Run: python -m agents.scripts.repurpose --video_id "v-001" --title "..."
 """
 import json
 import random
-from utils.groq_client import generate_completion
+from utils.llm_client import generate_completion
 from utils.firebase_status import get_firestore_client, log_activity, update_video_record
 
 SYSTEM_PROMPT = """You are a content repurposing expert for tech/AI educational YouTube/TikTok videos.

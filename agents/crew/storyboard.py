@@ -66,4 +66,7 @@ Visual descriptions MUST be vivid and specific enough for an AI video generation
         agents=[storyboard_artist],
         tasks=[storyboard_task],
         verbose=True,
+        memory=False,
+        planning=False,
+        cache=False,
     )

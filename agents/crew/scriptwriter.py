@@ -2,8 +2,8 @@ from crewai import Agent, Task, Crew
 from utils.llm_helper import get_llm
 
 
-def create_scriptwriter_crew(topic: str = "", category: str = "", format: str = "shorts", max_duration: int = 120, extra_context: str = ""):
-    is_long = format == "long"
+def create_scriptwriter_crew(topic: str = "", category: str = "", fmt: str = "shorts", max_duration: int = 120, extra_context: str = ""):
+    is_long = fmt == "long"
     max_tokens = 8000 if is_long else 4000
 
     llm = get_llm(temperature=0.7 if is_long else 0.8, max_tokens=max_tokens)
@@ -22,7 +22,7 @@ You NEVER fabricate facts, statistics, or claims. If unsure, you state the uncer
         allow_delegation=False,
     )
 
-    if format == "long":
+    if fmt == "long":
         format_instructions = f"""
 CRITICAL: This is a LONG-FORM video ({category}). Write enough content for {max_duration} seconds.
 - Write 800-1500 words for the narration.
@@ -44,7 +44,7 @@ This is a SHORT video ({category}). Fast-paced and information-dense.
 
     opt_context = f"\nOptimization note: {extra_context}" if extra_context else ""
     script_task = Task(
-        description=f"""Write a script for a {format} video in the {category} category about "{topic}".{opt_context}
+        description=f"""Write a script for a {fmt} video in the {category} category about "{topic}".{opt_context}
 
 {format_instructions}
 
@@ -87,4 +87,7 @@ VISUAL: [VISUAL TYPE: description]""",
         agents=[scriptwriter],
         tasks=[script_task],
         verbose=True,
+        memory=False,
+        planning=False,
+        cache=False,
     )

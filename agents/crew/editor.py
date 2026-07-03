@@ -35,4 +35,4 @@ Instructions:
         agent=editor,
     )
 
-    return Crew(agents=[editor], tasks=[editing_task], verbose=True)
+    return Crew(agents=[editor], tasks=[editing_task], verbose=True, memory=False, planning=False, cache=False)

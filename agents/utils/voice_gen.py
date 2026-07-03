@@ -3,6 +3,7 @@ from pydub import AudioSegment
 import os
 import re
 import json
+import asyncio
 import edge_tts
 from pathlib import Path
 
@@ -128,21 +129,20 @@ def extract_narration_text(script: str, is_long_form: bool = False) -> str:
         r'^Language\s+must\s+be',
     ]
 
-    if not is_long_form:
-        skip_patterns.extend([
-            r'^Camera\s+Angle',
-            r'^Character\s+Positions',
-            r'^Color\s+Palette',
-            r'^Background\s+Elements',
-            r'^Transition\s+to',
-            r'^Mood\s+(and\s+)?Emotional',
-            r'^\d+\.\s+Camera\s+',
-            r'^\d+\.\s+Character\s+',
-            r'^\d+\.\s+Color\s+',
-            r'^\d+\.\s+Background\s+',
-            r'^\d+\.\s+Transition\s+',
-            r'^\d+\.\s+Mood\s+',
-        ])
+    skip_patterns.extend([
+        r'^Camera\s+Angle',
+        r'^Character\s+Positions',
+        r'^Color\s+Palette',
+        r'^Background\s+Elements',
+        r'^Transition\s+to',
+        r'^Mood\s+(and\s+)?Emotional',
+        r'^\d+\.\s+Camera\s+',
+        r'^\d+\.\s+Character\s+',
+        r'^\d+\.\s+Color\s+',
+        r'^\d+\.\s+Background\s+',
+        r'^\d+\.\s+Transition\s+',
+        r'^\d+\.\s+Mood\s+',
+    ])
 
     result = _extract_narration_via_markers(script)
     if result and len(result) > 50:
@@ -323,30 +323,15 @@ def split_script_into_segments(script: str, max_chars: int = 300) -> list[str]:
 
 
 async def generate_segment_audio(text: str, output_path: str, voice: str = DEFAULT_VOICE, rate: str = DEFAULT_RATE, pitch: str = DEFAULT_PITCH) -> bool:  # noqa: E501
-    try:
-        communicate = edge_tts.Communicate(text, voice, rate=rate, pitch=pitch)
-        await communicate.save(output_path)
-        return os.path.exists(output_path) and os.path.getsize(output_path) > 100
-    except Exception as e:
-        print(f"[voice_gen] Edge TTS error: {e}")
-        return False
+    from utils.voice_provider import get_tts_provider
+    provider = get_tts_provider()
+    return await provider.generate(text, output_path, voice, rate, pitch)
 
 
 async def generate_segment_timing(text: str, voice: str = DEFAULT_VOICE, rate: str = DEFAULT_RATE, pitch: str = DEFAULT_PITCH) -> list[dict]:  # noqa: E501
-    sentence_times = []
-    try:
-        communicate = edge_tts.Communicate(text, voice, rate=rate, pitch=pitch)
-        async for chunk in communicate.stream():
-            if chunk["type"] in ("SentenceBoundary", "WordBoundary"):
-                sentence_times.append({
-                    "text": chunk.get("text", ""),
-                    "offset_ms": chunk.get("offset", 0) / 10000,
-                    "duration_ms": chunk.get("duration", 0) / 10000,
-                    "type": chunk["type"],
-                })
-    except Exception as e:
-        print(f"[voice_gen] Timing error: {e}")
-    return sentence_times
+    from utils.voice_provider import get_tts_provider
+    provider = get_tts_provider()
+    return await provider.generate_timing(text, voice, rate, pitch)
 
 
 def generate_phrase_timings_from_sentences(text: str, sentence_times: list[dict]) -> list[dict]:
@@ -429,34 +414,44 @@ async def generate_voiceover(script: str, voice: str = DEFAULT_VOICE, output_fil
     pitch = voice_settings["pitch"]
     print(f"[voice_gen] Voice: {voice}, Rate: {rate}, Pitch: {pitch}")
     segments = split_script_into_segments(narration_text)
-    segment_files = []
+
+    _tts_sem = asyncio.Semaphore(5)
+
+    async def _gen_seg(i: int, seg_text: str) -> tuple[int, str, bool]:
+        seg_path = str(VOICE_DIR / f"seg_{i+1:03d}.wav")
+        async with _tts_sem:
+            success = await generate_segment_audio(seg_text, seg_path, voice=voice, rate=rate, pitch=pitch)
+        return i, seg_path, success
+
+    results = await asyncio.gather(*[_gen_seg(i, s) for i, s in enumerate(segments)])
+
+    segment_files = [r[1] for r in sorted(results) if r[2]]
     all_phrase_timings = []
     cumulative_offset = 0.0
 
     for i, seg_text in enumerate(segments):
         seg_path = str(VOICE_DIR / f"seg_{i+1:03d}.wav")
+        if seg_path not in segment_files:
+            continue
         timing_path = str(VOICE_DIR / f"seg_{i+1:03d}_timing.json")
-        success = await generate_segment_audio(seg_text, seg_path, voice=voice, rate=rate, pitch=pitch)
-        if success:
-            segment_files.append(seg_path)
 
-            sentence_times = await generate_segment_timing(seg_text, voice=voice, rate=rate, pitch=pitch)
-            if sentence_times:
-                phrase_timings = generate_phrase_timings_from_sentences(seg_text, sentence_times)
-                for pt in phrase_timings:
-                    pt["start_ms"] += cumulative_offset
-                    pt["end_ms"] += cumulative_offset
-                all_phrase_timings.extend(phrase_timings)
+        sentence_times = await generate_segment_timing(seg_text, voice=voice, rate=rate, pitch=pitch)
+        if sentence_times:
+            phrase_timings = generate_phrase_timings_from_sentences(seg_text, sentence_times)
+            for pt in phrase_timings:
+                pt["start_ms"] += cumulative_offset
+                pt["end_ms"] += cumulative_offset
+            all_phrase_timings.extend(phrase_timings)
 
-                with open(timing_path, "w") as f:
-                    json.dump({"sentences": sentence_times, "phrases": phrase_timings}, f)
+            with open(timing_path, "w") as f:
+                json.dump({"sentences": sentence_times, "phrases": phrase_timings}, f)
 
-            try:
-                seg_audio = AudioSegment.from_file(seg_path)
-                cumulative_offset += len(seg_audio) + 200
-            except Exception as e:
-                print(f"[voice_gen] Failed to load seg_{i+1:03d} audio, guessing 5s offset: {e}")
-                cumulative_offset += 5000
+        try:
+            seg_audio = AudioSegment.from_file(seg_path)
+            cumulative_offset += len(seg_audio) + 200
+        except Exception as e:
+            print(f"[voice_gen] Failed to load seg_{i+1:03d} audio, guessing 5s offset: {e}")
+            cumulative_offset += 5000
 
     output_path = str(VOICE_DIR / output_filename)
     concat_success = concatenate_audio(segment_files, output_path)

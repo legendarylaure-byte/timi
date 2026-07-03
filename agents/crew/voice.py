@@ -27,4 +27,4 @@ Use a clear, professional tone suitable for tech educational content.""",
         agent=voice_actor,
     )
 
-    return Crew(agents=[voice_actor], tasks=[voice_task], verbose=True)
+    return Crew(agents=[voice_actor], tasks=[voice_task], verbose=True, memory=False, planning=False, cache=False)

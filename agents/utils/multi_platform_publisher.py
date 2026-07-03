@@ -434,7 +434,7 @@ def _upload_facebook(title: str, description: str, video_path: str) -> dict:
 def multi_platform_publish(video_id: str, title: str, description: str, video_path: str,
                            thumbnail_path: str, format_type: str = 'shorts',
                            platforms: list = None, publish_at: str = None,
-                           category: str = "") -> dict:
+                           category: str = "", cleanup: bool = True) -> dict:
     """Publish to multiple platforms with progress tracking."""
     if platforms is None:
         platforms = ['youtube']
@@ -497,13 +497,14 @@ def multi_platform_publish(video_id: str, title: str, description: str, video_pa
         except Exception as e:
             log_activity('publisher', f"R2 cleanup skipped: {e}", 'warn')
 
-        try:
-            if os.path.exists(video_path):
-                size = os.path.getsize(video_path)
-                os.remove(video_path)
-                log_activity('publisher', f"Deleted local output: {video_path} ({size / 1024 / 1024:.1f}MB)", 'info')
-        except Exception as e:
-            log_activity('publisher', f"Local file cleanup skipped: {e}", 'warn')
+        if cleanup:
+            try:
+                if os.path.exists(video_path):
+                    size = os.path.getsize(video_path)
+                    os.remove(video_path)
+                    log_activity('publisher', f"Deleted local output: {video_path} ({size / 1024 / 1024:.1f}MB)", 'info')
+            except Exception as e:
+                log_activity('publisher', f"Local file cleanup skipped: {e}", 'warn')
 
     log_activity(
         'publisher', f"Publish complete: {results['success_count']}/{results['total_count']} successful", 'success')
@@ -514,11 +515,11 @@ def _register_in_playlist(youtube_id: str, category: str) -> None:
     if not category:
         return
     try:
-        from utils.youtube_upload import get_youtube_credentials
+        from utils.youtube_upload import get_youtube_service
         from utils.series_router import pick_series_for_category
-        from utils.series_builder import create_youtube_playlist, add_video_to_playlist, register_video_in_series
+        from utils.series_builder import load_series, save_series, create_youtube_playlist, add_video_to_playlist, register_video_in_series
 
-        service = get_youtube_credentials()
+        service = get_youtube_service()
         if not service:
             return
         series = pick_series_for_category(category)

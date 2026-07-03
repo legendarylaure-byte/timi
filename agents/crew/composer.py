@@ -27,4 +27,4 @@ Generate a melody file path and mood selection.""",
         agent=composer,
     )
 
-    return Crew(agents=[composer], tasks=[music_task], verbose=True)
+    return Crew(agents=[composer], tasks=[music_task], verbose=True, memory=False, planning=False, cache=False)

@@ -69,6 +69,9 @@ def _search_pixabay_music(query: str, duration: float) -> list[dict]:
     }
     try:
         resp = requests.get("https://pixabay.com/api/audio/", params=params, timeout=15)
+        if resp.status_code == 403:
+            logger.debug("[music_gen] Pixabay audio API returned 403 (key may not have audio scope)")
+            return []
         resp.raise_for_status()
         data = resp.json()
         hits = []
@@ -82,20 +85,23 @@ def _search_pixabay_music(query: str, duration: float) -> list[dict]:
             })
         return hits
     except Exception as e:
-        logger.warning(f"[music_gen] Pixabay search failed: {e}")
+        logger.debug(f"[music_gen] Pixabay search failed: {e}")
         return []
 
 
 def _download_pixabay_track(url: str, output_path: str) -> bool:
     try:
         resp = requests.get(url, timeout=60, stream=True)
+        if resp.status_code == 403:
+            logger.debug("[music_gen] Pixabay track download 403 (access denied)")
+            return False
         resp.raise_for_status()
         with open(output_path, "wb") as f:
             for chunk in resp.iter_content(chunk_size=8192):
                 f.write(chunk)
         return os.path.exists(output_path) and os.path.getsize(output_path) > 1000
     except Exception as e:
-        logger.warning(f"[music_gen] Pixabay download failed: {e}")
+        logger.debug(f"[music_gen] Pixabay download failed: {e}")
         return False
 
 

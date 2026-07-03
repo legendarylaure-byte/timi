@@ -89,7 +89,7 @@ def check_ollama_with_fallback(prompt: str, system_prompt: str = "", temperature
         return _get_fallback_response(prompt, system_prompt)
 
     try:
-        from utils.groq_client import generate_completion
+        from utils.llm_client import generate_completion
         result = generate_completion(prompt, system_prompt, temperature, max_tokens)
         ollama_breaker.record_success()
         return result

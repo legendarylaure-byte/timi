@@ -1,0 +1,5 @@
+from models.ltx_model import LtxVideoModel
+from models.registry import register, get_video_model
+from models.base_video_model import BaseVideoModel
+
+register("ltx", LtxVideoModel)

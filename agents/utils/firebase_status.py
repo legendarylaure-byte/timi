@@ -5,8 +5,11 @@ import json
 import firebase_admin
 from firebase_admin import credentials, firestore
 from datetime import datetime
+from dotenv import load_dotenv
 from utils.retry import retry
 from utils.sanitize import redact
+
+load_dotenv(os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), '.env'))
 
 _service_account_path = ''
 _env_key = os.getenv('FIREBASE_SERVICE_ACCOUNT_KEY', '')
@@ -66,7 +69,7 @@ def get_firestore_client():
         return None
     try:
         firebase_admin.initialize_app(cred, {
-            'projectId': os.getenv('FIREBASE_PROJECT_ID', 'timi-ai-tech'),
+            'projectId': os.getenv('FIREBASE_PROJECT_ID', 'timi-childern-stories'),
         })
     except ValueError as e:
         print(f"[FIRESTORE] Firebase init failed: {e}")
@@ -122,6 +125,11 @@ def update_agent_status(agent_id: str, status: str, action: str = "", error_mess
     print(f"[FIRESTORE] Agent '{agent_id}' status: {status} - {action}")
 
 
+def _activity_doc_id(agent_id: str) -> str:
+    import random
+    return f"{agent_id}_{int(time.time() * 1000)}_{random.randint(1000, 9999)}"
+
+
 def log_activity(agent_id: str, message: str, level: str = "info"):
     """Add activity log to Firestore for the activity feed."""
     print(json.dumps({"timestamp": datetime.utcnow().isoformat(), "level": level.upper(), "agent": agent_id, "message": message, "type": "activity"}))
@@ -130,7 +138,7 @@ def log_activity(agent_id: str, message: str, level: str = "info"):
         return
 
     def _do():
-        db.collection('activity_logs').add({
+        db.collection('activity_logs').document(_activity_doc_id(agent_id)).set({
             'agent_id': agent_id,
             'message': message,
             'level': level,
@@ -167,7 +175,9 @@ def update_pipeline_status(running: bool, current_video: str = "", paused_by_use
             'last_updated': firestore.SERVER_TIMESTAMP,
         }
         if running:
-            data['started_at'] = firestore.SERVER_TIMESTAMP
+            current = doc_ref.get().to_dict() if doc_ref.get().exists else {}
+            if not current or not current.get('started_at'):
+                data['started_at'] = firestore.SERVER_TIMESTAMP
         doc_ref.set(data, merge=True)
     _retry_firestore("Pipeline status update", _do)
 
