@@ -330,7 +330,7 @@ export function ActivePipeline() {
               </p>
               {!pipeline.paused_by_user && (
                 <p className="text-xs text-light-muted/60 dark:text-dark-muted/60">
-                  Or start one manually using "Run Pipeline" above.
+                  Or start one manually using &quot;Run Pipeline&quot; above.
                 </p>
               )}
             </div>
