@@ -3,6 +3,7 @@ import sys
 import json
 import re
 import asyncio
+import signal
 import time
 import warnings
 import logging
@@ -1583,12 +1584,17 @@ def scheduled_publish_job():
 def cleanup_stuck_state():
     """Reset stale pipeline state on startup. Recovers from crashes."""
     log_event("SYSTEM", "Resetting agent status...")
-    for agent_id in AGENT_MAP.values():
-        try:
-            update_agent_status(agent_id, "idle", "Ready")
-        except Exception as e:
-            log_event("SYSTEM", f"Failed to reset {agent_id}: {e}", "error")
-    log_event("SYSTEM", "All agents reset to idle")
+    try:
+        from utils.firebase_status import reset_agent_statuses
+        n = reset_agent_statuses()
+        log_event("SYSTEM", f"Reset {n} stale agent statuses (crash recovery)")
+    except Exception as e:
+        log_event("SYSTEM", f"Agent status reset failed: {e}", "error")
+        for agent_id in AGENT_MAP.values():
+            try:
+                update_agent_status(agent_id, "idle", "Ready")
+            except Exception as e2:
+                log_event("SYSTEM", f"Failed to reset {agent_id}: {e2}", "error")
 
     # Reset stale pipeline.running flag (left true by a crash)
     try:
@@ -1712,10 +1718,25 @@ if __name__ == "__main__":
     log_event("SCHEDULER", "Weekly monetization review scheduled on Mondays at 12:00 UTC")
     log_event("SCHEDULER", "Daily analytics feedback loop scheduled at 10:00 UTC")
 
+    def _shutdown():
+        if getattr(_shutdown, "_called", False):
+            return
+        _shutdown._called = True
+        from utils.firebase_status import reset_agent_statuses
+        reset_agent_statuses()
+        update_pipeline_status(False)
+        log_event("SYSTEM", "Pipeline stopped — agent statuses reset")
+        control_listener.stop()
+
+    signal.signal(signal.SIGTERM, lambda *_: (_shutdown(), sys.exit(0)))
+    signal.signal(signal.SIGINT, lambda *_: (_shutdown(), sys.exit(0)))
+
     try:
         daily_content_job()
         scheduler.start()
     except (KeyboardInterrupt, SystemExit):
         log_event("SYSTEM", "Agent Orchestrator Shutting Down")
-        control_listener.stop()
-        update_pipeline_status(False)
+    except Exception as e:
+        log_event("SYSTEM", f"Pipeline crashed: {e}", "error")
+    finally:
+        _shutdown()
