@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useRef } from 'react';
 import { auth } from '@/lib/firebase';
 import { onAuthStateChanged } from 'firebase/auth';
 import { useRouter } from 'next/navigation';
@@ -11,21 +11,31 @@ import Image from 'next/image';
 export default function Home() {
   const router = useRouter();
   const [checking, setChecking] = useState(true);
+  const redirectedRef = useRef(false);
 
   useEffect(() => {
-    const unsubscribe = onAuthStateChanged(auth, (user) => {
-      if (user) {
-        router.replace('/dashboard');
-      } else {
-        router.replace('/login');
-      }
+    const redirectTo = (path: string) => {
+      if (redirectedRef.current) return;
+      redirectedRef.current = true;
+      router.replace(path);
       setChecking(false);
+    };
+
+    const timer = setTimeout(() => redirectTo('/login'), 5000);
+
+    const unsubscribe = onAuthStateChanged(auth, (user) => {
+      clearTimeout(timer);
+      redirectTo(user ? '/dashboard' : '/login');
     }, (error) => {
       console.error('Auth error:', error);
-      router.replace('/login');
-      setChecking(false);
+      clearTimeout(timer);
+      redirectTo('/login');
     });
-    return () => unsubscribe();
+
+    return () => {
+      unsubscribe();
+      clearTimeout(timer);
+    };
   }, [router]);
 
   if (checking) {
