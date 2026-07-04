@@ -3,5 +3,11 @@
   "outputDirectory": "dashboard/.next",
   "installCommand": "cd dashboard && npm install",
   "regions": ["iad1"],
-  "nodeVersion": "20.x"
+  "nodeVersion": "20.x",
+  "build": {
+    "env": {
+      "NEXT_PUBLIC_APP_URL": "https://timi.vyomai.cloud",
+      "NEXT_PUBLIC_APP_NAME": "Vyom Ai Cloud"
+    }
+  }
 }
