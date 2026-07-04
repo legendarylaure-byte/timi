@@ -1,15 +1,16 @@
 import os
-import subprocess
 import shutil
 from pathlib import Path
 from datetime import datetime
 from typing import Optional
+from utils.subprocess_helper import register_temp_dir, safe_run, safe_run_bool
 
 COMPILATION_DIR = Path(__file__).parent.parent / "output" / "compilations"
 COMPILATION_DIR.mkdir(parents=True, exist_ok=True)
 
 TEMP_DIR = Path(__file__).parent.parent / "tmp" / "compilation"
 TEMP_DIR.mkdir(parents=True, exist_ok=True)
+register_temp_dir(str(TEMP_DIR))
 
 
 def _find_executable(name: str) -> str:
@@ -88,7 +89,7 @@ def create_compilation(
            "-pix_fmt", "yuv420p", "-c:a", "aac", "-b:a", "128k", output_path]
 
     try:
-        result = subprocess.run(cmd, capture_output=True, text=True, timeout=600)
+        result = safe_run(cmd, timeout=600)
         if result.returncode == 0 and os.path.exists(output_path):
             duration = _get_duration(output_path)
             size_mb = os.path.getsize(output_path) / (1024 * 1024)
@@ -112,10 +113,10 @@ def create_compilation(
 
 def _get_duration(file_path: str) -> float:
     try:
-        result = subprocess.run(
+        result = safe_run(
             [_FFPROBE, "-v", "error", "-show_entries", "format=duration",
              "-of", "default=noprint_wrappers=1:nokey=1", file_path],
-            capture_output=True, text=True, timeout=10
+            timeout=10
         )
         return float(result.stdout.strip())
     except Exception:
@@ -132,7 +133,7 @@ def _ensure_format(input_path: str, output_path: str, target_format: str) -> boo
         "-c:a", "aac", "-b:a", "128k", "-pix_fmt", "yuv420p", output_path,
     ]
     try:
-        return subprocess.run(cmd, capture_output=True, text=True, timeout=120).returncode == 0
+        return safe_run_bool(cmd, timeout=120)
     except Exception:
         return False
 
@@ -145,7 +146,7 @@ def _generate_transition(temp_dir: Path, idx: int) -> str:
         "-pix_fmt", "yuv420p", "-an", transition_path,
     ]
     try:
-        subprocess.run(cmd, capture_output=True, text=True, timeout=30)
+        safe_run(cmd, timeout=30)
         if os.path.exists(transition_path):
             return transition_path
     except Exception:

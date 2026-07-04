@@ -1,3 +1,4 @@
+from utils.subprocess_helper import safe_run
 from pydantic import BaseModel, field_validator
 from typing import List, Optional
 
@@ -58,12 +59,11 @@ def validate_script_content(content: str) -> bool:
 
 
 def validate_video_duration(file_path: str, format_type: str) -> bool:
-    import subprocess
     try:
-        result = subprocess.run(
+        result = safe_run(
             ["ffprobe", "-v", "error", "-show_entries", "format=duration",
              "-of", "default=noprint_wrappers=1:nokey=1", file_path],
-            capture_output=True, text=True, timeout=15
+            timeout=15
         )
         duration = float(result.stdout.strip())
         max_dur = 120 if format_type == "shorts" else 300

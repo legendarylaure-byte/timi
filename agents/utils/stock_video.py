@@ -3,7 +3,7 @@ import time
 import threading
 import shutil
 import requests
-import subprocess
+from utils.subprocess_helper import safe_run
 from pathlib import Path
 from typing import Optional
 from dotenv import load_dotenv
@@ -252,10 +252,10 @@ def _ffprobe_cmd() -> str:
 
 def get_video_duration(file_path: str) -> float:
     try:
-        result = subprocess.run(
+        result = safe_run(
             [_ffprobe_cmd(), "-v", "error", "-show_entries", "format=duration",
              "-of", "default=noprint_wrappers=1:nokey=1", file_path],
-            capture_output=True, text=True, timeout=10
+            timeout=10
         )
         return float(result.stdout.strip())
     except Exception:

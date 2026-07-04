@@ -69,6 +69,15 @@ jobs:
       LTX_LOW_RAM: true
       ENABLE_DIRECTOR_REVIEW: true
       HF_TOKEN: ${{ secrets.HF_TOKEN }}
+      VOICE_PROVIDER: edge
+      ENABLE_AUTO_REPLY: true
+      ENABLE_UPSCALE: false
+      ENABLE_COMMUNITY_POSTS: false
+      GATE_ENFORCEMENT_MODE: advisory
+      FORCE_PUBLISH: false
+      MIN_VIRALITY_SCORE: 40
+      MIN_VIRALITY_SCORE_LONG: 30
+      USE_ANIMATION_ENGINE: true
       FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
 
     steps:

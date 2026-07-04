@@ -2,9 +2,9 @@ import os
 import json
 import logging
 import shutil
-import subprocess as _subprocess
 import tempfile
 from pathlib import Path
+from utils.subprocess_helper import register_temp_dir, safe_run_bool
 
 logger = logging.getLogger(__name__)
 
@@ -17,6 +17,7 @@ def _get_temp_dir() -> Path:
     global _TEMP_DIR
     if _TEMP_DIR is None:
         _TEMP_DIR = Path(tempfile.mkdtemp(prefix="shorts_render_"))
+        register_temp_dir(str(_TEMP_DIR))
     return _TEMP_DIR
 
 
@@ -67,14 +68,9 @@ def chop_segment(input_video: str, start_sec: float, duration: float, output_pat
         "-avoid_negative_ts", "make_zero",
         output_path,
     ]
-    try:
-        result = _subprocess.run(cmd, capture_output=True, text=True, timeout=120)
-        if result.returncode == 0 and os.path.exists(output_path) and os.path.getsize(output_path) > 1000:
-            return True
-        logger.warning("Chop failed: %s", result.stderr[:200])
-    except Exception as e:
-        logger.warning("Chop error: %s", e)
-    return False
+    if not safe_run_bool(cmd, timeout=120):
+        return False
+    return os.path.exists(output_path) and os.path.getsize(output_path) > 1000
 
 
 def reformat_to_shorts(input_path: str, hook_text: str, output_path: str,
@@ -123,14 +119,9 @@ def reformat_to_shorts(input_path: str, hook_text: str, output_path: str,
         "-c:a", "aac", "-b:a", "192k",
         "-pix_fmt", "yuv420p", output_path,
     ]
-    try:
-        result = _subprocess.run(cmd, capture_output=True, text=True, timeout=300)
-        if result.returncode == 0 and os.path.exists(output_path) and os.path.getsize(output_path) > 1000:
-            return True
-        logger.warning("Reformat failed: %s", result.stderr[:300])
-    except Exception as e:
-        logger.warning("Reformat error: %s", e)
-    return False
+    if not safe_run_bool(cmd, timeout=300):
+        return False
+    return os.path.exists(output_path) and os.path.getsize(output_path) > 1000
 
 
 def _generate_segment_subtitles(phrase_timings: list[dict], start_ms: float, end_ms: float,

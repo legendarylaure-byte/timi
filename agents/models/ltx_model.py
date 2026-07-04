@@ -3,11 +3,11 @@ import sys
 import json
 import time
 import logging
-import subprocess
 import tempfile
 import importlib.util
 from pathlib import Path
 
+from utils.subprocess_helper import safe_run
 from models.base_video_model import BaseVideoModel
 
 logger = logging.getLogger(__name__)
@@ -127,13 +127,14 @@ class LtxVideoModel(BaseVideoModel):
 
         try:
             logger.info("[LTX] Batch generating %d scenes (model loads once)", len(scenes))
-            result = subprocess.run(
+            result = safe_run(
                 [sys.executable, worker_path, config_path],
-                capture_output=True, text=True, timeout=7200,
+                timeout=7200, capture_output=True, text=True,
             )
             if result.returncode == 0:
+                stdout = result.stdout
                 outputs = []
-                for line in result.stdout.strip().split("\n"):
+                for line in stdout.strip().split("\n"):
                     if not line:
                         continue
                     try:
@@ -153,8 +154,6 @@ class LtxVideoModel(BaseVideoModel):
             else:
                 logger.warning("[LTX] Batch process failed (rc=%d): %s",
                                result.returncode, result.stderr[:300])
-        except subprocess.TimeoutExpired:
-            logger.error("[LTX] Batch generation timed out (7200s)")
         except Exception as e:
             logger.error("[LTX] Batch generation error: %s", e)
         finally:
@@ -207,9 +206,8 @@ class LtxVideoModel(BaseVideoModel):
         try:
             logger.info("[LTX] Generating: '%s' (%d frames, %ds)",
                         prompt[:60], num_frames, int(num_frames / 24))
-            result = subprocess.run(
-                cmd, capture_output=True, text=True, timeout=1800,
-                close_fds=True,
+            result = safe_run(
+                cmd, timeout=1800, capture_output=True, text=True,
             )
             if result.returncode == 0:
                 return True

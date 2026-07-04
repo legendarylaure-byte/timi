@@ -1,14 +1,16 @@
 """
 Multi-Platform Publisher Agent
-Handles uploads to YouTube, TikTok, Instagram, and Facebook.
+Handles uploads to YouTube, TikTok, Instagram, and Facebook with retry, idempotency, and token refresh.
 Run: python -m agents.scripts.publisher --title "..." --video_path "..." --platforms youtube,tiktok
 """
 import os
+import uuid
 from datetime import datetime
 from utils.firebase_status import get_firestore_client, log_activity, update_video_record
 from compliance.ai_disclosure import get_ai_disclosure
 from utils.sanitize import safe_log
 from utils.platform_captions import optimize_for_platform
+from utils.subprocess_helper import retry_with_backoff, rate_limiter, security_audit
 
 PLATFORMS = {
     'youtube': {
@@ -40,6 +42,69 @@ PLATFORMS = {
         'endpoint': 'https://graph.facebook.com/v25.0/{page_id}/videos',
     },
 }
+
+
+def _refresh_tiktok_token() -> str | None:
+    """Refresh TikTok access token. Returns new token or None."""
+    refresh_token = os.getenv('TIKTOK_REFRESH_TOKEN')
+    client_key = os.getenv('TIKTOK_CLIENT_KEY')
+    client_secret = os.getenv('TIKTOK_CLIENT_SECRET')
+    if not refresh_token or not client_key or not client_secret:
+        return None
+    try:
+        import requests
+        resp = requests.post(
+            'https://open.tiktokapis.com/v2/oauth/token/',
+            data={
+                'client_key': client_key,
+                'client_secret': client_secret,
+                'grant_type': 'refresh_token',
+                'refresh_token': refresh_token,
+            },
+            timeout=15,
+        )
+        if resp.status_code == 200:
+            data = resp.json()
+            new_token = data.get('access_token')
+            if new_token:
+                os.environ['TIKTOK_ACCESS_TOKEN'] = new_token
+                return new_token
+        return None
+    except Exception:
+        return None
+
+
+def _refresh_facebook_token() -> str | None:
+    """Extend Facebook access token lifetime. Returns new token or None."""
+    token = os.getenv('FACEBOOK_ACCESS_TOKEN')
+    app_id = os.getenv('FACEBOOK_APP_ID')
+    app_secret = os.getenv('FACEBOOK_APP_SECRET')
+    if not token or not app_id or not app_secret:
+        return None
+    try:
+        import requests
+        resp = requests.get(
+            'https://graph.facebook.com/v25.0/oauth/access_token',
+            params={
+                'grant_type': 'fb_exchange_token',
+                'client_id': app_id,
+                'client_secret': app_secret,
+                'fb_exchange_token': token,
+            },
+            timeout=15,
+        )
+        if resp.status_code == 200:
+            new_token = resp.json().get('access_token')
+            if new_token:
+                os.environ['FACEBOOK_ACCESS_TOKEN'] = new_token
+                return new_token
+        return None
+    except Exception:
+        return None
+
+
+def _idempotency_key() -> str:
+    return str(uuid.uuid4())
 
 
 def upload_to_platform(platform: str, title: str, description: str, video_path: str, thumbnail_path: str, format_type: str = 'shorts', publish_at: str = None) -> dict:  # noqa: E501
@@ -111,7 +176,11 @@ def _upload_youtube(title: str, description: str, video_path: str, thumbnail_pat
 
 
 def _upload_tiktok(title: str, video_path: str, format_type: str) -> dict:
-    """Upload to TikTok via Content Posting API v2."""
+    """Upload to TikTok via Content Posting API v2 with retry, rate limit, idempotency."""
+    if not rate_limiter("tiktok_upload", max_per_hour=5):
+        security_audit("RATE_LIMIT", "TikTok upload rate limit hit", "warning")
+        return {'success': False, 'platform': 'tiktok', 'error': 'TikTok upload rate limit reached (max 5/hour)'}
+
     access_token = os.getenv('TIKTOK_ACCESS_TOKEN')
     open_id = os.getenv('TIKTOK_OPEN_ID')
     if not access_token or not open_id:
@@ -124,10 +193,12 @@ def _upload_tiktok(title: str, video_path: str, format_type: str) -> dict:
     if not os.path.exists(video_path):
         return {'success': False, 'platform': 'tiktok', 'error': f'Video file not found: {video_path}'}
 
-    try:
+    def _do_upload():
+        nonlocal access_token
         import requests
 
         file_size = os.path.getsize(video_path)
+        idem_key = _idempotency_key()
 
         init_resp = requests.post(
             'https://open.tiktokapis.com/v2/post/publish/video/init/',
@@ -143,30 +214,27 @@ def _upload_tiktok(title: str, video_path: str, format_type: str) -> dict:
             timeout=30,
         )
 
+        if init_resp.status_code == 401:
+            refreshed = _refresh_tiktok_token()
+            if refreshed:
+                access_token = refreshed
+                return _do_upload()
+
         if init_resp.status_code != 200:
-            return {
-                'success': False, 'platform': 'tiktok',
-                'error': f'Init failed: {init_resp.status_code} {init_resp.text}',
-            }
+            raise RuntimeError(f'TikTok init failed: {init_resp.status_code}')
 
         init_data = init_resp.json()
         upload_url = init_data.get('data', {}).get('upload_url')
         publish_id = init_data.get('data', {}).get('publish_id')
 
         if not upload_url:
-            return {
-                'success': False, 'platform': 'tiktok',
-                'error': 'No upload URL in init response',
-            }
+            raise RuntimeError('No upload URL in TikTok init response')
 
         with open(video_path, 'rb') as f:
             upload_resp = requests.put(upload_url, data=f, timeout=300)
 
         if upload_resp.status_code not in (200, 201):
-            return {
-                'success': False, 'platform': 'tiktok',
-                'error': f'Upload failed: {upload_resp.status_code}',
-            }
+            raise RuntimeError(f'TikTok file upload failed: {upload_resp.status_code}')
 
         ai_flags = get_ai_disclosure("tiktok")
         publish_payload = {
@@ -184,7 +252,11 @@ def _upload_tiktok(title: str, video_path: str, format_type: str) -> dict:
 
         publish_resp = requests.post(
             'https://open.tiktokapis.com/v2/post/publish/video/publish/',
-            headers={'Authorization': f'Bearer {access_token}', 'Content-Type': 'application/json'},
+            headers={
+                'Authorization': f'Bearer {access_token}',
+                'Content-Type': 'application/json',
+                'Idempotency-Key': idem_key,
+            },
             json=publish_payload,
             timeout=30,
         )
@@ -199,19 +271,30 @@ def _upload_tiktok(title: str, video_path: str, format_type: str) -> dict:
                 'status': 'published',
             }
         else:
-            return {
-                'success': False, 'platform': 'tiktok',
-                'error': f'Publish failed: {publish_resp.status_code} {publish_resp.text}',
-            }
+            raise RuntimeError(f'TikTok publish failed: {publish_resp.status_code}')
 
+    try:
+        ok, result = retry_with_backoff(_do_upload, max_retries=3, base_delay=5, max_delay=60)
+        if ok:
+            return result
+        security_audit("UPLOAD_FAILED", f"TikTok — {safe_log(str(result)[:200])}", "error")
+        return {
+            'success': False, 'platform': 'tiktok',
+            'error': safe_log(str(result)),
+        }
     except ImportError:
         return {'success': False, 'platform': 'tiktok', 'error': 'Missing requests library'}
     except Exception as e:
-        return {'success': False, 'platform': 'tiktok', 'error': str(e)}
+        security_audit("UPLOAD_FAILED", f"TikTok — {safe_log(str(e)[:200])}", "error")
+        return {'success': False, 'platform': 'tiktok', 'error': safe_log(str(e))}
 
 
 def _upload_instagram(title: str, video_path: str, format_type: str) -> dict:
-    """Upload to Instagram via Graph API."""
+    """Upload to Instagram via Graph API with retry, rate limit, token refresh."""
+    if not rate_limiter("instagram_upload", max_per_hour=5):
+        security_audit("RATE_LIMIT", "Instagram upload rate limit hit", "warning")
+        return {'success': False, 'platform': 'instagram', 'error': 'Instagram upload rate limit reached (max 5/hour)'}
+
     access_token = os.getenv('FACEBOOK_ACCESS_TOKEN')
     ig_account_id = os.getenv('INSTAGRAM_ACCOUNT_ID')
     if not access_token or not ig_account_id:
@@ -231,7 +314,8 @@ def _upload_instagram(title: str, video_path: str, format_type: str) -> dict:
                 'error': 'Instagram Graph API requires a public URL. Set INSTAGRAM_VIDEO_URL env var or pass a URL.',
             }
 
-    try:
+    def _do_upload():
+        nonlocal access_token
         import requests
 
         media_type = 'REELS' if format_type == 'shorts' else 'VIDEO'
@@ -253,22 +337,22 @@ def _upload_instagram(title: str, video_path: str, format_type: str) -> dict:
             timeout=30,
         )
 
+        if create_resp.status_code == 401:
+            refreshed = _refresh_facebook_token()
+            if refreshed:
+                access_token = refreshed
+                return _do_upload()
+
         if create_resp.status_code != 200:
-            return {
-                'success': False, 'platform': 'instagram',
-                'error': f'Media creation failed: {create_resp.status_code} {create_resp.text}',
-            }
+            raise RuntimeError(f'Instagram media creation failed: {create_resp.status_code}')
 
         creation_id = create_resp.json().get('id')
         if not creation_id:
-            return {
-                'success': False, 'platform': 'instagram',
-                'error': 'No media creation ID returned',
-            }
+            raise RuntimeError('No media creation ID from Instagram')
 
         import time
-        max_retries = 12
-        for attempt in range(max_retries):
+        poll_attempts = 12
+        for attempt in range(poll_attempts):
             status_resp = requests.get(
                 f'https://graph.facebook.com/v25.0/{creation_id}',
                 params={'access_token': access_token, 'fields': 'status_code'},
@@ -279,15 +363,13 @@ def _upload_instagram(title: str, video_path: str, format_type: str) -> dict:
                 if status_code == 'FINISHED':
                     break
                 elif status_code == 'ERROR':
-                    return {
-                        'success': False, 'platform': 'instagram',
-                        'error': 'Media processing failed on Instagram',
-                    }
+                    raise RuntimeError('Instagram media processing failed')
             time.sleep(2)
 
+        idem_key = _idempotency_key()
         publish_resp = requests.post(
             f'https://graph.facebook.com/v25.0/{ig_account_id}/media_publish',
-            params={'access_token': access_token, 'creation_id': creation_id},
+            params={'access_token': access_token, 'creation_id': creation_id, 'idempotency_key': idem_key},
             timeout=30,
         )
 
@@ -302,19 +384,30 @@ def _upload_instagram(title: str, video_path: str, format_type: str) -> dict:
                 'status': 'published',
             }
         else:
-            return {
-                'success': False, 'platform': 'instagram',
-                'error': f'Publish failed: {publish_resp.status_code} {publish_resp.text}',
-            }
+            raise RuntimeError(f'Instagram publish failed: {publish_resp.status_code}')
 
+    try:
+        ok, result = retry_with_backoff(_do_upload, max_retries=3, base_delay=5, max_delay=60)
+        if ok:
+            return result
+        security_audit("UPLOAD_FAILED", f"Instagram — {safe_log(str(result)[:200])}", "error")
+        return {
+            'success': False, 'platform': 'instagram',
+            'error': safe_log(str(result)),
+        }
     except ImportError:
         return {'success': False, 'platform': 'instagram', 'error': 'Missing requests library'}
     except Exception as e:
-        return {'success': False, 'platform': 'instagram', 'error': str(e)}
+        security_audit("UPLOAD_FAILED", f"Instagram — {safe_log(str(e)[:200])}", "error")
+        return {'success': False, 'platform': 'instagram', 'error': safe_log(str(e))}
 
 
 def _upload_facebook(title: str, description: str, video_path: str) -> dict:
-    """Upload to Facebook via Graph API."""
+    """Upload to Facebook via Graph API with retry, rate limit, token refresh."""
+    if not rate_limiter("facebook_upload", max_per_hour=5):
+        security_audit("RATE_LIMIT", "Facebook upload rate limit hit", "warning")
+        return {'success': False, 'platform': 'facebook', 'error': 'Facebook upload rate limit reached (max 5/hour)'}
+
     access_token = os.getenv('FACEBOOK_ACCESS_TOKEN')
     page_id = os.getenv('FACEBOOK_PAGE_ID')
     if not access_token or not page_id:
@@ -327,25 +420,24 @@ def _upload_facebook(title: str, description: str, video_path: str) -> dict:
     if not os.path.exists(video_path):
         return {'success': False, 'platform': 'facebook', 'error': f'Video file not found: {video_path}'}
 
-    try:
+    def _do_upload():
+        nonlocal access_token
         import requests
 
         file_size = os.path.getsize(video_path)
-        if file_size > 100 * 1024 * 1024:
-            upload_method = 'resumable'
-        else:
-            upload_method = 'direct'
+        upload_method = 'resumable' if file_size > 100 * 1024 * 1024 else 'direct'
 
         ai_flags = get_ai_disclosure("facebook")
         fb_description = description
         if ai_flags.get("caption_hashtag"):
-            fb_description += f"\n\n{ai_flags['caption_hashtag'] }"
+            fb_description += f"\n\n{ai_flags['caption_hashtag']}"
 
         if upload_method == 'direct':
+            idem_key = _idempotency_key()
             with open(video_path, 'rb') as f:
                 upload_resp = requests.post(
                     f'https://graph.facebook.com/v25.0/{page_id}/videos',
-                    params={'access_token': access_token},
+                    params={'access_token': access_token, 'idempotency_key': idem_key},
                     files={'source': f},
                     data={
                         'title': title,
@@ -354,6 +446,12 @@ def _upload_facebook(title: str, description: str, video_path: str) -> dict:
                     },
                     timeout=600,
                 )
+
+            if upload_resp.status_code == 401:
+                refreshed = _refresh_facebook_token()
+                if refreshed:
+                    access_token = refreshed
+                    return _do_upload()
 
             if upload_resp.status_code == 200:
                 video_id = upload_resp.json().get('id')
@@ -366,10 +464,7 @@ def _upload_facebook(title: str, description: str, video_path: str) -> dict:
                     'status': 'published',
                 }
             else:
-                return {
-                    'success': False, 'platform': 'facebook',
-                    'error': f'Upload failed: {upload_resp.status_code} {upload_resp.text}',
-                }
+                raise RuntimeError(f'Facebook direct upload failed: {upload_resp.status_code}')
         else:
             init_resp = requests.post(
                 f'https://graph.facebook.com/v25.0/{page_id}/videos',
@@ -383,19 +478,20 @@ def _upload_facebook(title: str, description: str, video_path: str) -> dict:
                 timeout=30,
             )
 
+            if init_resp.status_code == 401:
+                refreshed = _refresh_facebook_token()
+                if refreshed:
+                    access_token = refreshed
+                    return _do_upload()
+
             if init_resp.status_code != 200:
-                return {
-                    'success': False, 'platform': 'facebook',
-                    'error': f'Resumable init failed: {init_resp.status_code} {init_resp.text}',
-                }
+                raise RuntimeError(f'Facebook resumable init failed: {init_resp.status_code}')
 
             upload_session_id = init_resp.json().get('upload_session_id')
             if not upload_session_id:
-                return {
-                    'success': False, 'platform': 'facebook',
-                    'error': 'No upload session ID returned',
-                }
+                raise RuntimeError('No upload session ID from Facebook')
 
+            idem_key = _idempotency_key()
             with open(video_path, 'rb') as f:
                 chunk_resp = requests.post(
                     f'https://graph.facebook.com/v25.0/{page_id}/videos',
@@ -404,6 +500,7 @@ def _upload_facebook(title: str, description: str, video_path: str) -> dict:
                         'upload_phase': 'transfer',
                         'upload_session_id': upload_session_id,
                         'start_offset': '0',
+                        'idempotency_key': idem_key,
                     },
                     files={'source': f},
                     timeout=600,
@@ -420,15 +517,22 @@ def _upload_facebook(title: str, description: str, video_path: str) -> dict:
                     'status': 'published',
                 }
             else:
-                return {
-                    'success': False, 'platform': 'facebook',
-                    'error': f'Resumable upload failed: {chunk_resp.status_code} {chunk_resp.text}',
-                }
+                raise RuntimeError(f'Facebook resumable upload failed: {chunk_resp.status_code}')
 
+    try:
+        ok, result = retry_with_backoff(_do_upload, max_retries=3, base_delay=5, max_delay=60)
+        if ok:
+            return result
+        security_audit("UPLOAD_FAILED", f"Facebook — {safe_log(str(result)[:200])}", "error")
+        return {
+            'success': False, 'platform': 'facebook',
+            'error': safe_log(str(result)),
+        }
     except ImportError:
         return {'success': False, 'platform': 'facebook', 'error': 'Missing requests library'}
     except Exception as e:
-        return {'success': False, 'platform': 'facebook', 'error': str(e)}
+        security_audit("UPLOAD_FAILED", f"Facebook — {safe_log(str(e)[:200])}", "error")
+        return {'success': False, 'platform': 'facebook', 'error': safe_log(str(e))}
 
 
 def multi_platform_publish(video_id: str, title: str, description: str, video_path: str,

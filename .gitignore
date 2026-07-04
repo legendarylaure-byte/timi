@@ -42,6 +42,10 @@ agents/*.pid
 youtube_token.json
 keys/
 
+# Real-ESRGAN model binaries (downloaded at runtime)
+agents/bin/*.bin
+agents/bin/*.param
+
 # Docker
 agents/.venv-docker/
 docker-data/

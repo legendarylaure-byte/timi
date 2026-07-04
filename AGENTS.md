@@ -62,9 +62,69 @@
 - **virality_analyst.py** — script content 2000→4000 chars; format-type threshold (`MIN_VIRALITY_SCORE_LONG=30`); `get_virality_threshold(format_type)`
 - **scriptwriter/thumbnail/metadata.py** — `format`→`fmt` to avoid shadowing built-in
 
+## D9: Phase 1 — Crash & Resource-Leak Prevention (10 fixes, 5 files)
+- **requirements.txt** — added `torch>=2.0.0` (fixes PyTorch missing warning at import time)
+- **main.py** (7 fixes):
+  - `MAX_RETRIES_PER_TOPIC` env var now actually wired into `run_agent_step()` (was hardcoded to 2)
+  - `_strip_ansi(None)` guard: `if raw` before `.strip()` call (crashed on `None`)
+  - `len(raw) > 20` → `len(raw.strip()) > 0` — valid short JSON (e.g. `{"score":5}`) no longer discarded
+  - `_extract_json()` safe default: `block`/`0` not `approve`/`75` — bad JSON no longer auto-passes all gates
+  - Both compliance blocks (short + long) fully rewritten: `is_safe` not `has_issues`, `detail` not `message`, `high` not `error` — content safety is now live
+  - Both compliance blocks wrapped in try/except — crashes no longer kill the pipeline
+  - `video_result.get("video_path", "")` at 4 call sites — KeyError no longer kills pipeline
+  - `scheduled_publish_job`: removed `update_metrics(video_id, views=0)` — no longer zeroes existing view counts
+  - `daily_content_job()` removed from startup path — scheduler handles it; prevents duplicate content when startup is near 06:00 UTC
+  - `verify_video_quality()`: `Popen`+`communicate(timeout=30)` instead of `run` — orphan killed on timeout
+  - `FORCE_PUBLISH` override now actually calls `generate_short_video`/`generate_long_video` instead of just logging
+- **run_pipeline.py** (2 fixes):
+  - `load_dotenv()` added at top (was missing — env vars not loaded)
+  - Signal handlers: named function + re-entrancy guard (`_cleaned_up` global) + try/except — no crashes on SIGINT/SIGTERM
+- **models/ltx_model.py** (2 fixes):
+  - Single generation: `Popen`+`communicate(timeout=1800)` → `process.kill()` on `TimeoutExpired`
+  - Batch generation: `Popen`+`communicate(timeout=7200)` → `process.kill()` on `TimeoutExpired`
+- **models/ltx_batch.py** (1 fix):
+  - Latents moved to CPU (numpy) immediately after generation — `mx.eval()` + `np.array()` per scene, freeing GPU memory before next scene starts. Prevents OOM when generating 15+ scenes with ~2.25GB of latent data
+- **utils/shorts_renderer.py** (2 fixes):
+  - `chop_segment()`: `Popen`+`communicate(timeout=120)` → `process.kill()` on timeout
+  - `reformat_to_shorts()`: `Popen`+`communicate(timeout=300)` → `process.kill()` on timeout
+
+## D10: Phase 2 — Subprocess Safety, Upload Resiliency, Token Refresh (7 files, 1 new)
+- **utils/subprocess_helper.py** (NEW) — `safe_run()` (Popen+communicate+kill on timeout, backwards-compat with `subprocess.run`), `safe_run_bool()` (return bool), `retry_with_backoff()` (exponential backoff + jitter, 3 retries), `register_temp_dir()` + `atexit` cleanup
+- **ALL 7 files with subprocess.run** (video_compositor, compilation_gen, upscaler, stock_video, manim_renderer, validators, thumbnail_gen) — 24+ calls converted from `subprocess.run(timeout=N)` → `safe_run()`/`safe_run_bool()`; orphan processes killed on TimeoutExpired
+- **utils/multi_platform_publisher.py** (3 uploads upgraded):
+  - TikTok: retry_with_backoff (3 attempts, 5-60s), 401→auto-refresh via `_refresh_tiktok_token()`, idempotency key on publish
+  - Instagram: retry_with_backoff (3 attempts), 401→auto-refresh via `_refresh_facebook_token()`, idempotency key on publish
+  - Facebook: retry_with_backoff (3 attempts), 401→auto-refresh via `_refresh_facebook_token()`, idempotency key on direct+resumable
+  - All error messages wrapped in `safe_log()` (redacts tokens/secrets)
+- **Temp file lifecycle**: `register_temp_dir()` called in shorts_renderer, video_compositor, compilation_gen, upscaler. `_cleanup_all_temp()` called in `main.py:_shutdown()` and `run_pipeline.py:_cleanup()`. Plus `atexit` fallback.
+
+## D11: Phase 3 — Security, Gate Enforcement, Rate Limiting (4 files)
+- **utils/subprocess_helper.py** (enhanced):
+  - `get_safe_env()` — returns env copy with TOKEN/SECRET/KEY vars stripped; `safe_run`/`safe_run_bool` use it by default, preventing token leakage to subprocesses
+  - `security_audit()` — dual log (logger + `logs/security_audit.log`) for auth failures, gate blocks, token refreshes
+  - `rate_limiter()` — in-memory sliding-window rate limiter per key (e.g. max 5 uploads/hour/platform)
+- **utils/video_compositor.py** — removed `_get_env()` (was passing full `os.environ.copy()` to subprocess); env isolation now handled by `safe_run` default
+- **utils/multi_platform_publisher.py** — all 3 uploads now rate-limited (5/hr) + `security_audit()` on failures
+- **main.py** (10+ gate sites):
+  - `GATE_ENFORCEMENT_MODE` env var (`advisory`|`enforce`) — `_gate_check()` helper wired into all 5 advisory gates × 2 format paths: quality scoring, virality, director script/storyboard/final review, review gate
+  - Advisory mode (default): existing behavior — logs warnings, continues
+  - Enforce mode: blocks pipeline when gates reject content, records `blocked_<gate>` status in Firestore
+  - `validate_env()` at startup — warns on missing critical + optional env vars
+   - `security_audit("STARTUP")` logs enforcement mode on boot
+
+## D12: Phase 4 — Observability & Metrics (1 file)
+- **main.py** (6 changes):
+  - `log_event()` now writes to `logs/pipeline.log` in addition to stdout — pipeline events survive crashes
+  - `_setup_logging()` — configures Python `logging` with file handler (`logs/python.log`) + stream handler; called at startup before `validate_env()`
+  - `_track_pipeline_duration()` — writes duration/success/format/topic per pipeline run to Firestore `pipeline_metrics` collection
+  - `_track_step()` — context manager for measuring individual pipeline stage durations (e.g. scriptwriting, storyboarding, publishing)
+  - Duration tracking in both `generate_short_video()` and `generate_long_video()` — `_start_time`/`_elapsed` recorded on success and failure paths, both persist to Firestore
+  - Sentry enrichment: `sentry_sdk.set_tag()` for `video_id`/`format`/`category`, `sentry_sdk.add_breadcrumb()` at pipeline start, `sentry_sdk.capture_exception(e)` in both exception handlers — Sentry now actually fires on pipeline failures
+  - `atexit` registered via `_setup_logging()` — writes "Process exiting" log on graceful shutdown
+
 ## Remaining Setup
-1. **TikTok OAuth**: Set `TIKTOK_ACCESS_TOKEN`, `TIKTOK_OPEN_ID`, `TIKTOK_CLIENT_KEY`, `TIKTOK_CLIENT_SECRET` env vars.
-2. **Instagram OAuth**: Set `INSTAGRAM_ACCESS_TOKEN`, `INSTAGRAM_BUSINESS_ID` env vars.
+1. **TikTok OAuth**: Set `TIKTOK_ACCESS_TOKEN`, `TIKTOK_OPEN_ID`, `TIKTOK_CLIENT_KEY`, `TIKTOK_CLIENT_SECRET`, and optionally `TIKTOK_REFRESH_TOKEN` env vars.
+2. **Instagram OAuth**: Set `INSTAGRAM_ACCESS_TOKEN`, `INSTAGRAM_BUSINESS_ID`, `FACEBOOK_APP_ID`, `FACEBOOK_APP_SECRET` env vars.
 3. **YouTube Analytics API**: Re-auth needed (`yt-analytics.readonly` scope). Delete `youtube_token.json` and run any upload.
 4. **Google Cloud TTS**: Create service account, download JSON key, set `GOOGLE_APPLICATION_CREDENTIALS`.
 5. **Playwright browsers**: Run `playwright install chromium` after pip install.
@@ -94,3 +154,4 @@
 | `FORCE_PUBLISH` | `false` | Override blocking gates, publish despite quality/virality failures |
 | `MIN_VIRALITY_SCORE` | `40` | Minimum virality score for shorts |
 | `MIN_VIRALITY_SCORE_LONG` | `30` | Minimum virality score for long videos |
+| `GATE_ENFORCEMENT_MODE` | `advisory` | Gate mode (`advisory` logs only, `enforce` blocks pipeline) |

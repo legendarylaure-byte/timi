@@ -7,14 +7,20 @@ import signal
 import time
 import warnings
 import logging
-import sentry_sdk
-sentry_sdk.init(
-    dsn=os.getenv("SENTRY_DSN", ""),
-    traces_sample_rate=0.1,
-    profiles_sample_rate=0.1,
-    environment=os.getenv("SENTRY_ENVIRONMENT", "production"),
-)
-sentry_sdk.set_tag("service", "pipeline")
+import atexit
+from contextlib import contextmanager
+from pathlib import Path
+try:
+    import sentry_sdk
+    sentry_sdk.init(
+        dsn=os.getenv("SENTRY_DSN", ""),
+        traces_sample_rate=0.1,
+        profiles_sample_rate=0.1,
+        environment=os.getenv("SENTRY_ENVIRONMENT", "production"),
+    )
+    sentry_sdk.set_tag("service", "pipeline")
+except ImportError:
+    sentry_sdk = None
 
 from utils.content_calendar import (
     schedule_topic, mark_topic_completed, mark_topic_failed, get_retry_queue,
@@ -118,7 +124,7 @@ def _extract_json(data):
     if result is not None:
         return result
     print(f"[EXTRACT] Failed to parse crew output (len={len(text)}), returning safe default")
-    return {"decision": "pass", "score": 75, "issues": [], "feedback": "Auto-approved (JSON parse fallback)", "breakdown": {"script_quality": 75, "visual_effectiveness": 75, "engagement": 75, "technical": 75}}
+    return {"decision": "block", "score": 0, "issues": [{"severity": "high", "detail": "Crew output parse failed"}], "feedback": "Auto-blocked (parse failure)", "breakdown": {"script_quality": 0, "visual_effectiveness": 0, "engagement": 0, "technical": 0}}
 
 
 def _execute_single_task(crew_factory, inputs=None, **factory_kwargs):
@@ -128,7 +134,7 @@ def _execute_single_task(crew_factory, inputs=None, **factory_kwargs):
         try:
             result = crew.kickoff(inputs=inputs or {})
             raw = getattr(result, 'raw', str(result))
-            if raw and len(raw) > 20:
+            if raw and len(raw.strip()) > 0:
                 return raw
         except Exception as e:
             if 'rate_limit' in str(e).lower() and attempt == 0:
@@ -168,11 +174,11 @@ def verify_video_quality(video_path: str, format_type: str = "shorts") -> tuple[
     if file_size < MIN_VIDEO_SIZE:
         return False, f"Video too small ({file_size} bytes)"
     try:
-        import subprocess
-        result = subprocess.run(
+        from utils.subprocess_helper import safe_run
+        result = safe_run(
             ["ffprobe", "-v", "error", "-show_entries", "format=duration,size",
              "-of", "csv=p=0", video_path],
-            capture_output=True, text=True, timeout=30,
+            timeout=30, capture_output=True, text=True,
         )
         if result.returncode == 0 and result.stdout.strip():
             parts = result.stdout.strip().split(",")
@@ -235,9 +241,121 @@ ENABLE_DIRECTOR_REVIEW = os.getenv("ENABLE_DIRECTOR_REVIEW", "true").lower() == 
 MULTI_LANG_CODES = os.getenv("MULTI_LANG_CODES", "es,de,fr").split(",")
 PIPELINE_TIMEOUT_MINUTES = int(os.getenv("PIPELINE_TIMEOUT_MINUTES", 120))
 MAX_RETRIES_PER_TOPIC = int(os.getenv("MAX_RETRIES_PER_TOPIC", 2))
+FORCE_PUBLISH = os.getenv("FORCE_PUBLISH", "false").lower() == "true"
 USE_ANIMATION_ENGINE = os.getenv("USE_ANIMATION_ENGINE", "true").lower() == "true"
 LONG_MAX_DURATION = int(os.getenv("LONG_MAX_DURATION", 180))
 ENABLE_COMMUNITY_POSTS = os.getenv("ENABLE_COMMUNITY_POSTS", "false").lower() == "true"
+GATE_ENFORCEMENT_MODE = os.getenv("GATE_ENFORCEMENT_MODE", "advisory").lower()
+
+# ── Logging setup ────────────────────────────────────────────────
+_LOG_FILE = None
+
+
+def _get_log_file():
+    global _LOG_FILE
+    if _LOG_FILE is None:
+        log_dir = Path(__file__).parent / "logs"
+        log_dir.mkdir(parents=True, exist_ok=True)
+        _LOG_FILE = str(log_dir / "pipeline.log")
+    return _LOG_FILE
+
+
+def _setup_logging():
+    log_dir = Path(__file__).parent / "logs"
+    log_dir.mkdir(parents=True, exist_ok=True)
+    logging.basicConfig(
+        level=logging.INFO,
+        format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
+        handlers=[
+            logging.FileHandler(str(log_dir / "python.log")),
+            logging.StreamHandler(),
+        ],
+    )
+    atexit.register(lambda: logging.info("Process exiting"))
+
+
+def log_event(agent: str, message: str, level: str = "info"):
+    """Log a structured event to stdout JSON, pipeline.log, and Python logging."""
+    record = {
+        "timestamp": datetime.utcnow().isoformat(),
+        "level": level.upper(),
+        "agent": agent,
+        "message": message,
+    }
+    line = json.dumps(record)
+    print(line)
+    try:
+        with open(_get_log_file(), "a") as f:
+            f.write(line + "\n")
+    except Exception:
+        pass
+    log_level = getattr(logging, level.upper(), logging.INFO)
+    logging.getLogger(agent).log(log_level, "%s", message)
+
+
+# ── Pipeline timing / metrics ────────────────────────────────────
+
+
+def _track_pipeline_duration(video_id: str, format_type: str, topic: str,
+                              duration_sec: float, success: bool):
+    """Record pipeline execution metrics to Firestore."""
+    try:
+        from utils.firebase_status import get_firestore_client
+        db = get_firestore_client()
+        if not db:
+            return
+        doc_id = f"{video_id}_{int(time.time())}"
+        db.collection("pipeline_metrics").document(doc_id).set({
+            "video_id": video_id,
+            "format": format_type,
+            "topic": topic,
+            "duration_sec": round(duration_sec, 1),
+            "success": success,
+            "created_at": datetime.utcnow().isoformat(),
+        })
+    except Exception:
+        pass
+
+
+@contextmanager
+def _track_step(video_id, step_name):
+    """Context manager to measure and log a pipeline step duration."""
+    start = time.perf_counter()
+    try:
+        yield
+        elapsed = time.perf_counter() - start
+        log_event("TIMING", f"{step_name}: {elapsed:.1f}s", "info")
+    except Exception as e:
+        elapsed = time.perf_counter() - start
+        log_event("TIMING", f"{step_name}: FAILED at {elapsed:.1f}s — {e}", "error")
+        raise
+
+
+def validate_env():
+    """Validate required env vars at startup. Log warnings for missing critical vars."""
+    critical = {
+        "GEMINI_API_KEY": "LLM provider (primary)",
+        "FIREBASE_PROJECT_ID": "Firebase/Firestore",
+    }
+    conditional = {
+        "TIKTOK_ACCESS_TOKEN": "TikTok publishing",
+        "TIKTOK_CLIENT_KEY": "TikTok OAuth refresh",
+        "TIKTOK_CLIENT_SECRET": "TikTok OAuth refresh",
+        "FACEBOOK_ACCESS_TOKEN": "Facebook/Instagram publishing",
+        "FACEBOOK_APP_ID": "Facebook token refresh",
+        "FACEBOOK_APP_SECRET": "Facebook token refresh",
+        "PEXELS_API_KEY": "Stock video search",
+        "SENTRY_DSN": "Error tracking",
+    }
+    for var, purpose in critical.items():
+        if not os.getenv(var):
+            log_event("ENV", f"MISSING required env var: {var} ({purpose})", "error")
+    for var, purpose in conditional.items():
+        if not os.getenv(var):
+            log_event("ENV", f"MISSING optional env var: {var} ({purpose}) — feature disabled", "warn")
+    log_event("ENV", f"Gate enforcement mode: {GATE_ENFORCEMENT_MODE}")
+    from utils.subprocess_helper import security_audit
+    security_audit("STARTUP", f"Gate enforcement mode: {GATE_ENFORCEMENT_MODE}")
 
 
 def _run_with_timeout(func, args, timeout_minutes: int):
@@ -248,16 +366,29 @@ def _run_with_timeout(func, args, timeout_minutes: int):
         return future.result(timeout=timeout_minutes * 60)
 
 
-def log_event(agent: str, message: str, level: str = "info"):
-    import json as _json
-    print(_json.dumps({"timestamp": datetime.utcnow().isoformat(), "level": level.upper(), "agent": agent, "message": message}))
+def _gate_check(name, is_flagged, topic, video_id, format_type, category):
+    """If GATE_ENFORCEMENT_MODE=enforce and gate is flagged, block the pipeline."""
+    if not is_flagged:
+        return True
+    log_event("GATE", f"{name} flagged '{topic}' — {'blocking' if GATE_ENFORCEMENT_MODE == 'enforce' else 'proceeding anyway'}",
+              "warn")
+    from utils.subprocess_helper import security_audit
+    security_audit("GATE_BLOCK", f"{name} — {topic} (mode={GATE_ENFORCEMENT_MODE})", "warning")
+    if GATE_ENFORCEMENT_MODE == "enforce":
+        log_event("GATE", f"{name} BLOCKED '{topic}'", "error")
+        add_video_record(video_id, topic, format_type, f"blocked_{name.lower().replace(' ', '_')}", category=category)
+        update_pipeline_status(False)
+        return False
+    return True
 
 
 def _strip_ansi(text: str) -> str:
     return re.sub(r'\x1b\[[0-9;]*[a-zA-Z]', '', text)
 
 
-def run_agent_step(agent_id: str, agent_name: str, action: str, crew_factory, inputs: dict, max_retries: int = 2, timeout_minutes: int = 15):
+def run_agent_step(agent_id: str, agent_name: str, action: str, crew_factory, inputs: dict, max_retries: int = None, timeout_minutes: int = 15):
+    if max_retries is None:
+        max_retries = MAX_RETRIES_PER_TOPIC
     if control_listener.is_paused(agent_id):
         log_event(agent_name, "Skipped (paused by user)")
         update_agent_status(agent_id, "idle", "Paused by user")
@@ -274,8 +405,8 @@ def run_agent_step(agent_id: str, agent_name: str, action: str, crew_factory, in
                 try:
                     result = crew.kickoff(inputs=inputs)
                     raw = getattr(result, 'raw', str(result))
-                    raw = _strip_ansi(raw)
-                    if raw and len(raw) > 20:
+                    raw = _strip_ansi(raw) if raw else ""
+                    if raw and len(raw.strip()) > 0:
                         return raw
                 except Exception:
                     from crewai import Task as CrewAITask
@@ -612,9 +743,16 @@ def run_director_review(stage: str, topic: str, category: str, format_type: str,
 
 
 def generate_short_video(topic: str, category: str, video_id: str, publish_at: str = None):
+    _start_time = time.perf_counter()
     update_pipeline_status(True, topic)
     add_video_record(video_id, topic, "shorts", "generating", category=category)
     log_event("PIPELINE", f"Starting SHORT video generation: {topic}")
+
+    if sentry_sdk:
+        sentry_sdk.set_tag("video_id", video_id)
+        sentry_sdk.set_tag("format", "shorts")
+        sentry_sdk.set_tag("category", category)
+        sentry_sdk.add_breadcrumb(category="pipeline", message=f"Starting shorts: {topic}", level="info")
 
     cp = load_checkpoint(video_id)
     if cp:
@@ -623,16 +761,17 @@ def generate_short_video(topic: str, category: str, video_id: str, publish_at: s
     failed_step = "setup"
     try:
         failed_step = "scriptwriting"
-        opt_injection = get_optimization_prompt_injection()
-        script_kwargs = {"topic": topic, "category": category, "fmt": "shorts", "max_duration": SHORTS_MAX_DURATION}
-        if opt_injection:
-            script_kwargs["extra_context"] = opt_injection
-        script = run_agent_step("scriptwriter", "Scriptwriter", f"Writing script for: {topic}", create_scriptwriter_crew, script_kwargs, timeout_minutes=20)  # noqa: E501
-        script_text = str(script)
-        save_checkpoint(video_id, "scriptwriting", {"script_preview": script_text[:200]})
+        with _track_step(video_id, "scriptwriting"):
+            opt_injection = get_optimization_prompt_injection()
+            script_kwargs = {"topic": topic, "category": category, "fmt": "shorts", "max_duration": SHORTS_MAX_DURATION}
+            if opt_injection:
+                script_kwargs["extra_context"] = opt_injection
+            script = run_agent_step("scriptwriter", "Scriptwriter", f"Writing script for: {topic}", create_scriptwriter_crew, script_kwargs, timeout_minutes=20)  # noqa: E501
+            script_text = str(script)
+            save_checkpoint(video_id, "scriptwriting", {"script_preview": script_text[:200]})
 
-        from utils.llm_helper import reset_fallback as _reset_fallback
-        _reset_fallback()
+            from utils.llm_helper import reset_fallback as _reset_fallback
+            _reset_fallback()
 
         failed_step = "hook_scoring"
         hook_score_result = score_hook(script_text, category=category)
@@ -649,22 +788,31 @@ def generate_short_video(topic: str, category: str, video_id: str, publish_at: s
             log_event("HOOK", f"Hook score: {hook_score_result['score']}/100 — passed")
 
         failed_step = "compliance_check"
-        safety = check_content_safety(script_text)
-        if safety.get("has_issues", False):
+        try:
+            safety = check_content_safety(script_text)
+            if not isinstance(safety, dict):
+                safety = {"is_safe": True, "issues": []}
+            is_safe = safety.get("is_safe", True)
             issues = safety.get("issues", [])
-            log_event("COMPLIANCE", f"Content safety issues found: {len(issues)}", "warn")
-            for issue in issues[:3]:
-                log_event("COMPLIANCE", f"  [{issue['severity']}] {issue.get('message', '')[:100]}")
-            if any(i.get("severity") == "error" for i in issues):
-                log_pipeline_error(video_id, "Blocked by content safety check", "compliance")
-                add_video_record(video_id, topic, "shorts", "blocked_compliance", category=category)
-                log_event("COMPLIANCE", f"BLOCKED: {topic} (content safety)")
-                update_pipeline_status(False)
-                return False
-        platform_compliance = check_platform_compliance({"title": topic, "script": script_text}, category)
-        if platform_compliance:
-            for w in platform_compliance:
-                log_event("COMPLIANCE", f"Platform warning: {w[:100]}", "warn")
+            if not is_safe:
+                log_event("COMPLIANCE", f"Content safety issues found: {len(issues)}", "warn")
+                for issue in issues[:3]:
+                    log_event("COMPLIANCE", f"  [{issue['severity']}] {issue.get('detail', '')[:100]}")
+                if any(i.get("severity") == "high" for i in issues):
+                    if FORCE_PUBLISH:
+                        log_event("COMPLIANCE", f"FORCE_PUBLISH overrides content safety block: {topic}", "warn")
+                    else:
+                        log_pipeline_error(video_id, "Blocked by content safety check", "compliance")
+                        add_video_record(video_id, topic, "shorts", "blocked_compliance", category=category)
+                        log_event("COMPLIANCE", f"BLOCKED: {topic} (content safety)")
+                        update_pipeline_status(False)
+                        return False
+            platform_compliance = check_platform_compliance({"title": topic, "script": script_text}, category)
+            if platform_compliance:
+                for w in platform_compliance:
+                    log_event("COMPLIANCE", f"Platform warning: {w[:100]}", "warn")
+        except Exception as e:
+            log_event("COMPLIANCE", f"Content safety check crashed: {e}", "error")
 
         failed_step = "engagement_cta"
         script_text = append_comment_prompt_to_script(script_text, topic, "shorts")
@@ -684,8 +832,8 @@ def generate_short_video(topic: str, category: str, video_id: str, publish_at: s
         log_event(
             "QUALITY", f"Score: {quality['overall_score']}/100, Predicted 7D: {prediction['predicted_views_7d']:,} views")  # noqa: E501
 
-        if quality["recommendation"] == "block":
-            log_event("GATE", f"Quality score {quality['overall_score']}/100 flagged '{topic}' — proceeding anyway", "warn")
+        if not _gate_check("Quality gate", quality["recommendation"] == "block", topic, video_id, "shorts", category):
+            return False
 
         failed_step = "virality_analysis"
         try:
@@ -693,8 +841,8 @@ def generate_short_video(topic: str, category: str, video_id: str, publish_at: s
             virality_result = _extract_json(raw)
             v_score = virality_result.get("overall_virality_score", 0)
             update_video_record(video_id, {"virality_prediction": virality_result})
-            if v_score < get_virality_threshold("shorts"):
-                log_event("GATE", f"Virality score {v_score}/100 below threshold for '{topic}' — proceeding anyway", "warn")
+            if not _gate_check("Virality gate", v_score < get_virality_threshold("shorts"), topic, video_id, "shorts", category):
+                return False
             else:
                 log_event("VIRALITY", f"Virality score: {v_score}/100 — approved")
         except Exception as e:
@@ -704,8 +852,8 @@ def generate_short_video(topic: str, category: str, video_id: str, publish_at: s
 
         failed_step = "director_script_review"
         script_review = run_director_review("script", topic, category, "shorts", script_text)
-        if script_review.get("decision") == "block":
-            log_event("GATE", f"Director script review flagged '{topic}' — proceeding anyway", "warn")
+        if not _gate_check("Director script review", script_review.get("decision") == "block", topic, video_id, "shorts", category):
+            return False
 
         failed_step = "storyboarding"
         storyboard = run_agent_step("storyboard", "Storyboard", "Generating storyboard",
@@ -713,11 +861,12 @@ def generate_short_video(topic: str, category: str, video_id: str, publish_at: s
 
         failed_step = "director_storyboard_review"
         sb_review = run_director_review("storyboard", topic, category, "shorts", script_text, str(storyboard))
-        if sb_review.get("decision") == "block":
-            log_event("GATE", f"Director storyboard review flagged '{topic}' — proceeding anyway", "warn")
+        if not _gate_check("Director storyboard review", sb_review.get("decision") == "block", topic, video_id, "shorts", category):
+            return False
 
         failed_step = "video_pipeline"
-        video_result = run_video_pipeline(script_text, str(storyboard), category, "shorts", video_id, SHORTS_MAX_DURATION)
+        with _track_step(video_id, "video_pipeline"):
+            video_result = run_video_pipeline(script_text, str(storyboard), category, "shorts", video_id, SHORTS_MAX_DURATION)
 
         failed_step = "quality_check"
         qc_pass, qc_msg = verify_video_quality(video_result.get("video_path", ""), "shorts")
@@ -731,17 +880,17 @@ def generate_short_video(topic: str, category: str, video_id: str, publish_at: s
 
         failed_step = "review_gate"
         review_decision = apply_review_gate(video_id, topic, "shorts", script_text, quality, category)
-        if review_decision == "block":
-            log_event("GATE", f"Review gate flagged '{topic}' — proceeding anyway", "warn")
+        if not _gate_check("Review gate", review_decision == "block", topic, video_id, "shorts", category):
+            return False
 
         failed_step = "director_final_review"
         final_review = run_director_review("final", topic, category, "shorts", script_text, str(storyboard))
-        if final_review.get("decision") == "block":
-            log_event("GATE", f"Director final review flagged '{topic}' — proceeding anyway", "warn")
+        if not _gate_check("Director final review", final_review.get("decision") == "block", topic, video_id, "shorts", category):
+            return False
 
         failed_step = "thumbnail"
         thumbnail = run_agent_step("thumbnail", "Thumbnail Creator", "Creating thumbnail",
-                                   create_thumbnail_crew, {"topic": topic, "format": "shorts"})
+                                   create_thumbnail_crew, {"topic": topic, "fmt": "shorts"})
         thumbnail_text = str(thumbnail)
         thumb_result = generate_thumbnail_variants(
             topic, thumbnail_text, format_type="shorts")
@@ -769,7 +918,7 @@ def generate_short_video(topic: str, category: str, video_id: str, publish_at: s
         failed_step = "title_optimization"
         title_variants = []
         try:
-            raw = _execute_single_task(create_title_optimizer_crew, {"script": script_text, "topic": topic, "category": category, "format_type": "shorts"}, script=script_text, topic=topic, category=category, format_type="shorts")
+            raw = _execute_single_task(create_title_optimizer_crew, {"topic": topic, "category": category, "format_type": "shorts"}, topic=topic, category=category, format_type="shorts")
             title_result = _extract_json(raw)
             title_variants = title_result.get("variants", [])
             log_event("TITLE", f"Generated {len(title_variants)} title variants via CrewAI")
@@ -784,23 +933,24 @@ def generate_short_video(topic: str, category: str, video_id: str, publish_at: s
 
         failed_step = "thumbnail_video_frame"
         if video_result.get("video_path") and thumbnail_path:
-            video_thumb = pick_best_thumbnail(thumbnail_path, video_result["video_path"], topic, format_type="shorts")
+            video_thumb = pick_best_thumbnail(thumbnail_path, video_result.get("video_path", ""), topic, format_type="shorts")
             if video_thumb:
                 thumbnail_path = video_thumb
 
         failed_step = "publishing"
-        platforms_to_publish = ['youtube', 'tiktok', 'instagram']
-        publish_result = multi_platform_publish(
-            video_id=video_id,
-            title=topic,
-            description=desc_result.get("full_description", ""),
-            video_path=video_result["video_path"],
-            thumbnail_path=thumbnail_path,
-            format_type="shorts",
-            platforms=platforms_to_publish,
-            publish_at=publish_at,
-            category=category,
-        )
+        with _track_step(video_id, "publishing"):
+            platforms_to_publish = ['youtube', 'tiktok', 'instagram']
+            publish_result = multi_platform_publish(
+                video_id=video_id,
+                title=topic,
+                description=desc_result.get("full_description", ""),
+                video_path=video_result.get("video_path", ""),
+                thumbnail_path=thumbnail_path,
+                format_type="shorts",
+                platforms=platforms_to_publish,
+                publish_at=publish_at,
+                category=category,
+            )
         publish_status = "scheduled" if publish_at else "Published"
         log_event(
             "PUBLISH", f"{publish_status} to {publish_result['success_count']}/{publish_result['total_count']} platforms")  # noqa: E501
@@ -881,6 +1031,8 @@ def generate_short_video(topic: str, category: str, video_id: str, publish_at: s
         log_event("PIPELINE", f"SHORT video generation SUCCESS: {topic}")
         update_pipeline_status(False)
         clear_checkpoint(video_id)
+        _elapsed = time.perf_counter() - _start_time
+        _track_pipeline_duration(video_id, "shorts", topic, _elapsed, success=True)
         try:
             from bot.notifications import send_upload_notification
             video_dur = video_result.get("duration", 0)
@@ -897,7 +1049,11 @@ def generate_short_video(topic: str, category: str, video_id: str, publish_at: s
         add_video_record(video_id, topic, "shorts", "failed", category=category)
         update_pipeline_status(False, paused_by_user=False)
         log_event("PIPELINE", f"SHORT video FAILED at {failed_step}: {error_msg}", "error")
+        if sentry_sdk:
+            sentry_sdk.capture_exception(e)
         clear_checkpoint(video_id)
+        _elapsed = time.perf_counter() - _start_time
+        _track_pipeline_duration(video_id, "shorts", topic, _elapsed, success=False)
         log_event("CLEANUP", "Intermediate files cleaned by scheduled daily_cleanup_job")
         try:
             from bot.notifications import send_error_notification
@@ -908,9 +1064,16 @@ def generate_short_video(topic: str, category: str, video_id: str, publish_at: s
 
 
 def generate_long_video(topic: str, category: str, video_id: str, publish_at: str = None):
+    _start_time = time.perf_counter()
+    if sentry_sdk:
+        sentry_sdk.set_tag("video_id", video_id)
+        sentry_sdk.set_tag("format", "long")
+        sentry_sdk.set_tag("category", category)
     update_pipeline_status(True, topic)
     add_video_record(video_id, topic, "long", "generating", category=category)
     log_event("PIPELINE", f"Starting LONG video generation: {topic}")
+    if sentry_sdk:
+        sentry_sdk.add_breadcrumb(category="pipeline", message=f"Starting long: {topic}", level="info")
 
     cp = load_checkpoint(video_id)
     if cp:
@@ -919,16 +1082,17 @@ def generate_long_video(topic: str, category: str, video_id: str, publish_at: st
     failed_step = "setup"
     try:
         failed_step = "scriptwriting"
-        opt_injection = get_optimization_prompt_injection()
-        script_kwargs = {"topic": topic, "category": category, "fmt": "long", "max_duration": LONG_MAX_DURATION}
-        if opt_injection:
-            script_kwargs["extra_context"] = opt_injection
-        script = run_agent_step("scriptwriter", "Scriptwriter", f"Writing script for: {topic}", create_scriptwriter_crew, script_kwargs, timeout_minutes=30)  # noqa: E501
-        script_text = str(script)
-        save_checkpoint(video_id, "scriptwriting", {"script_preview": script_text[:200]})
+        with _track_step(video_id, "scriptwriting"):
+            opt_injection = get_optimization_prompt_injection()
+            script_kwargs = {"topic": topic, "category": category, "fmt": "long", "max_duration": LONG_MAX_DURATION}
+            if opt_injection:
+                script_kwargs["extra_context"] = opt_injection
+            script = run_agent_step("scriptwriter", "Scriptwriter", f"Writing script for: {topic}", create_scriptwriter_crew, script_kwargs, timeout_minutes=30)  # noqa: E501
+            script_text = str(script)
+            save_checkpoint(video_id, "scriptwriting", {"script_preview": script_text[:200]})
 
-        from utils.llm_helper import reset_fallback as _reset_fallback
-        _reset_fallback()
+            from utils.llm_helper import reset_fallback as _reset_fallback
+            _reset_fallback()
 
         failed_step = "hook_scoring"
         hook_score_result = score_hook(script_text, category=category)
@@ -945,22 +1109,31 @@ def generate_long_video(topic: str, category: str, video_id: str, publish_at: st
             log_event("HOOK", f"Hook score: {hook_score_result['score']}/100 — passed")
 
         failed_step = "compliance_check"
-        safety = check_content_safety(script_text)
-        if safety.get("has_issues", False):
+        try:
+            safety = check_content_safety(script_text)
+            if not isinstance(safety, dict):
+                safety = {"is_safe": True, "issues": []}
+            is_safe = safety.get("is_safe", True)
             issues = safety.get("issues", [])
-            log_event("COMPLIANCE", f"Content safety issues found: {len(issues)}", "warn")
-            for issue in issues[:3]:
-                log_event("COMPLIANCE", f"  [{issue['severity']}] {issue.get('message', '')[:100]}")
-            if any(i.get("severity") == "error" for i in issues):
-                log_pipeline_error(video_id, "Blocked by content safety check", "compliance")
-                add_video_record(video_id, topic, "long", "blocked_compliance", category=category)
-                log_event("COMPLIANCE", f"BLOCKED: {topic} (content safety)")
-                update_pipeline_status(False)
-                return False
-        platform_compliance = check_platform_compliance({"title": topic, "script": script_text}, category)
-        if platform_compliance:
-            for w in platform_compliance:
-                log_event("COMPLIANCE", f"Platform warning: {w[:100]}", "warn")
+            if not is_safe:
+                log_event("COMPLIANCE", f"Content safety issues found: {len(issues)}", "warn")
+                for issue in issues[:3]:
+                    log_event("COMPLIANCE", f"  [{issue['severity']}] {issue.get('detail', '')[:100]}")
+                if any(i.get("severity") == "high" for i in issues):
+                    if FORCE_PUBLISH:
+                        log_event("COMPLIANCE", f"FORCE_PUBLISH overrides content safety block: {topic}", "warn")
+                    else:
+                        log_pipeline_error(video_id, "Blocked by content safety check", "compliance")
+                        add_video_record(video_id, topic, "long", "blocked_compliance", category=category)
+                        log_event("COMPLIANCE", f"BLOCKED: {topic} (content safety)")
+                        update_pipeline_status(False)
+                        return False
+            platform_compliance = check_platform_compliance({"title": topic, "script": script_text}, category)
+            if platform_compliance:
+                for w in platform_compliance:
+                    log_event("COMPLIANCE", f"Platform warning: {w[:100]}", "warn")
+        except Exception as e:
+            log_event("COMPLIANCE", f"Content safety check crashed: {e}", "error")
 
         failed_step = "engagement_cta"
         script_text = append_comment_prompt_to_script(script_text, topic, "long")
@@ -980,8 +1153,8 @@ def generate_long_video(topic: str, category: str, video_id: str, publish_at: st
         log_event(
             "QUALITY", f"Score: {quality['overall_score']}/100, Predicted 7D: {prediction['predicted_views_7d']:,} views")  # noqa: E501
 
-        if quality["recommendation"] == "block":
-            log_event("GATE", f"Quality score {quality['overall_score']}/100 flagged '{topic}' — proceeding anyway", "warn")
+        if not _gate_check("Quality gate", quality["recommendation"] == "block", topic, video_id, "long", category):
+            return False
 
         failed_step = "virality_analysis"
         try:
@@ -989,8 +1162,8 @@ def generate_long_video(topic: str, category: str, video_id: str, publish_at: st
             virality_result = _extract_json(raw)
             v_score = virality_result.get("overall_virality_score", 0)
             update_video_record(video_id, {"virality_prediction": virality_result})
-            if v_score < get_virality_threshold("long"):
-                log_event("GATE", f"Virality score {v_score}/100 below threshold for '{topic}' — proceeding anyway", "warn")
+            if not _gate_check("Virality gate", v_score < get_virality_threshold("long"), topic, video_id, "long", category):
+                return False
             else:
                 log_event("VIRALITY", f"Virality score: {v_score}/100 — approved")
         except Exception as e:
@@ -1000,8 +1173,8 @@ def generate_long_video(topic: str, category: str, video_id: str, publish_at: st
 
         failed_step = "director_script_review"
         script_review = run_director_review("script", topic, category, "long", script_text)
-        if script_review.get("decision") == "block":
-            log_event("GATE", f"Director script review flagged '{topic}' — proceeding anyway", "warn")
+        if not _gate_check("Director script review", script_review.get("decision") == "block", topic, video_id, "long", category):
+            return False
 
         failed_step = "storyboarding"
         storyboard = run_agent_step("storyboard", "Storyboard", "Generating storyboard",
@@ -1009,11 +1182,12 @@ def generate_long_video(topic: str, category: str, video_id: str, publish_at: st
 
         failed_step = "director_storyboard_review"
         sb_review = run_director_review("storyboard", topic, category, "long", script_text, str(storyboard))
-        if sb_review.get("decision") == "block":
-            log_event("GATE", f"Director storyboard review flagged '{topic}' — proceeding anyway", "warn")
+        if not _gate_check("Director storyboard review", sb_review.get("decision") == "block", topic, video_id, "long", category):
+            return False
 
         failed_step = "video_pipeline"
-        video_result = run_video_pipeline(script_text, str(storyboard), category, "long", video_id, LONG_MAX_DURATION)
+        with _track_step(video_id, "video_pipeline"):
+            video_result = run_video_pipeline(script_text, str(storyboard), category, "long", video_id, LONG_MAX_DURATION)
 
         failed_step = "quality_check"
         qc_pass, qc_msg = verify_video_quality(video_result.get("video_path", ""), "long")
@@ -1027,17 +1201,17 @@ def generate_long_video(topic: str, category: str, video_id: str, publish_at: st
 
         failed_step = "review_gate"
         review_decision = apply_review_gate(video_id, topic, "long", script_text, quality, category)
-        if review_decision == "block":
-            log_event("GATE", f"Review gate flagged '{topic}' — proceeding anyway", "warn")
+        if not _gate_check("Review gate", review_decision == "block", topic, video_id, "long", category):
+            return False
 
         failed_step = "director_final_review"
         final_review = run_director_review("final", topic, category, "long", script_text, str(storyboard))
-        if final_review.get("decision") == "block":
-            log_event("GATE", f"Director final review flagged '{topic}' — proceeding anyway", "warn")
+        if not _gate_check("Director final review", final_review.get("decision") == "block", topic, video_id, "long", category):
+            return False
 
         failed_step = "thumbnail"
         thumbnail = run_agent_step("thumbnail", "Thumbnail Creator", "Creating thumbnail",
-                                   create_thumbnail_crew, {"topic": topic, "format": "long"})
+                                   create_thumbnail_crew, {"topic": topic, "fmt": "long"})
         thumbnail_text = str(thumbnail)
         thumb_result = generate_thumbnail_variants(
             topic, thumbnail_text, format_type="long")
@@ -1066,7 +1240,7 @@ def generate_long_video(topic: str, category: str, video_id: str, publish_at: st
         failed_step = "title_optimization"
         title_variants = []
         try:
-            raw = _execute_single_task(create_title_optimizer_crew, {"script": script_text, "topic": topic, "category": category, "format_type": "long"}, script=script_text, topic=topic, category=category, format_type="long")
+            raw = _execute_single_task(create_title_optimizer_crew, {"topic": topic, "category": category, "format_type": "long"}, topic=topic, category=category, format_type="long")
             title_result = _extract_json(raw)
             title_variants = title_result.get("variants", [])
             log_event("TITLE", f"Generated {len(title_variants)} title variants via CrewAI")
@@ -1081,24 +1255,25 @@ def generate_long_video(topic: str, category: str, video_id: str, publish_at: st
 
         failed_step = "thumbnail_video_frame"
         if video_result.get("video_path") and thumbnail_path:
-            video_thumb = pick_best_thumbnail(thumbnail_path, video_result["video_path"], topic, format_type="long")
+            video_thumb = pick_best_thumbnail(thumbnail_path, video_result.get("video_path", ""), topic, format_type="long")
             if video_thumb:
                 thumbnail_path = video_thumb
 
         failed_step = "publishing"
-        platforms_to_publish = ['youtube', 'facebook']
-        publish_result = multi_platform_publish(
-            video_id=video_id,
-            title=topic,
-            description=desc_result.get("full_description", ""),
-            video_path=video_result["video_path"],
-            thumbnail_path=thumbnail_path,
-            format_type="long",
-            platforms=platforms_to_publish,
-            publish_at=publish_at,
-            category=category,
-            cleanup=False,
-        )
+        with _track_step(video_id, "publishing"):
+            platforms_to_publish = ['youtube', 'facebook']
+            publish_result = multi_platform_publish(
+                video_id=video_id,
+                title=topic,
+                description=desc_result.get("full_description", ""),
+                video_path=video_result.get("video_path", ""),
+                thumbnail_path=thumbnail_path,
+                format_type="long",
+                platforms=platforms_to_publish,
+                publish_at=publish_at,
+                category=category,
+                cleanup=False,
+            )
         publish_status = "scheduled" if publish_at else "Published"
         log_event(
             "PUBLISH", f"{publish_status} to {publish_result['success_count']}/{publish_result['total_count']} platforms")  # noqa: E501
@@ -1221,6 +1396,8 @@ def generate_long_video(topic: str, category: str, video_id: str, publish_at: st
         log_event("PIPELINE", f"LONG video generation SUCCESS: {topic}")
         update_pipeline_status(False)
         clear_checkpoint(video_id)
+        _elapsed = time.perf_counter() - _start_time
+        _track_pipeline_duration(video_id, "long", topic, _elapsed, success=True)
         try:
             from bot.notifications import send_upload_notification
             video_dur = video_result.get("duration", 0)
@@ -1237,7 +1414,11 @@ def generate_long_video(topic: str, category: str, video_id: str, publish_at: st
         add_video_record(video_id, topic, "long", "failed", category=category)
         update_pipeline_status(False, paused_by_user=False)
         log_event("PIPELINE", f"LONG video FAILED at {failed_step}: {error_msg}", "error")
+        if sentry_sdk:
+            sentry_sdk.capture_exception(e)
         clear_checkpoint(video_id)
+        _elapsed = time.perf_counter() - _start_time
+        _track_pipeline_duration(video_id, "long", topic, _elapsed, success=False)
         log_event("CLEANUP", "Intermediate files cleaned by scheduled daily_cleanup_job")
         try:
             from bot.notifications import send_error_notification
@@ -1392,9 +1573,15 @@ def daily_content_job():
     total = successful_shorts + successful_longs
     log_event("SCHEDULER", f"Daily content generation complete: {total} videos produced ({successful_shorts} shorts, {successful_longs} longs)")
 
-    force_publish = os.getenv("FORCE_PUBLISH", "false").lower() == "true"
-    if total == 0 and force_publish and failed_topics:
-        log_event("SCHEDULER", f"All videos blocked, but FORCE_PUBLISH=true — attempting override for: {failed_topics[0]}", "warn")
+    if total == 0 and FORCE_PUBLISH and failed_topics:
+        log_event("SCHEDULER", f"FORCE_PUBLISH=true — re-attempting: {failed_topics[0]}", "warn")
+        for ft in failed_topics[:1]:
+            log_event("SCHEDULER", f"Force-publishing: {ft}", "info")
+            try:
+                gen_fn = generate_short_video if format_type == "shorts" else generate_long_video
+                gen_fn(ft, category, f"force-{video_date}-{int(time.time())}")
+            except Exception as e:
+                log_event("SCHEDULER", f"Force-publish failed: {e}", "error")
 
     summary = get_performance_summary(days=7)
     log_event("ANALYTICS", f"7-day summary: {summary['total_videos']} videos, {summary['total_views']} views, avg score: {summary['avg_quality_score']}")
@@ -1570,9 +1757,7 @@ def scheduled_publish_job():
                     "published_at": datetime.utcnow().isoformat(),
                 })
                 published += 1
-                video_id = data.get('video_id', doc.id)
-                update_metrics(video_id, views=0)
-                log_event("ANALYTICS", f"Initialized analytics for video {video_id}")
+                # Analytics already initialized by track_video() during pipeline run — skip views reset
                 log_event("SCHEDULE", f"Video {doc.id} status updated to uploaded")
         if published > 0:
             log_event("SCHEDULE", f"Published {published} scheduled videos")
@@ -1697,6 +1882,10 @@ if __name__ == "__main__":
     log_event("SYSTEM", f"Review gate: {ENABLE_REVIEW_GATE} (threshold: {AUTO_APPROVE_THRESHOLD})")
     log_event("SYSTEM", f"Pipeline timeout: {PIPELINE_TIMEOUT_MINUTES}min per video")
     log_event("SYSTEM", f"Max retries per topic: {MAX_RETRIES_PER_TOPIC}")
+    log_event("SYSTEM", f"Gate enforcement: {GATE_ENFORCEMENT_MODE}")
+
+    _setup_logging()
+    validate_env()
 
     scheduler = BlockingScheduler()
     scheduler.add_job(daily_content_job, "cron", hour=6, minute=0, misfire_grace_time=86400)
@@ -1723,16 +1912,18 @@ if __name__ == "__main__":
             return
         _shutdown._called = True
         from utils.firebase_status import reset_agent_statuses
+        from utils.subprocess_helper import _cleanup_all_temp
         reset_agent_statuses()
         update_pipeline_status(False)
-        log_event("SYSTEM", "Pipeline stopped — agent statuses reset")
+        _cleanup_all_temp()
+        log_event("SYSTEM", "Pipeline stopped — agent statuses reset, temp cleaned")
         control_listener.stop()
 
     signal.signal(signal.SIGTERM, lambda *_: (_shutdown(), sys.exit(0)))
     signal.signal(signal.SIGINT, lambda *_: (_shutdown(), sys.exit(0)))
 
     try:
-        daily_content_job()
+        # Skip immediate run — scheduler handles it (prevents duplicate content on startup near 06:00 UTC)
         scheduler.start()
     except (KeyboardInterrupt, SystemExit):
         log_event("SYSTEM", "Agent Orchestrator Shutting Down")

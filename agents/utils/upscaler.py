@@ -1,8 +1,8 @@
 import os
-import subprocess
 import logging
 import tempfile
 from pathlib import Path
+from utils.subprocess_helper import register_temp_dir, safe_run, safe_run_bool
 
 logger = logging.getLogger(__name__)
 
@@ -11,6 +11,7 @@ UPSCALER_MODEL = os.getenv("UPSCALER_MODEL", "realesrgan-x4plus")
 UPSCALER_MODEL_DIR = os.getenv("UPSCALER_MODEL_DIR", os.path.expanduser("~/timi/agents/bin"))
 UPSCALE_ENABLED = os.getenv("ENABLE_UPSCALE", "false").lower() == "true"
 TEMP_DIR = Path(__file__).parent.parent / "tmp" / "upscaler"
+register_temp_dir(str(TEMP_DIR))
 
 
 def is_available() -> bool:
@@ -28,14 +29,11 @@ def upscale_frame(input_path: str, output_path: str, scale: int = 4) -> bool:
         "-n", UPSCALER_MODEL,
         "-m", UPSCALER_MODEL_DIR,
     ]
-    try:
-        result = subprocess.run(cmd, capture_output=True, text=True, timeout=60)
-        if result.returncode == 0 and os.path.exists(output_path):
-            return True
-        if result.returncode != 0:
-            logger.warning("upscale frame failed (rc=%d): %s", result.returncode, result.stderr[:200])
-    except Exception as e:
-        logger.warning("upscale frame error: %s", e)
+    result = safe_run(cmd, timeout=60)
+    if result.returncode == 0 and os.path.exists(output_path):
+        return True
+    if result.returncode != 0:
+        logger.warning("upscale frame failed (rc=%d): %s", result.returncode, result.stderr[:200])
     return False
 
 
@@ -54,7 +52,7 @@ def upscale_video(input_path: str, output_path: str, scale: int = 2) -> bool:
             "-qscale:v", "1", "-qmin", "1", "-qmax", "1",
             os.path.join(frames_dir, "frame_%06d.png"),
         ]
-        if subprocess.run(extract, capture_output=True, text=True, timeout=120).returncode != 0:
+        if not safe_run_bool(extract, timeout=120):
             logger.warning("upscale video: frame extraction failed")
             return False
 
@@ -71,14 +69,11 @@ def upscale_video(input_path: str, output_path: str, scale: int = 2) -> bool:
             "-c:v", "libx264", "-preset", "medium", "-crf", "18",
             "-pix_fmt", "yuv420p", output_path,
         ]
-        if subprocess.run(reencode, capture_output=True, text=True, timeout=120).returncode != 0:
+        if not safe_run_bool(reencode, timeout=120):
             logger.warning("upscale video: re-encode failed")
             return False
 
         return os.path.exists(output_path) and os.path.getsize(output_path) > 1000
-    except Exception as e:
-        logger.warning("upscale video error: %s", e)
-        return False
     finally:
         import shutil
         for d in [frames_dir, upscaled_dir]:

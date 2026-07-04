@@ -1,8 +1,8 @@
 import os
 import hashlib
 import json
-import subprocess
 import logging
+from utils.subprocess_helper import safe_run
 from datetime import datetime
 
 from utils.manim_templates import (
@@ -125,9 +125,9 @@ def render_manim_scene(scene: dict, video_id: str, scene_idx: int = 0, quality: 
     quality_flag = f"-q{quality}"
 
     try:
-        result = subprocess.run(
+        result = safe_run(
             [MANIM_BIN, quality_flag, "--format=mp4", "-o", output_path, py_path, scene_class_name],
-            capture_output=True, text=True, timeout=120,
+            timeout=120,
         )
         if os.path.exists(output_path) and os.path.getsize(output_path) > 1000:
             shutil_path = os.path.join(MANIM_CACHE_DIR, f"{s_hash}.mp4")
@@ -138,9 +138,6 @@ def render_manim_scene(scene: dict, video_id: str, scene_idx: int = 0, quality: 
         else:
             logger.warning(f"[Manim] Render failed for {tmpl_name}: {result.stderr[-300:]}")
             return None
-    except subprocess.TimeoutExpired:
-        logger.warning(f"[Manim] Timeout rendering {tmpl_name}")
-        return None
     except Exception as e:
         logger.warning(f"[Manim] Error rendering {tmpl_name}: {e}")
         return None
@@ -183,8 +180,8 @@ def compose_manim_block(scenes: list[dict], video_id: str, quality: str = "h") -
     quality_flag = f"-q{quality}"
     cmd = [MANIM_BIN, quality_flag, "--format=mp4", "-o", output_path, py_path] + class_names
     try:
-        result = subprocess.run(
-            cmd, capture_output=True, text=True, timeout=300,
+        result = safe_run(
+            cmd, timeout=300,
         )
         if os.path.exists(output_path) and os.path.getsize(output_path) > 1000:
             logger.info(f"[Manim] Composed block: {class_count} scenes -> {output_path} ({os.path.getsize(output_path)} bytes)")
@@ -192,9 +189,6 @@ def compose_manim_block(scenes: list[dict], video_id: str, quality: str = "h") -
         else:
             logger.warning(f"[Manim] Block render failed: {result.stderr[-400:]}")
             return None
-    except subprocess.TimeoutExpired:
-        logger.warning(f"[Manim] Block render timeout")
-        return None
     except Exception as e:
         logger.warning(f"[Manim] Block render error: {e}")
         return None

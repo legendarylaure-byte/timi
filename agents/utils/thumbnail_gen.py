@@ -1,6 +1,7 @@
 import os
 import re
 from PIL import Image, ImageDraw, ImageFont, ImageFilter
+from utils.subprocess_helper import safe_run, safe_run_bool
 
 THUMBNAIL_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "tmp", "thumbnails")
 
@@ -260,24 +261,23 @@ def _draw_text_shadow(draw, text, position, font, color, shadow_color=(0, 0, 0),
 
 def extract_video_frame(video_path: str, time_sec: float = None) -> str:
     """Extract a frame from the video at the given timestamp for a thumbnail."""
-    import subprocess
     import tempfile
     frame_path = os.path.join(THUMBNAIL_DIR, f"frame_{hash(video_path) % 100000}.jpg")
     os.makedirs(os.path.dirname(frame_path), exist_ok=True)
     if time_sec is None:
         time_sec = 3.0
     try:
-        subprocess.run(
+        safe_run(
             ["ffprobe", "-v", "error", "-show_entries", "format=duration",
              "-of", "default=noprint_wrappers=1:nokey=1", video_path],
-            capture_output=True, text=True, timeout=10)
+            timeout=10)
     except Exception:
         pass
     try:
-        subprocess.run(
+        safe_run_bool(
             ["ffmpeg", "-ss", str(time_sec), "-i", video_path,
              "-frames:v", "1", "-q:v", "3", "-y", frame_path],
-            capture_output=True, timeout=30, check=True)
+            timeout=30)
         if os.path.exists(frame_path) and os.path.getsize(frame_path) > 1000:
             return frame_path
     except Exception:

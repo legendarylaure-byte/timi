@@ -2,15 +2,31 @@ import os
 import sys
 import signal
 from pathlib import Path
+from dotenv import load_dotenv
+
+load_dotenv()
+
 from main import daily_content_job, generate_short_video, generate_long_video, log_event, cleanup_stuck_state
 from utils.cleanup_service import cleanup_temp_directories
 
 
+_cleaned_up = False
+
+
 def _cleanup():
-    from utils.firebase_status import reset_agent_statuses, update_pipeline_status
-    reset_agent_statuses()
-    update_pipeline_status(False, "")
-    log_event("CLEANUP", "Pipeline run complete — agent statuses reset")
+    global _cleaned_up
+    if _cleaned_up:
+        return
+    _cleaned_up = True
+    try:
+        from utils.firebase_status import reset_agent_statuses, update_pipeline_status
+        from utils.subprocess_helper import _cleanup_all_temp
+        reset_agent_statuses()
+        update_pipeline_status(False, "")
+        _cleanup_all_temp()
+        log_event("CLEANUP", "Pipeline run complete — agent statuses reset, temp cleaned")
+    except Exception as e:
+        print(f"[CLEANUP] Cleanup failed: {e}", flush=True)
 
 
 def main():
@@ -20,7 +36,8 @@ def main():
 
     update_pipeline_status(True, "Workflow triggered")
     topic = os.environ.get("TOPIC", "")
-    format_type = os.environ.get("FORMAT", "shorts")
+    raw_fmt = os.environ.get("FORMAT", "shorts").strip().lower()
+    format_type = "shorts" if raw_fmt in ("short", "shorts") else "long"
     category = os.environ.get("CATEGORY", "AI Explained")
 
     success = False
@@ -44,7 +61,16 @@ def main():
         sys.exit(1)
 
 
+def _signal_handler(signum, frame):
+    _cleanup()
+    sys.exit(1 if signum == signal.SIGTERM else 0)
+
+
 if __name__ == "__main__":
-    signal.signal(signal.SIGTERM, lambda *_: (_cleanup(), sys.exit(1)))
-    signal.signal(signal.SIGINT, lambda *_: (_cleanup(), sys.exit(1)))
-    main()
+    signal.signal(signal.SIGTERM, _signal_handler)
+    signal.signal(signal.SIGINT, _signal_handler)
+    try:
+        main()
+    except Exception:
+        _cleanup()
+        raise
