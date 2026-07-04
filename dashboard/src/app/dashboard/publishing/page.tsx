@@ -73,6 +73,11 @@ export default function PublishingPage() {
   const connectedCount = platforms.filter(p => p.connected).length;
   const queuedCount = queue.filter(q => q.status === 'queued').length;
 
+  const OAUTH_URLS: Record<string, string> = {
+    tiktok: '/api/auth/tiktok?action=connect',
+    youtube: '/api/auth/youtube?action=connect',
+  };
+
   const formatFollowers = (n: number) => n >= 1000000 ? (n / 1000000).toFixed(1) + 'M' : n >= 1000 ? (n / 1000).toFixed(1) + 'K' : n.toString();
 
   const savePlatformSetting = async (platformId: string, updated: any) => {
@@ -91,8 +96,26 @@ export default function PublishingPage() {
   const toggleConnection = async (platformId: string) => {
     const platform = platforms.find(p => p.id === platformId);
     if (!platform) return;
-    const updated = { ...platform, connected: !platform.connected };
-    await savePlatformSetting(platformId, updated);
+
+    if (!platform.connected) {
+      const oauthUrl = OAUTH_URLS[platformId];
+      if (oauthUrl) {
+        window.location.href = oauthUrl;
+        return;
+      }
+      const updated = { ...platform, connected: true };
+      await savePlatformSetting(platformId, updated);
+    } else {
+      if (!confirm(`Disconnect ${platform.name}? OAuth tokens will be removed.`)) return;
+      const updated = {
+        ...platform,
+        connected: false,
+        access_token: '',
+        refresh_token: '',
+        open_id: '',
+      };
+      await savePlatformSetting(platformId, updated);
+    }
   };
 
   const toggleAutoPublish = async (platformId: string) => {

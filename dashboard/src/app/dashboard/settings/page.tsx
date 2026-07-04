@@ -26,6 +26,32 @@ export default function SettingsPage() {
   const [notifInfo, setNotifInfo] = useState(true);
   const [desktopNotifs, setDesktopNotifs] = useState(false);
 
+  const OAUTH_URLS: Record<string, string> = {
+    tiktok: '/api/auth/tiktok?action=connect',
+    youtube: '/api/auth/youtube?action=connect',
+  };
+
+  const togglePlatformConnection = async (platformId: string, currentConnected: boolean, platformName: string) => {
+    if (!currentConnected) {
+      const oauthUrl = OAUTH_URLS[platformId];
+      if (oauthUrl) {
+        window.location.href = oauthUrl;
+        return;
+      }
+    } else {
+      if (!confirm(`Disconnect ${platformName}? OAuth tokens will be removed.`)) return;
+      try {
+        await fetch(`/api/platform-settings/${platformId}`, {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ connected: false, access_token: '', refresh_token: '', open_id: '' }),
+        });
+      } catch (e) {
+        console.error('Failed to disconnect:', e);
+      }
+    }
+  };
+
   useEffect(() => {
     const saved = localStorage.getItem('theme') as 'light' | 'dark';
     if (saved) setTheme(saved);
@@ -327,18 +353,30 @@ export default function SettingsPage() {
                     <span className="text-xs text-light-muted dark:text-dark-muted">{followers.toLocaleString()} followers</span>
                   )}
                 </div>
-                <span className={`text-xs px-3 py-1 rounded-full ${
-                  isConnected
-                    ? 'bg-emerald-500/20 text-emerald-400'
-                    : 'bg-light-warning/20 text-light-warning'
-                }`}>
-                  {isConnected ? 'Connected' : 'Not Connected'}
-                </span>
+                <div className="flex items-center gap-2">
+                  <span className={`text-xs px-3 py-1 rounded-full ${
+                    isConnected
+                      ? 'bg-emerald-500/20 text-emerald-400'
+                      : 'bg-light-warning/20 text-light-warning'
+                  }`}>
+                    {isConnected ? 'Connected' : 'Not Connected'}
+                  </span>
+                  <button
+                    onClick={() => togglePlatformConnection(key.toLowerCase(), isConnected, platform.name)}
+                    className={`text-xs px-3 py-1 rounded-full border transition-colors ${
+                      isConnected
+                        ? 'bg-red-500/20 text-red-400 border-red-500/30 hover:bg-red-500/30'
+                        : 'bg-emerald-500/20 text-emerald-400 border-emerald-500/30 hover:bg-emerald-500/30'
+                    }`}
+                  >
+                    {isConnected ? 'Disconnect' : 'Connect'}
+                  </button>
+                </div>
               </div>
             );
           })}
         </div>
-        <p className="text-xs text-light-muted dark:text-dark-muted mt-4">Connect your social media accounts from the Publishing page</p>
+        <p className="text-xs text-light-muted dark:text-dark-muted mt-4">Manage connections or start publishing from the Publishing page</p>
       </GradientCard>
 
       {/* Save Button */}

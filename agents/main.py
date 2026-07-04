@@ -6,6 +6,7 @@ import asyncio
 import signal
 import time
 import warnings
+warnings.filterwarnings("ignore", message="PyTorch was not found")
 import logging
 import atexit
 from contextlib import contextmanager
@@ -1033,6 +1034,7 @@ def generate_short_video(topic: str, category: str, video_id: str, publish_at: s
         clear_checkpoint(video_id)
         _elapsed = time.perf_counter() - _start_time
         _track_pipeline_duration(video_id, "shorts", topic, _elapsed, success=True)
+        log_event("TIMING", f"Pipeline total: {_elapsed:.1f}s")
         try:
             from bot.notifications import send_upload_notification
             video_dur = video_result.get("duration", 0)
@@ -1054,6 +1056,7 @@ def generate_short_video(topic: str, category: str, video_id: str, publish_at: s
         clear_checkpoint(video_id)
         _elapsed = time.perf_counter() - _start_time
         _track_pipeline_duration(video_id, "shorts", topic, _elapsed, success=False)
+        log_event("TIMING", f"Pipeline total: {_elapsed:.1f}s (FAILED)")
         log_event("CLEANUP", "Intermediate files cleaned by scheduled daily_cleanup_job")
         try:
             from bot.notifications import send_error_notification
@@ -1398,6 +1401,7 @@ def generate_long_video(topic: str, category: str, video_id: str, publish_at: st
         clear_checkpoint(video_id)
         _elapsed = time.perf_counter() - _start_time
         _track_pipeline_duration(video_id, "long", topic, _elapsed, success=True)
+        log_event("TIMING", f"Pipeline total: {_elapsed:.1f}s")
         try:
             from bot.notifications import send_upload_notification
             video_dur = video_result.get("duration", 0)
@@ -1419,6 +1423,7 @@ def generate_long_video(topic: str, category: str, video_id: str, publish_at: st
         clear_checkpoint(video_id)
         _elapsed = time.perf_counter() - _start_time
         _track_pipeline_duration(video_id, "long", topic, _elapsed, success=False)
+        log_event("TIMING", f"Pipeline total: {_elapsed:.1f}s (FAILED)")
         log_event("CLEANUP", "Intermediate files cleaned by scheduled daily_cleanup_job")
         try:
             from bot.notifications import send_error_notification

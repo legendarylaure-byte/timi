@@ -136,6 +136,13 @@
 - Community posts: Set `ENABLE_COMMUNITY_POSTS=true`
 - Dashboard: `cd dashboard && npm run dev` (port 5001)
 
+## LTX Model Location
+- Pre-downloaded at `~/ltx-models/` (39GB, q4 quantization, dgrauet/ltx-2.3-mlx-q4)
+- Key files: `transformer-dev.safetensors`, `transformer-distilled.safetensors`, `connector.safetensors`, `ltx-2.3-22b-distilled-lora-384-1.1.safetensors`
+- Gemma model auto-downloads from HF (`mlx-community/gemma-3-12b-it-4bit`)
+- `LTX_MODEL_DIR` defaults to `~/ltx-models/` — already populated, no download needed
+- 16GB RAM with `--low-ram` flag — tested working
+
 ## New Env Vars
 | Variable | Default | Purpose |
 |---|---|---|
