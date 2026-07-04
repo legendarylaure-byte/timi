@@ -1,18 +1,7 @@
 {
-  "framework": "nextjs",
   "buildCommand": "cd dashboard && npm run build",
   "outputDirectory": "dashboard/.next",
   "installCommand": "cd dashboard && npm install",
   "regions": ["iad1"],
-  "nodeVersion": "20.x",
-  "env": {
-    "NEXT_PUBLIC_APP_NAME": "Vyom Ai Cloud",
-    "NEXT_PUBLIC_APP_URL": "https://timi.vyomai.cloud",
-    "NEXT_PUBLIC_FIREBASE_API_KEY": "AIzaSyB_YVhUOJ9vqGxECfoblbSQ-C3J8OjnCxw",
-    "NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN": "timi-childern-stories.firebaseapp.com",
-    "NEXT_PUBLIC_FIREBASE_PROJECT_ID": "timi-childern-stories",
-    "NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET": "timi-childern-stories.firebasestorage.app",
-    "NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID": "839918420419",
-    "NEXT_PUBLIC_FIREBASE_APP_ID": "1:839918420419:web:977870986209404eebbd76"
-  }
+  "nodeVersion": "20.x"
 }
