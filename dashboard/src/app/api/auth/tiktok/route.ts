@@ -16,7 +16,7 @@ export async function GET(request: NextRequest) {
     authUrl.searchParams.set('scope', 'user.info.basic,video.upload');
     authUrl.searchParams.set('response_type', 'code');
     authUrl.searchParams.set('redirect_uri', TIKTOK_REDIRECT_URI);
-    authUrl.searchParams.set('state', 'production_timi');
+    authUrl.searchParams.set('state', 'sandbox_timi');
 
     return NextResponse.redirect(authUrl.toString());
   }
