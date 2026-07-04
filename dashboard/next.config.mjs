@@ -1,7 +1,11 @@
+// @ts-check
 import path from 'path';
 import { fileURLToPath } from 'url';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
+
+// Log to confirm this file is loaded during build
+console.log('[CONFIG] next.config.mjs LOADED, __dirname:', __dirname);
 
 /** @type {import('next').NextConfig} */
 const nextConfig = {
