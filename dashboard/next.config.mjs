@@ -18,7 +18,6 @@ const nextConfig = {
   },
   webpack: (config, { isServer }) => {
     const srcDir = path.resolve(process.cwd(), 'src');
-    console.log('[WEBPACK] cwd:', process.cwd(), 'alias @ =>', srcDir, 'isServer:', isServer);
     config.resolve.alias['@'] = srcDir;
     return config;
   },
