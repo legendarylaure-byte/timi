@@ -1,6 +1,5 @@
 export const APP_NAME = process.env.NEXT_PUBLIC_APP_NAME || 'Vyom Ai Cloud';
 export const APP_URL = process.env.NEXT_PUBLIC_APP_URL || 'https://timi.vyomai.cloud';
-export const APP_URL_LOCAL = process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000';
 
 export interface AgentRole {
   id: string;
