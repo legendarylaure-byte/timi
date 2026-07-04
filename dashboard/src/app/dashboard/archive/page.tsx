@@ -3,10 +3,12 @@
 import { useState, useEffect, useCallback } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { db } from '@/lib/firebase';
-import { collection, query, orderBy, limit, startAfter, onSnapshot, getDocs, doc, getDoc, deleteDoc } from 'firebase/firestore';
+import { collection, query, orderBy, limit, startAfter, onSnapshot, getDocs } from 'firebase/firestore';
 import { DocumentSnapshot } from 'firebase/firestore';
-import { CONTENT_CATEGORIES } from '@/lib/constants';
+import { CONTENT_CATEGORIES, PLATFORMS } from '@/lib/constants';
 import Image from 'next/image';
+import PlatformBadge from '@/components/platforms/PlatformBadge';
+import VideoPreview from '@/components/ui/VideoPreview';
 
 interface VideoDoc {
   id: string;
@@ -25,9 +27,15 @@ interface VideoDoc {
     tags: string[];
     hashtags: string[];
   };
+  published_platforms?: string[];
+  publish_urls?: Record<string, string>;
+  youtube_id?: string;
+  error?: string;
+  failed_step?: string;
 }
 
 const PAGE_SIZE = 48;
+const PLATFORM_NAMES = ['all', 'youtube', 'tiktok', 'instagram', 'facebook'] as const;
 
 export default function ArchivePage() {
   const [videos, setVideos] = useState<VideoDoc[]>([]);
@@ -38,6 +46,7 @@ export default function ArchivePage() {
   const [formatFilter, setFormatFilter] = useState('all');
   const [statusFilter, setStatusFilter] = useState('all');
   const [categoryFilter, setCategoryFilter] = useState('all');
+  const [platformFilter, setPlatformFilter] = useState('all');
   const [selectedVideo, setSelectedVideo] = useState<VideoDoc | null>(null);
 
   useEffect(() => {
@@ -84,6 +93,17 @@ export default function ArchivePage() {
     generating: 'bg-yellow-500/20 text-yellow-400 border-yellow-500/30',
     uploaded: 'bg-emerald-500/20 text-emerald-400 border-emerald-500/30',
     failed: 'bg-red-500/20 text-red-400 border-red-500/30',
+    blocked: 'bg-orange-500/20 text-orange-400 border-orange-500/30',
+    blocked_virality: 'bg-orange-500/20 text-orange-400 border-orange-500/30',
+    blocked_compliance: 'bg-orange-500/20 text-orange-400 border-orange-500/30',
+    testing: 'bg-blue-500/20 text-blue-400 border-blue-500/30',
+  };
+
+  const platformColor: Record<string, string> = {
+    youtube: 'bg-[#FF0000]',
+    tiktok: 'bg-black dark:bg-white',
+    instagram: 'bg-[#E4405F]',
+    facebook: 'bg-[#1877F2]',
   };
 
   const baseFiltered = videos.filter((v) => {
@@ -91,17 +111,29 @@ export default function ArchivePage() {
   });
 
   const filtered = baseFiltered.filter((v) => {
-    const matchSearch = search === '' || v.title.toLowerCase().includes(search.toLowerCase());
+    const matchSearch = search === '' || v.title?.toLowerCase().includes(search.toLowerCase());
     const matchFormat = formatFilter === 'all' || v.format === formatFilter;
     const matchStatus = statusFilter === 'all' || v.status === statusFilter;
     const matchCategory = categoryFilter === 'all' || v.category === categoryFilter;
-    return matchSearch && matchFormat && matchStatus && matchCategory;
+    const matchPlatform = platformFilter === 'all' || (v.published_platforms || []).includes(platformFilter);
+    return matchSearch && matchFormat && matchStatus && matchCategory && matchPlatform;
   });
 
   const totalVideos = baseFiltered.length;
   const totalViews = baseFiltered.reduce((sum, v) => sum + (v.views || 0), 0);
   const uploadedCount = baseFiltered.filter((v) => v.status === 'uploaded').length;
   const generatingCount = baseFiltered.filter((v) => v.status === 'generating').length;
+  const totalPlatformPublishes = baseFiltered.reduce((sum, v) => sum + (v.published_platforms?.length || 0), 0);
+
+  const getYouTubeId = (v: VideoDoc): string | undefined => {
+    if (v.youtube_id) return v.youtube_id;
+    const url = v.publish_urls?.youtube || v.publish_urls?.YouTube;
+    if (url) {
+      const m = url.match(/(?:v=|youtu\.be\/)([\w-]+)/);
+      if (m) return m[1];
+    }
+    return undefined;
+  };
 
   const formatDate = (timestamp: any) => {
     if (!timestamp) return '';
@@ -129,12 +161,13 @@ export default function ArchivePage() {
         </div>
       </motion.div>
 
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+      <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
         {[
-          { label: 'Total Videos', value: totalVideos.toString(), icon: '📁', color: 'from-light-primary to-light-secondary' },
-          { label: 'Total Views', value: formatViews(totalViews), icon: '👁️', color: 'from-light-secondary to-light-info' },
-          { label: 'Uploaded', value: uploadedCount.toString(), icon: '✅', color: 'from-light-success to-light-info' },
-          { label: 'Generating', value: generatingCount.toString(), icon: '⏳', color: 'from-light-accent to-light-primary' },
+          { label: 'Total Videos', value: totalVideos.toString(), icon: '📁' },
+          { label: 'Total Views', value: formatViews(totalViews), icon: '👁️' },
+          { label: 'Uploaded', value: uploadedCount.toString(), icon: '✅' },
+          { label: 'Generating', value: generatingCount.toString(), icon: '⏳' },
+          { label: 'Platform Publishes', value: totalPlatformPublishes.toString(), icon: '📡' },
         ].map((stat) => (
           <motion.div
             key={stat.label}
@@ -188,6 +221,19 @@ export default function ArchivePage() {
             <option key={cat.name} value={cat.name}>{cat.name}</option>
           ))}
         </select>
+        <select
+          value={platformFilter}
+          onChange={(e) => setPlatformFilter(e.target.value)}
+          className="px-4 py-2.5 rounded-xl bg-light-bg dark:bg-dark-bg border border-light-border/50 dark:border-white/10 text-light-text dark:text-dark-text text-sm focus:outline-none focus:ring-2 focus:ring-light-primary/50"
+        >
+          <option value="all">All Platforms</option>
+          <option value="youtube">
+            <span className="inline-flex items-center gap-1">🔴 YouTube</span>
+          </option>
+          <option value="tiktok">🎵 TikTok</option>
+          <option value="instagram">📸 Instagram</option>
+          <option value="facebook">👥 Facebook</option>
+        </select>
       </div>
 
       {loading ? (
@@ -204,38 +250,69 @@ export default function ArchivePage() {
         </div>
       ) : (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
-          {filtered.map((video, i) => (
-            <motion.button
-              key={video.id}
-              onClick={() => setSelectedVideo(video)}
-              initial={{ opacity: 0, y: 20 }}
-              animate={{ opacity: 1, y: 0 }}
-              transition={{ delay: Math.min(i * 0.03, 0.3) }}
-              whileHover={{ scale: 1.02, y: -2 }}
-              whileTap={{ scale: 0.98 }}
-              className="text-left p-4 rounded-2xl glass-strong border border-light-border/30 dark:border-white/5 hover:border-light-primary/30 dark:hover:border-light-primary/30 transition-all"
-            >
-              <div className="flex items-start justify-between mb-3">
-                <span className="text-xs font-medium px-2 py-0.5 rounded-full bg-light-primary/10 dark:bg-light-primary/20 text-light-primary">
-                  {formatVideo(video)}
-                </span>
-                <span className="text-[10px] text-light-muted dark:text-dark-muted">
-                  {formatDate(video.created_at)}
-                </span>
-              </div>
-              <h3 className="text-sm font-semibold text-light-text dark:text-dark-text line-clamp-2 mb-2">
-                {video.title}
-              </h3>
-              <div className="flex items-center justify-between">
-                <span className={`text-[10px] px-2 py-0.5 rounded-full border ${statusColors[video.status] || statusColors.generating}`}>
-                  {video.status}
-                </span>
-                <span className="text-xs text-light-muted dark:text-dark-muted">
-                  👁️ {formatViews(video.views || 0)}
-                </span>
-              </div>
-            </motion.button>
-          ))}
+          {filtered.map((video, i) => {
+            const ytId = getYouTubeId(video);
+            return (
+              <motion.button
+                key={video.id}
+                onClick={() => setSelectedVideo(video)}
+                initial={{ opacity: 0, y: 20 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ delay: Math.min(i * 0.03, 0.3) }}
+                whileHover={{ scale: 1.02, y: -2 }}
+                whileTap={{ scale: 0.98 }}
+                className="text-left p-3 rounded-2xl glass-strong border border-light-border/30 dark:border-white/5 hover:border-light-primary/30 dark:hover:border-light-primary/30 transition-all"
+              >
+                {ytId ? (
+                  <div className="relative w-full aspect-video rounded-lg overflow-hidden mb-3 bg-black">
+                    <img
+                      src={`https://img.youtube.com/vi/${ytId}/mqdefault.jpg`}
+                      alt={video.title}
+                      className="w-full h-full object-cover"
+                      loading="lazy"
+                    />
+                    <div className="absolute inset-0 flex items-center justify-center opacity-0 hover:opacity-100 transition-opacity">
+                      <div className="w-10 h-10 rounded-full bg-black/60 flex items-center justify-center">
+                        <svg className="w-5 h-5 text-white ml-0.5" fill="currentColor" viewBox="0 0 24 24">
+                          <path d="M8 5v14l11-7z" />
+                        </svg>
+                      </div>
+                    </div>
+                  </div>
+                ) : (
+                  <div className="w-full aspect-video rounded-lg mb-3 bg-gradient-to-br from-light-primary/10 to-light-secondary/10 flex items-center justify-center">
+                    <span className="text-3xl">{video.format === 'shorts' ? '🎬' : '🎥'}</span>
+                  </div>
+                )}
+                <div className="flex items-start justify-between mb-2">
+                  <span className="text-xs font-medium px-2 py-0.5 rounded-full bg-light-primary/10 dark:bg-light-primary/20 text-light-primary">
+                    {formatVideo(video)}
+                  </span>
+                  <span className="text-[10px] text-light-muted dark:text-dark-muted">
+                    {formatDate(video.created_at)}
+                  </span>
+                </div>
+                <h3 className="text-sm font-semibold text-light-text dark:text-dark-text line-clamp-2 mb-2">
+                  {video.title}
+                </h3>
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-1.5">
+                    <span className={`text-[10px] px-2 py-0.5 rounded-full border ${statusColors[video.status] || statusColors.generating}`}>
+                      {video.status}
+                    </span>
+                  </div>
+                  <div className="flex items-center gap-1.5">
+                    {video.published_platforms?.map(p => (
+                      <PlatformBadge key={p} platform={p} />
+                    ))}
+                    <span className="text-xs text-light-muted dark:text-dark-muted ml-1">
+                      👁️ {formatViews(video.views || 0)}
+                    </span>
+                  </div>
+                </div>
+              </motion.button>
+            );
+          })}
         </div>
       )}
 
@@ -277,6 +354,13 @@ export default function ArchivePage() {
               </div>
 
               <div className="space-y-3">
+                {getYouTubeId(selectedVideo) && (
+                  <VideoPreview
+                    youtubeId={getYouTubeId(selectedVideo)!}
+                    title={selectedVideo.title}
+                  />
+                )}
+
                 <div className="flex items-center gap-2">
                   <span className={`text-xs px-2 py-0.5 rounded-full border ${statusColors[selectedVideo.status] || ''}`}>
                     {selectedVideo.status}
@@ -285,6 +369,27 @@ export default function ArchivePage() {
                     {formatVideo(selectedVideo)}
                   </span>
                 </div>
+
+                {selectedVideo.published_platforms && selectedVideo.published_platforms.length > 0 && (
+                  <div className="p-3 rounded-xl bg-light-bg/50 dark:bg-dark-bg/50">
+                    <p className="text-xs text-light-muted dark:text-dark-muted mb-2">Published On</p>
+                    <div className="flex flex-col gap-1.5">
+                      {selectedVideo.published_platforms.map(platform => (
+                        <a
+                          key={platform}
+                          href={selectedVideo.publish_urls?.[platform] || selectedVideo.publish_urls?.[platform.charAt(0).toUpperCase() + platform.slice(1)] || '#'}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="flex items-center gap-2 px-3 py-2 rounded-lg hover:bg-black/5 dark:hover:bg-white/5 transition-colors"
+                        >
+                          <PlatformBadge platform={platform} size="md" />
+                          <span className="text-sm font-medium text-light-text dark:text-dark-text capitalize">{platform}</span>
+                          <span className="ml-auto text-xs text-light-muted">Watch →</span>
+                        </a>
+                      ))}
+                    </div>
+                  </div>
+                )}
 
                 <div className="p-3 rounded-xl bg-light-bg/50 dark:bg-dark-bg/50">
                   <p className="text-xs text-light-muted dark:text-dark-muted mb-1">Views</p>
