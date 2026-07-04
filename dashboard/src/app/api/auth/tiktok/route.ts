@@ -1,7 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { APP_URL } from '@/lib/constants';
 
 const TIKTOK_CLIENT_KEY = process.env.TIKTOK_CLIENT_KEY || '';
-const TIKTOK_REDIRECT_URI = process.env.TIKTOK_REDIRECT_URI || 'http://localhost:5001/api/auth/tiktok/callback';
+const TIKTOK_REDIRECT_URI = process.env.TIKTOK_REDIRECT_URI || `${APP_URL}/api/auth/tiktok/callback`;
 
 export async function GET(request: NextRequest) {
   const searchParams = request.nextUrl.searchParams;
