@@ -14,9 +14,9 @@ Thumbs.db
 .vscode/
 .idea/
 firebase/
-agents/
-bot/
-pipeline/
+/agents/
+/bot/
+/pipeline/
 *.mp4
 *.mp3
 *.wav
