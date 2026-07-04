@@ -79,6 +79,22 @@ def trim_clip(input_path: str, output_path: str, start: float = 0, duration: flo
     return safe_run_bool(cmd, timeout=120)
 
 
+def _extend_clip(input_path: str, output_path: str, target_dur: float) -> bool:
+    """Loop a clip to fill target_dur seconds if it's shorter than requested."""
+    current = _get_duration(input_path)
+    if current >= target_dur - 0.5:
+        return True
+    cmd = [
+        _ffmpeg_cmd(), "-y", "-stream_loop", "-1", "-i", input_path,
+        *_sws_flags(),
+        "-c:v", "libx264", "-preset", "fast", "-crf", CRF,
+        "-t", str(target_dur),
+        "-pix_fmt", "yuv420p",
+        "-an", output_path,
+    ]
+    return safe_run_bool(cmd, timeout=300)
+
+
 def resize_to_target(input_path: str, output_path: str, target_w: int, target_h: int) -> bool:
     cmd = [
         _ffmpeg_cmd(), "-y", "-i", input_path, *_sws_flags(),
@@ -292,8 +308,8 @@ def burn_subtitles(video_path: str, subtitle_path: str, output_path: str,
     abs_sub = os.path.abspath(subtitle_path)
     vf = (
         f"subtitles=filename='{abs_sub}':force_style="
-        f"'FontSize={fontsize},PrimaryColour=&HFFFFFF&,OutlineColour=&H000000&,"
-        f"Outline=0,Shadow=0,BorderStyle=3,BackColour=&H80000000&,"
+        f"'FontSize={fontsize},PrimaryColour=&HFF0055CC&,OutlineColour=&H40002B00&,"
+        f"Outline=0,Shadow=0,BorderStyle=3,BackColour=&H40000000&,"
         f"Alignment=2,MarginV=40,FontName=Arial'"
     )
     cmd = [
@@ -345,7 +361,13 @@ def composite_video(clips: list[dict], voice_path: str, music_path: Optional[str
         if out is None:
             continue
         processed.append(out)
-        actual_dur = _get_duration(out) or clip.get("duration", 8.0)
+        requested_dur = clip.get("duration", 8.0)
+        actual_dur = _get_duration(out) or requested_dur
+        if actual_dur < requested_dur - 0.5:
+            extended = str(TEMP_DIR / f"extended_{i:03d}.mp4")
+            if _extend_clip(out, extended, requested_dur):
+                processed[-1] = extended
+                actual_dur = requested_dur
         clip["duration"] = actual_dur
         transitions.append(clip.get("transition", "dissolve"))
         durations.append(actual_dur)
@@ -422,8 +444,8 @@ def composite_video(clips: list[dict], voice_path: str, music_path: Optional[str
         sub_fs = 9 if format_type == "shorts" else 10
         vf_parts.append(
             f"subtitles=filename='{abs_sub}':force_style="
-            f"'FontSize={sub_fs},PrimaryColour=&HFFFFFF&,OutlineColour=&H000000&,"
-            f"Outline=0,Shadow=0,BorderStyle=3,BackColour=&H80000000&,"
+            f"'FontSize={sub_fs},PrimaryColour=&HFF0055CC&,OutlineColour=&H40002B00&,"
+            f"Outline=0,Shadow=0,BorderStyle=3,BackColour=&H40000000&,"
             f"Alignment=2,MarginV=40,FontName=Arial'"
         )
 

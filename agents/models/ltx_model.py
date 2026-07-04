@@ -58,7 +58,7 @@ class LtxVideoModel(BaseVideoModel):
             tmp = tempfile.mkdtemp()
             output_path = os.path.join(tmp, f"ltx_{int(time.time())}.mp4")
 
-        num_frames = max(121, min(241, int(duration * 24)))
+        num_frames = max(121, min(481, int(duration * 24)))
         num_frames = ((num_frames - 1) // 8) * 8 + 1
 
         try:
@@ -91,7 +91,7 @@ class LtxVideoModel(BaseVideoModel):
                 or ", ".join(scene.get("asset_keywords", ["technology"]))
             )
             duration = scene.get("target_duration", scene.get("duration", 8.0))
-            num_frames = max(121, min(241, int(duration * 24)))
+            num_frames = max(121, min(481, int(duration * 24)))
             num_frames = ((num_frames - 1) // 8) * 8 + 1
             out_dir = os.path.join(
                 os.path.dirname(os.path.dirname(os.path.abspath(__file__))),

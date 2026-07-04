@@ -143,6 +143,14 @@
 - `LTX_MODEL_DIR` defaults to `~/ltx-models/` — already populated, no download needed
 - 16GB RAM with `--low-ram` flag — tested working
 
+## D13: Long Video Fixes — Duration, Subtitles, Script Quality
+- **crew/scriptwriter.py** — Audience changed from "general tech" to "non-technical beginner" (ZERO prior knowledge). Scene count increased from 6-10 to 15-20. Word count reduced to 600-1200. Jargon avoidance rule added.
+- **models/ltx_model.py** — LTX frame cap raised from 241→481 frames (~10s→~20s per clip) in both `generate_clip()` and `generate_clips()`.
+- **utils/video_compositor.py** — New `_extend_clip()` function loops short clips via `ffmpeg -stream_loop -1` to fill each scene's requested duration. Wire into `composite_video()` after duration check.
+- **utils/video_compositor.py** — Subtitle color changed from white to dark orange (`&HFF0055CC&`) in both `burn_subtitles()` and main composite subtitle path.
+- **utils/shorts_renderer.py** — Subtitle color changed to dark orange (`&HFF0055CC&`).
+- **utils/scene_parser.py** — `_infer_ltx_prompt()` now extracts VISUAL description text from storyboard blocks and includes it in the LTX prompt. LLM scene parse prompt improved to stress using actual storyboard visuals.
+
 ## New Env Vars
 | Variable | Default | Purpose |
 |---|---|---|

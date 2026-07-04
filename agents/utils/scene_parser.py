@@ -85,7 +85,7 @@ def _llm_scene_parse(
         else:
             target_hint = f"\nAim for total duration around {max_duration} seconds across all scenes."
 
-    prompt = f"""Convert this tech/AI educational video script into structured scenes with asset types. CRITICAL: Each scene MUST include a vivid "ltx_prompt" field — a 2-3 sentence visual description optimized for AI text-to-video generation. Include camera angle, lighting, composition, colors, and motion.
+    prompt = f"""Convert this tech/AI educational video script into structured scenes with asset types. CRITICAL: Each scene MUST include a vivid "ltx_prompt" field — a 2-3 sentence visual description optimized for AI text-to-video generation. Include camera angle, lighting, composition, colors, and motion. The ltx_prompt MUST directly describe the visual scene from the VISUAL lines in the storyboard — don't invent generic descriptions, use the specific visual elements mentioned in the script.
 
 Title: {title}
 Category: {category}
@@ -100,7 +100,7 @@ Storyboard:
 Important: Choose asset types that fit the category:
 - {category} related assets: {_get_suggested_assets(category)}
 
-The ltx_prompt is the most important field — it's what gets sent to the video generation AI. Make it specific and cinematic.
+The ltx_prompt is the most important field — it's what gets sent to the video generation AI. Make it specific, cinematic, and directly based on the VISUAL descriptions in the storyboard.
 
 Return ONLY valid JSON array of scene objects."""
 
@@ -390,7 +390,14 @@ def _infer_ltx_prompt(text: str, title: str = "", scene_index: int = 0, scene: d
         elif trans == "fade":
             transition_hint = "slow fading edges for smooth transition, "
 
-    return f"Cinematic shot of {', '.join(keywords[:2])}, {keywords[-1] if len(keywords) > 2 else 'technology'} visualization, {bg_hint}{asset_hint}{text_hint}{transition_hint}{cam}, {lighting}, rich colors, professional educational style, 24fps, high quality"  # noqa: E501
+    visual_desc_hint = ""
+    visual_match = re.search(r'VISUAL\s*:\s*(.+?)(?=\n|$)', text, re.IGNORECASE | re.DOTALL)
+    if visual_match:
+        visual_text = visual_match.group(1).strip()[:120]
+        if visual_text and len(visual_text) > 10:
+            visual_desc_hint = f"scene depicts {visual_text}, "
+
+    return f"Cinematic shot of {', '.join(keywords[:2])}, {keywords[-1] if len(keywords) > 2 else 'technology'} visualization, {visual_desc_hint}{bg_hint}{asset_hint}{text_hint}{transition_hint}{cam}, {lighting}, rich colors, professional educational style, 24fps, high quality"  # noqa: E501
 
 
 def _infer_asset_type(text: str) -> str:

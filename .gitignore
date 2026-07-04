@@ -51,3 +51,4 @@ agents/.venv-docker/
 docker-data/
 .playwright-mcp/
 .env*
+.env*.local

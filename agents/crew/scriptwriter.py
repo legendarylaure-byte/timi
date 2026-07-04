@@ -10,7 +10,7 @@ def create_scriptwriter_crew(topic: str = "", category: str = "", fmt: str = "sh
 
     scriptwriter = Agent(
         role="Tech Content Scriptwriter",
-        goal="Create engaging, accurate, educational scripts about AI and technology topics for a general tech audience",
+        goal="Create engaging, accurate, educational scripts about AI and technology topics for a non-technical beginner audience",
         backstory="""You are an expert tech content creator specializing in educational technology videos.
 You explain complex AI and tech concepts in simple, intuitive terms without oversimplifying.
 Your scripts are factually accurate, well-structured, and designed for maximum retention.
@@ -25,9 +25,9 @@ You NEVER fabricate facts, statistics, or claims. If unsure, you state the uncer
     if fmt == "long":
         format_instructions = f"""
 CRITICAL: This is a LONG-FORM video ({category}). Write enough content for {max_duration} seconds.
-- Write 800-1500 words for the narration.
-- Include 6-10 distinct scenes, each 30-90 seconds.
-- Structure: Hook (0-15s) → Context (15-60s) → Main explanation (4-7 scenes) → Summary → Outro with CTA.
+- Write 600-1200 words for the narration.
+- Include 15-20 distinct scenes, each 10-15 seconds.
+- Structure: Hook (0-15s) → Context (15-60s) → Main explanation (10-14 scenes) → Summary → Outro with CTA.
 - Use analogies and real-world examples to explain concepts.
 - Include visual cues in VISUAL lines for: diagrams, code snippets, screen recordings, or stock footage.
 - End with a clear takeaway and call-to-action (like, subscribe, comment).
@@ -67,7 +67,7 @@ RULES (STRICT):
 4. Every NARRATION line WILL be read by the voice-over — so it must be complete, natural sentences.
 5. Do NOT use character names or dialogue. This is a single-narrator educational format.
 6. FACTS MUST BE ACCURATE. Do not fabricate statistics, dates, or claims. If uncertain, say "it is believed that" or "experts suggest".
-7. Content is for a general tech audience — assume basic familiarity with technology but explain specialized terms.
+7. Content is for a NON-TECHNICAL beginner audience — assume ZERO prior knowledge. Explain every specialized term from first principles using everyday analogies. Write for someone who has never heard of this topic before. Avoid jargon entirely; when a technical term is necessary, define it immediately in plain language.
 
 At the end include:
 - Key takeaway (1-2 sentences)

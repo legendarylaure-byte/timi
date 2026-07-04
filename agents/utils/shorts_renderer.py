@@ -101,8 +101,8 @@ def reformat_to_shorts(input_path: str, hook_text: str, output_path: str,
         abs_sub = os.path.abspath(subtitle_path)
         subtitle_filter = (
             f",subtitles=filename='{abs_sub}':force_style="
-            f"'FontSize=14,PrimaryColour=&HFFFFFF&,OutlineColour=&H000000&,"
-            f"Outline=0,Shadow=0,BorderStyle=3,BackColour=&H80000000&,"
+            f"'FontSize=14,PrimaryColour=&HFF0055CC&,OutlineColour=&H40002B00&,"
+            f"Outline=0,Shadow=0,BorderStyle=3,BackColour=&H40000000&,"
             f"Alignment=2,MarginV=40,FontName=Arial'"
         )
 
@@ -181,6 +181,7 @@ def _generate_hook_from_keywords(keywords: list[str]) -> str:
 def render_repurposed_shorts(long_video_path: str, scenes: list[dict],
                               phrase_timings: list[dict], category: str,
                               video_id: str, script_text: str = "") -> list[dict]:
+    global _TEMP_DIR
     from utils.thumbnail_gen import generate_thumbnail_variants
 
     scene_timestamps = compute_scene_timestamps(scenes)
