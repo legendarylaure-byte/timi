@@ -76,6 +76,8 @@ export default function PublishingPage() {
   const OAUTH_URLS: Record<string, string> = {
     tiktok: '/api/auth/tiktok?action=connect',
     youtube: '/api/auth/youtube?action=connect',
+    facebook: '/api/auth/meta?action=connect',
+    instagram: '/api/auth/meta?action=connect',
   };
 
   const formatFollowers = (n: number) => n >= 1000000 ? (n / 1000000).toFixed(1) + 'M' : n >= 1000 ? (n / 1000).toFixed(1) + 'K' : n.toString();

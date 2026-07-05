@@ -60,6 +60,22 @@ def get_youtube_credentials():
     return creds
 
 
+def _force_token_refresh():
+    """Proactively refresh YouTube token if expired or expiring within 5 minutes."""
+    if not os.path.exists(TOKEN_FILE):
+        return
+    try:
+        creds = Credentials.from_authorized_user_file(TOKEN_FILE, SCOPES)
+        if creds and creds.expired and creds.refresh_token:
+            print("[YOUTUBE] Token expired, refreshing proactively...")
+            creds.refresh(Request())
+            with open(TOKEN_FILE, "w") as token:
+                token.write(creds.to_json())
+            print("[YOUTUBE] Token refreshed proactively")
+    except Exception as e:
+        print(f"[YOUTUBE] Proactive token refresh failed: {e}")
+
+
 def get_youtube_service() -> object | None:
     creds = get_youtube_credentials()
     if not creds:
@@ -114,8 +130,20 @@ def _upload_with_retry(
             is_retryable = True
             if isinstance(e, HttpError):
                 code = e.resp.status if hasattr(e, 'resp') else 0
-                if code in (400, 401, 403, 404):
+                if code in (400, 403, 404):
                     is_retryable = False
+                if code == 401:
+                    print("[YOUTUBE] 401 on upload, refreshing token and retrying...")
+                    try:
+                        creds = Credentials.from_authorized_user_file(TOKEN_FILE, SCOPES)
+                        if creds and creds.refresh_token:
+                            creds.refresh(Request())
+                            with open(TOKEN_FILE, "w") as token:
+                                token.write(creds.to_json())
+                            youtube = build("youtube", "v3", credentials=creds)
+                            print("[YOUTUBE] Token refreshed after 401")
+                    except Exception as refresh_err:
+                        print(f"[YOUTUBE] Token refresh after 401 failed: {refresh_err}")
             if not is_retryable or attempt == max_retries - 1:
                 raise
             wait = (2 ** attempt) * 5
@@ -153,6 +181,7 @@ def upload_video_to_youtube(
             file_hash.update(chunk)
     md5_before = file_hash.hexdigest()
     print(f"[YOUTUBE] Uploading: {title} ({file_size / 1e6:.1f} MB, md5: {md5_before[:12]}...)")
+    _force_token_refresh()
     creds = get_youtube_credentials()
     if not creds:
         return {"success": False, "error": "No YouTube credentials available"}

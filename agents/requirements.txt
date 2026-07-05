@@ -24,6 +24,7 @@ pytest==9.1.1
 modal==1.5.1
 diffusers==0.38.0
 huggingface_hub==1.21.0
+numpy>=1.26.4,<3.0.0
 sentry-sdk>=2.30.0
 setuptools<69
 playwright>=1.59.0

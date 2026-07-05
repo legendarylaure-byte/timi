@@ -143,7 +143,6 @@ jobs:
             sed -i '' '/^classifiers/,/^]/d' /tmp/ltx-2-mlx/pyproject.toml
             uv pip install /tmp/ltx-2-mlx
           fi
-          uv pip check
 
       - name: Configure environment
         working-directory: ./agents

@@ -29,6 +29,8 @@ export default function SettingsPage() {
   const OAUTH_URLS: Record<string, string> = {
     tiktok: '/api/auth/tiktok?action=connect',
     youtube: '/api/auth/youtube?action=connect',
+    facebook: '/api/auth/meta?action=connect',
+    instagram: '/api/auth/meta?action=connect',
   };
 
   const togglePlatformConnection = async (platformId: string, currentConnected: boolean, platformName: string) => {
@@ -38,6 +40,19 @@ export default function SettingsPage() {
         window.location.href = oauthUrl;
         return;
       }
+      // Fallback: platforms without OAuth (connect directly)
+      try {
+        await fetch(`/api/platform-settings/${platformId}`, {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ connected: true }),
+        });
+        addToast(`${platformName} connected`, 'success');
+      } catch (e) {
+        console.error('Failed to connect:', e);
+        addToast(`Failed to connect ${platformName}`, 'error');
+      }
+      return;
     } else {
       if (!confirm(`Disconnect ${platformName}? OAuth tokens will be removed.`)) return;
       try {

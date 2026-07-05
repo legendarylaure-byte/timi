@@ -1869,7 +1869,7 @@ if __name__ == "__main__":
         log_event("CLEANUP", f"Startup cleanup failed: {startup_cleanup_err}", "warn")
 
     start_heartbeat_monitor(interval=600)
-    start_health_server(port=8081)
+    start_health_server(port=8080)
 
     log_event("HEALTH", "Checking Ollama health...")
     if check_ollama_health():
