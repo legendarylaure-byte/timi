@@ -329,21 +329,21 @@ export default function ArchivePage() {
 
       <AnimatePresence>
         {selectedVideo && (
-          <>
-            <motion.div
-              key="backdrop"
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
-              exit={{ opacity: 0 }}
-              className="fixed inset-0 bg-black/60 z-50"
-              onClick={() => setSelectedVideo(null)}
-            />
+          <motion.div
+            key="backdrop"
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 bg-black/60 z-50 flex items-center justify-center p-4"
+            onClick={() => setSelectedVideo(null)}
+          >
             <motion.div
               key="modal"
-              initial={{ opacity: 0, scale: 0.95, y: 20 }}
-              animate={{ opacity: 1, scale: 1, y: 0 }}
-              exit={{ opacity: 0, scale: 0.95, y: 20 }}
-              className="fixed inset-x-4 top-1/2 -translate-y-1/2 max-w-lg mx-auto z-50 rounded-2xl glass-strong border border-light-border/50 dark:border-white/10 p-6 max-h-[80vh] overflow-y-auto"
+              initial={{ opacity: 0, scale: 0.95 }}
+              animate={{ opacity: 1, scale: 1 }}
+              exit={{ opacity: 0, scale: 0.95 }}
+              onClick={(e) => e.stopPropagation()}
+              className="w-full max-w-lg rounded-2xl glass-strong border border-light-border/50 dark:border-white/10 p-6 max-h-[80vh] overflow-y-auto"
             >
               <div className="flex items-start justify-between mb-4">
                 <div>
@@ -437,7 +437,7 @@ export default function ArchivePage() {
                 </div>
               </div>
             </motion.div>
-          </>
+          </motion.div>
         )}
       </AnimatePresence>
     </div>

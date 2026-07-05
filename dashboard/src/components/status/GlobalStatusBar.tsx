@@ -8,7 +8,7 @@ import { getNextUploadDisplay } from '@/lib/constants';
 
 interface StatusPill {
   id: string;
-  status: 'ok' | 'warn' | 'error' | 'unknown' | 'working';
+  status: 'ok' | 'warn' | 'error' | 'unknown' | 'working' | 'cloud';
   value: string;
   tooltip: string;
 }
@@ -20,7 +20,7 @@ interface StatusHelpContent {
   fixes: string[];
 }
 
-const STATUS_HELP: Record<string, Partial<Record<'warn' | 'error', StatusHelpContent>>> = {
+const STATUS_HELP: Record<string, Partial<Record<'warn' | 'error' | 'cloud', StatusHelpContent>>> = {
   pipeline: {
     warn: {
       title: 'Pipeline Idle — Background Tasks Running',
@@ -53,9 +53,23 @@ const STATUS_HELP: Record<string, Partial<Record<'warn' | 'error', StatusHelpCon
         'If it persists, rebuild the container: "docker compose build"',
       ],
     },
+    cloud: {
+      title: 'Docker — Not Available in Cloud',
+      description: 'Docker is not available in this cloud environment (Vercel serverless). The pipeline runs on your local machine instead. This is expected when viewing the dashboard from the cloud deployment.',
+      reasons: [
+        'The dashboard is accessed via the cloud URL (timi.vyomai.cloud)',
+        'Vercel serverless functions cannot run Docker containers',
+        'Pipeline execution happens on your local machine, not in the cloud',
+      ],
+      fixes: [
+        'This is normal — no action needed',
+        'To see Docker status, open the dashboard on localhost:5001',
+        'The pipeline will still run on your local machine as scheduled',
+      ],
+    },
     error: {
       title: 'Docker Is Offline',
-      description: 'Docker is the engine that powers all your AI agents and video pipeline. Without it, no videos can be generated.',
+      description: 'Docker powers all your AI agents and video pipeline. Without it, no videos can be generated on your local machine.',
       reasons: [
         'Docker Desktop might not be running',
         'The Docker daemon may have crashed',
@@ -92,13 +106,13 @@ const STATUS_HELP: Record<string, Partial<Record<'warn' | 'error', StatusHelpCon
         'Your internet connection is down',
         'Firebase servers may be experiencing an outage',
         'A firewall or VPN might be blocking the connection',
-        'Your Firebase project may have been disabled or suspended',
+        'The Firebase service account key may not be set on this deployment',
       ],
       fixes: [
         'Check your internet connection — try opening a website in your browser',
         'Disable any VPN or proxy and refresh the page',
         'Check the Firebase Status Dashboard for ongoing issues',
-        'If you haven\'t used this in a while, check your Firebase project billing status',
+        'If viewing on Vercel (cloud), ensure FIREBASE_SERVICE_ACCOUNT_KEY is set in Vercel env vars',
       ],
     },
   },
@@ -202,10 +216,10 @@ const OK_MESSAGES: Record<string, { title: string; description: string }> = {
     title: 'Cloud Storage — All Set',
     description: 'Cloudflare R2 stores your video files in the cloud. There\'s plenty of space available and everything is syncing correctly.',
   },
-  agents: {
-    title: 'Agents — All Healthy',
-    description: 'All AI agents are online and ready for work. They\'ll spring into action when the next video pipeline run starts.',
-  },
+    agents: {
+      title: 'Agents — All Healthy',
+      description: 'All AI agents are online and ready for work. They\'ll spring into action when the next video pipeline run starts.',
+    },
   nextUpload: {
     title: 'Next Upload — On Schedule',
     description: 'The daily upload schedule is on track. The next automatic run is at 11:45 AM Nepal time (06:00 UTC) as planned.',
@@ -235,6 +249,7 @@ const statusColor: Record<string, string> = {
   warn: 'bg-amber-400',
   error: 'bg-red-500',
   unknown: 'bg-gray-400',
+  cloud: 'bg-sky-400',
 };
 
 function SkeletonPill() {
@@ -255,16 +270,18 @@ function HelpPopover({ pillId, pills, onClose }: { pillId: string; pills: Status
   const pill = pills.find(p => p.id === pillId);
           const isOk = pill?.status === 'ok';
           const isWorking = pill?.status === 'working';
+          const isCloud = pill?.status === 'cloud';
           const okContent = isOk && pill ? OK_MESSAGES[pill.id] : null;
           const workingContent = isWorking && pill ? WORKING_MESSAGES[pill.id] : null;
-          const content = !isOk && !isWorking && pill ? STATUS_HELP[pill.id]?.[pill.status as 'warn' | 'error'] : null;
-          if (!content && !okContent && !workingContent) return null;
+          const cloudContent = isCloud && pill ? STATUS_HELP[pill.id]?.cloud : null;
+          const content = !isOk && !isWorking && !isCloud && pill ? STATUS_HELP[pill.id]?.[pill.status as 'warn' | 'error'] : null;
+          if (!content && !okContent && !workingContent && !cloudContent) return null;
           const statusDotColor = pill ? statusColor[pill.status] : 'bg-gray-400';
           const statusLabel = pill?.status === 'error' ? 'Error' : pill?.status === 'warn' ? 'Notice' : '';
-          const displayTitle = isOk ? okContent!.title : isWorking ? workingContent!.title : content!.title;
-          const displayDescription = isOk ? okContent!.description : isWorking ? workingContent!.description : content!.description;
-          const displayReasons = isOk || isWorking ? null : content!.reasons;
-          const displayFixes = isOk || isWorking ? null : content!.fixes;
+          const displayTitle = isOk ? okContent!.title : isWorking ? workingContent!.title : isCloud ? cloudContent!.title : content!.title;
+          const displayDescription = isOk ? okContent!.description : isWorking ? workingContent!.description : isCloud ? cloudContent!.description : content!.description;
+          const displayReasons = (isOk || isWorking || isCloud) ? null : content!.reasons;
+          const displayFixes = (isOk || isWorking || isCloud) ? null : content!.fixes;
   return (
     <motion.div
       key="help-popover"
@@ -412,6 +429,12 @@ export function GlobalStatusBar() {
         value: `${dockerData.container_count} container${dockerData.container_count !== 1 ? 's' : ''} (partial)`,
         tooltip: 'Docker is running but some containers are not healthy — your pipeline may have issues',
       });
+    } else if (dockerData?.reason === 'vercel_serverless') {
+      newPills.push({
+        id: 'docker', status: 'cloud',
+        value: 'N/A (cloud)',
+        tooltip: 'Docker is not available in this cloud environment (Vercel serverless). Pipeline runs on your local machine instead.',
+      });
     } else {
       newPills.push({
         id: 'docker', status: 'error',
@@ -516,7 +539,7 @@ export function GlobalStatusBar() {
         ) : (
           <>
             {pills.map((pill, i) => {
-              const helpContent = STATUS_HELP[pill.id]?.[pill.status as 'warn' | 'error'];
+              const helpContent = STATUS_HELP[pill.id]?.[pill.status as 'warn' | 'error' | 'cloud'];
               const needsHelp = !!helpContent;
               const isClickable = pill.status !== 'unknown';
               return (
