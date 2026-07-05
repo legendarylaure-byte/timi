@@ -57,6 +57,16 @@ def upload_video(file_path: str, video_id: str, format_type: str = "long") -> st
     return public_url
 
 
+def generate_presigned_url(key: str, expires_in: int = 3600) -> str:
+    client = get_r2_client()
+    url = client.generate_presigned_url(
+        ClientMethod='get_object',
+        Params={'Bucket': BUCKET, 'Key': key},
+        ExpiresIn=expires_in,
+    )
+    return url
+
+
 def upload_thumbnail(file_path: str, video_id: str) -> str:
     client = get_r2_client()
     ext = os.path.splitext(file_path)[1]

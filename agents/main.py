@@ -7,6 +7,7 @@ import signal
 import time
 import warnings
 warnings.filterwarnings("ignore", message="PyTorch was not found")
+warnings.filterwarnings("ignore", category=SyntaxWarning, module="pydub")
 import logging
 import atexit
 from contextlib import contextmanager
@@ -940,7 +941,7 @@ def generate_short_video(topic: str, category: str, video_id: str, publish_at: s
 
         failed_step = "publishing"
         with _track_step(video_id, "publishing"):
-            platforms_to_publish = ['youtube', 'tiktok', 'instagram']
+            platforms_to_publish = ['youtube', 'tiktok', 'instagram', 'facebook']
             publish_result = multi_platform_publish(
                 video_id=video_id,
                 title=topic,
@@ -1309,7 +1310,7 @@ def generate_long_video(topic: str, category: str, video_id: str, publish_at: st
                             video_path=short["video_path"],
                             thumbnail_path=short.get("thumbnail_path", ""),
                             format_type="shorts",
-                            platforms=['youtube'],
+                            platforms=['youtube', 'instagram', 'facebook'],
                             category=category,
                         )
                         log_event("REPURPOSE", f"Short published: {short_title}")

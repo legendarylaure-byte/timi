@@ -74,6 +74,36 @@ def _refresh_tiktok_token() -> str | None:
         return None
 
 
+def _save_env(updates: dict):
+    """Persist env vars to both .env files."""
+    _script_dir = os.path.dirname(os.path.abspath(__file__))
+    _agents_dir = os.path.dirname(_script_dir)
+    _root_dir = os.path.dirname(_agents_dir)
+    for _p in [os.path.join(_agents_dir, '.env'), os.path.join(_root_dir, '.env')]:
+        if os.path.exists(_p):
+            _lines = []
+            with open(_p) as _f:
+                _lines = _f.readlines()
+            _updated_keys = set(updates.keys())
+            _existing_keys = set()
+            _new_lines = []
+            for _line in _lines:
+                _stripped = _line.strip()
+                if _stripped and not _stripped.startswith('#'):
+                    _key, _, _ = _stripped.partition('=')
+                    _key = _key.strip()
+                    if _key in updates:
+                        _new_lines.append(f'{_key}={updates[_key]}\n')
+                        _existing_keys.add(_key)
+                        continue
+                _new_lines.append(_line)
+            for _key, _val in updates.items():
+                if _key not in _existing_keys:
+                    _new_lines.append(f'{_key}={_val}\n')
+            with open(_p, 'w') as _f:
+                _f.writelines(_new_lines)
+
+
 def _refresh_facebook_token() -> str | None:
     """Extend Facebook access token lifetime. Returns new token or None."""
     token = os.getenv('FACEBOOK_ACCESS_TOKEN')
@@ -97,6 +127,7 @@ def _refresh_facebook_token() -> str | None:
             new_token = resp.json().get('access_token')
             if new_token:
                 os.environ['FACEBOOK_ACCESS_TOKEN'] = new_token
+                _save_env({'FACEBOOK_ACCESS_TOKEN': new_token})
                 return new_token
         return None
     except Exception:
@@ -105,6 +136,22 @@ def _refresh_facebook_token() -> str | None:
 
 def _idempotency_key() -> str:
     return str(uuid.uuid4())
+
+
+def _check_meta_rate_limit(response, platform: str):
+    """Parse X-App-Usage header and log warnings near rate limits."""
+    try:
+        usage_header = response.headers.get('X-App-Usage')
+        if usage_header:
+            import json as _json
+            usage = _json.loads(usage_header) if isinstance(usage_header, str) else usage_header
+            if isinstance(usage, dict):
+                pct = max(usage.get(k, 0) for k in ('call_count', 'total_cputime', 'total_time'))
+                if pct >= 80:
+                    security_audit("RATE_LIMIT", f"{platform} usage at {pct}%", "warning")
+                    log_activity('publisher', f'{platform} rate limit usage: {pct}%', 'warn')
+    except Exception:
+        pass
 
 
 def upload_to_platform(platform: str, title: str, description: str, video_path: str, thumbnail_path: str, format_type: str = 'shorts', publish_at: str = None) -> dict:  # noqa: E501
@@ -309,10 +356,28 @@ def _upload_instagram(title: str, video_path: str, format_type: str) -> dict:
         if video_path.startswith(('http://', 'https://')):
             instagram_video_url = video_path
         else:
-            return {
-                'success': False, 'platform': 'instagram',
-                'error': 'Instagram Graph API requires a public URL. Set INSTAGRAM_VIDEO_URL env var or pass a URL.',
-            }
+            try:
+                from utils.r2_storage import get_r2_client, generate_presigned_url
+                from datetime import datetime
+                import uuid as _uuid
+                _client = get_r2_client()
+                _bucket = os.getenv('CLOUDFLARE_R2_BUCKET', 'vyom-ai-videos')
+                _key = f"videos/{_uuid.uuid4().hex}_{format_type}.mp4"
+                with open(video_path, 'rb') as _f:
+                    _client.upload_fileobj(
+                        _f, _bucket, _key,
+                        ExtraArgs={
+                            'ContentType': 'video/mp4',
+                            'Metadata': {'uploaded-at': datetime.utcnow().isoformat(), 'format': format_type},
+                        },
+                    )
+                instagram_video_url = generate_presigned_url(_key, expires_in=3600)
+                log_activity('publisher', f'Uploaded video to R2 for Instagram: {_key}', 'info')
+            except Exception as r2_err:
+                return {
+                    'success': False, 'platform': 'instagram',
+                    'error': f'Instagram needs a public URL. R2 upload failed: {safe_log(str(r2_err))}',
+                }
 
     def _do_upload():
         nonlocal access_token
@@ -336,6 +401,7 @@ def _upload_instagram(title: str, video_path: str, format_type: str) -> dict:
             params=media_params,
             timeout=30,
         )
+        _check_meta_rate_limit(create_resp, 'Instagram')
 
         if create_resp.status_code == 401:
             refreshed = _refresh_facebook_token()
@@ -358,6 +424,7 @@ def _upload_instagram(title: str, video_path: str, format_type: str) -> dict:
                 params={'access_token': access_token, 'fields': 'status_code'},
                 timeout=15,
             )
+            _check_meta_rate_limit(status_resp, 'Instagram')
             if status_resp.status_code == 200:
                 status_code = status_resp.json().get('status_code')
                 if status_code == 'FINISHED':
@@ -372,6 +439,7 @@ def _upload_instagram(title: str, video_path: str, format_type: str) -> dict:
             params={'access_token': access_token, 'creation_id': creation_id, 'idempotency_key': idem_key},
             timeout=30,
         )
+        _check_meta_rate_limit(publish_resp, 'Instagram')
 
         if publish_resp.status_code == 200:
             media_id = publish_resp.json().get('id', creation_id)
@@ -447,6 +515,8 @@ def _upload_facebook(title: str, description: str, video_path: str) -> dict:
                     timeout=600,
                 )
 
+            _check_meta_rate_limit(upload_resp, 'Facebook')
+
             if upload_resp.status_code == 401:
                 refreshed = _refresh_facebook_token()
                 if refreshed:
@@ -478,6 +548,8 @@ def _upload_facebook(title: str, description: str, video_path: str) -> dict:
                 timeout=30,
             )
 
+            _check_meta_rate_limit(init_resp, 'Facebook')
+
             if init_resp.status_code == 401:
                 refreshed = _refresh_facebook_token()
                 if refreshed:
@@ -505,6 +577,8 @@ def _upload_facebook(title: str, description: str, video_path: str) -> dict:
                     files={'source': f},
                     timeout=600,
                 )
+
+            _check_meta_rate_limit(chunk_resp, 'Facebook')
 
             if chunk_resp.status_code == 200:
                 video_id = chunk_resp.json().get('id')

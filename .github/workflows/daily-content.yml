@@ -83,11 +83,24 @@ jobs:
       MIN_VIRALITY_SCORE: 40
       MIN_VIRALITY_SCORE_LONG: 30
       USE_ANIMATION_ENGINE: true
-      FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+      FACEBOOK_APP_ID: ${{ secrets.FACEBOOK_APP_ID }}
+      FACEBOOK_APP_SECRET: ${{ secrets.FACEBOOK_APP_SECRET }}
+      FACEBOOK_ACCESS_TOKEN: ${{ secrets.FACEBOOK_ACCESS_TOKEN }}
+      FACEBOOK_PAGE_ID: ${{ secrets.FACEBOOK_PAGE_ID }}
+      INSTAGRAM_ACCOUNT_ID: ${{ secrets.INSTAGRAM_ACCOUNT_ID }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+      CLOUDFLARE_R2_ACCESS_KEY_ID: ${{ secrets.CLOUDFLARE_R2_ACCESS_KEY_ID }}
+      CLOUDFLARE_R2_SECRET_ACCESS_KEY: ${{ secrets.CLOUDFLARE_R2_SECRET_ACCESS_KEY }}
+      CLOUDFLARE_R2_BUCKET: vyom-ai-videos
 
     steps:
+      - name: Cleanup stale temp files
+        run: |
+          rm -rf agents/output/*.mp4 agents/tmp/* agents/.venv 2>/dev/null || true
+          echo "  ✅ Temp and venv cleaned"
+
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
 
       - name: Install uv
         run: |
@@ -95,7 +108,7 @@ jobs:
           echo "$HOME/.local/bin" >> $GITHUB_PATH
 
       - name: Cache uv
-        uses: actions/cache@v4
+        uses: actions/cache@v5
         with:
           path: ~/.cache/uv
           key: uv-${{ runner.os }}-${{ hashFiles('./agents/requirements.txt') }}
@@ -130,6 +143,7 @@ jobs:
             sed -i '' '/^classifiers/,/^]/d' /tmp/ltx-2-mlx/pyproject.toml
             uv pip install /tmp/ltx-2-mlx
           fi
+          uv pip check
 
       - name: Configure environment
         working-directory: ./agents
@@ -162,8 +176,8 @@ jobs:
           ffprobe -version > /dev/null 2>&1 || { echo "ERROR: ffprobe not found"; exit 1; }
           echo "  ✅ ffprobe available"
           AVAIL_KB=$(df . | awk 'NR==2 {print $4}')
-          if [ "$AVAIL_KB" -lt 1048576 ]; then
-            echo "ERROR: Less than 1GB disk space available (${AVAIL_KB}KB)"
+          if [ "$AVAIL_KB" -lt 52428800 ]; then
+            echo "ERROR: Less than 50GB disk space available (${AVAIL_KB}KB)"
             exit 1
           fi
           echo "  ✅ Disk space: $((AVAIL_KB / 1024))MB available"
@@ -197,7 +211,7 @@ jobs:
 
       - name: Upload generated videos as artifacts
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v5
         with:
           name: generated-videos
           path: agents/output/*.mp4
@@ -206,7 +220,7 @@ jobs:
 
       - name: Notify on failure
         if: failure()
-        uses: actions/github-script@v7
+        uses: actions/github-script@v8
         with:
           script: |
             github.rest.issues.create({

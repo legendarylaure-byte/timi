@@ -124,7 +124,7 @@
 
 ## Remaining Setup
 1. **TikTok OAuth**: Set `TIKTOK_ACCESS_TOKEN`, `TIKTOK_OPEN_ID`, `TIKTOK_CLIENT_KEY`, `TIKTOK_CLIENT_SECRET`, and optionally `TIKTOK_REFRESH_TOKEN` env vars.
-2. **Instagram OAuth**: Set `INSTAGRAM_ACCESS_TOKEN`, `INSTAGRAM_BUSINESS_ID`, `FACEBOOK_APP_ID`, `FACEBOOK_APP_SECRET` env vars.
+2. **Instagram OAuth**: Set `FACEBOOK_APP_ID`, `FACEBOOK_APP_SECRET`, `FACEBOOK_ACCESS_TOKEN`, `FACEBOOK_PAGE_ID`, `INSTAGRAM_ACCOUNT_ID` env vars. No `INSTAGRAM_ACCESS_TOKEN` needed — Instagram uses the Facebook Page token.
 3. **YouTube Analytics API**: Re-auth needed (`yt-analytics.readonly` scope). Delete `youtube_token.json` and run any upload.
 4. **Google Cloud TTS**: Create service account, download JSON key, set `GOOGLE_APPLICATION_CREDENTIALS`.
 5. **Playwright browsers**: Run `playwright install chromium` after pip install.

@@ -96,6 +96,15 @@ def _get_gemini_llm(temperature: float, max_tokens: int) -> LLM:
     )
 
 
+def _try_gemini_or_none(temperature: float, max_tokens: int) -> LLM | None:
+    """Try Gemini, return None if unavailable (ImportError, package missing, etc.)."""
+    try:
+        return _get_gemini_llm(temperature, max_tokens)
+    except ImportError as e:
+        print(f"[LLM] Gemini unavailable ({e}), falling back to Ollama")
+        return None
+
+
 def get_llm(temperature: float = 0.7, max_tokens: int = 2000, agent_id: str = None) -> LLM:
     global _force_next_provider
 
@@ -103,19 +112,27 @@ def get_llm(temperature: float = 0.7, max_tokens: int = 2000, agent_id: str = No
     if routed_provider:
         print(f"[LLM] Agent '{agent_id}' routed to provider '{routed_provider}'")
         if routed_provider == "gemini":
-            return _get_gemini_llm(temperature, max_tokens)
+            result = _try_gemini_or_none(temperature, max_tokens)
+            if result:
+                return result
+            print("[LLM] Gemini routed but unavailable, falling through to Ollama")
         elif routed_provider == "ollama":
             return _get_ollama_llm(temperature, max_tokens)
 
     # Gemini is much faster than local Ollama on CPU — try it first unless forced to skip
     gemini_key = os.getenv("GEMINI_API_KEY", "")
     if not _force_next_provider and gemini_key:
-        return _get_gemini_llm(temperature, max_tokens)
+        result = _try_gemini_or_none(temperature, max_tokens)
+        if result:
+            return result
+        print("[LLM] Gemini unavailable, trying Ollama")
 
     if verify_ollama_model():
         return _get_ollama_llm(temperature, max_tokens)
 
     if gemini_key:
-        return _get_gemini_llm(temperature, max_tokens)
+        result = _try_gemini_or_none(temperature, max_tokens)
+        if result:
+            return result
 
     raise RuntimeError("No LLM available: Ollama model not found, no GEMINI_API_KEY")
