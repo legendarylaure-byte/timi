@@ -1,8 +1,18 @@
 import { NextResponse } from 'next/server';
 import { getAdminFirestore } from '@/lib/firebase-admin';
 
-async function writeHeartbeat(db: FirebaseFirestore.Firestore) {
+const HEARTBEAT_TTL_MS = 60000;
+
+async function ensureHeartbeat(db: FirebaseFirestore.Firestore) {
   try {
+    const doc = await db.collection('system').doc('heartbeat').get();
+    if (doc.exists) {
+      const data = doc.data();
+      const raw = data?.last_heartbeat || data?.last_seen || 0;
+      const lastSeen = typeof raw === 'string' ? new Date(raw) : raw?.toDate?.() || new Date(raw);
+      const age = Date.now() - lastSeen.getTime();
+      if (age < HEARTBEAT_TTL_MS) return;
+    }
     await db.collection('system').doc('heartbeat').set({
       last_heartbeat: new Date().toISOString(),
       source: 'dashboard-server',
@@ -21,14 +31,8 @@ export async function GET() {
 
   try {
     const db = getAdminFirestore();
-    await db.collection('system').doc('health_check').set({
-      last_check: new Date().toISOString(),
-    }, { merge: true });
+    await ensureHeartbeat(db);
     checks.firestore = { status: 'ok' };
-
-    // Write a heartbeat so the dashboard always sees fresh data
-    // while the Next.js server is running
-    await writeHeartbeat(db);
   } catch (e: any) {
     checks.firestore = { status: 'error', detail: e.message };
     healthy = false;

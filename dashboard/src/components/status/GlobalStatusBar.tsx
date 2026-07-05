@@ -510,7 +510,7 @@ export function GlobalStatusBar() {
 
   useEffect(() => {
     poll();
-    const interval = setInterval(poll, 10000);
+    const interval = setInterval(poll, 30000);
     return () => clearInterval(interval);
   }, [poll]);
 

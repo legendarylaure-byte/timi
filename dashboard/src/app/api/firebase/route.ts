@@ -6,12 +6,9 @@ export async function GET() {
     const db = getAdminFirestore();
 
     const start = Date.now();
-    await db.collection('system').doc('health_check').set({
-      last_ping: new Date().toISOString(),
-    }, { merge: true });
+    const heartbeatDoc = await db.collection('system').doc('heartbeat').get();
     const latency = Date.now() - start;
 
-    const heartbeatDoc = await db.collection('system').doc('heartbeat').get();
     let heartbeat: Record<string, any> = { age_seconds: null, status: 'unknown' };
     if (heartbeatDoc.exists) {
       const hb = heartbeatDoc.data();
@@ -37,12 +34,6 @@ export async function GET() {
       latency_ms: latency,
       heartbeat,
       pipeline,
-      collections: {
-        agent_status: true,
-        activity_logs: true,
-        videos: true,
-        system: true,
-      },
     });
   } catch (error: any) {
     return NextResponse.json({

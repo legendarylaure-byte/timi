@@ -12,10 +12,24 @@ interface ContainerInfo {
   memory: string;
 }
 
+function isVercel(): boolean {
+  return process.env.VERCEL === '1' || process.env.VERCEL_URL !== undefined;
+}
+
 export async function GET() {
+  if (isVercel()) {
+    return NextResponse.json({
+      available: false,
+      daemon: false,
+      reason: 'vercel_serverless',
+      containers: [],
+      message: 'Docker not available in cloud (Vercel serverless)',
+    });
+  }
+
   try {
     const raw = execSync(
-      `docker ps -a --format '{{json .}}' --filter "name=timi" 2>/dev/null`,
+      `docker ps -a --format '{{json .}}' --filter "name=timi"`,
       { timeout: 5000, encoding: 'utf-8' }
     ).toString().trim();
 
@@ -47,7 +61,7 @@ export async function GET() {
     }).filter(Boolean) as ContainerInfo[];
 
     const statsRaw = execSync(
-      `docker stats --no-stream --format '{{json .}}' $(docker ps -q --filter "name=timi") 2>/dev/null`,
+      `docker stats --no-stream --format '{{json .}}' $(docker ps -q --filter "name=timi")`,
       { timeout: 5000, encoding: 'utf-8' }
     ).toString().trim();
 
@@ -79,12 +93,13 @@ export async function GET() {
       containers,
     });
   } catch (error: any) {
-    if (error.code === 'ENOENT' || error.stderr?.includes('Cannot connect')) {
+    if (isVercel() || error.code === 'ENOENT' || error.stderr?.includes('Cannot connect')) {
       return NextResponse.json({
         available: false,
         daemon: false,
+        reason: isVercel() ? 'vercel_serverless' : undefined,
         containers: [],
-        error: 'Docker daemon not reachable',
+        error: error.code === 'ENOENT' ? 'Docker daemon not reachable' : error.message,
       });
     }
     return NextResponse.json({

@@ -9,6 +9,7 @@ interface DockerData {
   all_running: boolean;
   pipeline?: { status: string; state: string; uptime: string };
   containers?: Array<{ name: string; status: string; state: string; uptime: string }>;
+  reason?: string;
   error?: string;
 }
 
@@ -66,7 +67,9 @@ export function DockerStatus() {
     return () => clearInterval(interval);
   }, []);
 
+  const isCloud = data?.reason === 'vercel_serverless';
   const status: 'ok' | 'warn' | 'error' | 'unknown' = !data ? 'unknown'
+    : isCloud ? 'warn'
     : data.available && data.all_running ? 'ok'
     : data.available ? 'warn'
     : 'error';
@@ -81,7 +84,7 @@ export function DockerStatus() {
           <div className="text-left">
             <h4 className="text-xs font-semibold text-light-text dark:text-dark-text">Docker</h4>
             <p className="text-[10px] text-light-muted dark:text-dark-muted">
-              {data ? `${data.container_count} container${data.container_count !== 1 ? 's' : ''}` : '...'}
+              {isCloud ? 'N/A (cloud)' : data ? `${data.container_count} container${data.container_count !== 1 ? 's' : ''}` : '...'}
             </p>
           </div>
         </div>
@@ -91,7 +94,7 @@ export function DockerStatus() {
         </div>
       </button>
 
-      {expanded && data && (
+      {expanded && data && !isCloud && (
         <motion.div
           initial={{ height: 0, opacity: 0 }}
           animate={{ height: 'auto', opacity: 1 }}
@@ -110,6 +113,15 @@ export function DockerStatus() {
               timi-pipeline: {data.pipeline.status} · {data.pipeline.uptime}
             </div>
           )}
+        </motion.div>
+      )}
+      {expanded && isCloud && (
+        <motion.div
+          initial={{ height: 0, opacity: 0 }}
+          animate={{ height: 'auto', opacity: 1 }}
+          className="mt-2 pt-2 border-t border-light-border/50 dark:border-dark-border/50 text-[10px] text-light-muted dark:text-dark-muted"
+        >
+          Docker is not available in this cloud environment. The pipeline runs on your local machine instead.
         </motion.div>
       )}
     </div>
