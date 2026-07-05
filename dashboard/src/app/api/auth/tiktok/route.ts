@@ -18,6 +18,7 @@ export async function GET(request: NextRequest) {
     authUrl.searchParams.set('response_type', 'code');
     authUrl.searchParams.set('redirect_uri', TIKTOK_REDIRECT_URI);
     authUrl.searchParams.set('state', 'sandbox_timi');
+    authUrl.searchParams.set('prompt', 'consent');
 
     return NextResponse.redirect(authUrl.toString());
   }
