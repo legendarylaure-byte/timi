@@ -21,6 +21,13 @@ export default function SettingsPage() {
   const [loading, setLoading] = useState(true);
   const [platformConnections, setPlatformConnections] = useState<Record<string, { connected: boolean; followers: number }>>({});
   const [notifSuccess, setNotifSuccess] = useState(true);
+  const [envOpen, setEnvOpen] = useState(false);
+  const [envSearch, setEnvSearch] = useState('');
+  const [envVars, setEnvVars] = useState<Record<string, { value: string; updated_at: string }>>({});
+  const [envLoading, setEnvLoading] = useState(false);
+  const [revealedKeys, setRevealedKeys] = useState<Set<string>>(new Set());
+  const [editingEnvKey, setEditingEnvKey] = useState<string | null>(null);
+  const [editingEnvValue, setEditingEnvValue] = useState('');
   const [notifWarning, setNotifWarning] = useState(true);
   const [notifError, setNotifError] = useState(true);
   const [notifInfo, setNotifInfo] = useState(true);
@@ -32,6 +39,53 @@ export default function SettingsPage() {
     facebook: '/api/auth/meta?action=connect',
     instagram: '/api/auth/meta?action=connect',
   };
+
+  const ENV_GROUPS: Record<string, string[]> = {
+    'Meta (Facebook & Instagram)': ['FACEBOOK_APP_ID', 'FACEBOOK_APP_SECRET', 'FACEBOOK_ACCESS_TOKEN', 'FACEBOOK_PAGE_ID', 'INSTAGRAM_ACCOUNT_ID'],
+    YouTube: ['YOUTUBE_CLIENT_ID', 'YOUTUBE_CLIENT_SECRET', 'YOUTUBE_API_KEY'],
+    TikTok: ['TIKTOK_CLIENT_KEY', 'TIKTOK_CLIENT_SECRET', 'TIKTOK_ACCESS_TOKEN', 'TIKTOK_OPEN_ID', 'TIKTOK_REFRESH_TOKEN'],
+    'Google Cloud': ['GOOGLE_APPLICATION_CREDENTIALS'],
+    'AI / LLM': ['GEMINI_API_KEY', 'GROQ_API_KEY'],
+    Other: [
+      'PEXELS_API_KEY',
+      'PIXABAY_API_KEY',
+      'TELEGRAM_BOT_TOKEN',
+      'SENTRY_DSN',
+      'CLOUDFLARE_R2_ACCESS_KEY_ID',
+      'CLOUDFLARE_R2_SECRET_ACCESS_KEY',
+      'CLOUDFLARE_R2_BUCKET_NAME',
+      'CLOUDFLARE_R2_ACCOUNT_ID',
+      'CLOUDFLARE_R2_PUBLIC_URL',
+      'VERCEL_TOKEN',
+    ],
+  };
+
+  function maskValue(val: string) {
+    if (!val) return '(empty)';
+    if (val.length <= 8) return '*'.repeat(val.length);
+    return val.slice(0, 4) + '*'.repeat(Math.min(val.length - 8, 32)) + val.slice(-4);
+  }
+
+  const loadEnvVars = async () => {
+    setEnvLoading(true);
+    try {
+      const res = await fetch('/api/env-vars');
+      const data = await res.json();
+      if (data.success) {
+        setEnvVars(data.vars);
+      }
+    } catch (err) {
+      console.error('Failed to load env vars:', err);
+    } finally {
+      setEnvLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    if (envOpen) {
+      loadEnvVars();
+    }
+  }, [envOpen]);
 
   const togglePlatformConnection = async (platformId: string, currentConnected: boolean, platformName: string) => {
     if (!currentConnected) {
@@ -392,6 +446,146 @@ export default function SettingsPage() {
           })}
         </div>
         <p className="text-xs text-light-muted dark:text-dark-muted mt-4">Manage connections or start publishing from the Publishing page</p>
+      </GradientCard>
+
+      {/* Environment Variables */}
+      <GradientCard gradient="info">
+        <div className="flex items-center justify-between mb-4">
+          <div>
+            <h2 className="text-lg font-bold text-light-text dark:text-dark-text">Environment Variables</h2>
+            <p className="text-sm text-light-muted dark:text-dark-muted">Manage runtime secrets and API keys</p>
+          </div>
+          <button
+            onClick={() => setEnvOpen(!envOpen)}
+            className="text-light-muted dark:text-dark-muted hover:text-light-text dark:hover:text-dark-text transition-colors"
+          >
+            <span className={`inline-block transition-transform ${envOpen ? 'rotate-180' : ''}`}>▾</span>
+          </button>
+        </div>
+
+        {envOpen && (
+          <div className="space-y-3">
+            <div className="relative mb-4">
+              <input
+                type="text"
+                placeholder="Search tokens..."
+                value={envSearch}
+                onChange={(e) => setEnvSearch(e.target.value)}
+                className="w-full px-4 py-2 rounded-xl bg-light-bg dark:bg-dark-bg border border-light-border/30 dark:border-white/5 text-sm text-light-text dark:text-dark-text placeholder-light-muted dark:placeholder-dark-muted outline-none focus:border-light-primary/50"
+              />
+            </div>
+
+            {envLoading ? (
+              <div className="flex items-center justify-center py-8">
+                <div className="w-6 h-6 border-2 border-light-primary border-t-transparent rounded-full animate-spin" />
+              </div>
+            ) : (
+              Object.entries(ENV_GROUPS).map(([groupName, groupKeys]) => {
+                const visibleKeys = groupKeys.filter(k =>
+                  k.toLowerCase().includes(envSearch.toLowerCase()) ||
+                  groupName.toLowerCase().includes(envSearch.toLowerCase())
+                );
+                if (visibleKeys.length === 0) return null;
+                return (
+                  <div key={groupName}>
+                    <p className="text-xs font-bold text-light-muted dark:text-dark-muted uppercase tracking-wider mb-2">
+                      {groupName}
+                    </p>
+                    <div className="space-y-2 mb-4">
+                      {visibleKeys.map((key) => {
+                        const entry = envVars[key];
+                        const val = entry?.value ?? '';
+                        const isEditing = editingEnvKey === key;
+                        const editVal = editingEnvValue;
+                        return (
+                          <div key={key} className="flex items-center gap-2 p-2 rounded-lg bg-light-bg/50 dark:bg-dark-bg/50">
+                            <span className="text-xs font-mono font-bold text-light-text dark:text-dark-text w-1/3 truncate" title={key}>
+                              {key}
+                            </span>
+                            <div className="flex-1 flex items-center gap-2">
+                              {isEditing ? (
+                                <input
+                                  type="text"
+                                  value={editVal}
+                                  onChange={(e) => setEditingEnvValue(e.target.value)}
+                                  className="flex-1 px-2 py-1 rounded-lg bg-light-bg dark:bg-dark-bg border border-light-primary/50 text-xs font-mono text-light-text dark:text-dark-text outline-none"
+                                  autoFocus
+                                />
+                              ) : (
+                                <span className="text-xs font-mono text-light-muted dark:text-dark-muted truncate">
+                                  {revealedKeys.has(key) ? val : maskValue(val)}
+                                </span>
+                              )}
+                            </div>
+                            <div className="flex items-center gap-1 shrink-0">
+                              <button
+                                onClick={() => {
+                                  if (revealedKeys.has(key)) revealedKeys.delete(key);
+                                  else revealedKeys.add(key);
+                                  setRevealedKeys(new Set(revealedKeys));
+                                }}
+                                className="p-1 rounded hover:bg-light-border/30 dark:hover:bg-dark-border/30 text-xs"
+                                title={revealedKeys.has(key) ? 'Hide' : 'Show'}
+                              >
+                                {revealedKeys.has(key) ? '🙈' : '👁️'}
+                              </button>
+                              {isEditing ? (
+                                <>
+                                  <button
+                                    onClick={async () => {
+                                      if (!editVal.trim()) return;
+                                      try {
+                                        const res = await fetch(`/api/env-vars/${key}`, {
+                                          method: 'PUT',
+                                          headers: { 'Content-Type': 'application/json' },
+                                          body: JSON.stringify({ value: editVal.trim() }),
+                                        });
+                                        const data = await res.json();
+                                        if (data.success) {
+                                          addToast(`${key} updated`, 'success');
+                                          setEditingEnvKey(null);
+                                          setEditingEnvValue('');
+                                          loadEnvVars();
+                                        } else {
+                                          addToast(`Failed: ${data.error}`, 'error');
+                                        }
+                                      } catch {
+                                        addToast('Failed to save token', 'error');
+                                      }
+                                    }}
+                                    className="p-1 rounded hover:bg-emerald-500/20 text-emerald-400 text-xs"
+                                    title="Save"
+                                  >
+                                    ✓
+                                  </button>
+                                  <button
+                                    onClick={() => { setEditingEnvKey(null); setEditingEnvValue(''); }}
+                                    className="p-1 rounded hover:bg-red-500/20 text-red-400 text-xs"
+                                    title="Cancel"
+                                  >
+                                    ✕
+                                  </button>
+                                </>
+                              ) : (
+                                <button
+                                  onClick={() => { setEditingEnvKey(key); setEditingEnvValue(val); }}
+                                  className="p-1 rounded hover:bg-light-border/30 dark:hover:bg-dark-border/30 text-xs"
+                                  title="Edit"
+                                >
+                                  ✏️
+                                </button>
+                              )}
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+                );
+              })
+            )}
+          </div>
+        )}
       </GradientCard>
 
       {/* Save Button */}

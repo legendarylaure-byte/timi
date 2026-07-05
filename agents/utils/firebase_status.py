@@ -432,3 +432,47 @@ def log_pipeline_error(video_id: str, error: str, step: str = "unknown"):
     except Exception as e:
         print(f"[FIRESTORE] Failed to log error activity: {e}")
     print(f"[PIPELINE ERROR] Video '{video_id}' failed at {step}: {error_msg}")
+
+
+def get_all_env_vars() -> dict:
+    """Read all env vars from Firestore env_vars collection.
+
+    Returns:
+        Dict of {key: value} for all docs in env_vars collection.
+        Returns empty dict on failure.
+    """
+    db = get_firestore_client()
+    if db is None:
+        return {}
+    try:
+        snapshot = db.collection('env_vars').stream()
+        result = {}
+        for doc in snapshot:
+            data = doc.to_dict()
+            if data and 'value' in data:
+                result[doc.id] = data['value']
+        if result:
+            print(f"[FIRESTORE] Loaded {len(result)} env vars from Firestore")
+        return result
+    except Exception as e:
+        print(f"[FIRESTORE] Failed to read env_vars: {e}")
+        return {}
+
+
+def sync_env_from_firestore():
+    """Read all env vars from Firestore and set os.environ for each.
+
+    This is called at pipeline startup after load_dotenv() so that
+    dashboard-managed overrides take effect. Existing env vars from .env
+    are NOT overwritten unless they also exist in Firestore.
+    """
+    env_vars = get_all_env_vars()
+    if not env_vars:
+        return
+    count = 0
+    for key, value in env_vars.items():
+        if value:
+            os.environ[key] = value
+            count += 1
+    if count:
+        print(f"[FIRESTORE] Synced {count} env vars from Firestore to os.environ")

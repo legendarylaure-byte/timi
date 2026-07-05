@@ -54,6 +54,7 @@ from utils.firebase_status import (
     get_firestore_client,
     log_pipeline_error,
     update_channel_stats,
+    sync_env_from_firestore,
 )
 from crew.thumbnail import create_thumbnail_crew
 from crew.storyboard import create_storyboard_crew
@@ -215,6 +216,9 @@ warnings.filterwarnings("ignore", message=".*Detected filter using positional ar
 
 
 load_dotenv()
+
+# Override env vars from Firestore env_vars collection (dashboard-managed)
+sync_env_from_firestore()
 
 sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 
