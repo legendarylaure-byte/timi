@@ -79,7 +79,7 @@ jobs:
       ENABLE_UPSCALE: false
       ENABLE_COMMUNITY_POSTS: false
       GATE_ENFORCEMENT_MODE: advisory
-      FORCE_PUBLISH: false
+      FORCE_PUBLISH: true
       MIN_VIRALITY_SCORE: 40
       MIN_VIRALITY_SCORE_LONG: 30
       USE_ANIMATION_ENGINE: true

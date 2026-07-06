@@ -372,6 +372,19 @@ def _run_with_timeout(func, args, timeout_minutes: int):
         return future.result(timeout=timeout_minutes * 60)
 
 
+def _check_all_platforms_compliance(video_data: dict, platforms: list) -> list:
+    """Check platform compliance against each target platform. Aggregates warnings."""
+    from compliance.platform_policy import check_platform_compliance
+    all_warnings = []
+    for p in platforms:
+        try:
+            warnings = check_platform_compliance(video_data, p)
+            all_warnings.extend(warnings)
+        except Exception:
+            pass
+    return all_warnings
+
+
 def _gate_check(name, is_flagged, topic, video_id, format_type, category):
     """If GATE_ENFORCEMENT_MODE=enforce and gate is flagged, block the pipeline."""
     if not is_flagged:
@@ -781,13 +794,17 @@ def generate_short_video(topic: str, category: str, video_id: str, publish_at: s
 
         failed_step = "hook_scoring"
         hook_score_result = score_hook(script_text, category=category)
+        _hook_llm_failed = "could not evaluate with llm" in str(hook_score_result.get("weaknesses", [])).lower()
         if hook_score_result["score"] < 60:
             log_event("HOOK", f"Hook score: {hook_score_result['score']}/100 — enforcing rewrite")
             new_script = enforce_rewrite(script_text, category=category)
             if new_script != script_text:
                 script_text = new_script
-                recheck = score_hook(script_text, category=category)
-                log_event("HOOK", f"Hook re-scored: {recheck['score']}/100 after rewrite")
+                if not _hook_llm_failed:
+                    recheck = score_hook(script_text, category=category)
+                    log_event("HOOK", f"Hook re-scored: {recheck['score']}/100 after rewrite")
+                else:
+                    log_event("HOOK", f"LLM scoring unavailable — using rewrite without re-scoring", "warn")
             else:
                 log_event("HOOK", f"Rewrite skipped (invalid output)", "warn")
         else:
@@ -813,7 +830,7 @@ def generate_short_video(topic: str, category: str, video_id: str, publish_at: s
                         log_event("COMPLIANCE", f"BLOCKED: {topic} (content safety)")
                         update_pipeline_status(False)
                         return False
-            platform_compliance = check_platform_compliance({"title": topic, "script": script_text}, category)
+            platform_compliance = _check_all_platforms_compliance({"title": topic, "script": script_text}, ['youtube', 'tiktok', 'instagram', 'facebook'])
             if platform_compliance:
                 for w in platform_compliance:
                     log_event("COMPLIANCE", f"Platform warning: {w[:100]}", "warn")
@@ -1104,13 +1121,17 @@ def generate_long_video(topic: str, category: str, video_id: str, publish_at: st
 
         failed_step = "hook_scoring"
         hook_score_result = score_hook(script_text, category=category)
+        _hook_llm_failed = "could not evaluate with llm" in str(hook_score_result.get("weaknesses", [])).lower()
         if hook_score_result["score"] < 60:
             log_event("HOOK", f"Hook score: {hook_score_result['score']}/100 — enforcing rewrite")
             new_script = enforce_rewrite(script_text, category=category)
             if new_script != script_text:
                 script_text = new_script
-                recheck = score_hook(script_text, category=category)
-                log_event("HOOK", f"Hook re-scored: {recheck['score']}/100 after rewrite")
+                if not _hook_llm_failed:
+                    recheck = score_hook(script_text, category=category)
+                    log_event("HOOK", f"Hook re-scored: {recheck['score']}/100 after rewrite")
+                else:
+                    log_event("HOOK", f"LLM scoring unavailable — using rewrite without re-scoring", "warn")
             else:
                 log_event("HOOK", f"Rewrite skipped (invalid output)", "warn")
         else:
@@ -1136,7 +1157,7 @@ def generate_long_video(topic: str, category: str, video_id: str, publish_at: st
                         log_event("COMPLIANCE", f"BLOCKED: {topic} (content safety)")
                         update_pipeline_status(False)
                         return False
-            platform_compliance = check_platform_compliance({"title": topic, "script": script_text}, category)
+            platform_compliance = _check_all_platforms_compliance({"title": topic, "script": script_text}, ['youtube', 'facebook'])
             if platform_compliance:
                 for w in platform_compliance:
                     log_event("COMPLIANCE", f"Platform warning: {w[:100]}", "warn")

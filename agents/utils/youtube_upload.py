@@ -2,7 +2,7 @@ import os
 import hashlib
 import time
 import threading
-from datetime import datetime
+from datetime import datetime, timezone
 from googleapiclient.discovery import build
 from googleapiclient.http import MediaFileUpload
 from google.oauth2.credentials import Credentials
@@ -190,7 +190,7 @@ def upload_video_to_youtube(
     if publish_at:
         try:
             pub_dt = datetime.fromisoformat(publish_at.replace("Z", "+00:00"))
-            if pub_dt < datetime.utcnow():
+            if pub_dt < datetime.now(timezone.utc):
                 print(f"[YOUTUBE] publish_at {publish_at} is in the past, uploading as public instead")
                 publish_at = None
         except ValueError:
@@ -240,7 +240,7 @@ def upload_video_to_youtube(
         "video_url": video_url,
         "title": title,
         "publish_at": publish_at,
-        "upload_time": datetime.utcnow().isoformat(),
+        "upload_time": datetime.now(timezone.utc).isoformat(),
     }
 
     # Set thumbnail BEFORE scheduling so default thumbnail isn't shown if it fails
@@ -317,7 +317,7 @@ def fetch_video_stats(video_id: str) -> dict:
             report = analytics.reports().query(
                 ids="channel==MINE",
                 startDate="2015-01-01",
-                endDate=datetime.utcnow().strftime("%Y-%m-%d"),
+                endDate=datetime.now(timezone.utc).strftime("%Y-%m-%d"),
                 metrics="estimatedImpressions,estimatedClicks,averageViewDuration",
                 filters=f"video=={video_id}",
             ).execute()

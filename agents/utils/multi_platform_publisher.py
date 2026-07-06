@@ -70,7 +70,8 @@ def _refresh_tiktok_token() -> str | None:
                 os.environ['TIKTOK_ACCESS_TOKEN'] = new_token
                 return new_token
         return None
-    except Exception:
+    except Exception as refresh_err:
+        security_audit("TOKEN_REFRESH_FAILED", f"TikTok token refresh failed: {safe_log(str(refresh_err))}", "error")
         return None
 
 
@@ -130,7 +131,8 @@ def _refresh_facebook_token() -> str | None:
                 _save_env({'FACEBOOK_ACCESS_TOKEN': new_token})
                 return new_token
         return None
-    except Exception:
+    except Exception as refresh_err:
+        security_audit("TOKEN_REFRESH_FAILED", f"Facebook token refresh failed: {safe_log(str(refresh_err))}", "error")
         return None
 
 
@@ -240,12 +242,14 @@ def _upload_tiktok(title: str, video_path: str, format_type: str) -> dict:
     if not os.path.exists(video_path):
         return {'success': False, 'platform': 'tiktok', 'error': f'Video file not found: {video_path}'}
 
+    idem_key = _idempotency_key()
+    _tiktok_refresh_attempted = False
+
     def _do_upload():
-        nonlocal access_token
+        nonlocal access_token, _tiktok_refresh_attempted
         import requests
 
         file_size = os.path.getsize(video_path)
-        idem_key = _idempotency_key()
 
         init_resp = requests.post(
             'https://open.tiktokapis.com/v2/post/publish/video/init/',
@@ -261,7 +265,8 @@ def _upload_tiktok(title: str, video_path: str, format_type: str) -> dict:
             timeout=30,
         )
 
-        if init_resp.status_code == 401:
+        if init_resp.status_code == 401 and not _tiktok_refresh_attempted:
+            _tiktok_refresh_attempted = True
             refreshed = _refresh_tiktok_token()
             if refreshed:
                 access_token = refreshed
@@ -309,11 +314,13 @@ def _upload_tiktok(title: str, video_path: str, format_type: str) -> dict:
         )
 
         if publish_resp.status_code == 200:
+            if not publish_id:
+                raise RuntimeError('TikTok publish succeeded but no video ID returned')
             return {
                 'success': True,
                 'platform': 'tiktok',
                 'video_id': publish_id,
-                'url': f'https://www.tiktok.com/@{open_id}/video/{publish_id}' if publish_id else '',
+                'url': f'https://www.tiktok.com/@{open_id}/video/{publish_id}',
                 'title': title,
                 'status': 'published',
             }
@@ -324,6 +331,7 @@ def _upload_tiktok(title: str, video_path: str, format_type: str) -> dict:
         ok, result = retry_with_backoff(_do_upload, max_retries=3, base_delay=5, max_delay=60)
         if ok:
             return result
+        log_activity('publisher', f"TikTok upload FAILED after retries: {safe_log(str(result)[:200])}", 'error')
         security_audit("UPLOAD_FAILED", f"TikTok — {safe_log(str(result)[:200])}", "error")
         return {
             'success': False, 'platform': 'tiktok',
@@ -332,6 +340,7 @@ def _upload_tiktok(title: str, video_path: str, format_type: str) -> dict:
     except ImportError:
         return {'success': False, 'platform': 'tiktok', 'error': 'Missing requests library'}
     except Exception as e:
+        log_activity('publisher', f"TikTok upload FAILED: {safe_log(str(e)[:200])}", 'error')
         security_audit("UPLOAD_FAILED", f"TikTok — {safe_log(str(e)[:200])}", "error")
         return {'success': False, 'platform': 'tiktok', 'error': safe_log(str(e))}
 
@@ -374,13 +383,17 @@ def _upload_instagram(title: str, video_path: str, format_type: str) -> dict:
                 instagram_video_url = generate_presigned_url(_key, expires_in=3600)
                 log_activity('publisher', f'Uploaded video to R2 for Instagram: {_key}', 'info')
             except Exception as r2_err:
+                log_activity('publisher', f'R2 upload failed for Instagram: {safe_log(str(r2_err))}', 'error')
                 return {
                     'success': False, 'platform': 'instagram',
                     'error': f'Instagram needs a public URL. R2 upload failed: {safe_log(str(r2_err))}',
                 }
 
+    idem_key = _idempotency_key()
+    _instagram_refresh_attempted = False
+
     def _do_upload():
-        nonlocal access_token
+        nonlocal access_token, _instagram_refresh_attempted
         import requests
 
         media_type = 'REELS' if format_type == 'shorts' else 'VIDEO'
@@ -403,7 +416,8 @@ def _upload_instagram(title: str, video_path: str, format_type: str) -> dict:
         )
         _check_meta_rate_limit(create_resp, 'Instagram')
 
-        if create_resp.status_code == 401:
+        if create_resp.status_code == 401 and not _instagram_refresh_attempted:
+            _instagram_refresh_attempted = True
             refreshed = _refresh_facebook_token()
             if refreshed:
                 access_token = refreshed
@@ -418,6 +432,7 @@ def _upload_instagram(title: str, video_path: str, format_type: str) -> dict:
 
         import time
         poll_attempts = 12
+        poll_finished = False
         for attempt in range(poll_attempts):
             status_resp = requests.get(
                 f'https://graph.facebook.com/v25.0/{creation_id}',
@@ -428,12 +443,14 @@ def _upload_instagram(title: str, video_path: str, format_type: str) -> dict:
             if status_resp.status_code == 200:
                 status_code = status_resp.json().get('status_code')
                 if status_code == 'FINISHED':
+                    poll_finished = True
                     break
                 elif status_code == 'ERROR':
                     raise RuntimeError('Instagram media processing failed')
             time.sleep(2)
+        if not poll_finished:
+            raise RuntimeError('Instagram media processing timed out')
 
-        idem_key = _idempotency_key()
         publish_resp = requests.post(
             f'https://graph.facebook.com/v25.0/{ig_account_id}/media_publish',
             params={'access_token': access_token, 'creation_id': creation_id, 'idempotency_key': idem_key},
@@ -458,6 +475,7 @@ def _upload_instagram(title: str, video_path: str, format_type: str) -> dict:
         ok, result = retry_with_backoff(_do_upload, max_retries=3, base_delay=5, max_delay=60)
         if ok:
             return result
+        log_activity('publisher', f"Instagram upload FAILED after retries: {safe_log(str(result)[:200])}", 'error')
         security_audit("UPLOAD_FAILED", f"Instagram — {safe_log(str(result)[:200])}", "error")
         return {
             'success': False, 'platform': 'instagram',
@@ -466,6 +484,7 @@ def _upload_instagram(title: str, video_path: str, format_type: str) -> dict:
     except ImportError:
         return {'success': False, 'platform': 'instagram', 'error': 'Missing requests library'}
     except Exception as e:
+        log_activity('publisher', f"Instagram upload FAILED: {safe_log(str(e)[:200])}", 'error')
         security_audit("UPLOAD_FAILED", f"Instagram — {safe_log(str(e)[:200])}", "error")
         return {'success': False, 'platform': 'instagram', 'error': safe_log(str(e))}
 
@@ -488,8 +507,11 @@ def _upload_facebook(title: str, description: str, video_path: str) -> dict:
     if not os.path.exists(video_path):
         return {'success': False, 'platform': 'facebook', 'error': f'Video file not found: {video_path}'}
 
+    _facebook_refresh_attempted = False
+    idem_key = _idempotency_key()
+
     def _do_upload():
-        nonlocal access_token
+        nonlocal access_token, _facebook_refresh_attempted
         import requests
 
         file_size = os.path.getsize(video_path)
@@ -501,7 +523,6 @@ def _upload_facebook(title: str, description: str, video_path: str) -> dict:
             fb_description += f"\n\n{ai_flags['caption_hashtag']}"
 
         if upload_method == 'direct':
-            idem_key = _idempotency_key()
             with open(video_path, 'rb') as f:
                 upload_resp = requests.post(
                     f'https://graph.facebook.com/v25.0/{page_id}/videos',
@@ -517,7 +538,8 @@ def _upload_facebook(title: str, description: str, video_path: str) -> dict:
 
             _check_meta_rate_limit(upload_resp, 'Facebook')
 
-            if upload_resp.status_code == 401:
+            if upload_resp.status_code == 401 and not _facebook_refresh_attempted:
+                _facebook_refresh_attempted = True
                 refreshed = _refresh_facebook_token()
                 if refreshed:
                     access_token = refreshed
@@ -525,11 +547,13 @@ def _upload_facebook(title: str, description: str, video_path: str) -> dict:
 
             if upload_resp.status_code == 200:
                 video_id = upload_resp.json().get('id')
+                if not video_id:
+                    raise RuntimeError('Facebook direct upload succeeded but no video ID returned')
                 return {
                     'success': True,
                     'platform': 'facebook',
                     'video_id': video_id,
-                    'url': f'https://www.facebook.com/watch/?v={video_id}' if video_id else '',
+                    'url': f'https://www.facebook.com/watch/?v={video_id}',
                     'title': title,
                     'status': 'published',
                 }
@@ -550,7 +574,8 @@ def _upload_facebook(title: str, description: str, video_path: str) -> dict:
 
             _check_meta_rate_limit(init_resp, 'Facebook')
 
-            if init_resp.status_code == 401:
+            if init_resp.status_code == 401 and not _facebook_refresh_attempted:
+                _facebook_refresh_attempted = True
                 refreshed = _refresh_facebook_token()
                 if refreshed:
                     access_token = refreshed
@@ -563,7 +588,6 @@ def _upload_facebook(title: str, description: str, video_path: str) -> dict:
             if not upload_session_id:
                 raise RuntimeError('No upload session ID from Facebook')
 
-            idem_key = _idempotency_key()
             with open(video_path, 'rb') as f:
                 chunk_resp = requests.post(
                     f'https://graph.facebook.com/v25.0/{page_id}/videos',
@@ -582,11 +606,13 @@ def _upload_facebook(title: str, description: str, video_path: str) -> dict:
 
             if chunk_resp.status_code == 200:
                 video_id = chunk_resp.json().get('id')
+                if not video_id:
+                    raise RuntimeError('Facebook resumable upload succeeded but no video ID returned')
                 return {
                     'success': True,
                     'platform': 'facebook',
                     'video_id': video_id,
-                    'url': f'https://www.facebook.com/watch/?v={video_id}' if video_id else '',
+                    'url': f'https://www.facebook.com/watch/?v={video_id}',
                     'title': title,
                     'status': 'published',
                 }
@@ -597,6 +623,7 @@ def _upload_facebook(title: str, description: str, video_path: str) -> dict:
         ok, result = retry_with_backoff(_do_upload, max_retries=3, base_delay=5, max_delay=60)
         if ok:
             return result
+        log_activity('publisher', f"Facebook upload FAILED after retries: {safe_log(str(result)[:200])}", 'error')
         security_audit("UPLOAD_FAILED", f"Facebook — {safe_log(str(result)[:200])}", "error")
         return {
             'success': False, 'platform': 'facebook',
@@ -605,6 +632,7 @@ def _upload_facebook(title: str, description: str, video_path: str) -> dict:
     except ImportError:
         return {'success': False, 'platform': 'facebook', 'error': 'Missing requests library'}
     except Exception as e:
+        log_activity('publisher', f"Facebook upload FAILED: {safe_log(str(e)[:200])}", 'error')
         security_audit("UPLOAD_FAILED", f"Facebook — {safe_log(str(e)[:200])}", "error")
         return {'success': False, 'platform': 'facebook', 'error': safe_log(str(e))}
 
@@ -734,8 +762,8 @@ def _update_queue(video_id: str, platform: str, success: bool):
                 'progress': progress,
                 'status': 'published' if all(v == 100 for v in progress.values()) else 'failed',
             })
-    except Exception:
-        pass
+    except Exception as e:
+        log_activity('publisher', f"Upload queue update failed for {video_id}: {e}", 'warn')
 
 
 def _send_telegram_notification(results: dict):
@@ -771,7 +799,7 @@ def _send_telegram_notification(results: dict):
             timeout=10
         )
     except Exception as e:
-        print(f"[PUBLISHER] Telegram notification failed: {e}")
+        log_activity('publisher', f"Telegram notification failed: {e}", 'warn')
 
 
 def schedule_upload(video_id: str, title: str, platforms: list, scheduled_time: str):
@@ -789,4 +817,4 @@ def schedule_upload(video_id: str, title: str, platforms: list, scheduled_time: 
         })
         log_activity('publisher', f"Scheduled upload: {title} at {scheduled_time}", 'info')
     except Exception as e:
-        print(f"[PUBLISHER] Schedule failed: {e}")
+        log_activity('publisher', f"Schedule failed: {e}", 'warn')
