@@ -35,7 +35,6 @@ CATEGORY_FALLBACK_HOOKS = {
 
 
 def has_prohibited_content(topic: str) -> bool:
-    import re
     topic_lower = topic.lower()
     for pattern in PROHIBITED_TOPIC_PATTERNS:
         if re.search(pattern, topic_lower):
@@ -116,6 +115,71 @@ A hook is UNACCEPTABLE (approved=false) if:
 - Score is below 60"""
 
 
+def _rule_based_score(hook: str) -> dict:
+    text = hook.lower().strip()
+    score = 50
+    strengths = []
+    weaknesses = []
+
+    if not text or len(text) < 10:
+        return {"score": 30, "hook_score": 30, "approved": False, "hook_text": hook, "strengths": [], "weaknesses": ["Hook too short"], "suggested_alternatives": ["Start with a surprising question about your topic"]}
+
+    generic_openers = ["today we", "in this video", "in this tutorial", "welcome to", "let's learn", "in this article", "have you ever wondered"]
+    for phrase in generic_openers:
+        if text.startswith(phrase):
+            score -= 20
+            weaknesses.append("Generic opening — doesn't grab attention")
+            break
+
+    if "?" in text:
+        score += 25
+        strengths.append("Uses a question to create curiosity gap")
+
+    digit_count = sum(c.isdigit() for c in text)
+    if digit_count >= 2:
+        score += 20
+        strengths.append("Uses specific numbers/statistics")
+    elif digit_count >= 1:
+        score += 10
+        strengths.append("References a data point")
+
+    bold_markers = ["nobody", "everyone", "wrong", "secret", "truth", "actually", "real reason", "why most", "what if", "imagine", "stop", "never", "always", "the truth"]
+    if any(m in text for m in bold_markers):
+        score += 20
+        strengths.append("Creates curiosity gap with bold framing")
+
+    curiosity_markers = ["here's why", "here's how", "the reason", "what happens", "this is why", "one thing", "the problem"]
+    if any(m in text for m in curiosity_markers):
+        score += 15
+        strengths.append("Teases information the viewer wants")
+
+    pain_markers = ["struggle", "frustrat", "annoy", "waste", "hard", "difficult", "complicated", "confus", "stuck"]
+    if any(m in text for m in pain_markers):
+        score += 15
+        strengths.append("Addresses a pain point")
+
+    if len(text) > 300:
+        score -= 10
+        weaknesses.append("Hook is too long — may lose viewer interest")
+
+    score = max(0, min(100, score))
+    approved = score >= 60
+
+    result = {
+        "score": score,
+        "hook_score": score,
+        "hook_text": hook,
+        "approved": approved,
+        "strengths": strengths,
+        "weaknesses": weaknesses,
+        "suggested_alternatives": [],
+    }
+    if not approved:
+        if not weaknesses:
+            weaknesses.append("Score below threshold ({}/100)".format(score))
+    return result
+
+
 def score_hook(script_text: str, category: str = "", format_type: str = "shorts") -> dict:
     if has_prohibited_content(script_text):
         return {"score": 0, "hook_score": 0, "approved": False, "weaknesses": ["Topic contains prohibited content"], "suggested_alternatives": []}
@@ -142,16 +206,8 @@ Score this hook and suggest improvements."""
                 result["score"] = result["hook_score"]
             return result
     except Exception:
-        pass
-    return {
-        "score": 50,
-        "hook_score": 50,
-        "hook_text": hook,
-        "approved": False,
-        "strengths": [],
-        "weaknesses": ["Could not evaluate with LLM, needs rewrite"],
-        "suggested_alternatives": [],
-    }
+        print(f"[HOOK] LLM scoring failed — using rule-based fallback")
+    return _rule_based_score(hook)
 
 
 def _is_valid_rewrite(text: str) -> bool:

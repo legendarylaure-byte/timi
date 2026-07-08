@@ -29,10 +29,10 @@ KIDS_VOICES = {
 }
 
 DEFAULT_VOICE = KIDS_VOICES["narrator_warm"]
-DEFAULT_RATE = "-5%"
+DEFAULT_RATE = "0%"
 DEFAULT_PITCH = "-2Hz"
 
-NARRATOR_VOICE = {"voice": "en-US-JennyNeural", "rate": "-5%", "pitch": "-2Hz"}
+NARRATOR_VOICE = {"voice": "en-US-JennyNeural", "rate": "0%", "pitch": "-2Hz"}
 
 
 def _extract_narration_via_markers(script: str) -> str | None:
@@ -276,6 +276,28 @@ def parse_dialogue_segments(script: str) -> list[dict]:
     return merged
 
 
+def _compute_dynamic_rates(segments: list[str], content_type: str, base_rate: str) -> list[str]:
+    base_pct = int(base_rate.replace("%", "").replace("+", "") or "0")
+    rates = []
+    total = len(segments)
+    for i, text in enumerate(segments):
+        rate_adj = 0
+        if i == 0 and total > 1:
+            rate_adj = 5
+        elif content_type == "educational":
+            word_count = len(text.split())
+            if word_count > 35:
+                rate_adj = -5
+            elif "this means" in text.lower() or "in other words" in text.lower():
+                rate_adj = -5
+            elif "for example" in text.lower() or "think of" in text.lower():
+                rate_adj = -3
+        rate_val = max(-50, min(50, base_pct + rate_adj))
+        sign = "+" if rate_val >= 0 else ""
+        rates.append(f"{sign}{rate_val}%")
+    return rates
+
+
 def get_voice_settings(content_type: str = "general") -> dict:
     settings = {
         "storytelling": {
@@ -290,7 +312,7 @@ def get_voice_settings(content_type: str = "general") -> dict:
         },
         "educational": {
             "voice": "en-US-JennyNeural",
-            "rate": "-5%",
+            "rate": "0%",
             "pitch": "-2Hz",
         },
         "energetic": {
@@ -382,7 +404,7 @@ def concatenate_audio(segment_files: list[str], output_path: str) -> bool:
         for f in segment_files:
             if os.path.exists(f):
                 audio = AudioSegment.from_file(f)
-                silence = AudioSegment.silent(duration=200)
+                silence = AudioSegment.silent(duration=100)
                 combined += audio + silence
         combined.export(output_path, format="wav")
         return os.path.exists(output_path) and os.path.getsize(output_path) > 1000
@@ -410,20 +432,23 @@ async def generate_voiceover(script: str, voice: str = DEFAULT_VOICE, output_fil
     voice_settings = get_voice_settings(content_type)
     if voice == DEFAULT_VOICE:
         voice = voice_settings["voice"]
-    rate = voice_settings["rate"]
+    base_rate = voice_settings["rate"]
     pitch = voice_settings["pitch"]
-    print(f"[voice_gen] Voice: {voice}, Rate: {rate}, Pitch: {pitch}")
+
     segments = split_script_into_segments(narration_text)
+    seg_rates = _compute_dynamic_rates(segments, content_type, base_rate)
+
+    print(f"[voice_gen] Voice: {voice}, Pitch: {pitch}, Rates: {seg_rates[:5]}{'...' if len(seg_rates) > 5 else ''}")
 
     _tts_sem = asyncio.Semaphore(5)
 
-    async def _gen_seg(i: int, seg_text: str) -> tuple[int, str, bool]:
+    async def _gen_seg(i: int, seg_text: str, seg_rate: str) -> tuple[int, str, bool]:
         seg_path = str(VOICE_DIR / f"seg_{i+1:03d}.wav")
         async with _tts_sem:
-            success = await generate_segment_audio(seg_text, seg_path, voice=voice, rate=rate, pitch=pitch)
+            success = await generate_segment_audio(seg_text, seg_path, voice=voice, rate=seg_rate, pitch=pitch)
         return i, seg_path, success
 
-    results = await asyncio.gather(*[_gen_seg(i, s) for i, s in enumerate(segments)])
+    results = await asyncio.gather(*[_gen_seg(i, s, seg_rates[i]) for i, s in enumerate(segments)])
 
     segment_files = [r[1] for r in sorted(results) if r[2]]
     all_phrase_timings = []
@@ -435,7 +460,7 @@ async def generate_voiceover(script: str, voice: str = DEFAULT_VOICE, output_fil
             continue
         timing_path = str(VOICE_DIR / f"seg_{i+1:03d}_timing.json")
 
-        sentence_times = await generate_segment_timing(seg_text, voice=voice, rate=rate, pitch=pitch)
+        sentence_times = await generate_segment_timing(seg_text, voice=voice, rate=seg_rates[i], pitch=pitch)
         if sentence_times:
             phrase_timings = generate_phrase_timings_from_sentences(seg_text, sentence_times)
             for pt in phrase_timings:
@@ -448,7 +473,7 @@ async def generate_voiceover(script: str, voice: str = DEFAULT_VOICE, output_fil
 
         try:
             seg_audio = AudioSegment.from_file(seg_path)
-            cumulative_offset += len(seg_audio) + 200
+            cumulative_offset += len(seg_audio) + 100
         except Exception as e:
             print(f"[voice_gen] Failed to load seg_{i+1:03d} audio, guessing 5s offset: {e}")
             cumulative_offset += 5000
@@ -523,7 +548,7 @@ async def _generate_multi_voice(dialogue_segments: list[dict], output_filename: 
 
             try:
                 seg_audio = AudioSegment.from_file(seg_path)
-                cumulative_offset += len(seg_audio) + 200
+                cumulative_offset += len(seg_audio) + 100
             except Exception as e:
                 print(f"[voice_gen] Failed to load seg_{seg_idx:03d} audio, guessing 5s offset: {e}")
                 cumulative_offset += 5000

@@ -31,7 +31,7 @@ FFMPEG_XFADE_MAP = {
 }
 
 OUTPUT_FPS = 24
-CRF = "23"
+CRF = "20"
 PRESET = "medium"
 
 
@@ -221,7 +221,16 @@ def _process_clip(clip: dict, target_w: int, target_h: int, idx: int, format_typ
     dur = clip.get("duration", 8.0)
     out = str(TEMP_DIR / f"clip_{idx:03d}.mp4")
 
-    if src.endswith(".mp4") and os.path.getsize(src) > 10000:
+    try:
+        clip_size = os.path.getsize(src)
+    except FileNotFoundError:
+        print(f"[compositor] Clip file not found, skipping: {src}")
+        return None
+    except OSError as e:
+        print(f"[compositor] Clip file error, skipping: {src} — {e}")
+        return None
+
+    if src.endswith(".mp4") and clip_size > 10000:
         trimmed = str(TEMP_DIR / f"kb_trim_{idx:03d}.mp4")
         if not trim_clip(src, trimmed, 0, dur):
             return None
@@ -287,6 +296,30 @@ def add_text_overlay(video_path: str, text: str, output_path: str,
     return safe_run_bool(cmd, timeout=120)
 
 
+def add_animated_lower_third(video_path: str, text: str, output_path: str,
+                              fontsize: int = 22, color: str = "white",
+                              start_time: float = 0, duration: float = 5) -> bool:
+    escaped = text.replace("'", "\\'").replace(":", "\\:").replace("-", "\\-")
+    ts = start_time
+    te = start_time + duration
+    x_expr = (
+        f"if(lt(t,{ts}+0.3),-text_w+(w+text_w)*(t-{ts})/0.3,"
+        f"if(gte(t,{te}-0.3),(w-text_w)/2-(w+text_w)*(t-({te}-0.3))/0.3,"
+        f"(w-text_w)/2))"
+    )
+    cmd = [
+        _ffmpeg_cmd(), "-y", "-i", video_path, *_sws_flags(),
+        "-vf",
+        f"drawtext=text='{escaped}':fontsize={fontsize}:fontcolor={color}:"
+        f"box=1:boxcolor=black@0.5:boxborderw=8:"
+        f"x={x_expr}:y=h-100:enable='between(t,{ts},{te})',"
+        f"drawbox=x=(w-text_w)/2-12:y=h-116:w=4:h=22:color={color}:enable='between(t,{ts}+0.3,{te}-0.3)'",
+        "-c:v", "libx264", "-preset", PRESET, "-crf", CRF,
+        "-c:a", "copy", "-pix_fmt", "yuv420p", output_path,
+    ]
+    return safe_run_bool(cmd, timeout=120)
+
+
 def add_logo_overlay(video_path: str, logo_path: str, output_path: str,
                      position: str = "bottom_right", scale: float = 0.1) -> bool:
     positions = {"bottom_right": "main_w-overlay_w-20:main_h-overlay_h-20",
@@ -308,7 +341,7 @@ def burn_subtitles(video_path: str, subtitle_path: str, output_path: str,
     abs_sub = os.path.abspath(subtitle_path)
     vf = (
         f"subtitles=filename='{abs_sub}':force_style="
-        f"'FontSize={fontsize},PrimaryColour=&HFF0055CC&,OutlineColour=&H40002B00&,"
+        f"'FontSize={fontsize},PrimaryColour=&HFF00CCCC&,OutlineColour=&H40002B00&,"
         f"Outline=0,Shadow=0,BorderStyle=3,BackColour=&H40000000&,"
         f"Alignment=2,MarginV=40,FontName=Arial'"
     )
@@ -434,9 +467,14 @@ def composite_video(clips: list[dict], voice_path: str, music_path: Optional[str
                 escaped = title.replace("'", "\\'").replace(":", "\\:").replace("-", "\\-")
                 ts = sum(c.get("duration", 8.0) for c in clips[:i])
                 te = ts + clips[i].get("duration", 8.0) - 0.5
+                x_expr = (
+                    f"if(lt(t,{ts}+0.3),-text_w+(w+text_w)*(t-{ts})/0.3,"
+                    f"if(gte(t,{te}-0.3),(w-text_w)/2-(w+text_w)*(t-({te}-0.3))/0.3,"
+                    f"(w-text_w)/2))"
+                )
                 vf_parts.append(
                     f"drawtext=text='{escaped}':fontsize=20:fontcolor=white:box=1:boxcolor=black@0.4:"
-                    f"x=(w-text_w)/2:y=h-140:enable='between(t,{ts},{te})'"
+                    f"boxborderw=6:x={x_expr}:y=h-130:enable='between(t,{ts},{te})'"
                 )
 
     if subtitle_path and os.path.exists(subtitle_path):
@@ -444,12 +482,12 @@ def composite_video(clips: list[dict], voice_path: str, music_path: Optional[str
         sub_fs = 9 if format_type == "shorts" else 10
         vf_parts.append(
             f"subtitles=filename='{abs_sub}':force_style="
-            f"'FontSize={sub_fs},PrimaryColour=&HFF0055CC&,OutlineColour=&H40002B00&,"
+            f"'FontSize={sub_fs},PrimaryColour=&HFF00CCCC&,OutlineColour=&H40002B00&,"
             f"Outline=0,Shadow=0,BorderStyle=3,BackColour=&H40000000&,"
             f"Alignment=2,MarginV=40,FontName=Arial'"
         )
 
-    vf_parts.extend(["eq=saturation=1.15:contrast=1.1", "unsharp=5:5:0.8:3:3:0.4"])
+    vf_parts.extend(["eq=saturation=1.25:contrast=1.1", "unsharp=5:5:0.8:3:3:0.4"])
     vf_filter = ",".join(vf_parts)
 
     cmd = [

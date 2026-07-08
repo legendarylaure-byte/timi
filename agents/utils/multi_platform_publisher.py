@@ -9,7 +9,7 @@ from datetime import datetime
 from utils.firebase_status import get_firestore_client, log_activity, update_video_record
 from compliance.ai_disclosure import get_ai_disclosure
 from utils.sanitize import safe_log
-from utils.platform_captions import optimize_for_platform
+from utils.platform_captions import optimize_for_platform, optimize_title_for_platform
 from utils.subprocess_helper import retry_with_backoff, rate_limiter, security_audit
 
 PLATFORMS = {
@@ -68,6 +68,7 @@ def _refresh_tiktok_token() -> str | None:
             new_token = data.get('access_token')
             if new_token:
                 os.environ['TIKTOK_ACCESS_TOKEN'] = new_token
+                _save_env({'TIKTOK_ACCESS_TOKEN': new_token})
                 return new_token
         return None
     except Exception as refresh_err:
@@ -384,6 +385,7 @@ def _upload_instagram(title: str, video_path: str, format_type: str) -> dict:
                 log_activity('publisher', f'Uploaded video to R2 for Instagram: {_key}', 'info')
             except Exception as r2_err:
                 log_activity('publisher', f'R2 upload failed for Instagram: {safe_log(str(r2_err))}', 'error')
+                security_audit("UPLOAD_FAILED", f"Instagram R2 upload failed: {safe_log(str(r2_err))}", "error")
                 return {
                     'success': False, 'platform': 'instagram',
                     'error': f'Instagram needs a public URL. R2 upload failed: {safe_log(str(r2_err))}',
@@ -510,12 +512,20 @@ def _upload_facebook(title: str, description: str, video_path: str) -> dict:
     _facebook_refresh_attempted = False
     idem_key = _idempotency_key()
 
+    def _raise_fb_api_error(body, phase):
+        err = body.get('error')
+        if err:
+            msg = err.get('error_user_title', err.get('message', 'unknown'))
+            code = err.get('code', '?')
+            subcode = err.get('error_subcode', '')
+            raise RuntimeError(f'Facebook {phase} failed: {msg} (code {code}, subcode {subcode})')
+
     def _do_upload():
         nonlocal access_token, _facebook_refresh_attempted
         import requests
 
         file_size = os.path.getsize(video_path)
-        upload_method = 'resumable' if file_size > 100 * 1024 * 1024 else 'direct'
+        upload_method = 'resumable' if file_size > 50 * 1024 * 1024 else 'direct'
 
         ai_flags = get_ai_disclosure("facebook")
         fb_description = description
@@ -545,20 +555,20 @@ def _upload_facebook(title: str, description: str, video_path: str) -> dict:
                     access_token = refreshed
                     return _do_upload()
 
-            if upload_resp.status_code == 200:
-                video_id = upload_resp.json().get('id')
-                if not video_id:
-                    raise RuntimeError('Facebook direct upload succeeded but no video ID returned')
-                return {
-                    'success': True,
-                    'platform': 'facebook',
-                    'video_id': video_id,
-                    'url': f'https://www.facebook.com/watch/?v={video_id}',
-                    'title': title,
-                    'status': 'published',
-                }
-            else:
-                raise RuntimeError(f'Facebook direct upload failed: {upload_resp.status_code}')
+            body = upload_resp.json()
+            _raise_fb_api_error(body, 'direct upload')
+
+            video_id = body.get('id')
+            if not video_id:
+                raise RuntimeError(f'Facebook direct upload returned no video ID (size={file_size})')
+            return {
+                'success': True,
+                'platform': 'facebook',
+                'video_id': video_id,
+                'url': f'https://www.facebook.com/watch/?v={video_id}',
+                'title': title,
+                'status': 'published',
+            }
         else:
             init_resp = requests.post(
                 f'https://graph.facebook.com/v25.0/{page_id}/videos',
@@ -581,12 +591,12 @@ def _upload_facebook(title: str, description: str, video_path: str) -> dict:
                     access_token = refreshed
                     return _do_upload()
 
-            if init_resp.status_code != 200:
-                raise RuntimeError(f'Facebook resumable init failed: {init_resp.status_code}')
+            init_body = init_resp.json()
+            _raise_fb_api_error(init_body, 'resumable init')
 
-            upload_session_id = init_resp.json().get('upload_session_id')
+            upload_session_id = init_body.get('upload_session_id')
             if not upload_session_id:
-                raise RuntimeError('No upload session ID from Facebook')
+                raise RuntimeError(f'No upload session ID from Facebook (size={file_size})')
 
             with open(video_path, 'rb') as f:
                 chunk_resp = requests.post(
@@ -604,20 +614,27 @@ def _upload_facebook(title: str, description: str, video_path: str) -> dict:
 
             _check_meta_rate_limit(chunk_resp, 'Facebook')
 
-            if chunk_resp.status_code == 200:
-                video_id = chunk_resp.json().get('id')
-                if not video_id:
-                    raise RuntimeError('Facebook resumable upload succeeded but no video ID returned')
-                return {
-                    'success': True,
-                    'platform': 'facebook',
-                    'video_id': video_id,
-                    'url': f'https://www.facebook.com/watch/?v={video_id}',
-                    'title': title,
-                    'status': 'published',
-                }
-            else:
-                raise RuntimeError(f'Facebook resumable upload failed: {chunk_resp.status_code}')
+            if chunk_resp.status_code == 401 and not _facebook_refresh_attempted:
+                _facebook_refresh_attempted = True
+                refreshed = _refresh_facebook_token()
+                if refreshed:
+                    access_token = refreshed
+                    return _do_upload()
+
+            chunk_body = chunk_resp.json()
+            _raise_fb_api_error(chunk_body, 'resumable upload')
+
+            video_id = chunk_body.get('id')
+            if not video_id:
+                raise RuntimeError(f'Facebook resumable upload returned no video ID (size={file_size})')
+            return {
+                'success': True,
+                'platform': 'facebook',
+                'video_id': video_id,
+                'url': f'https://www.facebook.com/watch/?v={video_id}',
+                'title': title,
+                'status': 'published',
+            }
 
     try:
         ok, result = retry_with_backoff(_do_upload, max_retries=3, base_delay=5, max_delay=60)
@@ -659,9 +676,10 @@ def multi_platform_publish(video_id: str, title: str, description: str, video_pa
 
     for platform in platforms:
         try:
+            platform_title = optimize_title_for_platform(title, platform)
             platform_desc = optimize_for_platform(title, description, platform)
             log_activity('publisher', f"Uploading to {PLATFORMS[platform]['name']}...", 'info')
-            result = upload_to_platform(platform, title, platform_desc, video_path,
+            result = upload_to_platform(platform, platform_title, platform_desc, video_path,
                                         thumbnail_path, format_type, publish_at)
             results['platforms'][platform] = result
 

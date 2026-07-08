@@ -110,11 +110,50 @@ def fetch_youtube_trending(max_results: int = 20, region_code: str = "US") -> li
         return []
 
 
+def fetch_google_trends() -> list:
+    try:
+        from pytrends.request import TrendReq
+        pytrends = TrendReq(hl="en-US", tz=360)
+        pytrends.build_payload(kw_list=["artificial intelligence", "machine learning", "AI tools", "deep learning", "large language model"], cat=0, timeframe="now 7-d", geo="", gprop="")
+        interest = pytrends.interest_over_time()
+        if interest.empty:
+            return []
+        rising = pytrends.related_queries()
+        results = []
+        seen_queries = set()
+        for kw, data in rising.items():
+            if data is None or "rising" not in data or data["rising"] is None:
+                continue
+            for _, row in data["rising"].iterrows():
+                query = row.get("query", "")
+                if not query or query in seen_queries:
+                    continue
+                seen_queries.add(query)
+                if _is_non_tech_topic(query):
+                    continue
+                value = row.get("value", 0)
+                results.append({
+                    "title": query,
+                    "category": "AI Explained",
+                    "search_volume": max(10000, int(value * 10000)) if isinstance(value, (int, float)) else 50000,
+                    "growth": value if isinstance(value, (int, float)) and value > 0 else random.randint(20, 80),
+                    "competition": "medium",
+                    "suggested_format": "shorts",
+                    "score": min(95, 60 + (value if isinstance(value, (int, float)) and value <= 35 else 20)),
+                    "keywords": [kw, query.lower().replace(" ", "_")],
+                })
+        return results[:10]
+    except Exception as e:
+        print(f"[TRENDS] Google Trends fetch failed: {e}")
+        return []
+
+
 def discover_trends() -> list:
     """Discover trending topics for tech/AI educational content."""
     log_activity("trend_discovery", "Starting trend discovery scan", "info")
 
     youtube_trends = fetch_youtube_trending(max_results=15)
+    google_trends = fetch_google_trends()
 
     prompt = f"""Discover current trending topics for tech and AI educational video content.
 Today's date: {datetime.now().strftime('%B %Y')}
@@ -143,7 +182,7 @@ Consider seasonal tech events (conferences, product launches, paper releases), e
         log_activity("trend_discovery", f"Trend discovery failed: {str(e)}", "error")
         llm_trends = _fallback_trends()
 
-    all_trends = youtube_trends + llm_trends
+    all_trends = youtube_trends + google_trends + llm_trends
     seen = set()
     deduped = []
     for t in all_trends:
@@ -156,7 +195,7 @@ Consider seasonal tech events (conferences, product launches, paper releases), e
     trends = deduped[:20]
 
     _save_trends(trends)
-    source_summary = f"({len(youtube_trends)} YouTube, {len(llm_trends)} LLM)"
+    source_summary = f"({len(youtube_trends)} YouTube, {len(google_trends)} Google, {len(llm_trends)} LLM)"
     log_activity("trend_discovery", f"Discovered {len(trends)} trending topics {source_summary}", "success")
     print(f"[TRENDS] {len(trends)} trends discovered {source_summary}")
     return trends

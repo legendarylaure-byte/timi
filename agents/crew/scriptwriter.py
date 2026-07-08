@@ -68,6 +68,8 @@ RULES (STRICT):
 5. Do NOT use character names or dialogue. This is a single-narrator educational format.
 6. FACTS MUST BE ACCURATE. Do not fabricate statistics, dates, or claims. If uncertain, say "it is believed that" or "experts suggest".
 7. Content is for a NON-TECHNICAL beginner audience — assume ZERO prior knowledge. Explain every specialized term from first principles using everyday analogies. Write for someone who has never heard of this topic before. Avoid jargon entirely; when a technical term is necessary, define it immediately in plain language.
+8. HOOK FORMULA — Use one of these hook styles for the first scene, rotating across videos: (a) Question hook — ask a surprising question, (b) Bold claim — start with a counter-intuitive statement, (c) Statistic — lead with a striking number, (d) Curiosity gap — tease something the viewer doesn't know, (e) Pain point — name a frustration. Do NOT start with "Today we'll learn" or "In this video".
+9. POWER WORDS — Include 2-3 of these naturally: "secretly", "actually", "nobody", "everyone", "the truth", "why most", "what if", "imagine", "stop", "never realized".
 
 At the end include:
 - Key takeaway (1-2 sentences)

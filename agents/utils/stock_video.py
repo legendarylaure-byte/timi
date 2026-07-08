@@ -3,10 +3,20 @@ import time
 import threading
 import shutil
 import requests
-from utils.subprocess_helper import safe_run
 from pathlib import Path
 from typing import Optional
 from dotenv import load_dotenv
+
+from utils.subprocess_helper import safe_run, register_temp_dir
+try:
+    from utils.health_monitor import pexels_breaker, pixabay_breaker
+except ImportError:
+    from types import SimpleNamespace
+    _noop_breaker = SimpleNamespace(
+        allow_request=lambda: True, record_success=lambda: None, record_failure=lambda: None
+    )
+    pexels_breaker = _noop_breaker
+    pixabay_breaker = _noop_breaker
 
 load_dotenv()
 
@@ -15,6 +25,7 @@ PIXABAY_API_KEY = os.getenv("PIXABAY_API_KEY", "")
 
 CLIPS_DIR = Path(__file__).parent.parent / "tmp" / "clips"
 CLIPS_DIR.mkdir(parents=True, exist_ok=True)
+register_temp_dir(str(CLIPS_DIR))
 
 _API_CACHE = {}
 _PIXABAY_BLOCKED_UNTIL = 0.0
@@ -125,6 +136,9 @@ def _search_pexels_uncached(query: str, orientation: str = "landscape") -> list[
     if not PEXELS_API_KEY:
         print("[stock_video] PEXELS_API_KEY is empty — set it in GitHub secrets")
         return []
+    if not pexels_breaker.allow_request():
+        print("[stock_video] Pexels circuit breaker open — skipping")
+        return []
     _rate_limit_delay()
     headers = {"Authorization": PEXELS_API_KEY}
     params = {"query": query, "per_page": 5, "orientation": orientation}
@@ -133,8 +147,10 @@ def _search_pexels_uncached(query: str, orientation: str = "landscape") -> list[
         resp = _handle_rate_limit(resp, "Pexels")
         if resp.status_code == 403:
             print("[stock_video] Pexels API key invalid (403)")
+            pexels_breaker.record_failure()
             return []
         resp.raise_for_status()
+        pexels_breaker.record_success()
         data = resp.json()
         results = []
         for v in data.get("videos", []):
@@ -144,7 +160,7 @@ def _search_pexels_uncached(query: str, orientation: str = "landscape") -> list[
             best = max(vf, key=lambda f: f.get("width", 0) * f.get("height", 0))
             results.append({
                 "id": v["id"],
-                "url": best.get("link", ""),
+                "url": best.get("link") or best.get("url", ""),
                 "width": best.get("width", 1920),
                 "height": best.get("height", 1080),
                 "duration": v.get("duration", 5),
@@ -156,15 +172,20 @@ def _search_pexels_uncached(query: str, orientation: str = "landscape") -> list[
         return results
     except requests.exceptions.HTTPError as e:
         print(f"[stock_video] Pexels HTTP error: {e}")
+        pexels_breaker.record_failure()
         return []
     except Exception as e:
         print(f"[stock_video] Pexels search error: {e}")
+        pexels_breaker.record_failure()
         return []
 
 
 def _search_pixabay_uncached(query: str) -> list[dict]:
     if not PIXABAY_API_KEY:
         print("[stock_video] PIXABAY_API_KEY is empty — set it in GitHub secrets")
+        return []
+    if not pixabay_breaker.allow_request():
+        print("[stock_video] Pixabay circuit breaker open — skipping")
         return []
     with _PIXABAY_LOCK:
         if time.time() < _PIXABAY_BLOCKED_UNTIL:
@@ -184,8 +205,10 @@ def _search_pixabay_uncached(query: str) -> list[dict]:
         resp = _handle_rate_limit(resp, "Pixabay")
         if resp.status_code == 403:
             print("[stock_video] Pixabay API key invalid (403)")
+            pixabay_breaker.record_failure()
             return []
         resp.raise_for_status()
+        pixabay_breaker.record_success()
         data = resp.json()
         results = []
         for v in data.get("hits", []):
@@ -208,9 +231,11 @@ def _search_pixabay_uncached(query: str) -> list[dict]:
         return results
     except requests.exceptions.HTTPError as e:
         print(f"[stock_video] Pixabay HTTP error: {e}")
+        pixabay_breaker.record_failure()
         return []
     except Exception as e:
         print(f"[stock_video] Pixabay search error: {e}")
+        pixabay_breaker.record_failure()
         return []
 
 

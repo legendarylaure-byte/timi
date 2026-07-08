@@ -2,8 +2,55 @@
 
 ## Latest Changes (uncommitted)
 
-### D14: Pipeline Reliability Overhaul — Publish Layer Fixes
-- **`utils/youtube_upload.py`** — Fixed timezone crash: `datetime.utcnow()` → `datetime.now(timezone.utc)` at lines 193/243/320. Imported `timezone`. Resolves `can't compare offset-naive and offset-aware datetimes`.
+### D18: Publish Error Handling + Stock Footage Hardening + Pipeline Defenses
+- **Facebook upload API error detection**: Added `_raise_fb_api_error()` helper that inspects JSON response body for Facebook API errors (1363030 timeout, 413, etc.) even when HTTP status is 200. Previously these were missed and surfaced as misleading "succeeded but no video ID" messages. Applied to all 3 paths: direct upload, resumable init, resumable transfer (`multi_platform_publisher.py`).
+- **Facebook 401 refresh on transfer phase**: Added `status_code == 401` check on resumable transfer POST (was missing — token could expire between init and transfer). `multi_platform_publisher.py`.
+- **File size in errors**: Added `(size={file_size})` to all "no video ID" RuntimeErrors for faster debugging (`multi_platform_publisher.py`).
+- **Stock footage file validation**: `asset_router.py:_get_stock_clip()` — cache retrieval and download result now check `os.path.getsize() > 1000` in addition to `os.path.exists()`, rejecting 0-byte/corrupt files before they reach compositing.
+- **Circuit breakers wired**: `pexels_breaker` and `pixabay_breaker` from `health_monitor.py` now protect API calls in `stock_video.py`. Each search checks `breaker.allow_request()` before calling, records success/failure on response. Prevents hammering dead APIs.
+- **Pexels URL fallback**: `best.get("link") or best.get("url", "")` — handles either API field name (`stock_video.py:147`).
+- **CLIPS_DIR cleanup**: Registered `tmp/clips/` with `register_temp_dir()` so stock clips are cleaned up on exit alongside compositor temp dirs (`stock_video.py`).
+- **Defensive score_hook()**: Added `if hook_score_result is None:` guard after both `score_hook()` calls in `main.py` (short + long paths) — ensures pipeline never crashes on None return.
+
+### D17: Tier 1 Pipeline Enhancements — Subtitle Color, Visual Quality, Voice Pacing, Prompt Tuning
+- **Subtitle color**: Changed from dark orange (`&HFF0055CC&`) to dark yellow (`&HFF00CCCC&`) in `video_compositor.py` (burn_subtitles + composite_video) and `shorts_renderer.py` (reformat_to_shorts). More readable on dark backgrounds, consistent with educational content branding.
+- **Visual quality**: CRF 23→20 (higher bitrate, sharper video), saturation 1.15→1.25 (more vibrant colors) in both `video_compositor.py` and `shorts_renderer.py`.
+- **Voice pacing**: Default TTS rate -5%→0% (faster, more natural delivery for educational content). Inter-segment silence gap 200ms→100ms (tighter pacing, less dead air). Applied in `voice_gen.py` (DEFAULT_RATE, NARRATOR_VOICE, educational setting, concatenate_audio offset).
+- **Scriptwriter prompt**: Added rule #8 (hook formula rotation — question/bold claim/statistic/curiosity gap/pain point across videos) and rule #9 (power words — "secretly", "actually", "nobody", "the truth", "why most", etc.) in `crew/scriptwriter.py`.
+- **Quality scorer**: Repetition threshold lowered from 60%→50% similarity in `quality_scorer.py` — catches repetitious content earlier.
+- **Content safety fix**: Word-boundary regex replaces substring matching (fixes "forward"→"war" false positive). Per-word severity levels + allowlist for common tech contexts (`content_safety.py`).
+- **Hook scoring fix**: Rule-based fallback when LLM scoring fails — scores on question marks, statistics, bold claims, pain points. Fixed missing return path when LLM response has no JSON (`hook_scorer.py`).
+- **Stock video compositing fix**: Added `os.path.exists()` guards in `video_compositor.py:_process_clip()` (try/except around `os.path.getsize`), `asset_router.py:_get_stock_clip()` (cache validation), and `asset_router.py:dispatch_scene()` (path verification before return).
+
+### Report Module — Dashboard Intelligence Hub (5 Phases)
+- **Phase A — Foundation**: `report-types.ts` shared types, `/dashboard/reports` page shell with 6 animated tabs, nav item in sidebar, `KpiCard` reusable component, `GET /api/reports/summary` endpoint (aggregates from videos/channel_stats/revenue/pipeline_metrics/analytics/insights), `ExecutiveSummary` component with 8 KPI cards (total videos, views, subs, revenue, pipeline success, best category, best format, today's production).
+- **Phase B — Charts & Trends**: Installed `recharts`. `GET /api/reports/quality-trends` — quality/virality score trends with anomaly detection (>100% deviation from predicted views). `GET /api/reports/pipeline-health` — success rate, step duration breakdown (horizontal bar chart), recent errors, ROI (cost vs revenue). `GET /api/reports/growth-forecast` — growth history + linear regression projection + milestone estimation. `PerformanceTrends` component — AreaChart for views/subs/watchHours over time + quality trend overlay. `PipelineHealth` component — 4 KPI cards, step bar chart, error feed.
+- **Phase C — Advanced Analytics**: `GET /api/reports/correlations` — Pearson's r for hook/quality/virality/duration vs views, scatter plots, format/category breakdown. `GET /api/reports/content-gaps` — days since last post per category, trending indicators, recommendations. `GET/POST/DELETE /api/reports/goals` — goal CRUD with auto-projection. `QualityInsights` component — 3 sub-views: correlations (scatter + r-cards), anomalies (over/underperformers), breakdown (format bar chart + category ranking). `ContentGaps` component — active/stale/untapped summary cards + per-category status table. `GoalsPanel` component — goal cards with progress bars + what-if simulator + current stats.
+- **Phase D — AI Chat**: `POST /api/reports/chat` — context-aware AI agent (via Gemini API or fallback), conversation persistence to Firestore `reports/chat_sessions/{sessionId}/messages/`, action card extraction (`[ACTION:label|type|target]`), rate-limited (15 req/min). `ChatPanel` component — full chat UI with message history, quick action buttons, action card rendering, streaming input, clear/reset.
+- **Phase E — Polish**: Date range picker (7d/30d/90d), auto-refresh (120s polling), CSV export button, manual Refresh button, rate limiting on chat endpoint.
+- **17 new files** created in dashboard (`src/app/dashboard/reports/`, `src/app/api/reports/*/`, `src/components/reports/`)
+- **0 backend files modified** — no impact on agents/pipeline/workers.
+
+### D15: Multi-Platform Publish Fixes — Debuggability & Persistence
+- **`utils/multi_platform_publisher.py`** (2 fixes):
+  - TikTok token persistence: `_refresh_tiktok_token()` now calls `_save_env()` after refresh (was updating `os.environ` only — token lost on restart).
+  - Instagram R2 failure: Added `security_audit("UPLOAD_FAILED", ...)` on R2 upload failure (was only logging to `log_activity`, not security audit).
+- **`utils/shorts_renderer.py`** — `render_repurposed_shorts()`: replaced `global _TEMP_DIR` with `import utils.shorts_renderer as _sr` / `_sr._TEMP_DIR` (fixes Python 3.14 `UnboundLocalError: cannot access local variable '_TEMP_DIR'`).
+- **`dashboard/src/app/api/reports/pipeline-health/route.ts`** — added `publishErrors[]` and `platformFailCount{}` to response (queries `activity_logs` for `agent_id == 'publisher'`).
+- **`dashboard/src/components/reports/PipelineHealth.tsx`** — added "Platform Publish Status" section with per-platform status cards (YouTube/TikTok/Instagram/Facebook) showing fail counts and recent publish error feed.
+- **Deployed to Vercel live** (`timi.vyomai.cloud/dashboard/reports`).
+
+### D16: All-3-Platforms Test Publish + Firestore Env Fix + Facebook Resumable
+- **`agents/main.py`** — Removed `'tiktok'` from short video `platforms_to_publish` list (skips TikTok until production keys arrive).
+- **`agents/utils/multi_platform_publisher.py`** (2 fixes):
+  - Lowered Facebook resumable upload threshold from 100MB → 50MB (direct upload fails on 400 for 70MB composited videos).
+  - Added response body to error messages (`safe_log(resp.text[:500])`) on all Facebook upload failures (direct init, transfer, and resumable) for better debugability.
+- **Firestore `env_vars` override discovered**: `sync_env_from_firestore()` at pipeline startup overwrites `os.environ` with values from Firestore `env_vars` collection — even after `.env` is loaded. Old `FACEBOOK_PAGE_ID=61591308434889` and old User Token were stored in Firestore, overriding the correct values in `.env`. Fixed by updating both documents in Firestore via direct Python.
+- **3 real videos published as proof**:
+  1. "How Transformers Work" → YouTube ✅, Instagram ✅, Facebook ❌ (Firestore override bug)
+  2. "RAG Architecture Explained Simply" → YouTube ✅, Instagram ✅, Facebook ❌ (same bug)
+  3. "Top 5 AI Tools 2026" → YouTube ✅, Instagram ✅, Facebook ✅ — **3/3 after Firestore fix + resumable threshold**
+- **Python dependency fixes**: installed Pillow, edge-tts, pydub, audioop-lts (Python 3.14 removed `audioop`), crewai in venv (Python 3.12 for dep compat). Created `venv/` with Python 3.12 for pipeline runs.
 - **`utils/multi_platform_publisher.py`** (12 fixes):
   - Token refresh failures: `_refresh_tiktok_token()` and `_refresh_facebook_token()` now call `security_audit("TOKEN_REFRESH_FAILED", ...)` before `return None` (was silent).
   - 401 auto-refresh recursion: Added `_refresh_attempted` bool guard to each platform — max 1 refresh attempt per upload (prevents infinite recursion).
@@ -142,7 +189,7 @@
   - `atexit` registered via `_setup_logging()` — writes "Process exiting" log on graceful shutdown
 
 ## Remaining Setup
-1. **TikTok OAuth**: Set `TIKTOK_ACCESS_TOKEN`, `TIKTOK_OPEN_ID`, `TIKTOK_CLIENT_KEY`, `TIKTOK_CLIENT_SECRET`, and optionally `TIKTOK_REFRESH_TOKEN` env vars.
+1. **TikTok OAuth** (REQUIRED — sandbox keys 401): Get a **production app** at `https://developers.tiktok.com/`. Set `TIKTOK_CLIENT_KEY`, `TIKTOK_CLIENT_SECRET`, go through OAuth to get `TIKTOK_ACCESS_TOKEN`, `TIKTOK_OPEN_ID`, and `TIKTOK_REFRESH_TOKEN`. The current sandbox keys will always return 401 for publishing.
 2. **Instagram OAuth**: Set `FACEBOOK_APP_ID`, `FACEBOOK_APP_SECRET`, `FACEBOOK_ACCESS_TOKEN`, `FACEBOOK_PAGE_ID`, `INSTAGRAM_ACCOUNT_ID` env vars. No `INSTAGRAM_ACCESS_TOKEN` needed — Instagram uses the Facebook Page token.
 3. **YouTube Analytics API**: Re-auth needed (`yt-analytics.readonly` scope). Delete `youtube_token.json` and run any upload.
 4. **Google Cloud TTS**: Create service account, download JSON key, set `GOOGLE_APPLICATION_CREDENTIALS`.

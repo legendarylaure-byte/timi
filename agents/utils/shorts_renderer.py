@@ -94,14 +94,14 @@ def reformat_to_shorts(input_path: str, hook_text: str, output_path: str,
         f"fontfile={os.getenv('FONT_PATH', '/System/Library/Fonts/Helvetica.ttc')}"
     )
 
-    quality_filters = "eq=saturation=1.15:contrast=1.1,unsharp=5:5:0.8:3:3:0.4"
+    quality_filters = "eq=saturation=1.25:contrast=1.1,unsharp=5:5:0.8:3:3:0.4"
 
     subtitle_filter = ""
     if subtitle_path and os.path.exists(subtitle_path):
         abs_sub = os.path.abspath(subtitle_path)
         subtitle_filter = (
             f",subtitles=filename='{abs_sub}':force_style="
-            f"'FontSize=14,PrimaryColour=&HFF0055CC&,OutlineColour=&H40002B00&,"
+            f"'FontSize=14,PrimaryColour=&HFF00CCCC&,OutlineColour=&H40002B00&,"
             f"Outline=0,Shadow=0,BorderStyle=3,BackColour=&H40000000&,"
             f"Alignment=2,MarginV=40,FontName=Arial'"
         )
@@ -181,7 +181,7 @@ def _generate_hook_from_keywords(keywords: list[str]) -> str:
 def render_repurposed_shorts(long_video_path: str, scenes: list[dict],
                               phrase_timings: list[dict], category: str,
                               video_id: str, script_text: str = "") -> list[dict]:
-    global _TEMP_DIR
+    import utils.shorts_renderer as _sr
     from utils.thumbnail_gen import generate_thumbnail_variants
 
     scene_timestamps = compute_scene_timestamps(scenes)
@@ -239,10 +239,10 @@ def render_repurposed_shorts(long_video_path: str, scenes: list[dict],
         })
         logger.info("Repurposed short %d/%d: %s (%.0fs-%.0fs)", i + 1, clip_count, hook, start, end)
 
-    if _TEMP_DIR is not None:
+    if _sr._TEMP_DIR is not None:
         try:
-            shutil.rmtree(str(_TEMP_DIR), ignore_errors=True)
-            _TEMP_DIR = None
+            shutil.rmtree(str(_sr._TEMP_DIR), ignore_errors=True)
+            _sr._TEMP_DIR = None
         except Exception:
             logger.warning("Failed to clean up temp dir")
 

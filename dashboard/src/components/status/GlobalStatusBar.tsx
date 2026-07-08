@@ -249,7 +249,7 @@ const statusColor: Record<string, string> = {
   warn: 'bg-amber-400',
   error: 'bg-red-500',
   unknown: 'bg-gray-400',
-  cloud: 'bg-sky-400',
+    cloud: 'bg-emerald-500',
 };
 
 function SkeletonPill() {
@@ -432,7 +432,7 @@ export function GlobalStatusBar() {
     } else if (dockerData?.reason === 'vercel_serverless') {
       newPills.push({
         id: 'docker', status: 'cloud',
-        value: 'N/A (cloud)',
+        value: 'Cloud — local pipeline',
         tooltip: 'Docker is not available in this cloud environment (Vercel serverless). Pipeline runs on your local machine instead.',
       });
     } else {
@@ -556,13 +556,13 @@ export function GlobalStatusBar() {
                 >
                   <div className="flex items-center gap-2">
                     <span className={`w-3 h-3 rounded-full ${statusColor[pill.status]} shrink-0 ${
-                      pill.status === 'ok' ? '' : 'animate-pulse'
+                      pill.status === 'ok' || pill.status === 'cloud' ? '' : 'animate-pulse'
                     }`} />
                     <div className="min-w-0">
                       <p className="gradient-text text-[10px] font-bold">
                         {pill.id === 'nextUpload' ? 'Next Upload' : pill.id.charAt(0).toUpperCase() + pill.id.slice(1)}
                       </p>
-                      <p className="text-sm font-bold text-light-text/90 dark:text-dark-text truncate max-w-[130px]">
+                      <p className="text-sm font-bold text-light-text/90 dark:text-dark-text truncate max-w-[150px]">
                         {pill.value}
                       </p>
                     </div>

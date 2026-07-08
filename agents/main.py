@@ -67,7 +67,7 @@ from compliance.hook_scorer import score_hook, enforce_rewrite
 from compliance.content_safety import check_content_safety
 from compliance.platform_policy import check_platform_compliance
 from utils.title_tester import TitleTester
-from utils.analytics_feedback import analyze_recent_performance, get_optimization_prompt_injection
+from utils.analytics_feedback import analyze_recent_performance, get_optimization_prompt_injection, get_pipeline_tuning
 from utils.llm_helper import force_fallback
 from utils.series_builder import register_video_in_series
 from utils.checkpoint import save_checkpoint, load_checkpoint, clear_checkpoint
@@ -311,13 +311,14 @@ def _track_pipeline_duration(video_id: str, format_type: str, topic: str,
         if not db:
             return
         doc_id = f"{video_id}_{int(time.time())}"
+        from google.cloud.firestore import SERVER_TIMESTAMP
         db.collection("pipeline_metrics").document(doc_id).set({
             "video_id": video_id,
             "format": format_type,
             "topic": topic,
             "duration_sec": round(duration_sec, 1),
             "success": success,
-            "created_at": datetime.utcnow().isoformat(),
+            "created_at": SERVER_TIMESTAMP,
         })
     except Exception:
         pass
@@ -761,8 +762,26 @@ def run_director_review(stage: str, topic: str, category: str, format_type: str,
     return {"decision": "block", "score": 0, "issues": [{"severity": "error", "description": "Review unavailable"}], "feedback": "Auto-blocked (review unavailable)"}
 
 
+_pipeline_tuning_cache: dict = {}
+
+
+def _apply_pipeline_tuning() -> dict:
+    global _pipeline_tuning_cache
+    tuning = get_pipeline_tuning()
+    _pipeline_tuning_cache = tuning
+    if not tuning.get("preferred_category") and not tuning.get("preferred_format"):
+        return tuning
+    log_event("ANALYTICS", f"Pipeline tuning active: category={tuning['preferred_category']}, format={tuning['preferred_format']}, virality_boost={tuning['virality_boost']}")
+    if tuning["preferred_format"]:
+        os.environ["PREFERRED_FORMAT"] = tuning["preferred_format"]
+    if tuning["preferred_category"]:
+        os.environ["PREFERRED_CATEGORY"] = tuning["preferred_category"]
+    return tuning
+
+
 def generate_short_video(topic: str, category: str, video_id: str, publish_at: str = None):
     _start_time = time.perf_counter()
+    _apply_pipeline_tuning()
     update_pipeline_status(True, topic)
     add_video_record(video_id, topic, "shorts", "generating", category=category)
     log_event("PIPELINE", f"Starting SHORT video generation: {topic}")
@@ -794,6 +813,8 @@ def generate_short_video(topic: str, category: str, video_id: str, publish_at: s
 
         failed_step = "hook_scoring"
         hook_score_result = score_hook(script_text, category=category)
+        if hook_score_result is None:
+            hook_score_result = {"score": 0, "hook_score": 0, "approved": False, "weaknesses": ["could not evaluate with llm"], "suggested_alternatives": []}
         _hook_llm_failed = "could not evaluate with llm" in str(hook_score_result.get("weaknesses", [])).lower()
         if hook_score_result["score"] < 60:
             log_event("HOOK", f"Hook score: {hook_score_result['score']}/100 — enforcing rewrite")
@@ -820,8 +841,9 @@ def generate_short_video(topic: str, category: str, video_id: str, publish_at: s
             if not is_safe:
                 log_event("COMPLIANCE", f"Content safety issues found: {len(issues)}", "warn")
                 for issue in issues[:3]:
-                    log_event("COMPLIANCE", f"  [{issue['severity']}] {issue.get('detail', '')[:100]}")
-                if any(i.get("severity") == "high" for i in issues):
+                    if isinstance(issue, dict):
+                        log_event("COMPLIANCE", f"  [{issue.get('severity', '?')}] {issue.get('detail', '')[:100]}")
+                if any(isinstance(i, dict) and i.get("severity") == "high" for i in issues):
                     if FORCE_PUBLISH:
                         log_event("COMPLIANCE", f"FORCE_PUBLISH overrides content safety block: {topic}", "warn")
                     else:
@@ -864,10 +886,12 @@ def generate_short_video(topic: str, category: str, video_id: str, publish_at: s
             virality_result = _extract_json(raw)
             v_score = virality_result.get("overall_virality_score", 0)
             update_video_record(video_id, {"virality_prediction": virality_result})
-            if not _gate_check("Virality gate", v_score < get_virality_threshold("shorts"), topic, video_id, "shorts", category):
+            boost = _pipeline_tuning_cache.get("virality_boost", 0)
+            threshold = get_virality_threshold("shorts") - boost
+            if not _gate_check("Virality gate", v_score < threshold, topic, video_id, "shorts", category):
                 return False
             else:
-                log_event("VIRALITY", f"Virality score: {v_score}/100 — approved")
+                log_event("VIRALITY", f"Virality score: {v_score}/100 (threshold: {threshold}) — approved")
         except Exception as e:
             log_event("VIRALITY", f"Virality analysis CRASHED: {e}", "error")
             log_pipeline_error(video_id, f"Virality analysis failed: {e}", "virality")
@@ -962,7 +986,7 @@ def generate_short_video(topic: str, category: str, video_id: str, publish_at: s
 
         failed_step = "publishing"
         with _track_step(video_id, "publishing"):
-            platforms_to_publish = ['youtube', 'tiktok', 'instagram', 'facebook']
+            platforms_to_publish = ['youtube', 'instagram', 'facebook']
             publish_result = multi_platform_publish(
                 video_id=video_id,
                 title=topic,
@@ -983,7 +1007,7 @@ def generate_short_video(topic: str, category: str, video_id: str, publish_at: s
             log_event("CLEANUP", "Cleaning up intermediate files after successful upload")
             from utils.cleanup_service import cleanup_after_upload
             cleanup_after_upload(
-                video_path=video_result["video_path"],
+                video_path=video_result.get("video_path", ""),
                 thumbnail_path=thumbnail_path,
                 voice_path=video_result.get("voice_path"),
                 music_path=video_result.get("music_path"),
@@ -1090,6 +1114,7 @@ def generate_short_video(topic: str, category: str, video_id: str, publish_at: s
 
 def generate_long_video(topic: str, category: str, video_id: str, publish_at: str = None):
     _start_time = time.perf_counter()
+    _apply_pipeline_tuning()
     if sentry_sdk:
         sentry_sdk.set_tag("video_id", video_id)
         sentry_sdk.set_tag("format", "long")
@@ -1121,6 +1146,8 @@ def generate_long_video(topic: str, category: str, video_id: str, publish_at: st
 
         failed_step = "hook_scoring"
         hook_score_result = score_hook(script_text, category=category)
+        if hook_score_result is None:
+            hook_score_result = {"score": 0, "hook_score": 0, "approved": False, "weaknesses": ["could not evaluate with llm"], "suggested_alternatives": []}
         _hook_llm_failed = "could not evaluate with llm" in str(hook_score_result.get("weaknesses", [])).lower()
         if hook_score_result["score"] < 60:
             log_event("HOOK", f"Hook score: {hook_score_result['score']}/100 — enforcing rewrite")
@@ -1147,8 +1174,9 @@ def generate_long_video(topic: str, category: str, video_id: str, publish_at: st
             if not is_safe:
                 log_event("COMPLIANCE", f"Content safety issues found: {len(issues)}", "warn")
                 for issue in issues[:3]:
-                    log_event("COMPLIANCE", f"  [{issue['severity']}] {issue.get('detail', '')[:100]}")
-                if any(i.get("severity") == "high" for i in issues):
+                    if isinstance(issue, dict):
+                        log_event("COMPLIANCE", f"  [{issue.get('severity', '?')}] {issue.get('detail', '')[:100]}")
+                if any(isinstance(i, dict) and i.get("severity") == "high" for i in issues):
                     if FORCE_PUBLISH:
                         log_event("COMPLIANCE", f"FORCE_PUBLISH overrides content safety block: {topic}", "warn")
                     else:
@@ -1191,10 +1219,12 @@ def generate_long_video(topic: str, category: str, video_id: str, publish_at: st
             virality_result = _extract_json(raw)
             v_score = virality_result.get("overall_virality_score", 0)
             update_video_record(video_id, {"virality_prediction": virality_result})
-            if not _gate_check("Virality gate", v_score < get_virality_threshold("long"), topic, video_id, "long", category):
+            boost = _pipeline_tuning_cache.get("virality_boost", 0)
+            threshold = get_virality_threshold("long") - boost
+            if not _gate_check("Virality gate", v_score < threshold, topic, video_id, "long", category):
                 return False
             else:
-                log_event("VIRALITY", f"Virality score: {v_score}/100 — approved")
+                log_event("VIRALITY", f"Virality score: {v_score}/100 (threshold: {threshold}) — approved")
         except Exception as e:
             log_event("VIRALITY", f"Virality analysis CRASHED: {e}", "error")
             log_pipeline_error(video_id, f"Virality analysis failed: {e}", "virality")
@@ -1315,7 +1345,7 @@ def generate_long_video(topic: str, category: str, video_id: str, publish_at: st
                 from utils.multi_platform_publisher import multi_platform_publish as _publish_short
                 phrase_timings = video_result.get("phrase_timings", [])
                 shorts = render_repurposed_shorts(
-                    long_video_path=video_result["video_path"],
+                    long_video_path=video_result.get("video_path", ""),
                     scenes=video_result.get("scenes", []),
                     phrase_timings=phrase_timings,
                     category=category,
@@ -1348,7 +1378,7 @@ def generate_long_video(topic: str, category: str, video_id: str, publish_at: st
             log_event("CLEANUP", "Cleaning up intermediate files after successful upload")
             from utils.cleanup_service import cleanup_after_upload
             cleanup_after_upload(
-                video_path=video_result["video_path"],
+                video_path=video_result.get("video_path", ""),
                 thumbnail_path=thumbnail_path,
                 voice_path=video_result.get("voice_path"),
                 music_path=video_result.get("music_path"),

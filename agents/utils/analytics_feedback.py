@@ -133,6 +133,35 @@ def get_active_insights() -> dict:
     return fb.get("active_insights", {})
 
 
+def get_pipeline_tuning() -> dict:
+    insights = get_active_insights()
+    tuning = {
+        "preferred_category": None,
+        "preferred_format": None,
+        "virality_boost": 0,
+        "scene_count_adjust": 0,
+        "voice_rate_adjust": "0%",
+    }
+    if not insights:
+        return tuning
+    best_cat = insights.get("best_category")
+    best_fmt = insights.get("best_format")
+    if best_cat:
+        tuning["preferred_category"] = best_cat
+    if best_fmt:
+        tuning["preferred_format"] = best_fmt
+        if best_fmt == "shorts":
+            tuning["virality_boost"] = 10
+            tuning["scene_count_adjust"] = -2
+        else:
+            tuning["virality_boost"] = 5
+            tuning["scene_count_adjust"] = 2
+    cat_perf = insights.get("category_performance", {})
+    if cat_perf and best_cat and cat_perf.get(best_cat, {}).get("avg_views", 0) > 1000:
+        tuning["voice_rate_adjust"] = "+5%"
+    return tuning
+
+
 def get_optimization_prompt_injection() -> str:
     insights = get_active_insights()
     if not insights:

@@ -29,3 +29,5 @@ sentry-sdk>=2.30.0
 setuptools<69
 playwright>=1.59.0
 torch>=2.0.0
+textstat>=0.7.13
+pytrends>=4.9.2

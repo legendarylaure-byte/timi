@@ -2,6 +2,11 @@ import os
 import logging
 from abc import ABC, abstractmethod
 
+try:
+    from google.cloud import texttospeech
+except ImportError:
+    texttospeech = None
+
 logger = logging.getLogger(__name__)
 
 # Default edge-tts voices (same constants as voice_gen.py)
@@ -119,12 +124,10 @@ class GoogleCloudTTSProvider(BaseTTSProvider):
 
     def _get_client(self):
         if GoogleCloudTTSProvider.CLIENT is None:
-            try:
-                from google.cloud import texttospeech
-                GoogleCloudTTSProvider.CLIENT = texttospeech.TextToSpeechClient()
-            except ImportError:
+            if texttospeech is None:
                 logger.error("google-cloud-texttospeech not installed. Install with: pip install google-cloud-texttospeech")
                 return None
+            GoogleCloudTTSProvider.CLIENT = texttospeech.TextToSpeechClient()
         return GoogleCloudTTSProvider.CLIENT
 
     def _map_voice(self, voice: str) -> str:
@@ -210,21 +213,30 @@ class GoogleCloudTTSProvider(BaseTTSProvider):
                 input=synthesis_input,
                 voice=voice_params,
                 audio_config=audio_config,
-                enable_time_pointing=["WORD"],
             )
 
+            total_bytes = len(response.audio_content)
+            duration_sec = total_bytes / 48000.0
+            duration_ms = duration_sec * 1000
+
+            words = text.split()
+            if not words:
+                return []
+
+            total_chars = sum(len(w) for w in words)
             sentence_times = []
-            prev_time = 0.0
-            for tp in response.timepoints:
-                current_time = tp.time_seconds
-                duration = (current_time - prev_time) * 1000 if prev_time > 0 else 150
+            offset = 0.0
+
+            for word in words:
+                word_weight = len(word) / max(total_chars, 1)
+                word_duration = duration_ms * word_weight
                 sentence_times.append({
-                    "text": tp.text,
-                    "offset_ms": prev_time * 1000,
-                    "duration_ms": max(int(duration), 80),
+                    "text": word,
+                    "offset_ms": int(offset),
+                    "duration_ms": max(int(word_duration), 80),
                     "type": "WordBoundary",
                 })
-                prev_time = current_time
+                offset += word_duration
 
             return sentence_times
         except Exception as e:

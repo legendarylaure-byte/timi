@@ -13,7 +13,7 @@ import Image from 'next/image';
 import {
   LayoutDashboard, Clapperboard, Archive, Flame, Scissors, Palette,
   Upload, TrendingUp, DollarSign, Clapperboard as SeriesIcon, Clock,
-  Settings, Eye, LogOut, Menu, X,
+  Settings, Eye, LogOut, Menu, X, BarChart3,
 } from 'lucide-react';
 import { GlobalStatusBar } from '@/components/status/GlobalStatusBar';
 
@@ -27,6 +27,7 @@ const navItems = [
   { label: 'Publishing', icon: Upload, path: '/dashboard/publishing' },
   { label: 'Analytics', icon: TrendingUp, path: '/dashboard/analytics' },
   { label: 'Monetization', icon: DollarSign, path: '/dashboard/monetization' },
+  { label: 'Reports', icon: BarChart3, path: '/dashboard/reports' },
   { label: 'Series', icon: SeriesIcon, path: '/dashboard/series' },
   { label: 'Scheduler', icon: Clock, path: '/dashboard/scheduler' },
   { label: 'Settings', icon: Settings, path: '/dashboard/settings' },

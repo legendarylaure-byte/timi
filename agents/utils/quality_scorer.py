@@ -1,5 +1,6 @@
 import json
 import threading
+import textstat
 from utils.llm_client import generate_completion
 from utils.firebase_status import get_firestore_client, update_agent_status, log_activity
 from utils.validators import validate_script_content
@@ -116,6 +117,18 @@ Score each dimension and return the JSON object as specified."""
         pass
 
     try:
+        readability = _check_readability(script, format_type)
+        if readability["flags"]:
+            result["flags"].extend(readability["flags"])
+            result["breakdown"]["clarity"] = max(0, result["breakdown"]["clarity"] - readability["penalty"])
+            result["overall_score"] = max(0, result["overall_score"] - readability["penalty"] // 2)
+            if result["overall_score"] < 50:
+                result["recommendation"] = "block"
+        result["readability"] = readability["scores"]
+    except Exception:
+        pass
+
+    try:
         _save_review(title, format_type, result)
     except Exception:
         pass
@@ -124,6 +137,37 @@ Score each dimension and return the JSON object as specified."""
     log_activity("quality_scorer", f"Quality score: {result['overall_score']} for '{title}'", "success")
 
     return result
+
+
+def _check_readability(script: str, format_type: str = "shorts") -> dict:
+    text = script.strip()
+    if not text:
+        return {"flags": [], "penalty": 0, "scores": {}}
+
+    fre = textstat.flesch_reading_ease(text)
+    fkgl = textstat.flesch_kincaid_grade(text)
+    dc = textstat.dale_chall_readability_score(text)
+
+    scores = {"flesch_reading_ease": round(fre, 1), "flesch_kincaid_grade": round(fkgl, 1), "dale_chall": round(dc, 1)}
+    flags = []
+    penalty = 0
+
+    if format_type == "shorts":
+        if fkgl > 10:
+            flags.append(f"readability_grade_{fkgl:.0f}")
+            penalty = min(30, int((fkgl - 10) * 5))
+        if fre < 40:
+            flags.append(f"low_readability_{fre:.0f}")
+            penalty = max(penalty, min(30, int((40 - fre) * 2)))
+    else:
+        if fkgl > 13:
+            flags.append(f"readability_grade_{fkgl:.0f}")
+            penalty = min(20, int((fkgl - 13) * 4))
+        if fre < 30:
+            flags.append(f"low_readability_{fre:.0f}")
+            penalty = max(penalty, min(20, int((30 - fre) * 2)))
+
+    return {"flags": flags, "penalty": penalty, "scores": scores}
 
 
 def _fallback_score(script: str, title: str, category: str) -> dict:
@@ -329,7 +373,7 @@ def check_repetition(current_script: str, category: str, max_recent: int = 10) -
             similarities.append({"title": recent["title"], "similarity": sim})
 
         max_similarity = max(s["similarity"] for s in similarities)
-        is_repetitive = max_similarity > 0.6
+        is_repetitive = max_similarity > 0.5
 
         result = {
             "is_repetitive": is_repetitive,

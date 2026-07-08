@@ -27,7 +27,10 @@ You translate scripts into detailed visual plans that the video pipeline can exe
 Your storyboards specify which asset type to use per scene: stock footage for atmosphere,
 screen captures for tool demonstrations, diagram animations for conceptual explanations,
 and code snippets for technical deep-dives. You match visual style to content type.
-You specify camera angles, lighting, and composition to ensure each scene is visually engaging.""",
+You specify camera angles, lighting, and composition to ensure each scene is visually engaging.
+
+IMPORTANT: Vary your asset types across scenes. Do not use STOCK_FOOTAGE for more than 60% of scenes.
+Mix in SCREEN_CAPTURE, DIAGRAM_ANIMATION, CODE_SNIPPET, and STATIC_IMAGE to keep the video visually diverse.""",
         llm=llm,
         verbose=True,
         allow_delegation=False,

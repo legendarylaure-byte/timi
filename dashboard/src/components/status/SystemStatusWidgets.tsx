@@ -69,7 +69,7 @@ export function DockerStatus() {
 
   const isCloud = data?.reason === 'vercel_serverless';
   const status: 'ok' | 'warn' | 'error' | 'unknown' = !data ? 'unknown'
-    : isCloud ? 'warn'
+    : isCloud ? 'ok'
     : data.available && data.all_running ? 'ok'
     : data.available ? 'warn'
     : 'error';
@@ -84,7 +84,7 @@ export function DockerStatus() {
           <div className="text-left">
             <h4 className="text-xs font-semibold text-light-text dark:text-dark-text">Docker</h4>
             <p className="text-[10px] text-light-muted dark:text-dark-muted">
-              {isCloud ? 'N/A (cloud)' : data ? `${data.container_count} container${data.container_count !== 1 ? 's' : ''}` : '...'}
+              {isCloud ? 'Cloud (local pipeline)' : data ? `${data.container_count} container${data.container_count !== 1 ? 's' : ''}` : '...'}
             </p>
           </div>
         </div>
