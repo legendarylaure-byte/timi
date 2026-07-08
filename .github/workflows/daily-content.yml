@@ -96,7 +96,7 @@ jobs:
     steps:
       - name: Cleanup stale temp files
         run: |
-          rm -rf agents/output/*.mp4 agents/tmp/* agents/.venv 2>/dev/null || true
+          rm -rf agents/output/*.mp4 agents/tmp/* agents/.venv /tmp/ltx-2-mlx 2>/dev/null || true
           echo "  ✅ Temp and venv cleaned"
 
       - name: Checkout repository
