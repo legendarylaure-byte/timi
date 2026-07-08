@@ -144,13 +144,13 @@ def apply_ken_burns(input_path: str, output_path: str, target_w: int, target_h: 
     if src_w * target_h > src_h * target_w:
         # Source is wider — pan horizontally
         max_x = max(0, src_w - crop_w)
-        x_expr = f"min({max_x}*t/{duration},{max_x})"
+        x_expr = f"{max_x}*t/{duration}" if max_x > 0 else "0"
         y_expr = f"({src_h} - {crop_h}) / 2"
     else:
         # Source is taller — pan vertically
         max_y = max(0, src_h - crop_h)
         x_expr = f"({src_w} - {crop_w}) / 2"
-        y_expr = f"min({max_y}*t/{duration},{max_y})"
+        y_expr = f"{max_y}*t/{duration}" if max_y > 0 else "0"
 
     vf = f"crop={crop_w}:{crop_h}:{x_expr}:{y_expr},flags=lanczos,scale={target_w}:{target_h}:flags=lanczos"
     cmd = [
@@ -424,10 +424,11 @@ def composite_video(clips: list[dict], voice_path: str, music_path: Optional[str
             "-c:v", "libx264", "-preset", PRESET, "-crf", CRF,
             "-pix_fmt", "yuv420p", combined_video,
         ]
-        try:
-            result = safe_run(cmd, timeout=600)
-            if result.returncode != 0 or not os.path.exists(combined_video):
-                print(f"[compositor] Xfade failed ({result.stderr[-200:]}), falling back to concat")
+    try:
+        result = safe_run(cmd, timeout=600)
+        if result.returncode != 0 or not os.path.exists(combined_video):
+            print(f"[compositor] Xfade failed (rc={result.returncode}), full stderr: {result.stderr[-500:]}")
+            print("[compositor] Falling back to concat")
                 concat_list = str(TEMP_DIR / f"concat_{video_id}.txt")
                 with open(concat_list, "w") as f:
                     for p in processed:
