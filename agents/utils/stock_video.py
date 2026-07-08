@@ -13,7 +13,7 @@ try:
 except ImportError:
     from types import SimpleNamespace
     _noop_breaker = SimpleNamespace(
-        allow_request=lambda: True, record_success=lambda: None, record_failure=lambda: None
+        is_available=lambda: True, record_success=lambda: None, record_failure=lambda: None
     )
     pexels_breaker = _noop_breaker
     pixabay_breaker = _noop_breaker
@@ -136,7 +136,7 @@ def _search_pexels_uncached(query: str, orientation: str = "landscape") -> list[
     if not PEXELS_API_KEY:
         print("[stock_video] PEXELS_API_KEY is empty — set it in GitHub secrets")
         return []
-    if not pexels_breaker.allow_request():
+    if not pexels_breaker.is_available():
         print("[stock_video] Pexels circuit breaker open — skipping")
         return []
     _rate_limit_delay()
@@ -184,7 +184,7 @@ def _search_pixabay_uncached(query: str) -> list[dict]:
     if not PIXABAY_API_KEY:
         print("[stock_video] PIXABAY_API_KEY is empty — set it in GitHub secrets")
         return []
-    if not pixabay_breaker.allow_request():
+    if not pixabay_breaker.is_available():
         print("[stock_video] Pixabay circuit breaker open — skipping")
         return []
     with _PIXABAY_LOCK:
