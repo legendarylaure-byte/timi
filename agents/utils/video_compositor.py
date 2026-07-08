@@ -152,7 +152,7 @@ def apply_ken_burns(input_path: str, output_path: str, target_w: int, target_h: 
         x_expr = f"({src_w} - {crop_w}) / 2"
         y_expr = f"{max_y}*t/{duration}" if max_y > 0 else "0"
 
-    vf = f"crop={crop_w}:{crop_h}:{x_expr}:{y_expr},flags=lanczos,scale={target_w}:{target_h}:flags=lanczos"
+    vf = f"crop={crop_w}:{crop_h}:{x_expr}:{y_expr},scale={target_w}:{target_h}:flags=lanczos"
     cmd = [
         _ffmpeg_cmd(), "-y", "-i", trim_path, *_sws_flags(),
         "-vf", vf,
@@ -429,19 +429,19 @@ def composite_video(clips: list[dict], voice_path: str, music_path: Optional[str
         if result.returncode != 0 or not os.path.exists(combined_video):
             print(f"[compositor] Xfade failed (rc={result.returncode}), full stderr: {result.stderr[-500:]}")
             print("[compositor] Falling back to concat")
-                concat_list = str(TEMP_DIR / f"concat_{video_id}.txt")
-                with open(concat_list, "w") as f:
-                    for p in processed:
-                        f.write(f"file '{p}'\n")
-                cmd = [
-                    _ffmpeg_cmd(), "-y", "-f", "concat", "-safe", "0", "-i", concat_list, *_sws_flags(),
-                    "-c:v", "libx264", "-preset", PRESET, "-crf", CRF,
-                    "-pix_fmt", "yuv420p", combined_video,
-                ]
-                safe_run(cmd, timeout=300)
-        except Exception as e:
-            print(f"[compositor] Xfade error: {e}")
-            return None
+            concat_list = str(TEMP_DIR / f"concat_{video_id}.txt")
+            with open(concat_list, "w") as f:
+                for p in processed:
+                    f.write(f"file '{p}'\n")
+            cmd = [
+                _ffmpeg_cmd(), "-y", "-f", "concat", "-safe", "0", "-i", concat_list, *_sws_flags(),
+                "-c:v", "libx264", "-preset", PRESET, "-crf", CRF,
+                "-pix_fmt", "yuv420p", combined_video,
+            ]
+            safe_run(cmd, timeout=300)
+    except Exception as e:
+        print(f"[compositor] Xfade error: {e}")
+        return None
 
     if not os.path.exists(combined_video):
         return None
