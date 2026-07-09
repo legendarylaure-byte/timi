@@ -31,3 +31,10 @@ playwright>=1.59.0
 torch>=2.0.0
 textstat>=0.7.13
 pytrends>=4.9.2
+
+# Pinned transitive deps to stop pip backtracking during Docker build
+litellm==1.53.3
+cohere==5.21.1
+tokenizers==0.22.2
+langchain-community==0.3.27
+langchain-openai==0.2.11

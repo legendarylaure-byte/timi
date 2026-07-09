@@ -375,6 +375,8 @@ def _run_with_timeout(func, args, timeout_minutes: int):
 
 def _check_all_platforms_compliance(video_data: dict, platforms: list) -> list:
     """Check platform compliance against each target platform. Aggregates warnings."""
+    if not isinstance(video_data, dict):
+        video_data = {}
     from compliance.platform_policy import check_platform_compliance
     all_warnings = []
     for p in platforms:
@@ -823,7 +825,10 @@ def generate_short_video(topic: str, category: str, video_id: str, publish_at: s
                 script_text = new_script
                 if not _hook_llm_failed:
                     recheck = score_hook(script_text, category=category)
-                    log_event("HOOK", f"Hook re-scored: {recheck['score']}/100 after rewrite")
+                    if recheck is not None:
+                        log_event("HOOK", f"Hook re-scored: {recheck['score']}/100 after rewrite")
+                    else:
+                        log_event("HOOK", f"Hook re-scoring returned None — skipped", "warn")
                 else:
                     log_event("HOOK", f"LLM scoring unavailable — using rewrite without re-scoring", "warn")
             else:
@@ -833,6 +838,8 @@ def generate_short_video(topic: str, category: str, video_id: str, publish_at: s
 
         failed_step = "compliance_check"
         try:
+            if not isinstance(script_text, str):
+                script_text = str(script_text)
             safety = check_content_safety(script_text)
             if not isinstance(safety, dict):
                 safety = {"is_safe": True, "issues": []}
@@ -1157,7 +1164,10 @@ def generate_long_video(topic: str, category: str, video_id: str, publish_at: st
                 script_text = new_script
                 if not _hook_llm_failed:
                     recheck = score_hook(script_text, category=category)
-                    log_event("HOOK", f"Hook re-scored: {recheck['score']}/100 after rewrite")
+                    if recheck is not None:
+                        log_event("HOOK", f"Hook re-scored: {recheck['score']}/100 after rewrite")
+                    else:
+                        log_event("HOOK", f"Hook re-scoring returned None — skipped", "warn")
                 else:
                     log_event("HOOK", f"LLM scoring unavailable — using rewrite without re-scoring", "warn")
             else:
@@ -1167,6 +1177,8 @@ def generate_long_video(topic: str, category: str, video_id: str, publish_at: st
 
         failed_step = "compliance_check"
         try:
+            if not isinstance(script_text, str):
+                script_text = str(script_text)
             safety = check_content_safety(script_text)
             if not isinstance(safety, dict):
                 safety = {"is_safe": True, "issues": []}
