@@ -101,7 +101,7 @@ def reformat_to_shorts(input_path: str, hook_text: str, output_path: str,
         abs_sub = os.path.abspath(subtitle_path)
         subtitle_filter = (
             f",subtitles=filename='{abs_sub}':force_style="
-            f"'FontSize=14,PrimaryColour=&HFF00CCCC&,OutlineColour=&H40002B00&,"
+             f"'FontSize=10,PrimaryColour=&HFF00CCCC&,OutlineColour=&H40002B00&,"
             f"Outline=0,Shadow=0,BorderStyle=3,BackColour=&H40000000&,"
             f"Alignment=2,MarginV=40,FontName=Arial'"
         )

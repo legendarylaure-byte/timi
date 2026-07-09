@@ -480,7 +480,7 @@ def composite_video(clips: list[dict], voice_path: str, music_path: Optional[str
 
     if subtitle_path and os.path.exists(subtitle_path):
         abs_sub = os.path.abspath(subtitle_path)
-        sub_fs = 14 if format_type == "shorts" else 10
+        sub_fs = 10
         vf_parts.append(
             f"subtitles=filename='{abs_sub}':force_style="
             f"'FontSize={sub_fs},PrimaryColour=&HFF00CCCC&,OutlineColour=&H40002B00&,"
