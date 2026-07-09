@@ -1092,10 +1092,7 @@ def generate_short_video(topic: str, category: str, video_id: str, publish_at: s
             log_event("NOTIFY", "Upload notification skipped", "debug")
         return True
     except Exception as e:
-        import traceback
-        tb_str = "".join(traceback.format_exception(type(e), e, e.__traceback__))[-1500:]
         error_msg = str(e)[:500]
-        log_event("PIPELINE", f"SHORT video FULL TRACEBACK:\n{tb_str}", "error")
         log_pipeline_error(video_id, f"[{failed_step}] {error_msg}", "short_video_pipeline")
         add_video_record(video_id, topic, "shorts", "failed", category=category)
         update_pipeline_status(False, paused_by_user=False)
