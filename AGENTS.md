@@ -2,6 +2,15 @@
 
 ## Latest Changes (uncommitted)
 
+### D20: Subtitle Pipeline Overhaul + Facebook Permission Hardening + Caption Track Upload
+- **B1 — Phrase timing matching fix**: Rewrote `generate_phrase_timings_from_sentences()` (`voice_gen.py`) — sentence matching now tracks used indices to prevent duplicates; word-level fallback groups `WordBoundary` events into phrases when sentence-level matching produces nothing. Guarantees non-empty phrase timings even on TTS text mismatch.
+- **B2 — Broken subtitle fallback fix** (`subtitle_gen.py`): `_convert_word_times_to_phrases()` key `"word"` → `"text"` (was always empty). Removed dead word-timing fallback that read same file as phrase timings.
+- **B3 — Subtitles visible on mobile**: Shorts subtitle font size 9 → 14 (`video_compositor.py:483`), matching repurposed shorts renderer.
+- **B4 — YouTube caption track upload** (`youtube_upload.py`): After successful upload, calls `captions().insert()` with the SRT file so viewers can toggle subtitles on/off. Threaded `subtitle_path` through `upload_to_platform` → `_upload_youtube` → `multi_platform_publish` → `main.py` (both short + long call sites).
+- **A2 — Facebook 403 detection** (`multi_platform_publisher.py`): Added `status_code in (401, 403)` alongside all existing `status_code == 401` checks in Facebook upload (direct, resumable init, resumable transfer phases).
+- **A3 — Permission error fail-fast** (`multi_platform_publisher.py`): New `_is_graph_permission_error()` helper raises `PermissionError` on Graph API codes 190/200 or messages containing "permission". Caught before `retry_with_backoff` loop — no more 3× useless retries on permanent permission errors.
+- **A1 — Firestore cleanup script** (`agents/scripts/cleanup_env_vars.py`): Connect, list, and delete stale `env_vars` docs (especially `FACEBOOK_ACCESS_TOKEN` that overrides `.env`). Run with `python -m agents.scripts.cleanup_env_vars`.
+
 ### D19: CI Pipeline Fixes — Indentation Error + flags=lanczos Filter + Circuit Breaker API
 - **IndentationError fix**: `e6e760ef` commit's xfade try/except refactor left the inner `concat_list` block at 16-space indent while `try` was at 4 spaces and `except` at 8 spaces — Python `video_compositor.py:432` raised `IndentationError: unexpected indent`. Fixed by normalizing all 3 blocks to correct indentation (`video_compositor.py`).
 - **Standalone `,flags=lanczos,` filter**: `apply_ken_burns()` vf string had `,flags=lanczos,` between `crop` and `scale` — ffmpeg 8.1 treats comma-separated items as filter names, so it tried to find a filter called `flags=lanczos` (`No option name near 'lanczos'`). Removed standalone `flags=lanczos` since `scale=...:flags=lanczos` already handles it (`video_compositor.py:155`).
