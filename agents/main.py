@@ -247,7 +247,7 @@ ENABLE_DIRECTOR_REVIEW = os.getenv("ENABLE_DIRECTOR_REVIEW", "true").lower() == 
 MULTI_LANG_CODES = os.getenv("MULTI_LANG_CODES", "es,de,fr").split(",")
 PIPELINE_TIMEOUT_MINUTES = int(os.getenv("PIPELINE_TIMEOUT_MINUTES", 120))
 MAX_RETRIES_PER_TOPIC = int(os.getenv("MAX_RETRIES_PER_TOPIC", 2))
-FORCE_PUBLISH = os.getenv("FORCE_PUBLISH", "false").lower() == "true"
+FORCE_PUBLISH = os.getenv("FORCE_PUBLISH", "true").lower() == "true"
 USE_ANIMATION_ENGINE = os.getenv("USE_ANIMATION_ENGINE", "true").lower() == "true"
 LONG_MAX_DURATION = int(os.getenv("LONG_MAX_DURATION", 180))
 ENABLE_COMMUNITY_POSTS = os.getenv("ENABLE_COMMUNITY_POSTS", "false").lower() == "true"
