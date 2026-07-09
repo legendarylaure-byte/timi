@@ -29,7 +29,7 @@ def _generate_static_image(description: str, keyword: str = "", width: int = 192
     for _ in range(random.randint(3, 6)):
         x1, y1 = random.randint(0, width), random.randint(0, height)
         x2, y2 = random.randint(0, width), random.randint(0, height)
-        draw.ellipse([(x1, y1), (x2, y2)], outline=accent, width=random.randint(1, 3))
+        draw.ellipse([(min(x1, x2), min(y1, y2)), (max(x1, x2), max(y1, y2))], outline=accent, width=random.randint(1, 3))
     filename = f"static_{keyword or description}_{hash(description) % 10000:04d}.png"
     path = os.path.join(OUTPUT_DIR, filename)
     img.save(path)
