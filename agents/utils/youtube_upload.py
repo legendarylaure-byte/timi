@@ -16,6 +16,7 @@ CLIENT_SECRET = os.getenv("YOUTUBE_CLIENT_SECRET")
 SCOPES = [
     "https://www.googleapis.com/auth/youtube.upload",
     "https://www.googleapis.com/auth/youtube",
+    "https://www.googleapis.com/auth/youtube.force-ssl",
     "https://www.googleapis.com/auth/yt-analytics.readonly",
 ]
 
