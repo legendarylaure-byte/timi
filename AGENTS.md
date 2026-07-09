@@ -2,6 +2,12 @@
 
 ## Latest Changes (uncommitted)
 
+### D19: CI Pipeline Fixes — Indentation Error + flags=lanczos Filter + Circuit Breaker API
+- **IndentationError fix**: `e6e760ef` commit's xfade try/except refactor left the inner `concat_list` block at 16-space indent while `try` was at 4 spaces and `except` at 8 spaces — Python `video_compositor.py:432` raised `IndentationError: unexpected indent`. Fixed by normalizing all 3 blocks to correct indentation (`video_compositor.py`).
+- **Standalone `,flags=lanczos,` filter**: `apply_ken_burns()` vf string had `,flags=lanczos,` between `crop` and `scale` — ffmpeg 8.1 treats comma-separated items as filter names, so it tried to find a filter called `flags=lanczos` (`No option name near 'lanczos'`). Removed standalone `flags=lanczos` since `scale=...:flags=lanczos` already handles it (`video_compositor.py:155`).
+- **Circuit breaker API mismatch**: `stock_video.py` called `pexels_breaker.allow_request()` and `pixabay_breaker.allow_request()` but `CircuitBreaker` class in `health_monitor.py` only has `is_available()`. Changed all 3 call sites (pexels, pixabay, and ImportError fallback) to use `is_available()`.
+- **Triggered fresh CI run** after both fixes pushed.
+
 ### D18: Publish Error Handling + Stock Footage Hardening + Pipeline Defenses
 - **Facebook upload API error detection**: Added `_raise_fb_api_error()` helper that inspects JSON response body for Facebook API errors (1363030 timeout, 413, etc.) even when HTTP status is 200. Previously these were missed and surfaced as misleading "succeeded but no video ID" messages. Applied to all 3 paths: direct upload, resumable init, resumable transfer (`multi_platform_publisher.py`).
 - **Facebook 401 refresh on transfer phase**: Added `status_code == 401` check on resumable transfer POST (was missing — token could expire between init and transfer). `multi_platform_publisher.py`.
