@@ -157,7 +157,16 @@ def _check_meta_rate_limit(response, platform: str):
         pass
 
 
-def upload_to_platform(platform: str, title: str, description: str, video_path: str, thumbnail_path: str, format_type: str = 'shorts', publish_at: str = None) -> dict:  # noqa: E501
+def _is_graph_permission_error(err: dict) -> bool:
+    """Check if Facebook Graph API error is a permanent permission error (skip retry)."""
+    code = err.get('code', 0)
+    msg = (err.get('error_user_title', '') + err.get('message', '')).lower()
+    if code in (190, 200) or 'permission' in msg:
+        return True
+    return False
+
+
+def upload_to_platform(platform: str, title: str, description: str, video_path: str, thumbnail_path: str, format_type: str = 'shorts', publish_at: str = None, subtitle_path: str = None) -> dict:  # noqa: E501
     """Upload a video to a specific platform."""
     platform_info = PLATFORMS.get(platform)
     if not platform_info:
@@ -167,7 +176,7 @@ def upload_to_platform(platform: str, title: str, description: str, video_path: 
 
     try:
         if platform == 'youtube':
-            return _upload_youtube(title, description, video_path, thumbnail_path, format_type, publish_at)
+            return _upload_youtube(title, description, video_path, thumbnail_path, format_type, publish_at, subtitle_path)
         elif platform == 'tiktok':
             return _upload_tiktok(title, video_path, format_type)
         elif platform == 'instagram':
@@ -181,7 +190,7 @@ def upload_to_platform(platform: str, title: str, description: str, video_path: 
         return {'success': False, 'error': safe_log(str(e))}
 
 
-def _upload_youtube(title: str, description: str, video_path: str, thumbnail_path: str, format_type: str, publish_at: str = None) -> dict:  # noqa: E501
+def _upload_youtube(title: str, description: str, video_path: str, thumbnail_path: str, format_type: str, publish_at: str = None, subtitle_path: str = None) -> dict:  # noqa: E501
     try:
         from utils.youtube_upload import upload_video_to_youtube
         from utils.description_gen import get_tech_metadata
@@ -200,6 +209,7 @@ def _upload_youtube(title: str, description: str, video_path: str, thumbnail_pat
             category_id=tech_meta["categoryId"],
             is_shorts=(format_type == "shorts"),
             publish_at=publish_at,
+            subtitle_path=subtitle_path,
         )
 
         ai_flags = get_ai_disclosure("youtube")
@@ -518,6 +528,8 @@ def _upload_facebook(title: str, description: str, video_path: str) -> dict:
             msg = err.get('error_user_title', err.get('message', 'unknown'))
             code = err.get('code', '?')
             subcode = err.get('error_subcode', '')
+            if _is_graph_permission_error(err):
+                raise PermissionError(f'Facebook {phase} failed (PERMANENT): {msg} (code {code}, subcode {subcode})')
             raise RuntimeError(f'Facebook {phase} failed: {msg} (code {code}, subcode {subcode})')
 
     def _do_upload():
@@ -548,7 +560,7 @@ def _upload_facebook(title: str, description: str, video_path: str) -> dict:
 
             _check_meta_rate_limit(upload_resp, 'Facebook')
 
-            if upload_resp.status_code == 401 and not _facebook_refresh_attempted:
+            if upload_resp.status_code in (401, 403) and not _facebook_refresh_attempted:
                 _facebook_refresh_attempted = True
                 refreshed = _refresh_facebook_token()
                 if refreshed:
@@ -584,7 +596,7 @@ def _upload_facebook(title: str, description: str, video_path: str) -> dict:
 
             _check_meta_rate_limit(init_resp, 'Facebook')
 
-            if init_resp.status_code == 401 and not _facebook_refresh_attempted:
+            if init_resp.status_code in (401, 403) and not _facebook_refresh_attempted:
                 _facebook_refresh_attempted = True
                 refreshed = _refresh_facebook_token()
                 if refreshed:
@@ -614,7 +626,7 @@ def _upload_facebook(title: str, description: str, video_path: str) -> dict:
 
             _check_meta_rate_limit(chunk_resp, 'Facebook')
 
-            if chunk_resp.status_code == 401 and not _facebook_refresh_attempted:
+            if chunk_resp.status_code in (401, 403) and not _facebook_refresh_attempted:
                 _facebook_refresh_attempted = True
                 refreshed = _refresh_facebook_token()
                 if refreshed:
@@ -646,6 +658,11 @@ def _upload_facebook(title: str, description: str, video_path: str) -> dict:
             'success': False, 'platform': 'facebook',
             'error': safe_log(str(result)),
         }
+    except PermissionError as e:
+        msg = safe_log(str(e))
+        log_activity('publisher', f"Facebook upload FAILED (permanent): {msg}", 'error')
+        security_audit("UPLOAD_FAILED", f"Facebook permission error — {msg}", "error")
+        return {'success': False, 'platform': 'facebook', 'error': msg}
     except ImportError:
         return {'success': False, 'platform': 'facebook', 'error': 'Missing requests library'}
     except Exception as e:
@@ -657,7 +674,8 @@ def _upload_facebook(title: str, description: str, video_path: str) -> dict:
 def multi_platform_publish(video_id: str, title: str, description: str, video_path: str,
                            thumbnail_path: str, format_type: str = 'shorts',
                            platforms: list = None, publish_at: str = None,
-                           category: str = "", cleanup: bool = True) -> dict:
+                           category: str = "", cleanup: bool = True,
+                           subtitle_path: str = None) -> dict:
     """Publish to multiple platforms with progress tracking."""
     if platforms is None:
         platforms = ['youtube']
@@ -680,7 +698,7 @@ def multi_platform_publish(video_id: str, title: str, description: str, video_pa
             platform_desc = optimize_for_platform(title, description, platform)
             log_activity('publisher', f"Uploading to {PLATFORMS[platform]['name']}...", 'info')
             result = upload_to_platform(platform, platform_title, platform_desc, video_path,
-                                        thumbnail_path, format_type, publish_at)
+                                        thumbnail_path, format_type, publish_at, subtitle_path)
             results['platforms'][platform] = result
 
             # Update queue in Firestore

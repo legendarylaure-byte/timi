@@ -31,11 +31,8 @@ def generate_srt(timing_file: str, full_text: str, output_path: Optional[str] = 
     phrases = load_phrase_timing(timing_file)
 
     if not phrases:
-        words = load_word_timing(timing_file)
-        if words:
-            phrases = _convert_word_times_to_phrases(words)
-        else:
-            return ""
+        print("[subtitle_gen] WARNING: phrase_timing.json is empty — no SRT subtitles will be generated")
+        return ""
 
     srt_content = ""
     for i, phrase in enumerate(phrases, 1):
@@ -60,11 +57,8 @@ def generate_vtt(timing_file: str, full_text: str, output_path: Optional[str] = 
     phrases = load_phrase_timing(timing_file)
 
     if not phrases:
-        words = load_word_timing(timing_file)
-        if words:
-            phrases = _convert_word_times_to_phrases(words)
-        else:
-            return ""
+        print("[subtitle_gen] WARNING: phrase_timing.json is empty — no VTT subtitles will be generated")
+        return ""
 
     vtt_content = "WEBVTT\n\n"
     for i, phrase in enumerate(phrases, 1):
@@ -93,7 +87,7 @@ def _convert_word_times_to_phrases(word_times: list[dict], max_words: int = 8) -
     for wt in word_times:
         offset = wt.get("offset_ms", 0)
         duration = wt.get("duration_ms", 100)
-        word = wt.get("word", "")
+        word = wt.get("text", "")
 
         if current_start is None:
             current_start = offset

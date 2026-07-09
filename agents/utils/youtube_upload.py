@@ -167,6 +167,7 @@ def upload_video_to_youtube(
     category_id: str = "28",
     is_shorts: bool = False,
     publish_at: str = None,
+    subtitle_path: str = None,
 ) -> dict:
     if not os.path.exists(video_file):
         print(f"[YOUTUBE] Video file not found: {video_file}")
@@ -254,6 +255,26 @@ def upload_video_to_youtube(
         except HttpError as e:
             print(f"Thumbnail upload failed: {e}")
             result["thumbnail_set"] = False
+
+    if subtitle_path and os.path.exists(subtitle_path):
+        try:
+            youtube.captions().insert(
+                part="snippet",
+                body={
+                    "snippet": {
+                        "videoId": video_id,
+                        "language": "en",
+                        "name": "English",
+                        "isDraft": False,
+                    },
+                },
+                media_body=MediaFileUpload(subtitle_path, mimetype="text/plain"),
+            ).execute()
+            result["caption_set"] = True
+            print(f"[YOUTUBE] Captions uploaded from: {subtitle_path}")
+        except HttpError as e:
+            print(f"[YOUTUBE] Caption upload failed: {e}")
+            result["caption_set"] = False
 
     if publish_at:
         try:

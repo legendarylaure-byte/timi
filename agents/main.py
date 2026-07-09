@@ -997,6 +997,7 @@ def generate_short_video(topic: str, category: str, video_id: str, publish_at: s
                 platforms=platforms_to_publish,
                 publish_at=publish_at,
                 category=category,
+                subtitle_path=video_result.get("subtitle_path"),
             )
         publish_status = "scheduled" if publish_at else "Published"
         log_event(
@@ -1332,6 +1333,7 @@ def generate_long_video(topic: str, category: str, video_id: str, publish_at: st
                 publish_at=publish_at,
                 category=category,
                 cleanup=False,
+                subtitle_path=video_result.get("subtitle_path"),
             )
         publish_status = "scheduled" if publish_at else "Published"
         log_event(

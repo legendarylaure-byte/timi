@@ -357,43 +357,77 @@ async def generate_segment_timing(text: str, voice: str = DEFAULT_VOICE, rate: s
 
 
 def generate_phrase_timings_from_sentences(text: str, sentence_times: list[dict]) -> list[dict]:
-    sentences_in_text = re.split(r'(?<=[.!?])\s+', text.strip())
-    phrase_timings = []
     max_words_per_phrase = 8
+    phrase_timings = []
 
-    for sent_time in sentence_times:
+    sentence_events = [st for st in sentence_times if st.get("type") == "SentenceBoundary"]
+    word_events = [wt for wt in sentence_times if wt.get("type") == "WordBoundary"]
+
+    sentences_in_text = re.split(r'(?<=[.!?])\s+', text.strip())
+    used_indices = set()
+
+    for sent_time in sentence_events:
         offset = sent_time["offset_ms"]
         duration = sent_time["duration_ms"]
-        sent_text = sent_time.get("text", "")
-
-        matching_sentences = [s for s in sentences_in_text if sent_text and (
-            s.strip() in sent_text or sent_text.strip() in s)]
-        if not matching_sentences:
+        sent_text = sent_time.get("text", "").strip()
+        if not sent_text:
             continue
 
-        for sent in matching_sentences:
-            words = sent.split()
-            if not words:
+        for i, s in enumerate(sentences_in_text):
+            if i in used_indices:
                 continue
+            s_norm = s.strip()
+            if s_norm in sent_text or sent_text in s_norm:
+                used_indices.add(i)
+                words = s_norm.split()
+                if not words:
+                    break
+                if len(words) <= max_words_per_phrase:
+                    phrase_timings.append({
+                        "text": " ".join(words),
+                        "start_ms": offset,
+                        "end_ms": offset + duration,
+                    })
+                else:
+                    num_phrases = (len(words) + max_words_per_phrase - 1) // max_words_per_phrase
+                    phrase_duration = duration / num_phrases
+                    for j in range(num_phrases):
+                        idx = j * max_words_per_phrase
+                        phrase_words = words[idx:idx + max_words_per_phrase]
+                        phrase_timings.append({
+                            "text": " ".join(phrase_words),
+                            "start_ms": offset + (j * phrase_duration),
+                            "end_ms": offset + ((j + 1) * phrase_duration),
+                        })
+                break
 
-            if len(words) <= max_words_per_phrase:
+    if not phrase_timings and word_events:
+        current_words = []
+        current_start = None
+        for wt in word_events:
+            offset = wt.get("offset_ms", 0)
+            duration = wt.get("duration_ms", 100)
+            word = wt.get("text", "")
+            if not word:
+                continue
+            if current_start is None:
+                current_start = offset
+            current_words.append(word)
+            if len(current_words) >= max_words_per_phrase:
                 phrase_timings.append({
-                    "text": " ".join(words),
-                    "start_ms": offset,
+                    "text": " ".join(current_words),
+                    "start_ms": current_start,
                     "end_ms": offset + duration,
                 })
-            else:
-                num_phrases = (len(words) + max_words_per_phrase - 1) // max_words_per_phrase
-                phrase_duration = duration / num_phrases
-                for i in range(num_phrases):
-                    start_idx = i * max_words_per_phrase
-                    end_idx = min(start_idx + max_words_per_phrase, len(words))
-                    phrase_words = words[start_idx:end_idx]
-                    phrase_timings.append({
-                        "text": " ".join(phrase_words),
-                        "start_ms": offset + (i * phrase_duration),
-                        "end_ms": offset + ((i + 1) * phrase_duration),
-                    })
+                current_words = []
+                current_start = None
+        if current_words and current_start is not None:
+            last = word_events[-1]
+            phrase_timings.append({
+                "text": " ".join(current_words),
+                "start_ms": current_start,
+                "end_ms": last.get("offset_ms", 0) + last.get("duration_ms", 100),
+            })
 
     return phrase_timings
 
