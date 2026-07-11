@@ -92,6 +92,21 @@ jobs:
       CLOUDFLARE_R2_ACCESS_KEY_ID: ${{ secrets.CLOUDFLARE_R2_ACCESS_KEY_ID }}
       CLOUDFLARE_R2_SECRET_ACCESS_KEY: ${{ secrets.CLOUDFLARE_R2_SECRET_ACCESS_KEY }}
       CLOUDFLARE_R2_BUCKET: vyom-ai-videos
+      CONCURRENT_PIPELINE_WORKERS: 2
+      ENABLE_MULTI_LANG: true
+      ENABLE_MULTI_LANG_DUB: false
+      ENABLE_SUBTITLES: true
+      ENABLE_LTX_CACHE: true
+      ENABLE_REVIEW_GATE: false
+      AUTO_APPROVE_THRESHOLD: 80
+      SCHEDULE_SHORTS_PER_DAY: 2
+      SCHEDULE_LONG_PER_DAY: 2
+      OUTPUT_4K: false
+      ENABLE_COLOR_GRADING: false
+      QA_BLUR_THRESHOLD: 100.0
+      VIDEO_MODEL: ltx
+      KNOWLEDGE_GRAPH_ENABLED: true
+      BRAND_ENFORCEMENT: advisory
 
     steps:
       - name: Cleanup stale temp files
