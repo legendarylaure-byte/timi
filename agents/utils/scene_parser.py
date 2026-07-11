@@ -6,6 +6,32 @@ from utils.llm_client import generate_completion
 from utils.firebase_status import log_activity
 from utils.scene_schema import ValidationError
 
+TECH_TERMS = {
+    "neural", "network", "layer", "deep learning", "transformer", "attention",
+    "algorithm", "gradient", "optimization", "embedding", "token", "inference",
+    "architecture", "convolution", "recurrent", "lstm", "encoder", "decoder",
+    "backpropagation", "loss", "activation", "weight", "bias", "parameter",
+    "classification", "regression", "cluster", "dimensionality", "latent",
+    "probability", "distribution", "gaussian", "matrix", "vector", "tensor",
+    "pipeline", "framework", "api", "gpu", "training", "inference", "fine tune",
+    "quantization", "distillation", "attention", "qkv", "multi head",
+}
+
+STOPWORDS = {
+    "the", "a", "an", "is", "are", "was", "were", "be", "been", "being",
+    "have", "has", "had", "do", "does", "did", "will", "would", "could",
+    "should", "may", "might", "can", "shall", "to", "of", "in", "for",
+    "on", "with", "at", "by", "from", "as", "into", "through", "during",
+    "before", "after", "above", "below", "between", "out", "off", "over",
+    "under", "again", "further", "then", "once", "here", "there", "when",
+    "where", "why", "how", "all", "each", "every", "both", "few", "more",
+    "most", "other", "some", "such", "no", "nor", "not", "only", "own",
+    "same", "so", "than", "too", "very", "just", "because", "but", "and",
+    "or", "if", "while", "about", "up", "down", "like", "also", "its",
+    "let", "see", "way", "use", "used", "using", "make", "made", "get",
+    "this", "that", "these", "those", "it", "its", "they", "them", "their",
+}
+
 
 @dataclass
 class SceneState:
@@ -218,7 +244,7 @@ def _rule_based_parse(script_text: str, storyboard_text: str, format_type: str, 
     prev_state: Optional[SceneState] = None
     for i, block in enumerate(scene_blocks):
         narration_text = _extract_narration_text_from_block(block)
-        duration = _estimate_scene_duration(block, format_type, len(scene_blocks), max_duration, narration_text)
+        duration = _estimate_scene_duration(block, format_type, len(scene_blocks), max_duration, narration_text, scene_index=i)
         background = _infer_background(block)
         asset_type = _infer_asset_type(block)
         asset_keywords = _infer_keywords(block, title)
@@ -333,11 +359,42 @@ def _extract_narration_text_from_block(block: str) -> str:
     return ' '.join(narration_parts).strip()
 
 
-def _estimate_scene_duration(block: str, format_type: str, total_scenes: int, max_duration: int = None, narration_text: str = "") -> float:
+def _score_narrative_importance(text: str) -> float:
+    if not text:
+        return 0.85
+    words = text.lower().split()
+    if not words:
+        return 0.85
+    tech_count = sum(1 for w in words if w in TECH_TERMS)
+    ratio = tech_count / max(len(words), 1)
+    if ratio > 0.40:
+        return 1.5
+    elif ratio > 0.25:
+        return 1.3
+    elif ratio > 0.15:
+        return 1.15
+    elif ratio > 0.05:
+        return 1.0
+    return 0.85
+
+
+def _compute_pacing_multiplier(index: int, total: int) -> float:
+    if total <= 1:
+        return 1.0
+    position = index / max(total - 1, 1)
+    import math
+    mult = 0.7 + 0.6 * (math.sin(math.pi * position) ** 2)
+    return round(mult, 2)
+
+
+def _estimate_scene_duration(block: str, format_type: str, total_scenes: int, max_duration: int = None, narration_text: str = "", scene_index: int = -1) -> float:
     word_count = len(block.split())
     narration_wc = len(narration_text.split()) if narration_text else 0
     if narration_wc > 5:
         duration_from_narration = narration_wc / 2.5
+        importance = _score_narrative_importance(narration_text)
+        pacing = _compute_pacing_multiplier(scene_index, total_scenes) if scene_index >= 0 else 1.0
+        duration_from_narration *= importance * pacing
         if format_type == "shorts":
             duration_from_narration = min(duration_from_narration, 15.0)
         else:
@@ -765,6 +822,14 @@ def add_end_scene(scenes: list[dict]) -> list[dict]:
 
 
 
+
+
+def normalize_scene_durations(scenes: list[dict]) -> None:
+    for scene in scenes:
+        if "target_duration" not in scene:
+            scene["target_duration"] = scene.get("duration", 8.0)
+        elif "duration" not in scene:
+            scene["duration"] = scene.get("target_duration", 8.0)
 
 
 def build_timestamps(scenes: list[dict]) -> str:

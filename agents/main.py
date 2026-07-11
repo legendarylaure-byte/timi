@@ -81,6 +81,8 @@ from crew.affiliate_manager import build_affiliate_section
 from datetime import datetime
 from apscheduler.schedulers.blocking import BlockingScheduler
 from dotenv import load_dotenv
+from utils.scene_parser import normalize_scene_durations
+from utils.scene_architect import audit_scenes, SceneArchitectError
 
 os.environ["GRPC_VERBOSITY"] = "ERROR"
 os.environ["GLOG_minloglevel"] = "2"
@@ -287,6 +289,7 @@ USE_ANIMATION_ENGINE = os.getenv("USE_ANIMATION_ENGINE", "true").lower() == "tru
 LONG_MAX_DURATION = int(os.getenv("LONG_MAX_DURATION", 180))
 ENABLE_COMMUNITY_POSTS = os.getenv("ENABLE_COMMUNITY_POSTS", "false").lower() == "true"
 GATE_ENFORCEMENT_MODE = os.getenv("GATE_ENFORCEMENT_MODE", "advisory").lower()
+SCENE_ARCHITECT_MODE = os.getenv("SCENE_ARCHITECT_MODE", "advisory").lower()
 
 # ── Logging setup ────────────────────────────────────────────────
 _LOG_FILE = None
@@ -593,29 +596,135 @@ def _run_stock_footage_pipeline(script_text: str, storyboard_text: str, category
     return scenes, clips, total_duration
 
 
-def _run_asset_router_pipeline(script_text: str, storyboard_text: str, category: str, format_type: str, video_id: str, max_duration: int = None) -> tuple[list[dict], list[dict], float]:  # noqa: E501
-    from utils.asset_router import dispatch_scenes
-    from utils.scene_parser import parse_script_to_scenes, add_end_scene
+def _parse_scenes_for_asset_router(script_text: str, storyboard_text: str, category: str, format_type: str, video_id: str, max_duration: int = None) -> list[dict]:  # noqa: E501
+    from utils.scene_parser import parse_script_to_scenes, add_end_scene, normalize_scene_durations
     from utils.series_router import inject_intro_outro
     scenes = parse_script_to_scenes(script_text, title=video_id, category=category, format_type=format_type, storyboard_text=str(storyboard_text), max_duration=max_duration)
     scenes = inject_intro_outro(scenes, category, format_type)
     scenes = add_end_scene(scenes)
+    normalize_scene_durations(scenes)
     log_event("PIPELINE", f"Asset Router: {len(scenes)} scenes")
-    total = len(scenes)
-    update_agent_status("animator", "working", f"Generating {total} scenes via AI video engine")
-    log_activity("pipeline", f"Asset Router: generating {total} scenes (LTX AI + stock fallback)", "info")
-    clips = dispatch_scenes(scenes, video_id, format_type)
-    update_agent_status("animator", "completed", f"Generated {len(clips)}/{total} video assets")
-    total_duration = sum(c.get("duration", 8.0) for c in clips)
-    return scenes, clips, total_duration
+    if SCENE_ARCHITECT_MODE != "off":
+        try:
+            audit_scenes(scenes)
+        except SceneArchitectError as e:
+            log_event("ARCHITECT", f"Scene Architect blocked: {e}", "warn")
+    return scenes
+
+
+STOPWORDS_FOR_ALIGN = {
+    "the", "a", "an", "is", "are", "was", "were", "be", "been", "being",
+    "have", "has", "had", "do", "does", "did", "will", "would", "could",
+    "should", "may", "might", "can", "shall", "to", "of", "in", "for",
+    "on", "with", "at", "by", "from", "as", "into", "through", "during",
+    "this", "that", "these", "those", "it", "its", "they", "them", "their",
+    "and", "or", "but", "if", "while", "about", "up", "down", "like",
+    "just", "because", "also", "very", "too", "not", "no", "only", "so",
+    "then", "once", "here", "there", "when", "where", "why", "how",
+}
+
+
+def _word_overlap_ratio(phrase_words: set, scene_words: set) -> float:
+    if not phrase_words or not scene_words:
+        return 0.0
+    overlap = len(phrase_words & scene_words)
+    return overlap / max(len(phrase_words), 1)
+
+
+def _tokenize(text: str) -> set:
+    return {w for w in re.findall(r'\b[a-z]{3,}\b', text.lower()) if w not in STOPWORDS_FOR_ALIGN}
+
+
+def _align_scenes_to_audio(scenes: list[dict], phrase_timings: list[dict], audio_duration: float) -> list[dict]:
+    if not phrase_timings or not scenes or audio_duration <= 0:
+        return scenes
+
+    if len(phrase_timings) < 3:
+        log_event("VOICE", "Audio align: too few phrase timings, using proportional scaling", "debug")
+        return _proportional_scale(scenes, audio_duration)
+
+    scene_audio_durs = [0.0 for _ in scenes]
+    unmatched_phrases = []
+    mapped_count = 0
+    total_phrases = len(phrase_timings)
+
+    scene_words = [_tokenize(s.get("narration_text", "")) for s in scenes]
+
+    for pt in phrase_timings:
+        phrase_text = pt.get("text", "")
+        if not phrase_text:
+            continue
+        phrase_dur = max(pt.get("end_ms", 0) - pt.get("start_ms", 0), 100)
+        phrase_w = _tokenize(phrase_text)
+        if not phrase_w:
+            continue
+
+        best_idx = -1
+        best_ratio = 0.0
+        for si, sw in enumerate(scene_words):
+            ratio = _word_overlap_ratio(phrase_w, sw)
+            if ratio > best_ratio and ratio >= 0.3:
+                best_ratio = ratio
+                best_idx = si
+
+        if best_idx >= 0:
+            scene_audio_durs[best_idx] += phrase_dur / 1000.0
+            mapped_count += 1
+        else:
+            unmatched_phrases.append(pt)
+
+    if mapped_count < 3 or mapped_count / max(total_phrases, 1) < 0.3:
+        log_event("VOICE", f"Audio align: only {mapped_count}/{total_phrases} phrases mapped to scenes, falling back to proportional", "debug")
+        return _proportional_scale(scenes, audio_duration)
+
+    collided_idx = max(range(len(scene_audio_durs)), key=lambda i: scene_audio_durs[i])
+    collided_ratio = scene_audio_durs[collided_idx] / max(sum(scene_audio_durs), 0.01)
+    if collided_ratio > 0.80:
+        log_event("VOICE", f"Audio align: {collided_ratio:.0%} of audio maps to scene {collided_idx}, falling back to proportional", "debug")
+        return _proportional_scale(scenes, audio_duration)
+
+    total_mapped = sum(scene_audio_durs)
+    for i, s_dur in enumerate(scene_audio_durs):
+        gap = 0.3
+        if s_dur > 0:
+            scenes[i]["target_duration"] = round(max(2.0, min(30.0, s_dur + gap)), 1)
+        else:
+            planner = scenes[i].get("duration", scenes[i].get("target_duration", 8.0))
+            scenes[i]["target_duration"] = round(max(2.0, min(30.0, planner)), 1)
+
+    new_total = sum(s.get("target_duration", 8.0) for s in scenes)
+    if new_total > audio_duration * 1.1:
+        ratio = audio_duration / max(new_total, 1)
+        for s in scenes:
+            s["target_duration"] = round(max(2.0, min(30.0, s.get("target_duration", 8.0) * ratio)), 1)
+        log_event("VOICE", f"Audio align: compressed {new_total:.1f}s → {audio_duration:.1f}s ({ratio:.2f}x)", "debug")
+    else:
+        log_event("VOICE", f"Audio align: mapped {mapped_count}/{total_phrases} phrases, total {sum(scene_audio_durs):.1f}s", "debug")
+
+    return scenes
+
+
+def _proportional_scale(scenes: list[dict], audio_duration: float) -> list[dict]:
+    scene_total = sum(s.get("target_duration", s.get("duration", 8.0)) for s in scenes)
+    if scene_total <= 0:
+        return scenes
+    ratio = audio_duration / scene_total
+    for s in scenes:
+        td = s.get("target_duration", s.get("duration", 8.0))
+        s["target_duration"] = max(2.0, min(30.0, round(td * ratio, 1)))
+    return scenes
 
 
 def run_video_pipeline(script_text: str, storyboard_text: str, category: str, format_type: str, video_id: str, max_duration: int, generate_subs: bool = True, subtitle_lang: str = "en") -> dict:  # noqa: E501
     log_event("PIPELINE", "Step 1: Parsing storyboard into scenes")
     use_asset_router = USE_ANIMATION_ENGINE
 
+    scenes = None
+    clips = None
+    total_video_duration = 0.0
+
     if use_asset_router:
-        scenes, clips, total_video_duration = _run_asset_router_pipeline(script_text, storyboard_text, category, format_type, video_id, max_duration)
+        scenes = _parse_scenes_for_asset_router(script_text, storyboard_text, category, format_type, video_id, max_duration)
     else:
         scenes, clips, total_video_duration = _run_stock_footage_pipeline(script_text, storyboard_text, category, format_type, video_id, max_duration)
 
@@ -641,19 +750,17 @@ def run_video_pipeline(script_text: str, storyboard_text: str, category: str, fo
     update_agent_status("voice", "completed", f"Voice-over {voice_result['duration']:.1f}s")
 
     audio_dur = voice_result.get("duration", 0)
-    if audio_dur > 0 and scenes:
-        scene_total = sum(s.get("target_duration", 8.0) for s in scenes)
-        if scene_total > 0:
-            ratio = audio_dur / scene_total
-            for s in scenes:
-                td = s.get("target_duration", 8.0)
-                s["target_duration"] = max(2.0, min(30.0, round(td * ratio, 1)))
-            new_total = sum(s.get("target_duration", 8.0) for s in scenes)
-            total_video_duration = new_total
-            log_event("VOICE",
-                      f"Audio-first sync: {audio_dur:.1f}s audio "
-                      f"-> scenes {scene_total:.1f}s->{new_total:.1f}s "
-                      f"({ratio:.2f}x)")
+    if use_asset_router and audio_dur > 0 and voice_result.get("phrase_timings"):
+        scenes = _align_scenes_to_audio(scenes, voice_result["phrase_timings"], audio_dur)
+        from utils.asset_router import dispatch_scenes
+        update_agent_status("animator", "working", f"Generating {len(scenes)} scenes via AI video engine")
+        log_activity("pipeline", f"Asset Router: generating {len(scenes)} scenes (LTX AI + stock fallback)", "info")
+        clips = dispatch_scenes(scenes, video_id, format_type)
+        update_agent_status("animator", "completed", f"Generated {len(clips)}/{len(scenes)} video assets")
+        total_video_duration = sum(c.get("duration", 8.0) for c in clips)
+    elif audio_dur > 0 and scenes:
+        scenes = _proportional_scale(scenes, audio_dur)
+        total_video_duration = audio_dur
 
     subtitle_path = None
     if generate_subs and ENABLE_SUBTITLES and voice_result.get("timing_file"):
