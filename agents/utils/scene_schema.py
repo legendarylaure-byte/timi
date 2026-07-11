@@ -7,7 +7,7 @@ VALID_CATEGORIES = [
 VALID_FORMATS = ["shorts", "long"]
 VALID_DIRECTIONS = ["left", "right", "top", "bottom"]
 VALID_EFFECTS = ["fade_in", "fade_out", "none"]
-VALID_TRANSITIONS = ["cut", "fade", "dissolve", "slide_left", "slide_right", "zoom", "none"]
+VALID_TRANSITIONS = ["cut", "fade", "dissolve", "slide_left", "slide_right", "zoom", "none", "circle_open", "circle_close", "pixelize", "wipe_left", "wipe_right", "smooth_left", "smooth_right", "fade_gradual"]
 
 ASSET_TYPES = ["STOCK_FOOTAGE", "SCREEN_CAPTURE", "DIAGRAM_ANIMATION", "CODE_SNIPPET", "STATIC_IMAGE"]
 RENDER_TYPES = ["stock", "manim", "code"]

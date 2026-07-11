@@ -278,6 +278,7 @@ def _generate_custom_scene(scene: dict, plan: ManimScenePlan, s_hash: str, video
 
 def compose_manim_block(scenes: list[dict], video_id: str, quality: str = "h") -> str | None:
     import re
+    sanitized_id = re.sub(r'[^a-zA-Z0-9_]', '_', video_id)
     combined_code = ""
     class_names = []
     for idx, scene in enumerate(scenes):
@@ -286,7 +287,7 @@ def compose_manim_block(scenes: list[dict], video_id: str, quality: str = "h") -
         if plan.template_name == "custom":
             code, scene_class_name, _ = _generate_custom_code(scene, plan)
             if code:
-                unique_class = f"ManimBlock_{video_id}_{idx}"
+                unique_class = f"ManimBlock_{sanitized_id}_{idx}"
                 code = code.replace(f"class {scene_class_name}", f"class {unique_class}")
                 combined_code += f"\n\n{code}"
                 class_names.append(unique_class)
@@ -302,7 +303,7 @@ def compose_manim_block(scenes: list[dict], video_id: str, quality: str = "h") -
         dur = scene.get("target_duration", scene.get("duration", 6.0))
         tmpl_kwargs = {k: v for k, v in params.items() if k not in ("title", "entry_time", "exit_time")}
         code = tmpl_fn(title=title, duration=dur, **tmpl_kwargs)
-        unique_class = f"ManimBlock_{video_id}_{idx}"
+        unique_class = f"ManimBlock_{sanitized_id}_{idx}"
         for pattern in TEMPLATE_CLASS_PATTERNS:
             code = code.replace(pattern, f"class {unique_class}")
         combined_code += f"\n\n{code}"
