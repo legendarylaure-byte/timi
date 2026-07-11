@@ -120,9 +120,9 @@ class AttentionScene(Scene):
             lbl = Text(label, font_size=16, color=color_hex).next_to(group, DOWN, buff=0.3)
             group.add(lbl)
             return group
-        q = make_matrix(8, 4, "Query", "#FF6B6B")
-        k = make_matrix(8, 4, "Key", "#4ECDC4")
-        v = make_matrix(8, 4, "Value", "#A29BFE")
+        q = make_matrix(8, 4, "Query", "#FF6B6B"
+        k = make_matrix(8, 4, "Key", "#4ECDC4"
+        v = make_matrix(8, 4, "Value", "#A29BFE"
         q.move_to([-3.5, 0, 0])
         k.move_to([0, 0, 0])
         v.move_to([3.5, 0, 0])
@@ -620,8 +620,8 @@ def text_reveal_template(
     template = INJECT_IMPORTS + """
 class TextRevealScene(Scene):
     def construct(self):
-        self.camera.background_color = HexColor("#1e1e1e")
-        title_text = Text("__TITLE__", font_size=36, color=HexColor("#00CCCC")).to_edge(UP)
+        self.camera.background_color = "#1e1e1e"
+        title_text = Text("__TITLE__", font_size=36, color="#00CCCC").to_edge(UP)
         self.play(Write(title_text), run_time=__ENTRY__)
         lines = __LINES__
         text_group = VGroup()
@@ -664,9 +664,9 @@ def architecture_diagram_template(
     template = INJECT_IMPORTS + """
 class ArchitectureDiagramScene(Scene):
     def construct(self):
-        self.camera.background_color = HexColor("#1e1e1e")
+        self.camera.background_color = "#1e1e1e"
         components = json.loads('__COMPS__')
-        title_text = Text("__TITLE__", font_size=32, color=HexColor("#00CCCC")).to_edge(UP)
+        title_text = Text("__TITLE__", font_size=32, color="#00CCCC").to_edge(UP)
         self.play(Write(title_text), run_time=0.5)
         boxes = VGroup()
         arrows = VGroup()
@@ -674,7 +674,7 @@ class ArchitectureDiagramScene(Scene):
         total_w = n * 2.5 - 0.5
         start_x = -total_w / 2
         for i, name in enumerate(components):
-            box = Rectangle(height=1.2, width=2.0, color=HexColor("#00CCCC"), fill_opacity=0.15)
+            box = Rectangle(height=1.2, width=2.0, color="#00CCCC", fill_opacity=0.15)
             box.move_to([start_x + i * 2.5, 0, 0])
             label = Text(name, font_size=20, color=WHITE)
             label.move_to(box.get_center())
@@ -682,7 +682,7 @@ class ArchitectureDiagramScene(Scene):
             if i < n - 1:
                 arrow = Arrow(
                     box.get_right(), [start_x + (i + 1) * 2.5 - 1.0, 0, 0],
-                    color=HexColor("#FF6B35"), stroke_width=3
+                    color="#FF6B35", stroke_width=3
                 )
                 arrows.add(arrow)
         self.play(LaggedStart(*[FadeIn(b, shift=UP * 0.3) for b in boxes], lag_ratio=0.15), run_time=1.5)
@@ -713,9 +713,9 @@ def data_flow_diagram_template(
     template = INJECT_IMPORTS + """
 class DataFlowScene(Scene):
     def construct(self):
-        self.camera.background_color = HexColor("#1e1e1e")
+        self.camera.background_color = "#1e1e1e"
         nodes = json.loads('__NODES__')
-        title_text = Text("__TITLE__", font_size=32, color=HexColor("#00CCCC")).to_edge(UP)
+        title_text = Text("__TITLE__", font_size=32, color="#00CCCC").to_edge(UP)
         self.play(Write(title_text), run_time=0.5)
         circles = VGroup()
         labels = VGroup()
@@ -723,7 +723,7 @@ class DataFlowScene(Scene):
         for i, name in enumerate(nodes):
             angle = -PI/2 + i * 2*PI / n
             pos = [2.5 * np.cos(angle), 2.5 * np.sin(angle), 0]
-            circle = Circle(radius=0.7, color=HexColor("#00CCCC"), fill_opacity=0.15)
+            circle = Circle(radius=0.7, color="#00CCCC", fill_opacity=0.15)
             circle.move_to(pos)
             label = Text(name, font_size=16, color=WHITE)
             label.move_to(pos)
@@ -731,7 +731,7 @@ class DataFlowScene(Scene):
             labels.add(label)
             if i > 0:
                 prev_pos = [2.5 * np.cos(-PI/2 + (i-1) * 2*PI / n), 2.5 * np.sin(-PI/2 + (i-1) * 2*PI / n), 0]
-                arrow = Arrow(prev_pos, pos, color=HexColor("#FF6B35"), stroke_width=2)
+                arrow = Arrow(prev_pos, pos, color="#FF6B35", stroke_width=2)
                 self.play(GrowArrow(arrow), run_time=0.3)
             self.play(FadeIn(circle), Write(label), run_time=0.3)
         self.wait(max(0, __DURATION__ - 2.5 - __EXIT__))
@@ -759,18 +759,18 @@ def timeline_template(
     template = INJECT_IMPORTS + """
 class TimelineScene(Scene):
     def construct(self):
-        self.camera.background_color = HexColor("#1e1e1e")
+        self.camera.background_color = "#1e1e1e"
         milestones = json.loads('__MS__')
-        title_text = Text("__TITLE__", font_size=32, color=HexColor("#00CCCC")).to_edge(UP)
+        title_text = Text("__TITLE__", font_size=32, color="#00CCCC").to_edge(UP)
         self.play(Write(title_text), run_time=0.5)
-        line = Line([-5, 0, 0], [5, 0, 0], color=HexColor("#00CCCC"), stroke_width=3)
+        line = Line([-5, 0, 0], [5, 0, 0], color="#00CCCC", stroke_width=3)
         self.play(Create(line), run_time=0.5)
         n = len(milestones)
         dots = VGroup()
         labels = VGroup()
         for i, ms in enumerate(milestones):
             x = -4.5 + i * 9.0 / (n - 1) if n > 1 else 0
-            dot = Dot([x, 0, 0], color=HexColor("#FF6B35"), radius=0.1)
+            dot = Dot([x, 0, 0], color="#FF6B35", radius=0.1)
             label = Text(ms, font_size=18, color=WHITE).next_to(dot, DOWN if i % 2 == 0 else UP, buff=0.3)
             dots.add(dot)
             labels.add(label)
@@ -806,15 +806,15 @@ def comparison_chart_template(
     template = INJECT_IMPORTS + """
 class ComparisonScene(Scene):
     def construct(self):
-        self.camera.background_color = HexColor("#1e1e1e")
+        self.camera.background_color = "#1e1e1e"
         left_items = json.loads('__LEFT__')
         right_items = json.loads('__RIGHT__')
-        title_text = Text("__TITLE__", font_size=32, color=HexColor("#00CCCC")).to_edge(UP)
+        title_text = Text("__TITLE__", font_size=32, color="#00CCCC").to_edge(UP)
         self.play(Write(title_text), run_time=0.5)
-        div = Line([0, -3, 0], [0, 3, 0], color=HexColor("#00CCCC"), stroke_width=1, opacity=0.5)
+        div = Line([0, -3, 0], [0, 3, 0], color="#00CCCC", stroke_width=1, opacity=0.5)
         self.play(Create(div), run_time=0.3)
-        left_header = Text("__LEFT_LABEL__", font_size=24, color=HexColor("#FF6B35")).move_to([-3, 2.5, 0])
-        right_header = Text("__RIGHT_LABEL__", font_size=24, color=HexColor("#00CCCC")).move_to([3, 2.5, 0])
+        left_header = Text("__LEFT_LABEL__", font_size=24, color="#FF6B35").move_to([-3, 2.5, 0])
+        right_header = Text("__RIGHT_LABEL__", font_size=24, color="#00CCCC").move_to([3, 2.5, 0])
         self.play(Write(left_header), Write(right_header), run_time=0.5)
         left_group = VGroup()
         right_group = VGroup()
@@ -853,24 +853,24 @@ def process_flow_template(
     template = INJECT_IMPORTS + """
 class ProcessFlowScene(Scene):
     def construct(self):
-        self.camera.background_color = HexColor("#1e1e1e")
+        self.camera.background_color = "#1e1e1e"
         steps = json.loads('__STEPS__')
-        title_text = Text("__TITLE__", font_size=32, color=HexColor("#00CCCC")).to_edge(UP)
+        title_text = Text("__TITLE__", font_size=32, color="#00CCCC").to_edge(UP)
         self.play(Write(title_text), run_time=0.5)
         n = len(steps)
         start_y = 2.5
         step_group = VGroup()
         for i, step in enumerate(steps):
             y = start_y - i * 1.5
-            circle = Circle(radius=0.35, color=HexColor("#00CCCC"), fill_opacity=0.2)
+            circle = Circle(radius=0.35, color="#00CCCC", fill_opacity=0.2)
             circle.move_to([-3, y, 0])
-            num = Text(str(i+1), font_size=16, color=HexColor("#00CCCC"))
+            num = Text(str(i+1), font_size=16, color="#00CCCC")
             num.move_to(circle.get_center())
             label = Text(step, font_size=20, color=WHITE)
             label.next_to(circle, RIGHT, buff=0.5)
             step_group.add(VGroup(circle, num, label))
             if i < n - 1:
-                connector = Line([-3, y - 0.35, 0], [-3, y - 1.5 + 0.35, 0], color=HexColor("#FF6B35"), stroke_width=2)
+                connector = Line([-3, y - 0.35, 0], [-3, y - 1.5 + 0.35, 0], color="#FF6B35", stroke_width=2)
                 step_group.add(connector)
         self.play(LaggedStart(*[FadeIn(s, shift=RIGHT * 0.3) for s in step_group], lag_ratio=0.2), run_time=2.0)
         self.wait(max(0, __DURATION__ - 3.5 - __EXIT__))
@@ -898,9 +898,9 @@ def concept_map_template(
     template = INJECT_IMPORTS + """
 class ConceptMapScene(Scene):
     def construct(self):
-        self.camera.background_color = HexColor("#1e1e1e")
+        self.camera.background_color = "#1e1e1e"
         concepts = json.loads('__CONCEPTS__')
-        title_text = Text("__TITLE__", font_size=32, color=HexColor("#00CCCC")).to_edge(UP)
+        title_text = Text("__TITLE__", font_size=32, color="#00CCCC").to_edge(UP)
         self.play(Write(title_text), run_time=0.5)
         n = len(concepts)
         center = [0, 0, 0] if n > 1 else [0, 0, 0]
@@ -909,14 +909,14 @@ class ConceptMapScene(Scene):
             angle = -PI/2 + i * 2*PI / n
             r = 2.5
             pos = [r * np.cos(angle), r * np.sin(angle), 0]
-            box = RoundedRectangle(corner_radius=0.2, height=0.7, width=1.8, color=HexColor("#00CCCC"), fill_opacity=0.15)
+            box = RoundedRectangle(corner_radius=0.2, height=0.7, width=1.8, color="#00CCCC", fill_opacity=0.15)
             box.move_to(pos)
             label = Text(concept, font_size=16, color=WHITE)
             label.move_to(pos)
             nodes.add(VGroup(box, label))
             if i > 0:
                 prev_pos = [r * np.cos(-PI/2 + (i-1) * 2*PI / n), r * np.sin(-PI/2 + (i-1) * 2*PI / n), 0]
-                line = Line(prev_pos, pos, color=HexColor("#FF6B35"), stroke_width=1.5, opacity=0.6)
+                line = Line(prev_pos, pos, color="#FF6B35", stroke_width=1.5, opacity=0.6)
                 self.play(Create(line), run_time=0.2)
             self.play(FadeIn(box), Write(label), run_time=0.3)
         if n > 2:
@@ -927,7 +927,7 @@ class ConceptMapScene(Scene):
                         angle_j = -PI/2 + j * 2*PI / n
                         pos_i = [r * np.cos(angle_i), r * np.sin(angle_i), 0]
                         pos_j = [r * np.cos(angle_j), r * np.sin(angle_j), 0]
-                        line = Line(pos_i, pos_j, color=HexColor("#00CCCC"), stroke_width=0.5, opacity=0.2)
+                        line = Line(pos_i, pos_j, color="#00CCCC", stroke_width=0.5, opacity=0.2)
                         self.add(line)
                         self.wait(0.05)
         self.wait(max(0, __DURATION__ - 3.5 - __EXIT__))
