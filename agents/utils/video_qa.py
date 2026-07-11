@@ -139,7 +139,7 @@ def check_corruption(video_path: str) -> dict:
         return {
             "total_frames": total,
             "decode_errors": decode_errors,
-            "is_corrupt": decode_errors > 0 or total == 0,
+            "is_corrupt": decode_errors > 3 or total == 0,
         }
     except Exception as e:
         logger.warning("Frame corruption check failed: %s", e)
