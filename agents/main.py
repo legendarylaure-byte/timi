@@ -85,7 +85,7 @@ from dotenv import load_dotenv
 os.environ["GRPC_VERBOSITY"] = "ERROR"
 os.environ["GLOG_minloglevel"] = "2"
 
-SHORTS_MAX_DURATION = 55
+SHORTS_MAX_DURATION = 60
 MIN_VIDEO_SIZE = 500 * 1024
 
 ENABLE_VISUAL_QA = os.getenv("ENABLE_VISUAL_QA", "true").lower() == "true"
@@ -198,7 +198,7 @@ def verify_video_quality(video_path: str, format_type: str = "shorts") -> tuple[
             parts = result.stdout.strip().split(",")
             if len(parts) >= 1 and parts[0].strip():
                 duration = float(parts[0])
-                if format_type == "shorts" and duration > SHORTS_MAX_DURATION + 10:
+                if format_type == "shorts" and duration > SHORTS_MAX_DURATION + 15:
                     return False, f"Duration {duration:.0f}s exceeds shorts limit"
                 if format_type == "long" and duration < 30:
                     return False, f"Duration {duration:.0f}s too short for long-form"
