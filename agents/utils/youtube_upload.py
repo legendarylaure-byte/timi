@@ -1,3 +1,4 @@
+import logging
 import os
 import hashlib
 import time
@@ -9,6 +10,8 @@ from google.oauth2.credentials import Credentials
 from google_auth_oauthlib.flow import InstalledAppFlow
 from google.auth.transport.requests import Request
 from googleapiclient.errors import HttpError
+
+logger = logging.getLogger(__name__)
 
 CLIENT_ID = os.getenv("YOUTUBE_CLIENT_ID")
 CLIENT_SECRET = os.getenv("YOUTUBE_CLIENT_SECRET")
@@ -254,28 +257,37 @@ def upload_video_to_youtube(
             ).execute()
             result["thumbnail_set"] = True
         except HttpError as e:
-            print(f"Thumbnail upload failed: {e}")
+            logger.warning("[YOUTUBE] Thumbnail upload failed: %s", e)
             result["thumbnail_set"] = False
 
     if subtitle_path and os.path.exists(subtitle_path):
-        try:
-            youtube.captions().insert(
-                part="snippet",
-                body={
-                    "snippet": {
-                        "videoId": video_id,
-                        "language": "en",
-                        "name": "English",
-                        "isDraft": False,
+        caption_success = False
+        for attempt in range(3):
+            try:
+                youtube.captions().insert(
+                    part="snippet",
+                    body={
+                        "snippet": {
+                            "videoId": video_id,
+                            "language": "en",
+                            "name": "English",
+                            "isDraft": False,
+                        },
                     },
-                },
-                media_body=MediaFileUpload(subtitle_path, mimetype="text/plain"),
-            ).execute()
-            result["caption_set"] = True
-            print(f"[YOUTUBE] Captions uploaded from: {subtitle_path}")
-        except HttpError as e:
-            print(f"[YOUTUBE] Caption upload failed: {e}")
-            result["caption_set"] = False
+                    media_body=MediaFileUpload(subtitle_path, mimetype="text/plain"),
+                ).execute()
+                caption_success = True
+                logger.info("[YOUTUBE] Captions uploaded from: %s", subtitle_path)
+                break
+            except HttpError as e:
+                status = e.resp.status if e.resp else 0
+                if status == 403 and attempt < 2:
+                    logger.warning("[YOUTUBE] Caption upload 403 (attempt %d/3), retrying in 30s: %s", attempt + 1, e)
+                    time.sleep(30)
+                else:
+                    logger.warning("[YOUTUBE] Caption upload failed: %s", e)
+                    break
+        result["caption_set"] = caption_success
 
     if publish_at:
         try:

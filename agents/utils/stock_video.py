@@ -158,6 +158,8 @@ def _search_pexels_uncached(query: str, orientation: str = "landscape") -> list[
             if not vf:
                 continue
             best = max(vf, key=lambda f: f.get("width", 0) * f.get("height", 0))
+            if best.get("width", 0) < 1920 or best.get("height", 0) < 1080:
+                continue
             results.append({
                 "id": v["id"],
                 "url": best.get("link") or best.get("url", ""),
@@ -217,6 +219,8 @@ def _search_pixabay_uncached(query: str) -> list[dict]:
                 continue
             best_key = max(videos.keys(), key=lambda k: videos[k].get("width", 0))
             best = videos[best_key]
+            if best.get("width", 0) < 1920 or best.get("height", 0) < 1080:
+                continue
             results.append({
                 "id": v["id"],
                 "url": best.get("url", ""),

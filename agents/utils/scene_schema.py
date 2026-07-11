@@ -10,6 +10,7 @@ VALID_EFFECTS = ["fade_in", "fade_out", "none"]
 VALID_TRANSITIONS = ["cut", "fade", "dissolve", "slide_left", "slide_right", "zoom", "none"]
 
 ASSET_TYPES = ["STOCK_FOOTAGE", "SCREEN_CAPTURE", "DIAGRAM_ANIMATION", "CODE_SNIPPET", "STATIC_IMAGE"]
+RENDER_TYPES = ["stock", "manim", "code"]
 
 SHAPE_TYPES = ["circle", "square", "rounded_square", "arrow", "line"]
 ANIMATION_TYPES = [
@@ -43,6 +44,12 @@ def validate_scene(scene: dict, index: int = 0) -> dict:
         import warnings
         warnings.warn(f"Scene {index}: unknown asset_type '{asset_type}', falling back to STOCK_FOOTAGE")
         scene["asset_type"] = "STOCK_FOOTAGE"
+
+    render_type = scene.get("render_type", "stock")
+    if render_type not in RENDER_TYPES:
+        import warnings
+        warnings.warn(f"Scene {index}: unknown render_type '{render_type}', falling back to 'stock'")
+        scene["render_type"] = "stock"
 
     background = scene.get("background", "solid_black")
     if background and background not in BACKGROUND_TYPES:
@@ -94,6 +101,7 @@ def validate_scene(scene: dict, index: int = 0) -> dict:
 
     result = dict(scene)
     result.setdefault("asset_type", "STOCK_FOOTAGE")
+    result.setdefault("render_type", "stock")
     result.setdefault("background", "solid_black")
     result.setdefault("transition", "cut")
     result.setdefault("effects", [])

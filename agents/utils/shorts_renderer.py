@@ -74,7 +74,8 @@ def chop_segment(input_video: str, start_sec: float, duration: float, output_pat
 
 
 def reformat_to_shorts(input_path: str, hook_text: str, output_path: str,
-                       subtitle_path: str | None = None) -> bool:
+                       subtitle_path: str | None = None,
+                       clip_duration: float = 60.0) -> bool:
     target_w, target_h = 1080, 1920
 
     scale_filter = (
@@ -87,11 +88,25 @@ def reformat_to_shorts(input_path: str, hook_text: str, output_path: str,
     )
 
     hook_escaped = hook_text.replace("'", "\\'").replace(":", "\\:").replace("-", "\\-")
+    hook_duration = 2.0
     hook_filter = (
         f"drawtext=text='{hook_escaped}':"
         f"fontsize=42:fontcolor=white:box=1:boxcolor=black@0.5:"
         f"x=(w-text_w)/2:y=h*0.05:"
+        f"alpha=if(lt(t,{hook_duration}),t/{hook_duration},1):"
         f"fontfile={os.getenv('FONT_PATH', '/System/Library/Fonts/Helvetica.ttc')}"
+    )
+
+    cta_start = max(0, clip_duration - 4.0)
+    cta_text = "Subscribe for more \\nAI content"
+    cta_escaped = cta_text.replace("'", "\\'").replace(":", "\\:").replace("-", "\\-")
+    cta_filter = (
+        f"drawtext=text='{cta_escaped}':"
+        f"fontsize=38:fontcolor=white:box=1:boxcolor=#00CCCC@0.7:"
+        f"x=(w-text_w)/2:y=(h-text_h)/2:"
+        f"alpha=if(lt(t,{cta_start + 1}),0,if(lt(t,{cta_start + 3}),(t-{cta_start})/2,1)):"
+        f"fontfile={os.getenv('FONT_PATH', '/System/Library/Fonts/Helvetica.ttc')}:"
+        f"text_align=C:line_spacing=8"
     )
 
     quality_filters = "eq=saturation=1.25:contrast=1.1,unsharp=5:5:0.8:3:3:0.4"
@@ -101,12 +116,12 @@ def reformat_to_shorts(input_path: str, hook_text: str, output_path: str,
         abs_sub = os.path.abspath(subtitle_path)
         subtitle_filter = (
             f",subtitles=filename='{abs_sub}':force_style="
-             f"'FontSize=10,PrimaryColour=&HFF00CCCC&,OutlineColour=&H40002B00&,"
+             f"'FontSize=32,PrimaryColour=&HFF00CCCC&,OutlineColour=&H40002B00&,"
             f"Outline=0,Shadow=0,BorderStyle=3,BackColour=&H40000000&,"
             f"Alignment=2,MarginV=40,FontName=Arial'"
         )
 
-    vf = f"{scale_filter},{hook_filter},{quality_filters}{subtitle_filter}"
+    vf = f"{scale_filter},{hook_filter},{cta_filter},{quality_filters}{subtitle_filter}"
 
     cmd = [
         _ffmpeg_cmd(), "-y", "-i", input_path,
@@ -219,7 +234,7 @@ def render_repurposed_shorts(long_video_path: str, scenes: list[dict],
             if not os.path.exists(srt_path):
                 srt_path = None
 
-        if not reformat_to_shorts(chopped, hook, reformatted, subtitle_path=srt_path):
+        if not reformat_to_shorts(chopped, hook, reformatted, subtitle_path=srt_path, clip_duration=clip_dur):
             logger.warning("Failed to reformat segment %d for %s", i, video_id)
             continue
 

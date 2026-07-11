@@ -2,7 +2,8 @@ import os
 import hashlib
 import json
 import logging
-from utils.subprocess_helper import safe_run
+import textwrap
+from utils.subprocess_helper import safe_run, register_temp_dir
 from datetime import datetime
 
 from utils.manim_templates import (
@@ -12,7 +13,19 @@ from utils.manim_templates import (
     algorithm_flow_template,
     bar_chart_template,
     text_reveal_template,
+    gradient_descent_template,
+    convolution_template,
+    recurrent_template,
+    architecture_diagram_template,
+    data_flow_diagram_template,
+    timeline_template,
+    comparison_chart_template,
+    process_flow_template,
+    concept_map_template,
 )
+from crew.manim_agent import enhance_manim_params, ManimScenePlan, select_template_llm
+from utils.manim_validator import validate_manim_code
+from crew.manim_code_gen import generate_manim_code
 
 logger = logging.getLogger(__name__)
 
@@ -20,6 +33,10 @@ MANIM_CACHE_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(_
 MANIM_OUTPUT_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "tmp", "manim_render")
 os.makedirs(MANIM_CACHE_DIR, exist_ok=True)
 os.makedirs(MANIM_OUTPUT_DIR, exist_ok=True)
+register_temp_dir(str(MANIM_OUTPUT_DIR))
+
+CODE_CACHE_DIR = os.path.join(MANIM_CACHE_DIR, "gen_codes")
+os.makedirs(CODE_CACHE_DIR, exist_ok=True)
 
 MANIM_BIN = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), ".venv", "bin", "manim")
 if not os.path.exists(MANIM_BIN):
@@ -32,6 +49,15 @@ TEMPLATE_MAP = {
     "algorithm_flow": algorithm_flow_template,
     "bar_chart": bar_chart_template,
     "text_reveal": text_reveal_template,
+    "gradient_descent": gradient_descent_template,
+    "convolution": convolution_template,
+    "recurrent": recurrent_template,
+    "architecture": architecture_diagram_template,
+    "data_flow": data_flow_diagram_template,
+    "timeline": timeline_template,
+    "comparison": comparison_chart_template,
+    "process_flow": process_flow_template,
+    "concept_map": concept_map_template,
 }
 
 
@@ -47,46 +73,51 @@ def _cached_path(scene_hash: str) -> str | None:
     return None
 
 
-def _select_template(scene: dict) -> tuple[str, dict] | None:
-    keywords = scene.get("asset_keywords", [])
-    description = scene.get("description", "")
-    text = (str(keywords) + " " + description).lower()
+TEMPLATE_CLASS_NAMES: dict[str, str] = {
+    "neural_network": "NeuralNetworkScene",
+    "attention": "AttentionScene",
+    "transformer": "TransformerScene",
+    "algorithm_flow": "AlgorithmFlowScene",
+    "bar_chart": "BarChartScene",
+    "text_reveal": "TextRevealScene",
+    "gradient_descent": "GradientDescentScene",
+    "convolution": "ConvolutionScene",
+    "recurrent": "RecurrentScene",
+    "architecture": "ArchitectureDiagramScene",
+    "data_flow": "DataFlowScene",
+    "timeline": "TimelineScene",
+    "comparison": "ComparisonScene",
+    "process_flow": "ProcessFlowScene",
+    "concept_map": "ConceptMapScene",
+}
 
-    theme_score = {}
-    for tmpl_name in TEMPLATE_MAP:
-        score = 0
-        if tmpl_name == "neural_network":
-            for kw in ["neural", "network", "layer", "deep learning", "mlp", "perceptron", "neuron"]:
-                if kw in text:
-                    score += 2
-        elif tmpl_name == "attention":
-            for kw in ["attention", "transformer", "qkv", "query", "key", "value", "self-attention"]:
-                if kw in text:
-                    score += 2
-        elif tmpl_name == "transformer":
-            for kw in ["transformer", "encoder", "decoder", "architecture", "block"]:
-                if kw in text:
-                    score += 2
-        elif tmpl_name == "algorithm_flow":
-            for kw in ["flow", "pipeline", "process", "step", "stage", "algorithm", "sequential"]:
-                if kw in text:
-                    score += 1
-        elif tmpl_name == "bar_chart":
-            for kw in ["chart", "graph", "comparison", "performance", "benchmark", "metric", "stat"]:
-                if kw in text:
-                    score += 1
-        elif tmpl_name == "text_reveal":
-            for kw in ["reveal", "insight", "key", "takeaway", "conclusion", "summary", "important"]:
-                if kw in text:
-                    score += 1
-        if score > 0:
-            theme_score[tmpl_name] = score
+TEMPLATE_CLASS_KEYS = list(TEMPLATE_CLASS_NAMES.values())
+TEMPLATE_CLASS_PATTERNS = [f"class {name}" for name in TEMPLATE_CLASS_NAMES.values()]
 
-    if not theme_score:
-        return None
 
-    best = max(theme_score, key=theme_score.get)
-    return best, {"title": scene.get("text", [{}])[0].get("text", "") if scene.get("text") else "Concept"}
+def _select_template(scene: dict) -> tuple[str, dict, ManimScenePlan | None] | None:
+    plan = enhance_manim_params(scene)
+
+    similar = query_similar_scenes(
+        (scene.get("description") or "") + " " + " ".join(scene.get("asset_keywords", [])),
+        top_k=1
+    )
+    if similar and similar[0].get("score", 1.0) < 0.5:
+        suggested = similar[0].get("metadata", {}).get("template_name", "")
+        if suggested in TEMPLATE_MAP and suggested != plan.template_name:
+            logger.info(f"[Manim] RAG suggests '{suggested}' (score={similar[0]['score']:.3f}) over heuristic '{plan.template_name}'")
+            plan.template_name = suggested
+
+    if plan.template_name not in TEMPLATE_MAP:
+        desc = scene.get("description", "") or " ".join(scene.get("asset_keywords", []))
+        fallback_lines = textwrap.wrap(desc[:80], width=40)[:3] if desc else (scene.get("asset_keywords", [])[:3] or ["Animation"])
+        title = (scene.get("text") or [{}])[0].get("text", "") or "Concept"
+        return "text_reveal", {"title": title, "lines": fallback_lines, "entry_time": plan.timing.entry, "exit_time": plan.timing.exit}, plan
+
+    tmpl_name = plan.template_name
+    params = plan.params.copy()
+    params.update({"entry_time": plan.timing.entry, "exit_time": plan.timing.exit})
+    return tmpl_name, params, plan
 
 
 def render_manim_scene(scene: dict, video_id: str, scene_idx: int = 0, quality: str = "h") -> str | None:
@@ -96,26 +127,44 @@ def render_manim_scene(scene: dict, video_id: str, scene_idx: int = 0, quality: 
         logger.info(f"[Manim] Using cached render: {cached}")
         return cached
 
-    selection = _select_template(scene)
-    if not selection:
-        logger.info(f"[Manim] No matching template, fallback for scene {scene_idx}")
-        return None
+    # Heuristic template selection
+    plan = enhance_manim_params(scene)
 
-    tmpl_name, params = selection
+    # LLM-powered template resolution for novel/uncertain scenes
+    if plan.template_name == "custom":
+        llm_plan = select_template_llm(scene)
+        if llm_plan:
+            if llm_plan.template_name in TEMPLATE_MAP:
+                logger.info(f"[Manim] LLM resolved '{llm_plan.template_name}' instead of custom")
+                plan = llm_plan
+            elif llm_plan.template_name == "custom":
+                plan = llm_plan  # LLM confirms custom, use its plan
+
+    # Custom LLM code generation path
+    if plan.template_name == "custom":
+        output_path = _generate_custom_scene(scene, plan, s_hash, video_id, scene_idx, quality)
+        if output_path:
+            return output_path
+        logger.info(f"[Manim] Custom gen failed, falling back to template for scene {scene_idx}")
+        selection = _select_template(scene)
+        if not selection:
+            return None
+        tmpl_name, params, plan = selection
+    else:
+        # Template-based rendering (heuristic or LLM-resolved match)
+        if plan.template_name not in TEMPLATE_MAP:
+            plan.template_name = "text_reveal"
+        tmpl_name = plan.template_name
+        params = plan.params.copy()
+        params.update({"entry_time": plan.timing.entry, "exit_time": plan.timing.exit})
+
     tmpl_fn = TEMPLATE_MAP[tmpl_name]
-
     title = params.get("title", "Concept")
     dur = scene.get("target_duration", scene.get("duration", 6.0))
-    code = tmpl_fn(title=title, duration=dur)
+    tmpl_kwargs = {k: v for k, v in params.items() if k not in ("title", "entry_time", "exit_time")}
+    code = tmpl_fn(title=title, duration=dur, **tmpl_kwargs)
 
-    scene_class_name = {
-        "neural_network": "NeuralNetworkScene",
-        "attention": "AttentionScene",
-        "transformer": "TransformerScene",
-        "algorithm_flow": "AlgorithmFlowScene",
-        "bar_chart": "BarChartScene",
-        "text_reveal": "TextRevealScene",
-    }.get(tmpl_name, "Scene")
+    scene_class_name = TEMPLATE_CLASS_NAMES.get(tmpl_name, "Scene")
 
     py_path = os.path.join(MANIM_OUTPUT_DIR, f"manim_{video_id}_{scene_idx}.py")
     output_path = os.path.join(MANIM_OUTPUT_DIR, f"manim_{video_id}_{scene_idx}.mp4")
@@ -134,6 +183,7 @@ def render_manim_scene(scene: dict, video_id: str, scene_idx: int = 0, quality: 
             import shutil
             shutil.copy2(output_path, shutil_path)
             logger.info(f"[Manim] Rendered {tmpl_name} -> {output_path} ({os.path.getsize(output_path)} bytes)")
+            _index_template_usage(scene, plan)
             return output_path
         else:
             logger.warning(f"[Manim] Render failed for {tmpl_name}: {result.stderr[-300:]}")
@@ -143,31 +193,121 @@ def render_manim_scene(scene: dict, video_id: str, scene_idx: int = 0, quality: 
         return None
 
 
+def _generate_custom_code(scene: dict, plan: ManimScenePlan) -> tuple[str | None, str | None, dict | None]:
+    """Generate Manim code via LLM for a custom scene. Returns (code, scene_class, error_info)."""
+    description = scene.get("description", "") or " ".join(scene.get("asset_keywords", []))
+    if not description:
+        return None, None, {"error": "empty description"}
+
+    title = plan.params.get("title", "Concept")
+    dur = scene.get("target_duration", scene.get("duration", 6.0))
+    similar = query_similar_scenes(description, top_k=3, success_only=True)
+
+    code = generate_manim_code(
+        description=description,
+        title=title,
+        duration=dur,
+        scene_type=plan.scene_type,
+        similar_examples=similar,
+    )
+    if not code:
+        return None, None, {"error": "LLM returned no code"}
+
+    validation = validate_manim_code(code)
+    if not validation["valid"]:
+        for attempt in range(2):
+            logger.info(f"[Manim] Code invalid, self-heal attempt {attempt + 1}/2: {validation['errors'][:2]}")
+            code = generate_manim_code(
+                description=description,
+                title=title,
+                duration=dur,
+                scene_type=plan.scene_type,
+                similar_examples=similar,
+                errors=validation["errors"],
+            )
+            if not code:
+                break
+            validation = validate_manim_code(code)
+            if validation["valid"]:
+                break
+
+        if not validation["valid"]:
+            return None, None, {"errors": validation["errors"]}
+
+    return code, validation.get("scene_class") or "GeneratedScene", None
+
+
+def _generate_custom_scene(scene: dict, plan: ManimScenePlan, s_hash: str, video_id: str, scene_idx: int, quality: str) -> str | None:
+    code, scene_class_name, err = _generate_custom_code(scene, plan)
+    if not code:
+        error_msg = (err.get("error") or "") if err else ""
+        if not error_msg and err and err.get("errors"):
+            error_msg = "; ".join(err["errors"][:3])
+        _index_template_usage(scene, plan, success=False, error=error_msg or "code generation failed")
+        return None
+
+    py_path = os.path.join(MANIM_OUTPUT_DIR, f"manim_{video_id}_{scene_idx}.py")
+    output_path = os.path.join(MANIM_OUTPUT_DIR, f"manim_{video_id}_{scene_idx}.mp4")
+    with open(py_path, "w") as f:
+        f.write(code)
+
+    quality_flag = f"-q{quality}"
+
+    try:
+        result = safe_run(
+            [MANIM_BIN, quality_flag, "--format=mp4", "-o", output_path, py_path, scene_class_name],
+            timeout=120,
+        )
+        if os.path.exists(output_path) and os.path.getsize(output_path) > 1000:
+            shutil_path = os.path.join(MANIM_CACHE_DIR, f"{s_hash}.mp4")
+            import shutil
+            shutil.copy2(output_path, shutil_path)
+            logger.info(f"[Manim] Custom render succeeded -> {output_path} ({os.path.getsize(output_path)} bytes)")
+            _index_template_usage(scene, plan, code=code, success=True)
+            return output_path
+        else:
+            error_msg = result.stderr[-500:] if hasattr(result, "stderr") and result.stderr else "ffmpeg render produced no output"
+            logger.warning(f"[Manim] Custom render failed: {error_msg}")
+            _index_template_usage(scene, plan, code=code, success=False, error=error_msg)
+            return None
+    except Exception as e:
+        logger.warning(f"[Manim] Custom render error: {e}")
+        _index_template_usage(scene, plan, code=code, success=False, error=str(e))
+        return None
+
+
 def compose_manim_block(scenes: list[dict], video_id: str, quality: str = "h") -> str | None:
-    """Render multiple consecutive Manim scenes as a single video block."""
     import re
     combined_code = ""
-    class_count = 0
     class_names = []
     for idx, scene in enumerate(scenes):
+        # Try LLM custom generation for novel scenes
+        plan = enhance_manim_params(scene)
+        if plan.template_name == "custom":
+            code, scene_class_name, _ = _generate_custom_code(scene, plan)
+            if code:
+                unique_class = f"ManimBlock_{video_id}_{idx}"
+                code = code.replace(f"class {scene_class_name}", f"class {unique_class}")
+                combined_code += f"\n\n{code}"
+                class_names.append(unique_class)
+                continue
+
+        # Template-based fallback
         selection = _select_template(scene)
         if not selection:
             continue
-        tmpl_name, params = selection
+        tmpl_name, params, plan = selection
         tmpl_fn = TEMPLATE_MAP[tmpl_name]
         title = params.get("title", f"Part {idx + 1}")
         dur = scene.get("target_duration", scene.get("duration", 6.0))
-        code = tmpl_fn(title=title, duration=dur)
+        tmpl_kwargs = {k: v for k, v in params.items() if k not in ("title", "entry_time", "exit_time")}
+        code = tmpl_fn(title=title, duration=dur, **tmpl_kwargs)
         unique_class = f"ManimBlock_{video_id}_{idx}"
-        code = code.replace("class NeuralNetworkScene", f"class {unique_class}")
-        code = code.replace("class AttentionScene", f"class {unique_class}")
-        code = code.replace("class TransformerScene", f"class {unique_class}")
-        code = code.replace("class AlgorithmFlowScene", f"class {unique_class}")
-        code = code.replace("class BarChartScene", f"class {unique_class}")
-        code = code.replace("class TextRevealScene", f"class {unique_class}")
+        for pattern in TEMPLATE_CLASS_PATTERNS:
+            code = code.replace(pattern, f"class {unique_class}")
         combined_code += f"\n\n{code}"
         class_names.append(unique_class)
-        class_count += 1
+        _index_template_usage(scene, plan)
 
     if not combined_code:
         return None
@@ -180,11 +320,9 @@ def compose_manim_block(scenes: list[dict], video_id: str, quality: str = "h") -
     quality_flag = f"-q{quality}"
     cmd = [MANIM_BIN, quality_flag, "--format=mp4", "-o", output_path, py_path] + class_names
     try:
-        result = safe_run(
-            cmd, timeout=300,
-        )
+        result = safe_run(cmd, timeout=300)
         if os.path.exists(output_path) and os.path.getsize(output_path) > 1000:
-            logger.info(f"[Manim] Composed block: {class_count} scenes -> {output_path} ({os.path.getsize(output_path)} bytes)")
+            logger.info(f"[Manim] Composed block: {len(class_names)} scenes -> {output_path} ({os.path.getsize(output_path)} bytes)")
             return output_path
         else:
             logger.warning(f"[Manim] Block render failed: {result.stderr[-400:]}")
@@ -192,3 +330,89 @@ def compose_manim_block(scenes: list[dict], video_id: str, quality: str = "h") -
     except Exception as e:
         logger.warning(f"[Manim] Block render error: {e}")
         return None
+
+
+def _index_template_usage(scene: dict, plan: ManimScenePlan, code: str | None = None, success: bool = True, error: str | None = None) -> None:
+    """Index scene-to-template mapping in chromadb for future RAG retrieval."""
+    try:
+        import chromadb
+        client = chromadb.PersistentClient(
+            path=os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "chroma_db")
+        )
+        collection = client.get_or_create_collection(
+            name="manim_templates",
+            metadata={"hnsw:space": "cosine"}
+        )
+        desc = (scene.get("description") or "") + " " + " ".join(scene.get("asset_keywords", []))
+        doc_id = _scene_hash(scene)
+
+        code_path = None
+        if code:
+            code_path = os.path.join(CODE_CACHE_DIR, f"{doc_id}.py")
+            with open(code_path, "w") as f:
+                f.write(code)
+
+        metadata = {
+            "template_name": plan.template_name,
+            "scene_type": plan.scene_type,
+            "reason": plan.reason,
+            "timestamp": datetime.utcnow().isoformat(),
+            "success": success,
+        }
+        if code_path:
+            metadata["code_path"] = code_path
+        if error:
+            metadata["error"] = error[:500]
+
+        collection.upsert(
+            ids=[doc_id],
+            documents=[desc],
+            metadatas=[metadata],
+        )
+    except Exception as e:
+        logger.debug(f"[Manim RAG] Index skipped: {e}")
+
+
+def query_similar_scenes(description: str, top_k: int = 3, success_only: bool = True) -> list[dict]:
+    """Query chromadb for scenes similar to the given description."""
+    try:
+        import chromadb
+        client = chromadb.PersistentClient(
+            path=os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "chroma_db")
+        )
+        collection = client.get_collection(name="manim_templates")
+
+        query_kwargs = {"query_texts": [description], "n_results": top_k}
+        if success_only:
+            query_kwargs["where"] = {"success": True}
+
+        try:
+            results = collection.query(**query_kwargs)
+        except Exception:
+            query_kwargs.pop("where", None)
+            results = collection.query(**query_kwargs)
+
+        matches = []
+        for i in range(len(results["ids"][0])):
+            metadata = results["metadatas"][0][i]
+            if success_only and metadata.get("success") is False:
+                continue
+
+            code = None
+            if metadata.get("code_path"):
+                try:
+                    with open(metadata["code_path"]) as f:
+                        code = f.read()
+                except Exception:
+                    pass
+
+            matches.append({
+                "id": results["ids"][0][i],
+                "score": results["distances"][0][i] if results.get("distances") else 0,
+                "metadata": metadata,
+                "code": code,
+                "document": results["documents"][0][i][:200] if results.get("documents") else "",
+            })
+        return matches
+    except Exception:
+        return []

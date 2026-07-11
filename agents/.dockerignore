@@ -10,3 +10,5 @@ data/
 .DS_Store
 *.log
 *.pid
+chroma_db/
+tmp/

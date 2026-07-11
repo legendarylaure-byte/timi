@@ -2,6 +2,42 @@
 
 ## Latest Changes (uncommitted)
 
+### Phase 7: Production Readiness & Performance (5 new/upgraded files)
+- **`utils/concurrent_pipeline.py`** (NEW) — Thread pool for parallel short+long generation. GPU semaphore prevents concurrent LTX access. Worker isolation (one failure doesn't kill the other). `run_concurrent_pipelines()` accepts job dicts with `gpu` flag. `run_with_gpu_lock()` for single-function GPU access. `CONCURRENT_PIPELINE_WORKERS` env var (default 2). Wire into `daily_content_job()` — all shorts + longs run concurrently via `ThreadPoolExecutor`.
+- **`utils/translate.py`** (UPGRADED) — Added `generate_dubbed_audio()` (TTS audio for translated scripts per language using edge_tts_voice from LANGUAGES dict), `dub_all_languages()` (batch dubbing for all translations), `register_dub_cleanup()` (register temp dub dirs for cleanup). Controlled by `ENABLE_MULTI_LANG_DUB=false` env var.
+- **`models/ltx_model.py`** (UPGRADED) — LRU prompt cache (50 entries, SHA-256 keyed, file-backed via `cache_meta.json`). `_check_cache()` (hit → return cached clip), `_update_cache()` (store + prune LRU). Self-healing: auto-discards stale entries where file is missing. Parallel scene generation in `generate_clips()` merges cached + new results. Controlled by `ENABLE_LTX_CACHE=true`.
+- **`main.py`** (8 integration points):
+  - Imports `run_concurrent_pipelines`, `dub_all_languages`, `register_dub_cleanup`
+  - `daily_content_job()` — builds job list from plan, runs all shorts + longs via `run_concurrent_pipelines()`, processes results/tracking/retry
+  - Both short + long multi-language paths now call `dub_all_languages()` when `ENABLE_MULTI_LANG_DUB=true`
+  - `ENABLE_MULTI_LANG_DUB` / `ENABLE_LTX_CACHE` / `CONCURRENT_PIPELINE_WORKERS` logged at startup
+  - `.env` updated with all 3 new vars + `GOOGLE_APPLICATION_CREDENTIALS` pointing to Firebase SA at `keys/timi-childern-stories-firebase-adminsdk-fbsvc-1997849771.json`
+- **`.env`** (UPGRADED) — Added `CONCURRENT_PIPELINE_WORKERS=2`, `ENABLE_MULTI_LANG_DUB=false`, `ENABLE_LTX_CACHE=true`, uncommented `GOOGLE_APPLICATION_CREDENTIALS` pointing to Firebase SA
+
+### Phase 6: Series + Knowledge Graph + Consistency Enforcement (6 new/upgraded files)
+- **`utils/knowledge_graph.py`** (NEW) — Topic knowledge graph with prerequisite chains, difficulty scoring (beginner/intermediate/advanced), relationship types (prerequisite/related/builds_on/continues/contrasts_with), curriculum builder with progress tracking, coverage analysis, content gap detection (missing prerequisites, natural next topics, uncovered topics), stale topic pruning (90-day threshold), and `suggest_next_topic()` for pipeline-driven topic selection.
+- **`utils/brand_manager.py`** (NEW) — Brand consistency engine with full style guide (colors `#00CCCC/#1e1e1e/#FF6B35`, fonts, voice rules, visual specs), vocabulary enforcement (preferred terms + avoided terms with regex matching), hook rotation tracker (records formula per video, suggests next formula from 5 types), `pre_publish_brand_check()` (sentence length, CTA presence, hook power phrases).
+- **`utils/knowledge_integration.py`** (NEW) — Pipeline bridge connecting knowledge graph to content generation. `inject_knowledge_context()` provides prerequisite/related topic context to scriptwriter. `get_coverage_context()` feeds gap analysis to scheduler planner. `record_video_knowledge()` auto-registers each video in the graph with series relationships.
+- **`utils/series_builder.py`** (UPGRADED) — Added `create_series()` (structured series creation), `get_series_progress()` (episode count/progress %), `build_continuity_text()` (generates "In Part 1, we covered X" references), `generate_part_title()` (auto-numbered episode titles like "NLP Fundamentals Part 2: Tokenization"), `sync_playlist()` (auto-create YouTube playlists + add videos). Now auto-syncs to knowledge graph on `register_video_in_series()`.
+- **`utils/series_router.py`** (UPGRADED) — `inject_intro_outro()` now uses `generate_part_title()` for dynamic episode titling and `build_continuity_text()` for continuity hooks in long-form video intros.
+- **`utils/consistency_checker.py`** (NEW) — Pre-publish audit that checks brand compliance (CTA, sentence length, hook phrases), terminology (jargon detection, avoided/preferred terms), hook rotation (3+ consecutive same-formula warning), and cross-video series references (missing "last time" mentions). Returns structured audit report with `passed` flag.
+- **`main.py`** (6 integration points):
+  - Scriptwriting: `inject_knowledge_context()` + `build_continuity_text()` merged into `extra_context` (alongside analytics feedback)
+  - Hook scoring: Automatically detects hook formula (question/bold_claim/statistic/curiosity_gap/pain_point) and records via `record_hook_usage()`
+  - Pre-publish: `run_consistency_audit()` called before publishing — logs warnings/errors
+  - Post-publish: `record_video_knowledge()` registers each video in the knowledge graph
+  - Daily scheduler: `get_coverage_context()` feeds content gaps into topic planning
+  - Both short + long video paths fully wired with all 6 checks
+- **Data files created on first use**: `data/knowledge_graph/graph.json`, `data/knowledge_graph/curricula.json`, `data/brand/style_guide.json`, `data/brand/hook_history.json`, `data/brand/vocabulary.json`
+
+### P0: ManimCE Foundation — Docker, Dependencies, Persistent Storage
+- **Dockerfile**: Added `texlive`, `texlive-latex-extra`, `texlive-fonts-extra`, `texlive-science`, `dvipng`, `cm-super` for LaTeX/MathTex rendering in ManimCE.
+- **requirements.txt**: ManimCE pinned to `manim>=0.20.0,<0.21.0` (v0.20.x stable). Added `chromadb>=0.5.10,<0.6.0` (RAG vector store), `kokoro>=0.7.0,<1.0.0` (local TTS), `onnxruntime>=1.20.0`.
+- **manim.cfg**: Created at `agents/manim.cfg` — `high_quality` (1920×1080, 30fps), output/log dirs under `tmp/manim_cache/`, background `#1e1e1e`.
+- **Temp dir registration**: `manim_renderer.py` now calls `register_temp_dir(str(MANIM_OUTPUT_DIR))` so renders are cleaned up on exit.
+- **chroma_db/**: Created at `agents/chroma_db/` for persistent vector store, added to `.gitignore` and `.dockerignore`.
+- **Docker image**: Rebuilt successfully — all deps verified inside container (texlive ✓, dvipng ✓, manim 0.20.1 ✓, chromadb 0.5.20 ✓, kokoro 0.9.4 ✓, onnxruntime 1.27.0 ✓).
+
 ### D20: Subtitle Pipeline Overhaul + Facebook Permission Hardening + Caption Track Upload
 - **B1 — Phrase timing matching fix**: Rewrote `generate_phrase_timings_from_sentences()` (`voice_gen.py`) — sentence matching now tracks used indices to prevent duplicates; word-level fallback groups `WordBoundary` events into phrases when sentence-level matching produces nothing. Guarantees non-empty phrase timings even on TTS text mismatch.
 - **B2 — Broken subtitle fallback fix** (`subtitle_gen.py`): `_convert_word_times_to_phrases()` key `"word"` → `"text"` (was always empty). Removed dead word-timing fallback that read same file as phrase timings.
@@ -233,9 +269,62 @@
 - **utils/shorts_renderer.py** — Subtitle color changed to dark orange (`&HFF0055CC&`).
 - **utils/scene_parser.py** — `_infer_ltx_prompt()` now extracts VISUAL description text from storyboard blocks and includes it in the LTX prompt. LLM scene parse prompt improved to stress using actual storyboard visuals.
 
+## Phase 9: Comment Sentiment Analysis (1 new, 1 wired)
+- **`utils/comment_analyzer.py`** (NEW) — `analyze_sentiment()` (keyword + negation + intensifier scoring), `analyze_video_comments()` (YouTube API batch fetch), `flag_negative_comments()` (threshold alert)
+- **`main.py`** — Wired into both short+long pinned_comment step: analyzes first 30 comments, logs sentiment breakdown, flags negative/toxic comments
+
+## Phase 10: Content Pillar Strategy (1 new, 1 wired)
+- **`utils/pillar_manager.py`** (NEW) — 8 pillars with target ratios, `track_pillar_video()`, `get_pillar_balance()`, `get_underrepresented_pillars()`, `suggest_next_pillar()`, `generate_pillar_context()` for scheduler planner injection
+- **`main.py`** — `track_pillar_video(category)` called after publish in both paths; `generate_pillar_context()` injected into scheduler planner's `combined_ctx` alongside knowledge graph coverage
+
+## Phase 11: Video SEO Optimization (1 new, 4 wired)
+- **`utils/seo_optimizer.py`** (NEW) — `CATEGORY_TAGS` (8 curated 15-tag sets), `get_optimized_tags()`, `score_description_seo()` (CTA, URL, hashtag, length checks), `suggest_seo_improvements()`
+- **`main.py`** — SEO tags and description scoring wired into both short+long description generation steps
+- **`utils/multi_platform_publisher.py`** — `upload_to_platform()`, `_upload_youtube()`, `multi_platform_publish()` all accept new `tags` parameter; SEO tags merged with existing tech_meta tags, passed to YouTube upload body
+
+## Phase 12: Analytics Anomaly Alerting (2 new, 1 wired)
+- **`utils/alert_manager.py`** (NEW) — Unified `send_alert()` (telegram + slack dispatch), `check_view_anomaly()` (deviation >30%), `check_pipeline_health_alert()` (success rate <80%), `check_monetization_milestone()` (sub milestones), `check_staleness()` (>24h inactivity), `process_alerts()` (run all + dispatch)
+- **`utils/slack_notifier.py`** (NEW) — `send_slack_message()` webhook sender, `send_alert_slack()` with severity emoji prefixing
+- **`main.py`** — `process_alerts()`, `check_pipeline_health_alert()`, and `check_staleness()` wired into `daily_analytics_job()`; pipeline health checked against last 20 pipeline metrics
+
+## Quality Improvement Pass — 3Blue1Brown-Level Targeting
+
+### Critical Fixes (settings/config)
+- **C1 — LTX resolution**: 704×448 → **832×512** (36% more pixels, much sharper upscaled output) — `models/ltx_model.py:287-288`
+- **C2 — FPS mismatch**: Manim 30fps → **24fps** to match compositor (eliminates stuttering on Manim scenes) — `manim.cfg:9,14`
+- **C3 — Subtitle font sizes**: Long-form FontSize=10→**24**, Shorts FontSize=10→**32**, burn_subtitles default 22→**28** — `video_compositor.py:557`, `shorts_renderer.py:104`, `video_compositor.py:391`
+- **C4 — Static image fallback**: Random ellipses → **styled title card** with topic text, brand teal accent stripe, Vyom Ai Cloud subtitle, corner accents — `asset_router.py:_generate_static_image()`
+- **C5 — Upscaler enabled**: `ENABLE_UPSCALE=true` in `.env` (Real-ESRGAN 2x for LTX clips when binary available)
+
+### High Priority (feature/code)
+- **H1 — Brand color palette enforced**: Video bg now `#1e1e1e` (dark gray like 3B1B), accent `#00CCCC` teal throughout compositor lower-thirds & scene labels, accent `#FF6B35` orange for emphasis — `animation_engine.py`, `video_compositor.py`, `scene_parser.py`, `manim_templates.py`
+- **H2 — 6 new Manim templates**: Added `architecture_diagram`, `data_flow_diagram`, `timeline`, `comparison_chart`, `process_flow`, `concept_map` — total from 9→**15 templates** — `manim_templates.py`, `manim_renderer.py`
+- **H4 — SSML voice enhancement**: Added `_wrap_ssml()` — wraps TTS text with emphasis tags on key terms, 300ms micro-pauses at sentence boundaries, prosody control. Dramatically less robotic delivery — `voice_gen.py`, `voice_provider.py`
+
+### Medium Priority
+- **M1 — Script temperature lowered**: 0.7/0.8→**0.4** for accuracy (educational content needs tighter LLM) — `crew/scriptwriter.py:9`
+- **M2 — Narration pacing improved**: Inter-segment silence 100ms→**500ms** (gives viewer breathing room after key points) — `voice_gen.py:440`
+- **M3 — Animated hook text**: Fade-in over 2s (alpha ramp) for shorts hook text — `shorts_renderer.py:90-95`
+- **M3 — Subscribe end card**: Brand teal CTA "Subscribe for more AI content" fades in during last 4s of each short with centering + line spacing — `shorts_renderer.py`
+- **M4 — Stock footage quality filter**: Rejects clips below 1920×1080 from both Pexels and Pixabay — `stock_video.py` (Pexels line 161, Pixabay line 222)
+- **M6 — 4K output option**: `OUTPUT_4K=true` env var renders long videos at 3840×2160 — `video_compositor.py`
+
+### H3 — Cross-Scene Visual Continuity (3 steps, all implemented)
+- **H3 Step 1 — SceneState dataclass** (`scene_parser.py`): Added `SceneState` dataclass (camera_angle, lighting, color_palette, dominant_colors). `_infer_ltx_prompt()` now accepts `prev_state` and returns `(str, SceneState)` tuple — camera/lighting rotate smoothly from previous scene with continuity hints ("continuing from previous close-up, similar angle with slight drift"). `_llm_scene_parse()` prompt now includes CRITICAL continuity guidance ("maintain consistent color palette, avoid sudden jumps in camera angle"). `_rule_based_parse()` threads prev_state through consecutive scenes.
+- **H3 Step 2 — LTX prompt continuity** (`ltx_model.py`): `generate_clip()` now accepts `seed` and `prev_colors` parameters — appends color continuity to prompt. `generate_clips()` creates shared_seed from `hash(video_id)` and passes `seed=shared_seed + i` per scene for reproducible adjacent frames. Batch config JSON now includes `seed`, `scene_index`, and `scene_total` per scene. Each uncached scene appends `"maintaining consistent color palette from previous scene"` continuity.
+- **H3 Step 3 — Color grading pass** (`video_compositor.py`): New `_color_grade_scenes()` compares adjacent scene YUV histograms via ffprobe `signalstats` (YAVG/UAVG/VAVG). `_histogram_shift()` computes mean Y/U/V difference normalized to 0-1. If shift > `COLOR_GRADING_THRESHOLD` (default 0.15), `_apply_color_correction()` applies `colorbalance` filter to match previous scene's histogram. Controlled by `ENABLE_COLOR_GRADING=false` env var (default off). New helpers: `_extract_yuv_histogram()`, `_apply_color_correction()`.
+
+### H5 — Visual QA Blur Detection (`video_qa.py`, wired into `main.py`)
+- **`check_blur()`**: Extracts frames at `sample_interval` (default every 5s), computes Laplacian variance via PIL `Kernel(3×3)` and `numpy.var()`. Returns `avg_blur_score`, `blurry_frames` list with timestamp+score, `blur_ratio`. Frames stored in temp dir `qa_blur_` (cleaned up on exit). Falls through on any failure (non-blocking).
+- **`check_frame_quality()`**: Convenience wrapper combining blur check into structured report with `passed` flag and summary. Called from `main.py:verify_video_quality()` after existing black/freeze/corruption checks.
+- **Env vars**: `QA_BLUR_THRESHOLD=100.0` (Laplacian variance threshold, lower = less tolerant). Wired in `main.py` alongside `QA_BLACK_THRESHOLD` and `QA_FREEZE_THRESHOLD`. Non-blocking — warnings logged but pipeline continues.
+- **Requirements**: Uses PIL (already in requirements.txt) + numpy (already transitive from torch/manim). No new dependencies.
+
 ## New Env Vars
 | Variable | Default | Purpose |
 |---|---|---|
+| `OUTPUT_4K` | `false` | Render long videos at 3840×2160 |
+| `SLACK_WEBHOOK_URL` | — | Slack webhook URL for Phase 12 alert dispatch |
 | `VIDEO_MODEL` | `ltx` | Video generation engine |
 | `VOICE_PROVIDER` | `edge` | TTS backend (`edge` or `google`) |
 | `GOOGLE_APPLICATION_CREDENTIALS` | — | Path to Google service account JSON |
@@ -252,3 +341,11 @@
 | `MIN_VIRALITY_SCORE` | `40` | Minimum virality score for shorts |
 | `MIN_VIRALITY_SCORE_LONG` | `30` | Minimum virality score for long videos |
 | `GATE_ENFORCEMENT_MODE` | `advisory` | Gate mode (`advisory` logs only, `enforce` blocks pipeline) |
+| `KNOWLEDGE_GRAPH_ENABLED` | `true` | Enable knowledge graph tracking |
+| `BRAND_ENFORCEMENT` | `advisory` | Brand check mode (`advisory` logs only, `enforce` blocks publishing) |
+| `CONCURRENT_PIPELINE_WORKERS` | `2` | Max parallel pipelines in ThreadPoolExecutor |
+| `ENABLE_MULTI_LANG_DUB` | `false` | Generate TTS audio dubs for each translated language |
+| `ENABLE_LTX_CACHE` | `true` | LRU prompt cache for repeated LTX scene generation |
+| `ENABLE_COLOR_GRADING` | `false` | Cross-scene color balancing via YUV histogram matching |
+| `COLOR_GRADING_THRESHOLD` | `0.15` | Max allowable YUV shift between adjacent scenes |
+| `QA_BLUR_THRESHOLD` | `100.0` | Laplacian variance threshold for blur detection |

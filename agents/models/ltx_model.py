@@ -2,12 +2,14 @@ import os
 import sys
 import json
 import time
+import hashlib
 import logging
 import tempfile
 import importlib.util
 from pathlib import Path
+from collections import OrderedDict
 
-from utils.subprocess_helper import safe_run
+from utils.subprocess_helper import safe_run, register_temp_dir
 from models.base_video_model import BaseVideoModel
 
 logger = logging.getLogger(__name__)
@@ -17,6 +19,64 @@ NEGATIVE_PROMPT = "distorted faces, glitchy motion, flickering lights, inconsist
 QUALITY_SUFFIX = "cinematic lighting, volumetric god rays, smooth camera motion, consistent color palette, 24fps, high quality"
 
 _LTX_MODULE_AVAILABLE = None
+
+_MAX_CACHE_ENTRIES = 50
+_CACHE_DIR = Path(tempfile.gettempdir()) / "ltx_cache"
+_CACHE_DIR.mkdir(parents=True, exist_ok=True)
+register_temp_dir(str(_CACHE_DIR))
+
+_prompt_cache = OrderedDict()
+_cache_meta_path = _CACHE_DIR / "cache_meta.json"
+
+
+def _load_cache_meta():
+    global _prompt_cache
+    if _cache_meta_path.exists():
+        try:
+            with open(_cache_meta_path) as f:
+                data = json.load(f)
+            _prompt_cache = OrderedDict(data.get("entries", {}))
+            logger.info("[LTX-cache] Loaded %d cached prompts", len(_prompt_cache))
+        except Exception as e:
+            logger.warning("[LTX-cache] Failed to load cache meta: %s", e)
+            _prompt_cache = OrderedDict()
+
+
+def _save_cache_meta():
+    try:
+        with open(_cache_meta_path, "w") as f:
+            json.dump({"entries": list(_prompt_cache.items())}, f)
+    except Exception as e:
+        logger.warning("[LTX-cache] Failed to save cache meta: %s", e)
+
+
+def _cache_key(prompt: str) -> str:
+    return hashlib.sha256(prompt.encode()).hexdigest()[:16]
+
+
+def _check_cache(prompt: str) -> str | None:
+    key = _cache_key(prompt)
+    if key in _prompt_cache:
+        cached_path = _prompt_cache[key]
+        if os.path.exists(cached_path) and os.path.getsize(cached_path) > 1000:
+            logger.info("[LTX-cache] HIT: %s -> %s", prompt[:40], cached_path)
+            _prompt_cache.move_to_end(key)
+            return cached_path
+        else:
+            del _prompt_cache[key]
+    return None
+
+
+def _update_cache(prompt: str, path: str):
+    key = _cache_key(prompt)
+    _prompt_cache[key] = path
+    _prompt_cache.move_to_end(key)
+    while len(_prompt_cache) > _MAX_CACHE_ENTRIES:
+        _prompt_cache.popitem(last=False)
+    _save_cache_meta()
+
+
+_load_cache_meta()
 
 
 def _check_ltx_module() -> bool:
@@ -50,9 +110,19 @@ class LtxVideoModel(BaseVideoModel):
         return True
 
     def generate_clip(self, prompt: str, duration: int = 10,
-                      output_path: str | None = None) -> str | None:
+                      output_path: str | None = None,
+                      seed: int = -1, prev_colors: str | None = None) -> str | None:
         if not self.is_available():
             return None
+
+        continuity = ""
+        if prev_colors:
+            continuity = f", consistent with previous scene's palette of {prev_colors}"
+
+        built_prompt = self._build_prompt(prompt + continuity)
+        cached = _check_cache(built_prompt)
+        if cached:
+            return cached
 
         if output_path is None:
             tmp = tempfile.mkdtemp()
@@ -62,12 +132,13 @@ class LtxVideoModel(BaseVideoModel):
         num_frames = ((num_frames - 1) // 8) * 8 + 1
 
         try:
-            logger.info("[LTX] Generating clip: '%s' (%d frames, %ds)",
-                        prompt[:60], num_frames, duration)
-            ok = self._run_mlx_pipeline(prompt, num_frames, output_path)
+            logger.info("[LTX] Generating clip: '%s' (%d frames, %ds, seed=%d)",
+                        prompt[:60], num_frames, duration, seed)
+            ok = self._run_mlx_pipeline(prompt, num_frames, output_path, seed=seed)
             if ok and os.path.exists(output_path) and os.path.getsize(output_path) > 0:
                 size = os.path.getsize(output_path)
                 logger.info("[LTX] Done: %s (%d MB)", output_path, size // 1024 // 1024)
+                _update_cache(built_prompt, output_path)
                 return output_path
         except Exception as e:
             logger.error("[LTX] Generation failed: %s", e)
@@ -83,13 +154,31 @@ class LtxVideoModel(BaseVideoModel):
         if not self.is_available():
             return [None] * len(scenes)
 
+        results = [None] * len(scenes)
         batch = []
-        for scene in scenes:
-            prompt = self._build_prompt(
+        batch_indices = []
+        shared_seed = abs(hash(video_id)) % (2**31 - 1)
+        prev_colors = None
+
+        for i, scene in enumerate(scenes):
+            base_prompt = (
                 scene.get("ltx_prompt", "")
                 or scene.get("description", "")
                 or ", ".join(scene.get("asset_keywords", ["technology"]))
             )
+            continuity = ""
+            if prev_colors:
+                continuity = f", maintaining consistent color palette from previous scene ({prev_colors})"
+            prompt = self._build_prompt(base_prompt + continuity)
+
+            cached = _check_cache(prompt)
+            if cached:
+                logger.info("[LTX-cache] Batch HIT scene %d: %s", i, prompt[:40])
+                results[i] = cached
+                if scene.get("ltx_prompt"):
+                    prev_colors = "teal, cyan, dark gray"
+                continue
+
             duration = scene.get("target_duration", scene.get("duration", 8.0))
             num_frames = max(121, min(481, int(duration * 24)))
             num_frames = ((num_frames - 1) // 8) * 8 + 1
@@ -103,7 +192,12 @@ class LtxVideoModel(BaseVideoModel):
                 "prompt": prompt,
                 "frames": num_frames,
                 "output": output_path,
+                "seed": shared_seed + i,
+                "scene_index": i,
+                "scene_total": len(scenes),
             })
+            batch_indices.append(i)
+            prev_colors = "teal, cyan, dark gray"
 
         config = {
             "model_dir": self.model_dir,
@@ -125,32 +219,44 @@ class LtxVideoModel(BaseVideoModel):
             "models", "ltx_batch.py"
         )
 
+        if not batch:
+            logger.info("[LTX-cache] All %d scenes served from cache", len(scenes))
+            return results
+
         try:
-            logger.info("[LTX] Batch generating %d scenes (model loads once)", len(scenes))
+            logger.info("[LTX] Batch generating %d/%d scenes (cache hit: %d)",
+                        len(batch), len(scenes), len(scenes) - len(batch))
             result = safe_run(
                 [sys.executable, worker_path, config_path],
                 timeout=7200, capture_output=True, text=True,
             )
             if result.returncode == 0:
                 stdout = result.stdout
-                outputs = []
+                batch_outputs = []
                 for line in stdout.strip().split("\n"):
                     if not line:
                         continue
                     try:
                         r = json.loads(line)
                         if r.get("status") == "ok" and os.path.exists(r["path"]):
-                            outputs.append(r["path"])
+                            batch_outputs.append(r["path"])
                         else:
                             logger.warning("[LTX] Batch scene failed: %s", r.get("message", "unknown"))
-                            outputs.append(None)
+                            batch_outputs.append(None)
                     except json.JSONDecodeError:
-                        outputs.append(None)
-                while len(outputs) < len(scenes):
-                    outputs.append(None)
-                logger.info("[LTX] Batch done: %d/%d succeeded",
-                            sum(1 for o in outputs if o), len(scenes))
-                return outputs[:len(scenes)]
+                        batch_outputs.append(None)
+                while len(batch_outputs) < len(batch):
+                    batch_outputs.append(None)
+
+                for idx, output in zip(batch_indices, batch_outputs):
+                    results[idx] = output
+                    if output:
+                        _update_cache(batch[len([j for j in batch_indices if j < idx])]["prompt"], output)
+
+                logger.info("[LTX-cache] Batch done: %d/%d new, %d cached",
+                            sum(1 for o in batch_outputs if o),
+                            len(batch), sum(1 for r in results if r) - sum(1 for o in batch_outputs if o))
+                return results
             else:
                 logger.warning("[LTX] Batch process failed (rc=%d): %s",
                                result.returncode, result.stderr[:300])
@@ -162,7 +268,7 @@ class LtxVideoModel(BaseVideoModel):
             except OSError:
                 pass
 
-        return [None] * len(scenes)
+        return results
 
     def _build_prompt(self, raw_prompt: str) -> str:
         lower = raw_prompt.lower()
@@ -179,7 +285,7 @@ class LtxVideoModel(BaseVideoModel):
 
         return f"{raw_prompt}, {QUALITY_SUFFIX}, negative: {NEGATIVE_PROMPT}"
 
-    def _run_mlx_pipeline(self, prompt: str, num_frames: int, output_path: str) -> bool:
+    def _run_mlx_pipeline(self, prompt: str, num_frames: int, output_path: str, seed: int = -1) -> bool:
         ltx_prompt = self._build_prompt(prompt)
 
         gemma_id = os.getenv("LTX_GEMMA_MODEL", "mlx-community/gemma-3-12b-it-4bit")
@@ -196,9 +302,9 @@ class LtxVideoModel(BaseVideoModel):
             "--output", output_path,
             "--frames", str(num_frames),
             "--frame-rate", "24",
-            "--width", "704",
-            "--height", "448",
-            "--seed", "-1",
+            "--width", "832",
+            "--height", "512",
+            "--seed", str(seed),
             "--quiet",
             "--low-ram",
         ]

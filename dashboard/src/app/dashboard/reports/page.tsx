@@ -3,7 +3,7 @@
 import { useState, useCallback, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
-  BarChart3, TrendingUp, Sparkles, Activity, Target, Bot,
+  BarChart3, TrendingUp, Sparkles, Activity, Target, Bot, FlaskConical,
   RefreshCw, Download, Calendar,
 } from 'lucide-react';
 import { ExecutiveSummary } from '@/components/reports/ExecutiveSummary';
@@ -12,6 +12,7 @@ import { PipelineHealth } from '@/components/reports/PipelineHealth';
 import { QualityInsights } from '@/components/reports/QualityInsights';
 import { GoalsPanel } from '@/components/reports/GoalsPanel';
 import { ChatPanel } from '@/components/reports/ChatPanel';
+import { TitleTesting } from '@/components/reports/TitleTesting';
 
 const tabs = [
   { id: 'summary', label: 'Executive Summary', icon: BarChart3 },
@@ -19,6 +20,7 @@ const tabs = [
   { id: 'quality', label: 'Quality & Insights', icon: Sparkles },
   { id: 'pipeline', label: 'Pipeline Health', icon: Activity },
   { id: 'goals', label: 'Goals & Forecast', icon: Target },
+  { id: 'titles', label: 'Title Tests', icon: FlaskConical },
   { id: 'chat', label: 'AI Analyst', icon: Bot },
 ] as const;
 
@@ -155,6 +157,7 @@ export default function ReportsPage() {
           {activeTab === 'quality' && <QualityInsights key={refreshKey} />}
           {activeTab === 'pipeline' && <PipelineHealth key={refreshKey} />}
           {activeTab === 'goals' && <GoalsPanel key={refreshKey} />}
+          {activeTab === 'titles' && <TitleTesting key={refreshKey} />}
           {activeTab === 'chat' && <ChatPanel />}
         </motion.div>
       </AnimatePresence>

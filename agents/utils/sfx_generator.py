@@ -52,6 +52,66 @@ EFFECT_TO_SFX = {
     "rainbow_burst": "magic",
     "fade_in": "swoosh",
     "fade_out": "swoosh",
+    "pop": "pop",
+    "boing": "boing",
+    "zip": "zip",
+    "ding": "ding",
+    "zap": "zap",
+    "poof": "poof",
+    "laugh": "laugh",
+    "giggle": "giggle",
+    "aww": "aww",
+    "sigh": "sigh",
+    "gasp": "gasp",
+    "chirp": "chirp",
+    "wind": "wind",
+    "bubble": "bubble",
+    "chime": "chime",
+    "bell": "bell",
+    "drum_roll": "drum_roll",
+    "cymbal": "cymbal",
+    "slide": "slide",
+    "bounce": "bounce",
+    "crash": "crash",
+    "magic": "magic",
+    "water_drop": "water_drop",
+    "thunder": "thunder",
+    "applause": "applause",
+    "snap": "snap",
+    "click": "click",
+    "whoosh": "swoosh",
+    "reveal": "swoosh",
+    "transition_in": "swoosh",
+    "transition_out": "swoosh",
+    "emphasis": "ding",
+    "highlight": "chime",
+    "chapter_break": "bell",
+    "list_item": "click",
+    "bullet_point": "pop",
+    "conclusion": "chime",
+    "intro": "drum_roll",
+    "outro": "chime",
+}
+
+TRANSITION_TO_SFX = {
+    "dissolve": "chime",
+    "fade": "swoosh",
+    "slide_left": "swoosh",
+    "slide_right": "swoosh",
+    "zoom": "zip",
+    "cut": "click",
+    "circle_open": "whoosh",
+    "circle_close": "whoosh",
+    "pixelize": "zap",
+    "wipe_left": "swoosh",
+    "wipe_right": "swoosh",
+    "wipe_up": "swoosh",
+    "wipe_down": "swoosh",
+    "smooth_left": "slide",
+    "smooth_right": "slide",
+    "fade_gradual": "chime",
+    "squeeze_h": "bounce",
+    "squeeze_v": "bounce",
 }
 
 
@@ -235,8 +295,31 @@ def map_effect_to_sfx(effect_name: str) -> str | None:
     return EFFECT_TO_SFX.get(effect_name)
 
 
-def load_sfx_scene_assignments(scenes: list[dict]) -> list[dict]:
+def get_transition_sfx(transition_name: str) -> dict | None:
+    """Return an SFX dict for a transition name, or None if no mapping."""
+    sfx_name = TRANSITION_TO_SFX.get(transition_name)
+    if not sfx_name:
+        return None
+    sfx_path = get_sfx_path(sfx_name)
+    if not sfx_path:
+        return None
+    return {"name": sfx_name, "path": sfx_path, "type": "transition"}
+
+
+def compute_scene_timestamps(scenes: list[dict]) -> list[dict]:
+    """Compute start_time and end_time for each scene from cumulative durations."""
+    current = 0.0
     for scene in scenes:
+        dur = scene.get("duration", scene.get("target_duration", 8.0))
+        scene["start_time"] = current
+        scene["end_time"] = current + dur
+        current += dur
+    return scenes
+
+
+def load_sfx_scene_assignments(scenes: list[dict]) -> list[dict]:
+    scenes = compute_scene_timestamps(scenes)
+    for i, scene in enumerate(scenes):
         effects = scene.get("effects", [])
         scene_sfx = []
         for effect in effects:
@@ -244,7 +327,13 @@ def load_sfx_scene_assignments(scenes: list[dict]) -> list[dict]:
             if sfx_name:
                 sfx_path = get_sfx_path(sfx_name)
                 if sfx_path:
-                    scene_sfx.append({"name": sfx_name, "path": sfx_path})
+                    scene_sfx.append({"name": sfx_name, "path": sfx_path, "type": "effect"})
+        # Add transition SFX for the incoming transition (except first scene)
+        if i > 0:
+            prev_transition = scene.get("transition", "dissolve")
+            tsfx = get_transition_sfx(prev_transition)
+            if tsfx:
+                scene_sfx.append(tsfx)
         if scene_sfx:
             scene["sfx"] = scene_sfx
     return scenes

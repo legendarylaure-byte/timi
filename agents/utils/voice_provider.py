@@ -38,6 +38,27 @@ CONTENT_TYPE_VOICES = {
     "general": "en-US-Studio-O",
 }
 
+KOKORO_VOICE_MAP = {
+    "en-US-AriaNeural": "af_bella",
+    "en-US-JennyNeural": "af_nicole",
+    "en-GB-SoniaNeural": "af_heart",
+    "en-US-Journey-F": "af_bella",
+    "en-US-Neural2-J": "am_adam",
+    "en-US-Studio-O": "af_bella",
+    "en-US-Studio-Q": "af_nicole",
+}
+
+CONTENT_KOKORO_VOICES = {
+    "educational": "af_bella",
+    "storytelling": "af_bella",
+    "story": "af_heart",
+    "energetic": "am_adam",
+    "general": "af_nicole",
+}
+
+DEFAULT_KOKORO_VOICE = "af_bella"
+KOKORO_SAMPLE_RATE = 24000
+
 
 class BaseTTSProvider(ABC):
 
@@ -78,7 +99,9 @@ class EdgeTTSProvider(BaseTTSProvider):
                        pitch: str = DEFAULT_PITCH) -> bool:
         try:
             import edge_tts
-            communicate = edge_tts.Communicate(text, voice, rate=rate, pitch=pitch)
+            from utils.voice_gen import _wrap_ssml
+            ssml_text = _wrap_ssml(text, voice_name=voice, rate=rate)
+            communicate = edge_tts.Communicate(ssml_text, voice, rate=rate, pitch=pitch)
             await communicate.save(output_path)
             return os.path.exists(output_path) and os.path.getsize(output_path) > 100
         except Exception as e:
@@ -92,7 +115,9 @@ class EdgeTTSProvider(BaseTTSProvider):
         sentence_times = []
         try:
             import edge_tts
-            communicate = edge_tts.Communicate(text, voice, rate=rate, pitch=pitch)
+            from utils.voice_gen import _wrap_ssml
+            ssml_text = _wrap_ssml(text, voice_name=voice, rate=rate)
+            communicate = edge_tts.Communicate(ssml_text, voice, rate=rate, pitch=pitch)
             async for chunk in communicate.stream():
                 if chunk["type"] in ("SentenceBoundary", "WordBoundary"):
                     sentence_times.append({
@@ -244,6 +269,143 @@ class GoogleCloudTTSProvider(BaseTTSProvider):
             return []
 
 
+class KokoroProvider(BaseTTSProvider):
+
+    _pipeline = None
+
+    def name(self) -> str:
+        return "kokoro"
+
+    def is_available(self) -> bool:
+        import importlib.util
+        return importlib.util.find_spec("kokoro") is not None
+
+    def _get_pipeline(self):
+        if KokoroProvider._pipeline is None:
+            try:
+                from kokoro import KPipeline
+                repo_id = os.getenv("KOKORO_REPO_ID", "hexgrad/Kokoro-82M")
+                KokoroProvider._pipeline = KPipeline(lang_code="a", repo_id=repo_id)
+            except Exception as e:
+                logger.error("Kokoro pipeline init error: %s", e)
+                raise
+        return KokoroProvider._pipeline
+
+    def _map_voice(self, voice: str) -> str:
+        mapped = KOKORO_VOICE_MAP.get(voice)
+        if mapped:
+            return mapped
+        return CONTENT_KOKORO_VOICES.get(voice, os.getenv("KOKORO_VOICE", DEFAULT_KOKORO_VOICE))
+
+    @staticmethod
+    def _rate_to_speed(rate: str) -> float:
+        rate = rate.replace("%", "").strip()
+        if rate.startswith("+"):
+            speed = 1 + float(rate[1:]) / 100
+        elif rate.startswith("-"):
+            speed = 1 - float(rate[1:]) / 100
+        else:
+            speed = float(rate) / 100
+        return max(0.5, min(2.0, round(speed, 2)))
+
+    async def generate(self, text: str, output_path: str,
+                       voice: str = DEFAULT_VOICE,
+                       rate: str = DEFAULT_RATE,
+                       pitch: str = DEFAULT_PITCH) -> bool:
+        try:
+            pipe = self._get_pipeline()
+            speed = self._rate_to_speed(rate)
+            voice_name = self._map_voice(voice)
+
+            import torch
+            gen = pipe(text, voice=voice_name, speed=speed)
+            all_segments = []
+            for _, _, audio in gen:
+                all_segments.append(audio.cpu())
+            if not all_segments:
+                logger.warning("Kokoro generated no audio segments")
+                return False
+
+            combined = torch.cat(all_segments).float()
+            audio_int16 = (combined * 32767).clamp(-32768, 32767).short()
+            from pydub import AudioSegment
+            seg = AudioSegment(
+                audio_int16.numpy().tobytes(),
+                frame_rate=KOKORO_SAMPLE_RATE,
+                sample_width=2,
+                channels=1,
+            )
+            seg.export(output_path, format="wav")
+            return os.path.exists(output_path) and os.path.getsize(output_path) > 100
+        except Exception as e:
+            logger.error("Kokoro generate error: %s", e)
+            return False
+
+    async def generate_timing(self, text: str,
+                              voice: str = DEFAULT_VOICE,
+                              rate: str = DEFAULT_RATE,
+                              pitch: str = DEFAULT_PITCH) -> list[dict]:
+        events = await self._hybrid_timing(text, voice, rate, pitch)
+        if events:
+            return events
+        return self._estimate_timing(text, rate)
+
+    async def _hybrid_timing(self, text: str, voice: str,
+                             rate: str, pitch: str) -> list[dict] | None:
+        """Stream timing from edge-tts (metadata only, no audio download).
+
+        Uses the original edge-tts voice name if available, otherwise falls
+        back to a default. The voice for timing doesn't need to match Kokoro's
+        — only reading speed and phrasing affect word boundaries.
+        """
+        try:
+            import edge_tts
+            if voice.startswith("en-") or voice.startswith("en-GB"):
+                tts_voice = voice
+            else:
+                tts_voice = "en-US-AriaNeural"
+            communicate = edge_tts.Communicate(text, voice=tts_voice, rate=rate, pitch=pitch)
+            events = []
+            async for chunk in communicate.stream():
+                if chunk["type"] in ("SentenceBoundary", "WordBoundary"):
+                    events.append({
+                        "text": chunk.get("text", ""),
+                        "offset_ms": chunk.get("offset", 0) / 10000,
+                        "duration_ms": chunk.get("duration", 0) / 10000,
+                        "type": chunk["type"],
+                    })
+            return events if events else None
+        except Exception as e:
+            logger.debug("Kokoro hybrid timing unavailable, using estimation: %s", e)
+            return None
+
+    def _estimate_timing(self, text: str, rate: str) -> list[dict]:
+        """Character-count proportional timing estimation."""
+        words = text.split()
+        if not words:
+            return []
+
+        speed = self._rate_to_speed(rate)
+        total_chars = sum(len(w) for w in words)
+        est_rate = 15.0 * speed
+        total_duration_ms = (total_chars / max(est_rate, 1.0)) * 1000
+
+        timings = []
+        offset = 0.0
+        for word in words:
+            weight = len(word) / max(total_chars, 1)
+            word_duration = total_duration_ms * weight
+            timings.append({
+                "text": word,
+                "offset_ms": int(offset),
+                "duration_ms": max(int(word_duration), 80),
+                "type": "WordBoundary",
+            })
+            offset += word_duration
+
+        return timings
+
+
 _PROVIDER_INSTANCE = None
 
 
@@ -253,7 +415,15 @@ def get_tts_provider(name: str | None = None) -> BaseTTSProvider:
         return _PROVIDER_INSTANCE
 
     if name is None:
-        name = os.getenv("VOICE_PROVIDER", "edge")
+        name = os.getenv("VOICE_PROVIDER", "kokoro")
+
+    if name == "kokoro":
+        provider = KokoroProvider()
+        if provider.is_available():
+            logger.info("Using Kokoro TTS provider (local, no API key needed)")
+            _PROVIDER_INSTANCE = provider
+            return provider
+        logger.warning("Kokoro not available, falling back to edge-tts")
 
     if name == "google":
         provider = GoogleCloudTTSProvider()

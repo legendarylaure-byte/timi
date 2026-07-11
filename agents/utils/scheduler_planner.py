@@ -127,9 +127,10 @@ def _get_seasonal_context() -> str:
     return events.get(month, "General content")
 
 
-def _llm_plan(analytics_context: str, calendar_context: str, seasonal: str) -> Optional[list]:
+def _llm_plan(analytics_context: str, calendar_context: str, seasonal: str, extra_context: str = "") -> Optional[list]:
     from utils.llm_client import generate_completion
 
+    extra_section = f"\nAdditional context:\n{extra_context}\n" if extra_context else ""
     prompt = f"""Create a content plan for {datetime.now().strftime('%Y-%m-%d')}.
 
 Seasonal context: {seasonal}
@@ -137,7 +138,7 @@ Seasonal context: {seasonal}
 {analytics_context}
 
 {calendar_context}
-
+{extra_section}
 Consider which categories need more content based on engagement data.
 Avoid topics that appear in the blacklist. Prioritize underrepresented categories."""
 
@@ -310,6 +311,64 @@ def load_plan() -> dict:
     return {"videos": []}
 
 
+def _load_analytics_weighting() -> dict:
+    """Load best_category from analytics feedback for priority weighting."""
+    try:
+        fb_path = os.path.join(
+            os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+            "data", "analytics", "feedback_loop.json"
+        )
+        if os.path.exists(fb_path):
+            with open(fb_path) as f:
+                fb = json.load(f)
+            insights = fb.get("active_insights", {})
+            best_cat = insights.get("best_category")
+            if best_cat:
+                logger.info("[planner] Analytics weighting: boosting '%s' priority", best_cat)
+                return {"best_category": best_cat}
+    except Exception as e:
+        logger.debug("[planner] Could not load analytics weighting: %s", e)
+    return {}
+
+
+def _apply_pillar_balance(plan: list) -> list:
+    """Swap overrepresented pillar categories for underrepresented ones."""
+    try:
+        from utils.pillar_manager import get_pillar_balance, get_underrepresented_pillars
+        balance = get_pillar_balance()
+        underrepresented = get_underrepresented_pillars(min_gap=-0.02)
+
+        if not underrepresented:
+            return plan
+
+        overrepresented = sorted(
+            [{"name": n, **d} for n, d in balance.items() if d["gap"] > 0.03],
+            key=lambda x: -x["gap"]
+        )
+
+        swap_count = 0
+        for item in plan:
+            if not overrepresented or not underrepresented:
+                break
+            cat = item.get("category", "")
+            b = balance.get(cat)
+            if b and b["gap"] > 0.03:
+                swap_target = underrepresented[0]
+                old_cat = cat
+                item["category"] = swap_target["name"]
+                item["reasoning"] = f"Pillar-balanced: swapped from {old_cat} to {swap_target['name']} (underrepresented)"
+                overrepresented.pop(0)
+                underrepresented.pop(0)
+                swap_count += 1
+
+        if swap_count:
+            logger.info("[planner] Pillar-balance swap: %d categories adjusted", swap_count)
+        return plan
+    except Exception as e:
+        logger.debug("[planner] Pillar balance skipped: %s", e)
+        return plan
+
+
 def generate_content_plan(force_llm: bool = False, slot: str = "", extra_context: str = "") -> list:
     logger.info("Generating content plan...")
     try:
@@ -322,13 +381,15 @@ def generate_content_plan(force_llm: bool = False, slot: str = "", extra_context
     calendar_context = _load_calendar_context()
     seasonal = _get_seasonal_context()
 
+    analytics_weighting = _load_analytics_weighting()
+
     videos = None
     if force_llm or analytics_context or calendar_context:
         try:
             update_agent_status("scheduler", "working", "Running LLM content planning")
         except Exception:
             pass
-        videos = _llm_plan(analytics_context, calendar_context, seasonal)
+        videos = _llm_plan(analytics_context, calendar_context, seasonal, extra_context)
 
     if not videos:
         logger.info("LLM plan unavailable, using fallback rule-based plan")
@@ -342,6 +403,15 @@ def generate_content_plan(force_llm: bool = False, slot: str = "", extra_context
             if count_7d >= 3:
                 v["priority"] = max(30, v.get("priority", 50) - 20)
                 v["reasoning"] += f" (category {cat} had {count_7d} videos in 7 days)"
+
+    best_cat = analytics_weighting.get("best_category")
+    if best_cat:
+        for v in videos:
+            if v.get("category") == best_cat:
+                v["priority"] = min(100, v.get("priority", 50) + 15)
+                v["reasoning"] += f" (analytics-weighted: {best_cat} is best category)"
+
+    videos = _apply_pillar_balance(videos)
 
     videos.sort(key=lambda x: x.get("priority", 50), reverse=True)
 

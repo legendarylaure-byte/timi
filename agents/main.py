@@ -34,7 +34,11 @@ from utils.thumbnail_gen import generate_thumbnail_image, generate_thumbnail_var
 from utils.health_monitor import start_heartbeat_monitor, start_health_server, check_ollama_health
 from utils.description_gen import generate_description
 from utils.subtitle_gen import generate_subtitles_for_video
-from utils.translate import translate_script
+from utils.translate import translate_script, dub_all_languages, register_dub_cleanup as register_dub_cleanup_func
+from utils.comment_analyzer import analyze_sentiment, flag_negative_comments
+from utils.pillar_manager import track_pillar_video, suggest_next_pillar, validate_plan_balance
+from utils.seo_optimizer import get_optimized_tags, score_description_seo
+from utils.alert_manager import process_alerts, send_alert
 
 from utils.music_gen import generate_background_music
 from utils.voice_gen import generate_voiceover
@@ -44,6 +48,7 @@ from utils.repurposer import batch_reprocess_all_videos
 from utils.trend_discovery import discover_trends
 from utils.quality_scorer import score_content, predict_performance, check_repetition, evaluate_publish_decision
 from utils.cleanup_service import run_cleanup
+from utils.concurrent_pipeline import run_concurrent_pipelines
 from utils.firebase_control import AgentControlListener
 from utils.firebase_status import (
     update_agent_status,
@@ -69,7 +74,7 @@ from compliance.platform_policy import check_platform_compliance
 from utils.title_tester import TitleTester
 from utils.analytics_feedback import analyze_recent_performance, get_optimization_prompt_injection, get_pipeline_tuning
 from utils.llm_helper import force_fallback
-from utils.series_builder import register_video_in_series
+from utils.series_builder import register_video_in_series, build_continuity_text, generate_part_title, pick_series_for_category
 from utils.checkpoint import save_checkpoint, load_checkpoint, clear_checkpoint
 from utils.title_optimizer import pick_best_title
 from crew.affiliate_manager import build_affiliate_section
@@ -82,6 +87,12 @@ os.environ["GLOG_minloglevel"] = "2"
 
 SHORTS_MAX_DURATION = 55
 MIN_VIDEO_SIZE = 500 * 1024
+
+ENABLE_VISUAL_QA = os.getenv("ENABLE_VISUAL_QA", "true").lower() == "true"
+QA_BLACK_THRESHOLD = float(os.getenv("QA_BLACK_THRESHOLD", "0.2"))
+QA_FREEZE_THRESHOLD = float(os.getenv("QA_FREEZE_THRESHOLD", "0.1"))
+QA_BLUR_THRESHOLD = float(os.getenv("QA_BLUR_THRESHOLD", "100.0"))
+QA_MAX_RETRIES = int(os.getenv("QA_MAX_RETRIES", "2"))
 
 
 def _extract_json(data):
@@ -170,7 +181,7 @@ def _execute_single_task(crew_factory, inputs=None, **factory_kwargs):
 
 
 def verify_video_quality(video_path: str, format_type: str = "shorts") -> tuple[bool, str]:
-    """Verify video file exists, has valid size, and reasonable duration."""
+    """Verify video file exists, has valid size, duration, and frame-level quality."""
     if not video_path or not os.path.exists(video_path):
         return False, "Video file not found"
     file_size = os.path.getsize(video_path)
@@ -193,6 +204,27 @@ def verify_video_quality(video_path: str, format_type: str = "shorts") -> tuple[
                     return False, f"Duration {duration:.0f}s too short for long-form"
     except Exception as e:
         print(f"[QUALITY] ffprobe check failed: {e}")
+
+    if ENABLE_VISUAL_QA:
+        try:
+            from utils.video_qa import verify_frame_quality, check_frame_quality
+            qa_pass, qa_report = verify_frame_quality(
+                video_path, format_type,
+                black_threshold=QA_BLACK_THRESHOLD,
+                freeze_threshold=QA_FREEZE_THRESHOLD,
+            )
+            if not qa_pass:
+                msg = f"Visual QA: {qa_report['summary']}"
+                print(f"[QUALITY] {msg}")
+                return False, msg
+            print(f"[QUALITY] Visual QA passed: {qa_report['summary']}")
+
+            blur_report = check_frame_quality(video_path, format_type, blur_threshold=QA_BLUR_THRESHOLD)
+            if not blur_report.get("passed", True):
+                print(f"[QUALITY] Blur check: {blur_report['summary']}")
+        except Exception as e:
+            print(f"[QUALITY] Visual QA check failed (non-blocking): {e}")
+
     return True, ""
 
 
@@ -243,8 +275,11 @@ AUTO_APPROVE_THRESHOLD = int(os.getenv("AUTO_APPROVE_THRESHOLD", 80))
 ENABLE_MULTI_LANG = os.getenv("ENABLE_MULTI_LANG", "true").lower() == "true"
 ENABLE_SUBTITLES = os.getenv("ENABLE_SUBTITLES", "true").lower() == "true"
 ENABLE_REVIEW_GATE = os.getenv("ENABLE_REVIEW_GATE", "true").lower() == "true"
+ENABLE_COMPANION_PAGES = os.getenv("ENABLE_COMPANION_PAGES", "true").lower() == "true"
 ENABLE_DIRECTOR_REVIEW = os.getenv("ENABLE_DIRECTOR_REVIEW", "true").lower() == "true"
 MULTI_LANG_CODES = os.getenv("MULTI_LANG_CODES", "es,de,fr").split(",")
+ENABLE_MULTI_LANG_DUB = os.getenv("ENABLE_MULTI_LANG_DUB", "false").lower() == "true"
+ENABLE_LTX_CACHE = os.getenv("ENABLE_LTX_CACHE", "true").lower() == "true"
 PIPELINE_TIMEOUT_MINUTES = int(os.getenv("PIPELINE_TIMEOUT_MINUTES", 120))
 MAX_RETRIES_PER_TOPIC = int(os.getenv("MAX_RETRIES_PER_TOPIC", 2))
 FORCE_PUBLISH = os.getenv("FORCE_PUBLISH", "true").lower() == "true"
@@ -605,6 +640,21 @@ def run_video_pipeline(script_text: str, storyboard_text: str, category: str, fo
         "VOICE", f"Voice-over: {voice_result['duration']:.1f}s, {voice_result['segments']} segments -> {voice_result['path']}")  # noqa: E501
     update_agent_status("voice", "completed", f"Voice-over {voice_result['duration']:.1f}s")
 
+    audio_dur = voice_result.get("duration", 0)
+    if audio_dur > 0 and scenes:
+        scene_total = sum(s.get("target_duration", 8.0) for s in scenes)
+        if scene_total > 0:
+            ratio = audio_dur / scene_total
+            for s in scenes:
+                td = s.get("target_duration", 8.0)
+                s["target_duration"] = max(2.0, min(30.0, round(td * ratio, 1)))
+            new_total = sum(s.get("target_duration", 8.0) for s in scenes)
+            total_video_duration = new_total
+            log_event("VOICE",
+                      f"Audio-first sync: {audio_dur:.1f}s audio "
+                      f"-> scenes {scene_total:.1f}s->{new_total:.1f}s "
+                      f"({ratio:.2f}x)")
+
     subtitle_path = None
     if generate_subs and ENABLE_SUBTITLES and voice_result.get("timing_file"):
         log_event("PIPELINE", "Step 2.5: Generating subtitles")
@@ -683,7 +733,14 @@ def run_video_pipeline(script_text: str, storyboard_text: str, category: str, fo
         final_path = composite_video(clips=clips, voice_path=voice_result["path"], music_path=music_path, format_type=format_type, video_id=video_id, subtitle_path=subtitle_path, chapters=chapters, category=category, scenes=scenes)
 
     if not final_path:
-        log_pipeline_error(video_id, "Video compositing failed", "video_compositing")
+        log_event("EDITOR", "Composite failed, retrying without xfade transitions")
+        if use_asset_router:
+            final_path = composite_video(clips=clips, voice_path=voice_result["path"], music_path=music_path, format_type=format_type, video_id=video_id, subtitle_path=subtitle_path, chapters=chapters, category=category, scenes=scenes, force_concat=True)
+        else:
+            final_path = composite_video(clips=clips, voice_path=voice_result["path"], music_path=music_path, format_type=format_type, video_id=video_id, subtitle_path=subtitle_path, chapters=chapters, category=category, scenes=scenes, force_concat=True)
+
+    if not final_path:
+        log_pipeline_error(video_id, "Video compositing failed after retry", "video_compositing")
         raise Exception("Video compositing failed.")
     log_event("EDITOR", f"Final video: {final_path}")
     update_agent_status("editor", "completed", f"Video composited -> {final_path}")
@@ -803,9 +860,26 @@ def generate_short_video(topic: str, category: str, video_id: str, publish_at: s
         failed_step = "scriptwriting"
         with _track_step(video_id, "scriptwriting"):
             opt_injection = get_optimization_prompt_injection()
+
+            from utils.knowledge_integration import inject_knowledge_context
+            knowledge_ctx = inject_knowledge_context(topic, category)
+            series_ctx = ""
+            try:
+                _series = pick_series_for_category(category)
+                if _series:
+                    next_part = _series.get("current_part", 0) + 1
+                    continuity = build_continuity_text(_series, next_part)
+                    if continuity:
+                        series_ctx = f"Series context: {continuity}"
+            except Exception:
+                pass
+
+            extra_parts = [p for p in [knowledge_ctx, series_ctx, opt_injection] if p]
+            extra_context = "\n".join(extra_parts) if extra_parts else ""
+
             script_kwargs = {"topic": topic, "category": category, "fmt": "shorts", "max_duration": SHORTS_MAX_DURATION}
-            if opt_injection:
-                script_kwargs["extra_context"] = opt_injection
+            if extra_context:
+                script_kwargs["extra_context"] = extra_context
             script = run_agent_step("scriptwriter", "Scriptwriter", f"Writing script for: {topic}", create_scriptwriter_crew, script_kwargs, timeout_minutes=20)  # noqa: E501
             script_text = str(script)
             save_checkpoint(video_id, "scriptwriting", {"script_preview": script_text[:200]})
@@ -835,6 +909,24 @@ def generate_short_video(topic: str, category: str, video_id: str, publish_at: s
                 log_event("HOOK", f"Rewrite skipped (invalid output)", "warn")
         else:
             log_event("HOOK", f"Hook score: {hook_score_result['score']}/100 — passed")
+
+        try:
+            from utils.brand_manager import record_hook_usage, HOOK_FORMULAS
+            _sl = (script_text or "")[:200].lower()
+            _dh = "question"
+            if any(_sl.startswith(p) for p in ["imagine", "what if"]):
+                _dh = "question"
+            elif any(w in _sl for w in ["secretly", "nobody", "the truth", "why most"]):
+                _dh = "bold_claim"
+            elif any(c.isdigit() for c in _sl[:100]):
+                _dh = "statistic"
+            elif any(p in _sl for p in ["here's why", "the reason", "but here's"]):
+                _dh = "curiosity_gap"
+            elif any(p in _sl for p in ["stop", "frustrated", "annoyed", "tired of"]):
+                _dh = "pain_point"
+            record_hook_usage(video_id, topic, _dh, "shorts")
+        except Exception:
+            pass
 
         failed_step = "compliance_check"
         try:
@@ -968,6 +1060,14 @@ def generate_short_video(topic: str, category: str, video_id: str, publish_at: s
         if affiliate_text and affiliate_text not in full_desc:
             full_desc += affiliate_text
             desc_result["full_description"] = full_desc
+        try:
+            seo_tags = get_optimized_tags(category, "shorts", topic)
+            seo_score = score_description_seo(full_desc)
+            if seo_score["missing"]:
+                log_event("SEO", f"Description missing: {', '.join(seo_score['missing'])}")
+            desc_result["tags"] = seo_tags
+        except Exception:
+            pass
 
         failed_step = "title_optimization"
         title_variants = []
@@ -991,6 +1091,18 @@ def generate_short_video(topic: str, category: str, video_id: str, publish_at: s
             if video_thumb:
                 thumbnail_path = video_thumb
 
+        failed_step = "consistency_audit"
+        try:
+            from utils.consistency_checker import run_consistency_audit, get_audit_summary
+            audit = run_consistency_audit(topic, script_text, "shorts", category, video_id)
+            log_event("CONSISTENCY", f"Pre-publish audit: {get_audit_summary(audit)}")
+            if audit.get("warnings", 0) > 0:
+                for issue in audit.get("issues", [])[:3]:
+                    if issue.get("severity") == "warning":
+                        log_event("CONSISTENCY", f"  ⚠ {issue.get('detail', '')[:120]}")
+        except Exception as e:
+            log_event("CONSISTENCY", f"Audit skipped: {e}", "debug")
+
         failed_step = "publishing"
         with _track_step(video_id, "publishing"):
             platforms_to_publish = ['youtube', 'instagram', 'facebook']
@@ -1005,6 +1117,7 @@ def generate_short_video(topic: str, category: str, video_id: str, publish_at: s
                 publish_at=publish_at,
                 category=category,
                 subtitle_path=video_result.get("subtitle_path"),
+                tags=desc_result.get("tags"),
             )
         publish_status = "scheduled" if publish_at else "Published"
         log_event(
@@ -1022,6 +1135,26 @@ def generate_short_video(topic: str, category: str, video_id: str, publish_at: s
                 subtitle_path=video_result.get("subtitle_path"),
             )
 
+        if publish_result.get("success_count", 0) > 0 and ENABLE_COMPANION_PAGES:
+            try:
+                from utils.companion_page import generate_companion_page, upload_companion_page
+                from utils.r2_storage import upload_thumbnail as r2_upload_thumb
+                thumb_r2_url = r2_upload_thumb(thumbnail_path, video_id) if thumbnail_path else ""
+                yt_url = publish_result.get('platforms', {}).get('youtube', {}).get('video_url', '')
+                chaps = video_result.get("chapters", [])
+                tags = [category] + [w for w in topic.split() if len(w) > 3][:8]
+                page_path = generate_companion_page(
+                    video_id=video_id, title=topic,
+                    description=desc_result.get("full_description", ""),
+                    category=category, tags=tags, thumbnail_url=thumb_r2_url,
+                    video_url=yt_url, format_type="shorts", chapters=chaps,
+                )
+                if page_path:
+                    companion_url = upload_companion_page(page_path, video_id)
+                    log_event("COMPANION", f"Companion page: {companion_url}")
+            except Exception as e:
+                log_event("COMPANION", f"Companion page skipped: {e}", "debug")
+
         if ENABLE_MULTI_LANG:
             log_event("PIPELINE", "Generating multi-language versions")
             translations = {}
@@ -1035,6 +1168,15 @@ def generate_short_video(topic: str, category: str, video_id: str, publish_at: s
                 update_video_record(video_id, {
                     "translations": {k: v.get("title", "") for k, v in translations.items()},
                 })
+                if ENABLE_MULTI_LANG_DUB:
+                    log_event("PIPELINE", "Generating dubbed audio for multi-language")
+                    try:
+                        dubs = _run_async(dub_all_languages(translations, video_id))
+                        if dubs:
+                            update_video_record(video_id, {"dubs": {k: {"duration": v["duration"]} for k, v in dubs.items() if v["success"]}})
+                            register_dub_cleanup_func(video_id)
+                    except Exception as e:
+                        log_event("DUB", f"Failed to generate dubs: {e}")
 
         failed_step = "title_tester"
         youtube_url = publish_result.get('platforms', {}).get('youtube', {}).get('video_url', '')
@@ -1063,6 +1205,13 @@ def generate_short_video(topic: str, category: str, video_id: str, publish_at: s
         except Exception as e:
             log_event("SERIES", f"Series registration skipped: {e}", "debug")
 
+        try:
+            from utils.knowledge_integration import record_video_knowledge
+            record_video_knowledge(video_id, topic, category, difficulty="intermediate")
+            log_event("KNOWLEDGE", f"Registered {topic} in knowledge graph")
+        except Exception as e:
+            log_event("KNOWLEDGE", f"Knowledge registration skipped: {e}", "debug")
+
         failed_step = "pinned_comment"
         if youtube_id:
             try:
@@ -1074,8 +1223,22 @@ def generate_short_video(topic: str, category: str, video_id: str, publish_at: s
                     post_pinned_comment(youtube_id, comment_text, yt_svc)
                     auto_reply_to_comments(youtube_id, yt_svc)
                     log_event("COMMENT", f"Pinned comment + auto-reply set up for {youtube_id}")
+                    try:
+                        from utils.comment_analyzer import analyze_video_comments, flag_negative_comments
+                        sentiment = analyze_video_comments(youtube_id, yt_svc, max_comments=30)
+                        if sentiment["total"] > 0:
+                            log_event("SENTIMENT", f"Comments: {sentiment['total']} total, {sentiment['sentiments']['negative'] + sentiment['sentiments']['toxic']} negative")
+                        flagged = flag_negative_comments(youtube_id, yt_svc)
+                        if flagged:
+                            log_event("SENTIMENT", f"Negative comment alert: {flagged['message']}", "warn")
+                    except Exception as se:
+                        log_event("SENTIMENT", f"Sentiment analysis skipped: {se}", "debug")
             except Exception as e:
                 log_event("COMMENT", f"Pinned comment skipped: {e}", "debug")
+        try:
+            track_pillar_video(category)
+        except Exception:
+            pass
 
         failed_step = "finalizing"
         update_video_record(video_id, {
@@ -1142,9 +1305,26 @@ def generate_long_video(topic: str, category: str, video_id: str, publish_at: st
         failed_step = "scriptwriting"
         with _track_step(video_id, "scriptwriting"):
             opt_injection = get_optimization_prompt_injection()
+
+            from utils.knowledge_integration import inject_knowledge_context
+            knowledge_ctx = inject_knowledge_context(topic, category)
+            series_ctx = ""
+            try:
+                _series = pick_series_for_category(category)
+                if _series:
+                    next_part = _series.get("current_part", 0) + 1
+                    continuity = build_continuity_text(_series, next_part)
+                    if continuity:
+                        series_ctx = f"Series context: {continuity}"
+            except Exception:
+                pass
+
+            extra_parts = [p for p in [knowledge_ctx, series_ctx, opt_injection] if p]
+            extra_context = "\n".join(extra_parts) if extra_parts else ""
+
             script_kwargs = {"topic": topic, "category": category, "fmt": "long", "max_duration": LONG_MAX_DURATION}
-            if opt_injection:
-                script_kwargs["extra_context"] = opt_injection
+            if extra_context:
+                script_kwargs["extra_context"] = extra_context
             script = run_agent_step("scriptwriter", "Scriptwriter", f"Writing script for: {topic}", create_scriptwriter_crew, script_kwargs, timeout_minutes=30)  # noqa: E501
             script_text = str(script)
             save_checkpoint(video_id, "scriptwriting", {"script_preview": script_text[:200]})
@@ -1174,6 +1354,24 @@ def generate_long_video(topic: str, category: str, video_id: str, publish_at: st
                 log_event("HOOK", f"Rewrite skipped (invalid output)", "warn")
         else:
             log_event("HOOK", f"Hook score: {hook_score_result['score']}/100 — passed")
+
+        try:
+            from utils.brand_manager import record_hook_usage
+            _sl = (script_text or "")[:200].lower()
+            _dh = "question"
+            if any(_sl.startswith(p) for p in ["imagine", "what if"]):
+                _dh = "question"
+            elif any(w in _sl for w in ["secretly", "nobody", "the truth", "why most"]):
+                _dh = "bold_claim"
+            elif any(c.isdigit() for c in _sl[:100]):
+                _dh = "statistic"
+            elif any(p in _sl for p in ["here's why", "the reason", "but here's"]):
+                _dh = "curiosity_gap"
+            elif any(p in _sl for p in ["stop", "frustrated", "annoyed", "tired of"]):
+                _dh = "pain_point"
+            record_hook_usage(video_id, topic, _dh, "long")
+        except Exception:
+            pass
 
         failed_step = "compliance_check"
         try:
@@ -1308,6 +1506,14 @@ def generate_long_video(topic: str, category: str, video_id: str, publish_at: st
         if affiliate_text and affiliate_text not in full_desc:
             full_desc += affiliate_text
             desc_result["full_description"] = full_desc
+        try:
+            seo_tags = get_optimized_tags(category, "long", topic)
+            seo_score = score_description_seo(full_desc)
+            if seo_score["missing"]:
+                log_event("SEO", f"Description missing: {', '.join(seo_score['missing'])}")
+            desc_result["tags"] = seo_tags
+        except Exception:
+            pass
 
         failed_step = "title_optimization"
         title_variants = []
@@ -1331,6 +1537,18 @@ def generate_long_video(topic: str, category: str, video_id: str, publish_at: st
             if video_thumb:
                 thumbnail_path = video_thumb
 
+        failed_step = "consistency_audit"
+        try:
+            from utils.consistency_checker import run_consistency_audit, get_audit_summary
+            audit = run_consistency_audit(topic, script_text, "long", category, video_id)
+            log_event("CONSISTENCY", f"Pre-publish audit: {get_audit_summary(audit)}")
+            if audit.get("warnings", 0) > 0:
+                for issue in audit.get("issues", [])[:3]:
+                    if issue.get("severity") == "warning":
+                        log_event("CONSISTENCY", f"  ⚠ {issue.get('detail', '')[:120]}")
+        except Exception as e:
+            log_event("CONSISTENCY", f"Audit skipped: {e}", "debug")
+
         failed_step = "publishing"
         with _track_step(video_id, "publishing"):
             platforms_to_publish = ['youtube', 'facebook']
@@ -1346,6 +1564,7 @@ def generate_long_video(topic: str, category: str, video_id: str, publish_at: st
                 category=category,
                 cleanup=False,
                 subtitle_path=video_result.get("subtitle_path"),
+                tags=desc_result.get("tags"),
             )
         publish_status = "scheduled" if publish_at else "Published"
         log_event(
@@ -1388,6 +1607,26 @@ def generate_long_video(topic: str, category: str, video_id: str, publish_at: st
             except Exception as e:
                 log_event("REPURPOSE", f"Repurpose skipped: {e}", "debug")
 
+        if publish_result.get("success_count", 0) > 0 and ENABLE_COMPANION_PAGES:
+            try:
+                from utils.companion_page import generate_companion_page, upload_companion_page
+                from utils.r2_storage import upload_thumbnail as r2_upload_thumb
+                thumb_r2_url = r2_upload_thumb(thumbnail_path, video_id) if thumbnail_path else ""
+                yt_url = publish_result.get('platforms', {}).get('youtube', {}).get('video_url', '')
+                chaps = video_result.get("chapters", [])
+                tags = [category] + [w for w in topic.split() if len(w) > 3][:8]
+                page_path = generate_companion_page(
+                    video_id=video_id, title=topic,
+                    description=desc_result.get("full_description", ""),
+                    category=category, tags=tags, thumbnail_url=thumb_r2_url,
+                    video_url=yt_url, format_type="long", chapters=chaps,
+                )
+                if page_path:
+                    companion_url = upload_companion_page(page_path, video_id)
+                    log_event("COMPANION", f"Companion page: {companion_url}")
+            except Exception as e:
+                log_event("COMPANION", f"Companion page skipped: {e}", "debug")
+
         if publish_result.get("success_count", 0) > 0:
             log_event("CLEANUP", "Cleaning up intermediate files after successful upload")
             from utils.cleanup_service import cleanup_after_upload
@@ -1412,6 +1651,15 @@ def generate_long_video(topic: str, category: str, video_id: str, publish_at: st
                 update_video_record(video_id, {
                     "translations": {k: v.get("title", "") for k, v in translations.items()},
                 })
+                if ENABLE_MULTI_LANG_DUB:
+                    log_event("PIPELINE", "Generating dubbed audio for multi-language")
+                    try:
+                        dubs = _run_async(dub_all_languages(translations, video_id))
+                        if dubs:
+                            update_video_record(video_id, {"dubs": {k: {"duration": v["duration"]} for k, v in dubs.items() if v["success"]}})
+                            register_dub_cleanup_func(video_id)
+                    except Exception as e:
+                        log_event("DUB", f"Failed to generate dubs: {e}")
 
         failed_step = "title_tester"
         youtube_url = publish_result.get('platforms', {}).get('youtube', {}).get('video_url', '')
@@ -1440,6 +1688,13 @@ def generate_long_video(topic: str, category: str, video_id: str, publish_at: st
         except Exception as e:
             log_event("SERIES", f"Series registration skipped: {e}", "debug")
 
+        try:
+            from utils.knowledge_integration import record_video_knowledge
+            record_video_knowledge(video_id, topic, category, difficulty="intermediate")
+            log_event("KNOWLEDGE", f"Registered {topic} in knowledge graph")
+        except Exception as e:
+            log_event("KNOWLEDGE", f"Knowledge registration skipped: {e}", "debug")
+
         failed_step = "pinned_comment"
         if youtube_id:
             try:
@@ -1451,8 +1706,22 @@ def generate_long_video(topic: str, category: str, video_id: str, publish_at: st
                     post_pinned_comment(youtube_id, comment_text, yt_svc)
                     auto_reply_to_comments(youtube_id, yt_svc)
                     log_event("COMMENT", f"Pinned comment + auto-reply set up for {youtube_id}")
+                    try:
+                        from utils.comment_analyzer import analyze_video_comments, flag_negative_comments
+                        sentiment = analyze_video_comments(youtube_id, yt_svc, max_comments=30)
+                        if sentiment["total"] > 0:
+                            log_event("SENTIMENT", f"Comments: {sentiment['total']} total, {sentiment['sentiments']['negative'] + sentiment['sentiments']['toxic']} negative")
+                        flagged = flag_negative_comments(youtube_id, yt_svc)
+                        if flagged:
+                            log_event("SENTIMENT", f"Negative comment alert: {flagged['message']}", "warn")
+                    except Exception as se:
+                        log_event("SENTIMENT", f"Sentiment analysis skipped: {se}", "debug")
             except Exception as e:
                 log_event("COMMENT", f"Pinned comment skipped: {e}", "debug")
+        try:
+            track_pillar_video(category)
+        except Exception:
+            pass
 
         failed_step = "finalizing"
         update_video_record(video_id, {
@@ -1531,9 +1800,22 @@ def daily_content_job():
     log_event("SCHEDULER", "Generating content plan via scheduler planner")
     try:
         opt_injection = get_optimization_prompt_injection()
-        plan = generate_content_plan(extra_context=opt_injection, slot=os.getenv("SLOT", ""))
-        if opt_injection:
-            log_event("SCHEDULER", f"Optimization context: {opt_injection[:100]}...")
+        from utils.knowledge_integration import get_coverage_context
+        coverage_ctx = get_coverage_context()
+        pillar_ctx = ""
+        try:
+            from utils.pillar_manager import generate_pillar_context
+            pillar_ctx = generate_pillar_context()
+        except Exception:
+            pass
+        next_pillar = suggest_next_pillar()
+        if next_pillar:
+            pillar_ctx += f"\nSuggested next pillar to focus on: {next_pillar['name']}"
+        combined_ctx = "\n".join(p for p in [opt_injection, coverage_ctx, pillar_ctx] if p)
+        plan = generate_content_plan(extra_context=combined_ctx, slot=os.getenv("SLOT", ""))
+        plan = validate_plan_balance(plan)
+        if combined_ctx:
+            log_event("SCHEDULER", f"Content planner context: {combined_ctx[:200]}...")
     except Exception as e:
         log_event("SCHEDULER", f"Planner failed: {e}, falling back to trend-based", "error")
         plan = []
@@ -1574,6 +1856,10 @@ def daily_content_job():
             log_event("SCHEDULER", f"Retrying: {retry_entry['topic']}")
 
     video_date = datetime.utcnow().strftime('%Y%m%d')
+    pipeline_jobs = []
+    short_video_ids = {}
+    long_video_ids = {}
+
     for i in range(shorts_per_day):
         if i < len(shorts_plan):
             item = shorts_plan[i]
@@ -1587,27 +1873,15 @@ def daily_content_job():
         if is_blacklisted(item['title']):
             log_event("SCHEDULER", f"Skipping blacklisted topic: {item['title']}")
             continue
-        publish_time = _next_schedule_time(6 + i * 2)
-        try:
-            success = _run_with_timeout(
-                generate_short_video,
-                (item['title'], item['category'],
-                 f"short-{video_date}-{i+1}", publish_time),
-                PIPELINE_TIMEOUT_MINUTES,
-            )
-            if success:
-                successful_shorts += 1
-                track_video(f"short-{video_date}-{i+1}", item['title'], "shorts", "", 0)
-                mark_topic_completed(f"short-{video_date}-{i+1}")
-            else:
-                failed_topics.append(item['title'])
-                topic_id = schedule_topic(item['title'], "shorts", priority="high")
-                mark_topic_failed(topic_id, "Generation failed")
-        except Exception as e:
-            failed_topics.append(item['title'])
-            topic_id = schedule_topic(item['title'], "shorts", priority="high")
-            mark_topic_failed(topic_id, str(e))
-            log_event("SCHEDULER", f"Short video '{item['title']}' crashed: {e}", "error")
+        vid = f"short-{video_date}-{i+1}"
+        short_video_ids[vid] = item
+        pipeline_jobs.append({
+            "func": generate_short_video,
+            "args": (item['title'], item['category'], vid, _next_schedule_time(6 + i * 2)),
+            "kwargs": {},
+            "name": f"short-{i+1}",
+            "gpu": False,
+        })
 
     for i in range(long_per_day):
         if i < len(longs_plan):
@@ -1622,27 +1896,41 @@ def daily_content_job():
         if is_blacklisted(item['title']):
             log_event("SCHEDULER", f"Skipping blacklisted topic: {item['title']}")
             continue
-        publish_time = _next_schedule_time(10 + i * 4)
-        try:
-            success = _run_with_timeout(
-                generate_long_video,
-                (item['title'], item['category'],
-                 f"long-{video_date}-{i+1}", publish_time),
-                PIPELINE_TIMEOUT_MINUTES,
-            )
-            if success:
-                successful_longs += 1
-                track_video(f"long-{video_date}-{i+1}", item['title'], "long", "", 0)
-                mark_topic_completed(f"long-{video_date}-{i+1}")
+        vid = f"long-{video_date}-{i+1}"
+        long_video_ids[vid] = item
+        pipeline_jobs.append({
+            "func": generate_long_video,
+            "args": (item['title'], item['category'], vid, _next_schedule_time(10 + i * 4)),
+            "kwargs": {},
+            "name": f"long-{i+1}",
+            "gpu": True,
+        })
+
+    if pipeline_jobs:
+        log_event("SCHEDULER", f"Running {len(pipeline_jobs)} pipelines concurrently")
+        job_results = run_concurrent_pipelines(pipeline_jobs)
+
+        for idx, (job, result) in enumerate(zip(pipeline_jobs, job_results)):
+            item = job["args"][0]
+            vid = job["args"][2]
+            is_short = "short" in vid
+            if result.get("success"):
+                if is_short:
+                    successful_shorts += 1
+                    track_video(vid, item, "shorts", "", 0)
+                    mark_topic_completed(vid)
+                else:
+                    successful_longs += 1
+                    track_video(vid, item, "long", "", 0)
+                    mark_topic_completed(vid)
             else:
-                failed_topics.append(item['title'])
-                topic_id = schedule_topic(item['title'], "long", priority="high")
-                mark_topic_failed(topic_id, "Generation failed")
-        except Exception as e:
-            failed_topics.append(item['title'])
-            topic_id = schedule_topic(item['title'], "long", priority="high")
-            mark_topic_failed(topic_id, str(e))
-            log_event("SCHEDULER", f"Long video '{item['title']}' crashed: {e}", "error")
+                failed_topics.append(item)
+                fmt = "shorts" if is_short else "long"
+                topic_id = schedule_topic(item, fmt, priority="high")
+                mark_topic_failed(topic_id, result.get("error", "Generation failed"))
+                log_event("SCHEDULER", f"{fmt} video '{item}' {'crashed' if result.get('error') else 'failed'}: {result.get('error', 'unknown')}", "error")
+    else:
+        log_event("SCHEDULER", "No pipeline jobs to run")
 
     update_pipeline_status(False)
     total = successful_shorts + successful_longs
@@ -1653,8 +1941,8 @@ def daily_content_job():
         for ft in failed_topics[:1]:
             log_event("SCHEDULER", f"Force-publishing: {ft}", "info")
             try:
-                gen_fn = generate_short_video if format_type == "shorts" else generate_long_video
-                gen_fn(ft, category, f"force-{video_date}-{int(time.time())}")
+                force_vid = f"force-{video_date}-{int(time.time())}"
+                generate_short_video(ft, "AI Explained", force_vid)
             except Exception as e:
                 log_event("SCHEDULER", f"Force-publish failed: {e}", "error")
 
@@ -1706,6 +1994,46 @@ def daily_analytics_job():
                 log_event("ANALYST", f"Analysis returned error: {analysis.get('error', 'unknown')}", "error")
         except Exception as e:
             log_event("ANALYST", f"Performance analysis failed: {e}", "error")
+
+        try:
+            from utils.alert_manager import process_alerts, check_pipeline_health_alert, check_staleness
+            from utils.firebase_status import get_pipeline_metrics, get_firestore_client
+
+            # Pipeline health alert
+            pm = get_pipeline_metrics(limit=20)
+            if pm and len(pm) >= 5:
+                successes = sum(1 for m in pm if m.get("success"))
+                success_rate = successes / len(pm)
+                pipeline_alert = check_pipeline_health_alert(success_rate)
+                if pipeline_alert:
+                    send_alert(pipeline_alert["message"], pipeline_alert["severity"])
+                    log_event("ALERT", pipeline_alert["message"], "warn")
+
+            # Staleness check — get last activity from Firestore
+            last_activity = None
+            try:
+                db = get_firestore_client()
+                if db:
+                    from datetime import datetime
+                    docs = db.collection("activity_logs").order_by("timestamp", direction="DESCENDING").limit(1).stream()
+                    for doc in docs:
+                        data = doc.to_dict()
+                        ts = data.get("timestamp")
+                        if ts:
+                            if hasattr(ts, 'timestamp'):  # google.cloud.Timestamp
+                                last_activity = datetime.utcfromtimestamp(ts.timestamp())
+                            elif isinstance(ts, str):
+                                last_activity = datetime.fromisoformat(ts.replace('Z', '+00:00'))
+                            else:
+                                last_activity = ts  # already a datetime
+            except Exception:
+                pass
+            staleness_alert = check_staleness(last_activity)
+            if staleness_alert:
+                send_alert(staleness_alert["message"], staleness_alert["severity"])
+                log_event("ALERT", staleness_alert["message"], "warn")
+        except Exception as alert_err:
+            log_event("ALERT", f"Alert checks failed: {alert_err}", "debug")
     except Exception as e:
         update_agent_status("analytics", "error", str(e))
         log_event("ANALYTICS", f"Analytics pull failed: {e}", "error")
@@ -1953,9 +2281,12 @@ if __name__ == "__main__":
         update_agent_status(agent_id, "idle", "Ready")
 
     log_event("SYSTEM", f"Multi-language: {ENABLE_MULTI_LANG} ({', '.join(MULTI_LANG_CODES)})")
+    log_event("SYSTEM", f"Multi-language dubbing: {ENABLE_MULTI_LANG_DUB}")
     log_event("SYSTEM", f"Subtitles: {ENABLE_SUBTITLES}")
     log_event("SYSTEM", f"Review gate: {ENABLE_REVIEW_GATE} (threshold: {AUTO_APPROVE_THRESHOLD})")
     log_event("SYSTEM", f"Pipeline timeout: {PIPELINE_TIMEOUT_MINUTES}min per video")
+    log_event("SYSTEM", f"Concurrent pipeline workers: {os.getenv('CONCURRENT_PIPELINE_WORKERS', '2')}")
+    log_event("SYSTEM", f"LTX prompt cache: {os.getenv('LTX_CACHE_ENABLED', 'true')}")
     log_event("SYSTEM", f"Max retries per topic: {MAX_RETRIES_PER_TOPIC}")
     log_event("SYSTEM", f"Gate enforcement: {GATE_ENFORCEMENT_MODE}")
 

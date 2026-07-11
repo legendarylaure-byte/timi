@@ -9,12 +9,13 @@ from PIL import Image, ImageDraw, ImageFont
 ASSETS_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "assets")
 
 BACKGROUND_COLORS = {
-    "solid_black": (12, 12, 24),
+    "solid_black": (30, 30, 30),
+    "brand_dark": (30, 30, 30),
     "solid_white": (245, 245, 250),
     "solid_indigo": (28, 25, 75),
     "solid_slate": (30, 41, 59),
-    "gradient_dark_tech": (10, 10, 40),
-    "gradient_blueprint": (20, 30, 60),
+    "gradient_dark_tech": (10, 10, 35),
+    "gradient_blueprint": (20, 30, 55),
     "gradient_neon": (15, 15, 35),
     "gradient_corporate": (240, 240, 248),
     "gradient_minimal": (250, 250, 252),

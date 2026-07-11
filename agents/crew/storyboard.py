@@ -12,12 +12,12 @@ def create_storyboard_crew(script: str = "", format_type: str = "shorts"):
         scene_instruction = """
 CRITICAL: Create 6-10 distinct scenes. Each scene should be 30-90 seconds long.
 Do NOT create separate scenes for transitions — describe them within each scene.
-For each scene, specify the VISUAL ASSET TYPE to use."""
+For each scene, specify the RENDER_TYPE and VISUAL ASSET TYPE to use."""
     else:
         scene_instruction = """
 CRITICAL: Create 5-8 scenes total. Each scene should be 5-15 seconds long.
 Do NOT create separate scenes for transitions — describe them within each scene.
-For each scene, specify the VISUAL ASSET TYPE to use."""
+For each scene, specify the RENDER_TYPE and VISUAL ASSET TYPE to use."""
 
     storyboard_artist = Agent(
         role="Visual Director for Tech Content",
@@ -42,17 +42,21 @@ Mix in SCREEN_CAPTURE, DIAGRAM_ANIMATION, CODE_SNIPPET, and STATIC_IMAGE to keep
 
 {scene_instruction}
 
+PRESERVE the RENDER_TYPE tags from the script's VISUAL lines: [MANIM] for diagrams/math/concepts, [WAN2.1] for cinematic/b-roll, [CODE] for code snippets. If no tag is present, infer the best one.
+
 For EACH scene output:
 1. Scene number and timing (e.g., "Scene 1: 0-12s")
-2. ASSET TYPE: one of [STOCK_FOOTAGE, SCREEN_CAPTURE, DIAGRAM_ANIMATION, CODE_SNIPPET, STATIC_IMAGE]
-3. Visual description: what the viewer sees — screen content, diagram elements, footage subject
-4. Camera angle: specify the shot type (e.g., close-up on hands typing, wide shot of server room, over-the-shoulder at monitor, top-down of circuit board, dolly-in on neural network visualization, smooth pan across architecture diagram, macro shot of chip components)
-5. Lighting: specify lighting style (e.g., dramatic side lighting, soft diffused overhead, neon glow from screens, warm key light with cool fill, volumetric god rays through server vents, rim lighting on subject, cinematic low-key for mystery)
-6. Text overlay: any text that should appear on screen (titles, labels, bullet points, code)
-7. Transition to next scene (cut, fade, slide)
+2. RENDER_TYPE: [MANIM | WAN2.1 | CODE]
+3. ASSET TYPE: one of [STOCK_FOOTAGE, SCREEN_CAPTURE, DIAGRAM_ANIMATION, CODE_SNIPPET, STATIC_IMAGE]
+4. Visual description: what the viewer sees — screen content, diagram elements, footage subject
+5. Camera angle: specify the shot type (e.g., close-up on hands typing, wide shot of server room, over-the-shoulder at monitor, top-down of circuit board, dolly-in on neural network visualization, smooth pan across architecture diagram, macro shot of chip components)
+6. Lighting: specify lighting style (e.g., dramatic side lighting, soft diffused overhead, neon glow from screens, warm key light with cool fill, volumetric god rays through server vents, rim lighting on subject, cinematic low-key for mystery)
+7. Text overlay: any text that should appear on screen (titles, labels, bullet points, code)
+8. Transition to next scene (cut, fade, slide)
 
 OUTPUT FORMAT — one block per scene:
 --SCENE 1 (0-12s)--
+RENDER_TYPE: [MANIM | WAN2.1 | CODE]
 ASSET_TYPE: [STOCK_FOOTAGE | SCREEN_CAPTURE | DIAGRAM_ANIMATION | CODE_SNIPPET | STATIC_IMAGE]
 VISUAL: [what the viewer sees]
 CAMERA: [shot type, camera movement]

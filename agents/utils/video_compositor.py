@@ -1,5 +1,7 @@
 import os
 import re
+import json
+import logging
 from utils.subprocess_helper import safe_run, safe_run_bool, register_temp_dir
 from pathlib import Path
 from typing import Optional
@@ -16,9 +18,16 @@ TEMP_DIR = Path(__file__).parent.parent / "tmp" / "compositor"
 TEMP_DIR.mkdir(parents=True, exist_ok=True)
 register_temp_dir(str(TEMP_DIR))
 
+OUTPUT_4K = os.getenv("OUTPUT_4K", "false").lower() == "true"
+OUTPUT_W = 3840 if OUTPUT_4K else 1920
+OUTPUT_H = 2160 if OUTPUT_4K else 1080
+
+ENABLE_COLOR_GRADING = os.getenv("ENABLE_COLOR_GRADING", "false").lower() == "true"
+COLOR_GRADING_THRESHOLD = float(os.getenv("COLOR_GRADING_THRESHOLD", "0.15"))
+
 ASPECT_RATIOS = {
     "shorts": {"w": 1080, "h": 1920, "ar": "9:16"},
-    "long": {"w": 1920, "h": 1080, "ar": "16:9"},
+    "long": {"w": OUTPUT_W, "h": OUTPUT_H, "ar": "16:9"},
 }
 
 FFMPEG_XFADE_MAP = {
@@ -28,11 +37,27 @@ FFMPEG_XFADE_MAP = {
     "slide_right": "slideright",
     "zoom": "zoompan",
     "cut": "cut",
+    "circle_open": "circleopen",
+    "circle_close": "circleclose",
+    "pixelize": "pixelize",
+    "wipe_left": "wipeleft",
+    "wipe_right": "wiperight",
+    "wipe_up": "wipeup",
+    "wipe_down": "wipedown",
+    "smooth_left": "smoothleft",
+    "smooth_right": "smoothright",
+    "fade_gradual": "fadegradual",
+    "squeeze_h": "squeezeh",
+    "squeeze_v": "squeezev",
 }
 
 OUTPUT_FPS = 24
 CRF = "20"
+
+logger = logging.getLogger(__name__)
 PRESET = "medium"
+
+SFX_VOLUME_DB = float(os.getenv("SFX_VOLUME_DB", "-12"))
 
 
 def _sws_flags() -> list:
@@ -170,7 +195,7 @@ def apply_ken_burns(input_path: str, output_path: str, target_w: int, target_h: 
 
 def mix_audio(voice_path: str, music_path: Optional[str], output_path: str,
               voice_volume_db: float = 0, music_volume_db: float = -18,
-              duck_db: float = -6) -> bool:
+              duck_db: float = -6, sfx_scenes: Optional[list] = None) -> bool:
     try:
         voice = AudioSegment.from_file(voice_path) + voice_volume_db
         if music_path and os.path.exists(music_path):
@@ -180,6 +205,25 @@ def mix_audio(voice_path: str, music_path: Optional[str], output_path: str,
             mixed = voice.overlay(music_raw)
         else:
             mixed = voice
+
+        if sfx_scenes:
+            sfx_track = AudioSegment.silent(duration=len(mixed))
+            cumulative_ms = 0
+            for scene in sfx_scenes:
+                dur = scene.get("duration", scene.get("target_duration", 8.0))
+                scene_sfx = scene.get("sfx", [])
+                for sfx in scene_sfx:
+                    sfx_path = sfx.get("path", "")
+                    if not os.path.exists(sfx_path):
+                        continue
+                    try:
+                        sfx_audio = AudioSegment.from_file(sfx_path) + SFX_VOLUME_DB
+                        sfx_track = sfx_track.overlay(sfx_audio, position=cumulative_ms)
+                    except Exception:
+                        pass
+                cumulative_ms += int(dur * 1000)
+            mixed = mixed.overlay(sfx_track)
+
         mixed.export(output_path, format="wav")
         return os.path.exists(output_path) and os.path.getsize(output_path) > 1000
     except Exception as e:
@@ -247,6 +291,14 @@ def _process_clip(clip: dict, target_w: int, target_h: int, idx: int, format_typ
     return out if os.path.exists(out) and os.path.getsize(out) > 1000 else None
 
 
+def _xfade_duration_for_scene(duration: float) -> float:
+    if duration < 5:
+        return 0.5
+    if duration > 15:
+        return 1.5
+    return 1.0
+
+
 def _build_xfade_filter(processed: list[str], transitions: list[str], durations: list[float]) -> tuple[str, str]:
     n = len(processed)
     if n == 0:
@@ -256,7 +308,7 @@ def _build_xfade_filter(processed: list[str], transitions: list[str], durations:
 
     labels = []
     filter_parts = []
-    xfade_dur = 1.0
+    had_none = False
 
     for i in range(n):
         label = f"v{i}"
@@ -266,7 +318,14 @@ def _build_xfade_filter(processed: list[str], transitions: list[str], durations:
     prev_label = labels[0]
     cumulative = durations[0]
     for i in range(1, n):
-        xfade = FFMPEG_XFADE_MAP.get(transitions[i] if i < len(transitions) else "dissolve", "dissolve")
+        raw = transitions[i] if i < len(transitions) else "dissolve"
+        if raw == "none":
+            had_none = True
+            out_label = prev_label
+            cumulative += durations[i]
+            continue
+        xfade = FFMPEG_XFADE_MAP.get(raw, "dissolve")
+        xfade_dur = _xfade_duration_for_scene(durations[i])
         out_label = f"xf{i}"
         offset = max(0, cumulative - xfade_dur)
         filter_parts.append(
@@ -275,7 +334,10 @@ def _build_xfade_filter(processed: list[str], transitions: list[str], durations:
         prev_label = out_label
         cumulative += durations[i] - xfade_dur
 
-    return ";".join(filter_parts), prev_label
+    result = ";".join(filter_parts)
+    if had_none:
+        result = result.replace("none", "dissolve")
+    return result, prev_label
 
 
 def add_text_overlay(video_path: str, text: str, output_path: str,
@@ -297,7 +359,7 @@ def add_text_overlay(video_path: str, text: str, output_path: str,
 
 
 def add_animated_lower_third(video_path: str, text: str, output_path: str,
-                              fontsize: int = 22, color: str = "white",
+                              fontsize: int = 22, color: str = "#00CCCC",
                               start_time: float = 0, duration: float = 5) -> bool:
     escaped = text.replace("'", "\\'").replace(":", "\\:").replace("-", "\\-")
     ts = start_time
@@ -337,7 +399,7 @@ def add_logo_overlay(video_path: str, logo_path: str, output_path: str,
 
 
 def burn_subtitles(video_path: str, subtitle_path: str, output_path: str,
-                   fontsize: int = 22) -> bool:
+                   fontsize: int = 28) -> bool:
     abs_sub = os.path.abspath(subtitle_path)
     vf = (
         f"subtitles=filename='{abs_sub}':force_style="
@@ -379,10 +441,125 @@ def add_chapter_markers(video_path: str, chapters: list[dict], output_path: str)
     return safe_run_bool(cmd, timeout=120)
 
 
+def _concat_only(processed: list[str], video_id: str) -> str | None:
+    concat_list = str(TEMP_DIR / f"concat_{video_id}.txt")
+    combined = str(TEMP_DIR / f"concat_only_{video_id}.mp4")
+    try:
+        with open(concat_list, "w") as f:
+            for p in processed:
+                f.write(f"file '{p}'\n")
+        cmd = [
+            _ffmpeg_cmd(), "-y", "-f", "concat", "-safe", "0", "-i", concat_list,
+            *_sws_flags(),
+            "-c:v", "libx264", "-preset", PRESET, "-crf", CRF,
+            "-pix_fmt", "yuv420p", combined,
+        ]
+        result = safe_run(cmd, timeout=300)
+        return combined if result.returncode == 0 and os.path.exists(combined) else None
+    except Exception as e:
+        print(f"[compositor] _concat_only error: {e}")
+        return None
+
+
+def _color_grade_scenes(processed: list[str], video_id: str, threshold: float = 0.15) -> list[str]:
+    if not ENABLE_COLOR_GRADING or len(processed) < 2:
+        return processed
+
+    graded = [processed[0]]
+
+    for i in range(1, len(processed)):
+        prev = graded[-1]
+        curr = processed[i]
+
+        prev_hist = _extract_yuv_histogram(prev)
+        curr_hist = _extract_yuv_histogram(curr)
+
+        if prev_hist is None or curr_hist is None:
+            graded.append(curr)
+            continue
+
+        shift = _histogram_shift(prev_hist, curr_hist)
+        if shift > threshold:
+            logger.info("[color_grade] Scene %d→%d color shift=%.3f > %.3f, correcting",
+                        i - 1, i, shift, threshold)
+            corrected = str(TEMP_DIR / f"color_corrected_{video_id}_{i:03d}.mp4")
+            if _apply_color_correction(curr, corrected, prev_hist):
+                graded.append(corrected)
+            else:
+                graded.append(curr)
+        else:
+            graded.append(curr)
+
+    corrected_count = sum(1 for idx in range(1, len(processed)) if graded[idx] != processed[idx])
+    logger.info("[color_grade] Checked %d scene transitions, corrected %d",
+                len(processed) - 1, corrected_count)
+    return graded
+
+
+def _extract_yuv_histogram(video_path: str) -> dict | None:
+    cmd = [
+        _ffprobe_cmd(), "-v", "error", "-f", "lavfi",
+        "-i", f"movie={video_path},signalstats",
+        "-show_entries", "frame=pts_time:signalstats=YAVG,UAVG,VAVG",
+        "-of", "json", "-v", "quiet",
+    ]
+    try:
+        result = safe_run(cmd, timeout=30, capture_output=True, text=True)
+        if result.returncode != 0:
+            return None
+        data = json.loads(result.stdout)
+        frames = data.get("frames", [])
+        if not frames:
+            return None
+        y_vals, u_vals, v_vals = [], [], []
+        for f in frames:
+            ss = f.get("tags", {})
+            if ss.get("YAVG") is not None:
+                y_vals.append(float(ss["YAVG"]))
+                u_vals.append(float(ss["UAVG"]))
+                v_vals.append(float(ss["VAVG"]))
+        if not y_vals:
+            return None
+        return {
+            "y_mean": sum(y_vals) / len(y_vals),
+            "u_mean": sum(u_vals) / len(u_vals),
+            "v_mean": sum(v_vals) / len(v_vals),
+        }
+    except Exception as e:
+        logger.warning("[color_grade] Histogram extraction failed: %s", e)
+        return None
+
+
+def _histogram_shift(h1: dict, h2: dict) -> float:
+    dy = abs(h1["y_mean"] - h2["y_mean"]) / 255.0
+    du = abs(h1["u_mean"] - h2["u_mean"]) / 255.0
+    dv = abs(h1["v_mean"] - h2["v_mean"]) / 255.0
+    return (dy + du + dv) / 3.0
+
+
+def _apply_color_correction(source: str, output: str, target_hist: dict) -> bool:
+    cmd = [
+        _ffmpeg_cmd(), "-y", "-i", source,
+        "-vf", (
+            f"colorbalance=rs={1.0 - target_hist['y_mean'] / 255.0:.3f}:"
+            f"gs={1.0 - target_hist['u_mean'] / 255.0:.3f}:"
+            f"bs={1.0 - target_hist['v_mean'] / 255.0:.3f}"
+        ),
+        "-c:v", "libx264", "-preset", "fast", "-crf", CRF,
+        "-pix_fmt", "yuv420p", output,
+    ]
+    try:
+        result = safe_run(cmd, timeout=120)
+        return result.returncode == 0 and os.path.exists(output) and os.path.getsize(output) > 1000
+    except Exception:
+        return False
+
+
 def composite_video(clips: list[dict], voice_path: str, music_path: Optional[str] = None,
                     format_type: str = "shorts", video_id: str = "output",
                     subtitle_path: Optional[str] = None, chapters: Optional[list] = None,
-                    category: str = "", scenes: Optional[list] = None) -> Optional[str]:
+                    category: str = "", scenes: Optional[list] = None,
+                    force_concat: bool = False) -> Optional[str]:
     target = ASPECT_RATIOS.get(format_type, ASPECT_RATIOS["long"])
     tw, th = target["w"], target["h"]
 
@@ -409,9 +586,17 @@ def composite_video(clips: list[dict], voice_path: str, music_path: Optional[str
         print("[compositor] No clips to composite")
         return None
 
+    if ENABLE_COLOR_GRADING:
+        processed = _color_grade_scenes(processed, video_id, COLOR_GRADING_THRESHOLD)
+
     combined_video = str(TEMP_DIR / f"combined_{video_id}.mp4")
     if len(processed) == 1:
         combined_video = processed[0]
+    elif force_concat:
+        print("[compositor] force_concat=True, skipping xfade")
+        combined_video = _concat_only(processed, video_id)
+        if not combined_video:
+            return None
     else:
         filter_str, out_label = _build_xfade_filter(processed, transitions, durations)
         inputs = []
@@ -424,24 +609,20 @@ def composite_video(clips: list[dict], voice_path: str, music_path: Optional[str
             "-c:v", "libx264", "-preset", PRESET, "-crf", CRF,
             "-pix_fmt", "yuv420p", combined_video,
         ]
-    try:
-        result = safe_run(cmd, timeout=600)
-        if result.returncode != 0 or not os.path.exists(combined_video):
-            print(f"[compositor] Xfade failed (rc={result.returncode}), full stderr: {result.stderr[-500:]}")
-            print("[compositor] Falling back to concat")
-            concat_list = str(TEMP_DIR / f"concat_{video_id}.txt")
-            with open(concat_list, "w") as f:
-                for p in processed:
-                    f.write(f"file '{p}'\n")
-            cmd = [
-                _ffmpeg_cmd(), "-y", "-f", "concat", "-safe", "0", "-i", concat_list, *_sws_flags(),
-                "-c:v", "libx264", "-preset", PRESET, "-crf", CRF,
-                "-pix_fmt", "yuv420p", combined_video,
-            ]
-            safe_run(cmd, timeout=300)
-    except Exception as e:
-        print(f"[compositor] Xfade error: {e}")
-        return None
+        try:
+            result = safe_run(cmd, timeout=600)
+            if result.returncode != 0 or not os.path.exists(combined_video):
+                print(f"[compositor] Xfade failed (rc={result.returncode}), full stderr: {result.stderr[-500:]}")
+                print("[compositor] Falling back to concat")
+                combined_video = _concat_only(processed, video_id)
+                if not combined_video:
+                    print(f"[compositor] Concat also failed")
+                    return None
+        except Exception as e:
+            print(f"[compositor] Xfade error: {e}")
+            combined_video = _concat_only(processed, video_id)
+            if not combined_video:
+                return None
 
     if not os.path.exists(combined_video):
         return None
@@ -452,7 +633,8 @@ def composite_video(clips: list[dict], voice_path: str, music_path: Optional[str
             combined_video = with_chapters
 
     mixed_audio = str(TEMP_DIR / f"audio_{video_id}.wav")
-    if not mix_audio(voice_path, music_path, mixed_audio):
+    sfx_scenes = [s for s in (scenes or []) if s.get("sfx")]
+    if not mix_audio(voice_path, music_path, mixed_audio, sfx_scenes=sfx_scenes):
         print("[compositor] Audio mix failed")
         return None
 
@@ -474,13 +656,13 @@ def composite_video(clips: list[dict], voice_path: str, music_path: Optional[str
                     f"(w-text_w)/2))"
                 )
                 vf_parts.append(
-                    f"drawtext=text='{escaped}':fontsize=20:fontcolor=white:box=1:boxcolor=black@0.4:"
+                    f"drawtext=text='{escaped}':fontsize=20:fontcolor=#00CCCC:box=1:boxcolor=black@0.4:"
                     f"boxborderw=6:x={x_expr}:y=h-130:enable='between(t,{ts},{te})'"
                 )
 
     if subtitle_path and os.path.exists(subtitle_path):
         abs_sub = os.path.abspath(subtitle_path)
-        sub_fs = 10
+        sub_fs = 24
         vf_parts.append(
             f"subtitles=filename='{abs_sub}':force_style="
             f"'FontSize={sub_fs},PrimaryColour=&HFF00CCCC&,OutlineColour=&H40002B00&,"

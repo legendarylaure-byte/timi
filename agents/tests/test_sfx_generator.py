@@ -115,8 +115,12 @@ def test_load_sfx_scene_assignments():
     assert "sfx" in result[0]
     assert len(result[0]["sfx"]) == 2
     assert result[0]["sfx"][0]["name"] == "sparkle"
-    assert "sfx" not in result[1]
-    assert "sfx" not in result[2]
+    assert "sfx" in result[1]
+    assert len(result[1]["sfx"]) == 1
+    assert result[1]["sfx"][0]["type"] == "transition"
+    assert "sfx" in result[2]
+    assert len(result[2]["sfx"]) == 1
+    assert result[2]["sfx"][0]["type"] == "transition"
 
 
 def test_load_sfx_scene_assignments_all_effects_mapped():

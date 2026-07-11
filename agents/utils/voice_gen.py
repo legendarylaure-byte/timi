@@ -4,7 +4,6 @@ import os
 import re
 import json
 import asyncio
-import edge_tts
 from pathlib import Path
 
 _FFMPEG_BIN = None
@@ -33,6 +32,32 @@ DEFAULT_RATE = "0%"
 DEFAULT_PITCH = "-2Hz"
 
 NARRATOR_VOICE = {"voice": "en-US-JennyNeural", "rate": "0%", "pitch": "-2Hz"}
+
+SSML_EMPHASIS_WORDS = [
+    "key", "important", "crucial", "critical", "essential", "fundamental",
+    "never", "always", "must", "cannot", "extremely", "remarkably",
+    "significantly", "dramatically", " revolutionary", " breakthrough",
+]
+
+
+def _wrap_ssml(text: str, voice_name: str = None, rate: str = "0%") -> str:
+    """Wrap narration text with SSML for improved prosody.
+    
+    Adds emphasis on key terms, micro-pauses at punctuation, and prosody control.
+    """
+    emphasized = text
+    for word in SSML_EMPHASIS_WORDS:
+        pattern = re.compile(re.escape(word), re.IGNORECASE)
+        emphasized = pattern.sub(lambda m: f"<emphasis level=\"strong\">{m.group()}</emphasis>", emphasized)
+    emphasized = re.sub(r'([.?!])\s+', r'\1<break time="300ms"/> ', emphasized)
+    emphasized = re.sub(r'([,;:])\s', r'\1<break time="100ms"/> ', emphasized)
+    voice_attr = f" name=\"{voice_name}\"" if voice_name else ""
+    ssml = (
+        f"<speak version=\"1.0\" xmlns=\"http://www.w3.org/2001/10/synthesis\" xml:lang=\"en-US\">"
+        f"<prosody rate=\"{rate}\">{emphasized}</prosody>"
+        f"</speak>"
+    )
+    return ssml
 
 
 def _extract_narration_via_markers(script: str) -> str | None:
@@ -438,7 +463,7 @@ def concatenate_audio(segment_files: list[str], output_path: str) -> bool:
         for f in segment_files:
             if os.path.exists(f):
                 audio = AudioSegment.from_file(f)
-                silence = AudioSegment.silent(duration=100)
+                silence = AudioSegment.silent(duration=500)
                 combined += audio + silence
         combined.export(output_path, format="wav")
         return os.path.exists(output_path) and os.path.getsize(output_path) > 1000

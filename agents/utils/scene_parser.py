@@ -1,16 +1,27 @@
 import json
 import re
+from dataclasses import dataclass, field
+from typing import Optional
 from utils.llm_client import generate_completion
 from utils.firebase_status import log_activity
 from utils.scene_schema import ValidationError
+
+
+@dataclass
+class SceneState:
+    camera_angle: str = ""
+    lighting: str = ""
+    color_palette: str = "teal and dark gray"
+    dominant_colors: list[str] = field(default_factory=lambda: ["#1e1e1e", "#00CCCC"])
 
 SYSTEM_PROMPT = """You are a scene director for tech/AI educational videos. Convert the given script into structured scene descriptions.
 
 Return ONLY a valid JSON array of scene objects. Each scene object has this exact structure:
 
 {
-  "background": "solid_black|solid_white|solid_indigo|solid_slate|gradient_dark_tech|gradient_blueprint|gradient_neon|gradient_corporate|gradient_minimal",
+    "background": "solid_black|solid_white|solid_indigo|solid_slate|brand_dark|gradient_dark_tech|gradient_blueprint|gradient_neon|gradient_corporate|gradient_minimal",
   "duration": 8.0,
+  "render_type": "stock|manim|code",
   "asset_type": "STOCK_FOOTAGE|SCREEN_CAPTURE|DIAGRAM_ANIMATION|CODE_SNIPPET|STATIC_IMAGE",
   "asset_keywords": ["keyword1", "keyword2"],
   "ltx_prompt": "Describe the scene in 2-3 vivid sentences optimized for AI video generation. Include camera angle, lighting, composition, colors, and motion. Be specific.",
@@ -21,7 +32,7 @@ Return ONLY a valid JSON array of scene objects. Each scene object has this exac
       "position": "center|top|bottom|left|right"
     }
   ],
-  "transition": "cut|fade|dissolve|slide_left|slide_right",
+  "transition": "cut|fade|dissolve|slide_left|slide_right|zoom|circle_open|circle_close|pixelize|wipe_left|wipe_right|smooth_left|smooth_right|fade_gradual",
   "camera": {
     "zoom": 1.0,
     "pan_x": 0,
@@ -34,7 +45,8 @@ RULES:
 - Each scene should be 5-12 seconds
 - Use asset_type to specify what visual content to show
 - asset_keywords should describe what to search for or render
-- ltx_prompt is CRITICAL: Write a detailed 2-3 sentence visual description optimized for text-to-video AI. Include: camera angle (close-up, wide, tracking, dolly, over-the-shoulder, top-down), lighting (neon glow, soft diffused, dramatic side, volumetric, rim light), composition (subject placement, depth layers), colors, and motion. Example: "Close-up of futuristic circuit board with glowing neon blue pathways, dramatic side lighting casting long shadows, camera slowly pulling back to reveal a glowing central processor chip, sparks of light traveling along the circuits, deep teal and purple color palette, cinematic 24fps quality"
+- render_type: "stock" for cinematic/b-roll, "manim" for diagrams/math/concept animations, "code" for code snippets
+- ltx_prompt is CRITICAL: Write a detailed 2-3 sentence visual description optimized for text-to-video AI. Reference SPECIFIC visual elements mentioned in the script's NARRATION — if the narration talks about GPUs, describe GPU chips and data pathways; if it mentions training data, show data streams and processing pipelines. Never use generic descriptions. Include: camera angle (close-up, wide, tracking, dolly, over-the-shoulder, top-down), lighting (neon glow, soft diffused, dramatic side, volumetric, rim light), composition (subject placement, depth layers), colors, and motion. Example: "Close-up of futuristic circuit board with glowing neon blue pathways, dramatic side lighting casting long shadows, camera slowly pulling back to reveal a glowing central processor chip, sparks of light traveling along the circuits, deep teal and purple color palette, cinematic 24fps quality"
 - Text should be short phrases (3-8 words), not full sentences
 - Background should match the scene mood
 - camera.zoom of 1.0 means no zoom, >1 zooms in
@@ -85,7 +97,9 @@ def _llm_scene_parse(
         else:
             target_hint = f"\nAim for total duration around {max_duration} seconds across all scenes."
 
-    prompt = f"""Convert this tech/AI educational video script into structured scenes with asset types. CRITICAL: Each scene MUST include a vivid "ltx_prompt" field — a 2-3 sentence visual description optimized for AI text-to-video generation. Include camera angle, lighting, composition, colors, and motion. The ltx_prompt MUST directly describe the visual scene from the VISUAL lines in the storyboard — don't invent generic descriptions, use the specific visual elements mentioned in the script.
+    prompt = f"""Convert this tech/AI educational video script into structured scenes with asset types. CRITICAL: Each scene MUST include a vivid "ltx_prompt" field — a 2-3 sentence visual description optimized for AI text-to-video generation. Include camera angle, lighting, composition, colors, and motion. The ltx_prompt MUST reference SPECIFIC visual elements from the NARRATION text — if the narration mentions GPUs, describe GPU chips and data pathways; if it mentions training, show loss curves and gradient flow. Never use generic descriptions. Also include a "render_type" field: "stock" for cinematic/b-roll footage, "manim" for diagrams and concept animations, "code" for code snippets.
+
+Read the VISUAL lines from the script/storyboard — they contain [MANIM], [WAN2.1], or [CODE] tags. Use these to set render_type: [MANIM] → "manim", [CODE] → "code", [WAN2.1] or no tag → "stock".
 
 Title: {title}
 Category: {category}
@@ -100,7 +114,9 @@ Storyboard:
 Important: Choose asset types that fit the category:
 - {category} related assets: {_get_suggested_assets(category)}
 
-The ltx_prompt is the most important field — it's what gets sent to the video generation AI. Make it specific, cinematic, and directly based on the VISUAL descriptions in the storyboard.
+CRITICAL for visual continuity: Each scene's ltx_prompt MUST reference the PREVIOUS scene's visual state. Maintain consistent color palette (dark teal/cyan/neon), lighting, and camera flow across adjacent scenes. Avoid sudden jumps in camera angle or lighting between consecutive scenes. If scene 1 ends on a close-up, scene 2 should start with a similar close-up slowly pulling back. This creates smooth visual storytelling.
+
+The ltx_prompt is the most important field — it's what gets sent to the video generation AI. Make it specific, reference real objects and actions from the narration, and directly based on the VISUAL descriptions in the storyboard.
 
 Return ONLY valid JSON array of scene objects."""
 
@@ -162,6 +178,7 @@ def _rule_based_parse(script_text: str, storyboard_text: str, format_type: str, 
 
     scene_blocks = scene_blocks[:target_scene_count]
 
+    prev_state: Optional[SceneState] = None
     for i, block in enumerate(scene_blocks):
         duration = _estimate_scene_duration(block, format_type, len(scene_blocks), max_duration)
         background = _infer_background(block)
@@ -169,14 +186,18 @@ def _rule_based_parse(script_text: str, storyboard_text: str, format_type: str, 
         asset_keywords = _infer_keywords(block, title)
         text = _infer_text(block)
         effects = _infer_effects(block, i, len(scene_blocks))
-        transition = _infer_transition(i, len(scene_blocks))
+        transition = _infer_transition(i, len(scene_blocks), block)
+
+        ltx_prompt, state = _infer_ltx_prompt(block, title, i, None, prev_state)
+        prev_state = state
 
         scene = {
             "background": background,
             "duration": duration,
+            "render_type": _infer_render_type(block),
             "asset_type": asset_type,
             "asset_keywords": asset_keywords,
-            "ltx_prompt": _infer_ltx_prompt(block, title, i, None),
+            "ltx_prompt": ltx_prompt,
             "text": text,
             "effects": effects,
             "transition": transition,
@@ -342,7 +363,18 @@ def _pick_lighting_by_content(text_lower: str, mood: str, scene_index: int) -> s
     return LIGHTING_STYLES[scene_index % len(LIGHTING_STYLES)]
 
 
-def _infer_ltx_prompt(text: str, title: str = "", scene_index: int = 0, scene: dict = None) -> str:
+def _infer_render_type(text: str) -> str:
+    m = re.search(r'\[(MANIM|CODE|WAN2\.1)\]', text, re.IGNORECASE)
+    if m:
+        tag = m.group(1).upper()
+        if tag == "MANIM":
+            return "manim"
+        elif tag == "CODE":
+            return "code"
+    return "stock"
+
+
+def _infer_ltx_prompt(text: str, title: str = "", scene_index: int = 0, scene: dict = None, prev_state: Optional[SceneState] = None) -> tuple[str, SceneState]:
     text_lower = text.lower()
     keywords = _infer_keywords(text, title)
     mood = scene.get("music_mood", "") if scene else ""
@@ -353,6 +385,14 @@ def _infer_ltx_prompt(text: str, title: str = "", scene_index: int = 0, scene: d
     else:
         cam = CAMERA_ANGLES[scene_index % len(CAMERA_ANGLES)]
         lighting = LIGHTING_STYLES[(scene_index + len(keywords)) % len(LIGHTING_STYLES)]
+
+    continuity_hint = ""
+    if prev_state and prev_state.camera_angle:
+        continuity_hint = f"continuing from previous {prev_state.camera_angle}, similar angle with slight drift, consistent lighting ({prev_state.lighting}), "
+        if prev_state.dominant_colors:
+            continuity_hint += f"maintaining color palette ({', '.join(prev_state.dominant_colors[:3])}), "
+        if prev_state.color_palette:
+            continuity_hint += f"consistent {prev_state.color_palette} aesthetic, "
 
     bg_hint = ""
     if scene:
@@ -378,7 +418,7 @@ def _infer_ltx_prompt(text: str, title: str = "", scene_index: int = 0, scene: d
         if texts and isinstance(texts, list) and len(texts) > 0:
             first = texts[0].get("text", "") if isinstance(texts[0], dict) else ""
             if first:
-                text_hint = f"showing \"{first[:40]}\" as text overlay, "
+                text_hint = f'showing "{first[:40]}" as text overlay, '
 
     transition_hint = ""
     if scene:
@@ -389,15 +429,51 @@ def _infer_ltx_prompt(text: str, title: str = "", scene_index: int = 0, scene: d
             transition_hint = "subject positioned on left side for slide transition, "
         elif trans == "fade":
             transition_hint = "slow fading edges for smooth transition, "
+        elif trans == "zoom":
+            transition_hint = "subject centered with subtle zoom for dramatic entrance, "
+        elif trans == "circle_open":
+            transition_hint = "subject framed centrally for circular reveal, "
+        elif trans == "circle_close":
+            transition_hint = "subject framed centrally for circular close, "
+        elif trans == "pixelize":
+            transition_hint = "subject with crisp edges for pixelation dissolution, "
+        elif trans in ("wipe_left", "wipe_right", "wipe_up", "wipe_down"):
+            transition_hint = "subject positioned with clear directional space for wipe transition, "
 
     visual_desc_hint = ""
     visual_match = re.search(r'VISUAL\s*:\s*(.+?)(?=\n|$)', text, re.IGNORECASE | re.DOTALL)
     if visual_match:
-        visual_text = visual_match.group(1).strip()[:120]
+        visual_text = visual_match.group(1).strip()[:400]
+        visual_text = re.sub(r'\[(MANIM|CODE|WAN2\.1)\]\s*', '', visual_text, flags=re.IGNORECASE)
         if visual_text and len(visual_text) > 10:
             visual_desc_hint = f"scene depicts {visual_text}, "
 
-    return f"Cinematic shot of {', '.join(keywords[:2])}, {keywords[-1] if len(keywords) > 2 else 'technology'} visualization, {visual_desc_hint}{bg_hint}{asset_hint}{text_hint}{transition_hint}{cam}, {lighting}, rich colors, professional educational style, 24fps, high quality"  # noqa: E501
+    narration_hint = ""
+    narration_match = re.search(r'NARRATION\s*:\s*(.+?)(?=\n|$)', text, re.IGNORECASE | re.DOTALL)
+    if narration_match:
+        narration_text = narration_match.group(1).strip()[:200]
+        if narration_text and len(narration_text) > 20:
+            key_nouns = re.findall(r'\b[A-Z][a-z]{2,}\b', narration_text)
+            key_terms = [w for w in key_nouns if w.lower() not in {'the', 'this', 'that', 'with', 'from', 'they', 'what', 'when', 'where', 'there', 'these', 'those'}]
+            if key_terms:
+                narration_hint = f"visualizing {', '.join(key_terms[:4])}, "
+
+    prompt = f"Cinematic shot of {', '.join(keywords[:2])}, {keywords[-1] if len(keywords) > 2 else 'technology'} visualization, {continuity_hint}{visual_desc_hint}{narration_hint}{bg_hint}{asset_hint}{text_hint}{transition_hint}{cam}, {lighting}, rich colors, professional educational style, 24fps, high quality"  # noqa: E501
+
+    color_terms = set()
+    for term in text_lower.split():
+        if term in ("teal", "cyan", "blue", "purple", "orange", "amber", "red", "green", "neon", "dark", "black", "white", "gray", "gold"):
+            color_terms.add(term)
+    if not color_terms:
+        color_terms = {"teal", "dark"}
+
+    state = SceneState(
+        camera_angle=cam,
+        lighting=lighting,
+        color_palette=" and ".join(sorted(color_terms)[:3]) or "teal and dark",
+        dominant_colors=["#1e1e1e", "#00CCCC"],
+    )
+    return prompt, state
 
 
 def _infer_asset_type(text: str) -> str:
@@ -511,12 +587,25 @@ def _infer_effects(text: str, scene_index: int, total_scenes: int) -> list[str]:
     return effects[:2]
 
 
-def _infer_transition(scene_index: int, total_scenes: int) -> str:
+def _infer_transition(scene_index: int, total_scenes: int, text: str = "") -> str:
     if scene_index == 0:
         return "cut"
     if scene_index == total_scenes - 1:
         return "fade"
-    transitions = ["dissolve", "slide_right", "fade", "dissolve", "slide_left"]
+    text_lower = text.lower()
+    if any(w in text_lower for w in ["breakthrough", "introducing", "reveal", "new", "revolutionary"]):
+        return "circle_open"
+    if any(w in text_lower for w in ["conclusion", "summary", "wrap", "finally", "end"]):
+        return "circle_close"
+    if any(w in text_lower for w in ["transform", "shift", "change", "evolve", "transition"]):
+        return "smooth_left"
+    if any(w in text_lower for w in ["explode", "burst", "sudden", "surprising", "shock"]):
+        return "pixelize"
+    if any(w in text_lower for w in ["side", "compare", "versus", "alternative", "option"]):
+        return "slide_left"
+    if any(w in text_lower for w in ["zoom", "focus", "detail", "close", "inside"]):
+        return "zoom"
+    transitions = ["dissolve", "slide_right", "fade", "dissolve", "slide_left", "fade_gradual", "smooth_right"]
     return transitions[scene_index % len(transitions)]
 
 

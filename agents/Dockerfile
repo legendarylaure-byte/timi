@@ -8,6 +8,20 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     g++ \
     curl \
     procps \
+    libcairo2-dev \
+    libpango1.0-dev \
+    pango1.0-tools \
+    libglib2.0-dev \
+    patchelf \
+    texlive \
+    texlive-latex-extra \
+    texlive-fonts-extra \
+    texlive-science \
+    texlive-latex-recommended \
+    texlive-fonts-recommended \
+    dvipng \
+    cm-super \
+    cmake \
     && rm -rf /var/lib/apt/lists/*
 
 COPY requirements.txt .

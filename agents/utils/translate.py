@@ -1,5 +1,12 @@
+import os
+import asyncio
+import json
+import logging
+from pathlib import Path
 from utils.llm_client import generate_completion
 from utils.json_utils import extract_json
+
+logger = logging.getLogger(__name__)
 
 LANGUAGES = {
     "es": {
@@ -146,3 +153,113 @@ def get_voice_for_language(lang_code: str) -> str:
 
 def get_tier1_languages() -> list:
     return [code for code, info in LANGUAGES.items() if info["cpm_tier"] == "tier1"]
+
+
+DUB_DIR = Path(__file__).parent.parent / "tmp" / "dubs"
+DUB_DIR.mkdir(parents=True, exist_ok=True)
+
+
+async def _dub_segment(text: str, voice: str, rate: str, pitch: str, output_path: str) -> bool:
+    """Generate TTS audio for a single translated segment."""
+    from utils.voice_gen import generate_segment_audio
+    return await generate_segment_audio(text, output_path, voice=voice, rate=rate, pitch=pitch)
+
+
+async def generate_dubbed_audio(
+    script: str,
+    target_lang: str,
+    voice: str,
+    video_id: str,
+    rate: str = "0%",
+    pitch: str = "-2Hz",
+) -> dict:
+    """Generate dubbed audio for a translated script in the target language.
+
+    Returns dict with paths to generated files:
+    {
+        "audio_path": str,
+        "segment_paths": [str, ...],
+        "duration": float,
+        "success": bool,
+    }
+    """
+    from utils.voice_gen import split_script_into_segments, concatenate_audio
+
+    lang_dir = DUB_DIR / f"{video_id}_{target_lang}"
+    lang_dir.mkdir(parents=True, exist_ok=True)
+
+    segments = split_script_into_segments(script)
+
+    tasks = []
+    for i, seg_text in enumerate(segments):
+        seg_path = str(lang_dir / f"seg_{i+1:04d}.wav")
+        tasks.append(_dub_segment(seg_text, voice, rate, pitch, seg_path))
+
+    results = await asyncio.gather(*tasks)
+    segment_files = [str(lang_dir / f"seg_{i+1:04d}.wav") for i, ok in enumerate(results) if ok]
+
+    if not segment_files:
+        logger.warning("[dub] No segments generated for %s", target_lang)
+        return {"audio_path": "", "segment_paths": [], "duration": 0.0, "success": False}
+
+    audio_path = str(lang_dir / f"dub_{target_lang}.wav")
+    concat_success = concatenate_audio(segment_files, audio_path)
+
+    duration = 0.0
+    if concat_success:
+        try:
+            from pydub import AudioSegment
+            audio = AudioSegment.from_file(audio_path)
+            duration = len(audio) / 1000.0
+        except Exception:
+            pass
+
+    return {
+        "audio_path": audio_path,
+        "segment_paths": segment_files,
+        "duration": duration,
+        "success": concat_success,
+    }
+
+
+async def dub_all_languages(
+    translations: dict,
+    video_id: str,
+    rate: str = "0%",
+    pitch: str = "-2Hz",
+) -> dict:
+    """Generate dubbed audio for all translated languages.
+
+    Args:
+        translations: dict of lang_code -> {translated_script, edge_tts_voice, ...}
+        video_id: unique video ID for directory naming
+
+    Returns:
+        dict of lang_code -> {audio_path, duration, success, ...}
+    """
+    tasks = {}
+    for lang_code, trans in translations.items():
+        voice = trans.get("edge_tts_voice", "en-US-JennyNeural")
+        script = trans.get("translated_script", "")
+        if not script:
+            continue
+        tasks[lang_code] = generate_dubbed_audio(script, lang_code, voice, video_id, rate, pitch)
+
+    results = {}
+    for lang_code, task in tasks.items():
+        try:
+            results[lang_code] = await task
+        except Exception as e:
+            logger.error("[dub] Failed to dub %s: %s", lang_code, e)
+            results[lang_code] = {"audio_path": "", "segment_paths": [], "duration": 0.0, "success": False}
+
+    return results
+
+
+def register_dub_cleanup(video_id: str):
+    """Register dub temp directory for cleanup on exit."""
+    from utils.subprocess_helper import register_temp_dir
+    lang_dirs = DUB_DIR.glob(f"{video_id}_*")
+    for d in lang_dirs:
+        if d.is_dir():
+            register_temp_dir(str(d))

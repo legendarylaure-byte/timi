@@ -166,7 +166,7 @@ def _is_graph_permission_error(err: dict) -> bool:
     return False
 
 
-def upload_to_platform(platform: str, title: str, description: str, video_path: str, thumbnail_path: str, format_type: str = 'shorts', publish_at: str = None, subtitle_path: str = None) -> dict:  # noqa: E501
+def upload_to_platform(platform: str, title: str, description: str, video_path: str, thumbnail_path: str, format_type: str = 'shorts', publish_at: str = None, subtitle_path: str = None, tags: list = None) -> dict:  # noqa: E501
     """Upload a video to a specific platform."""
     platform_info = PLATFORMS.get(platform)
     if not platform_info:
@@ -197,14 +197,17 @@ def _upload_youtube(title: str, description: str, video_path: str, thumbnail_pat
 
         tech_meta = get_tech_metadata("tech educational", format_type, title)
 
-        tags = tech_meta.get("tags", []) + [format_type, "vyom-ai-cloud", "ai", "technology"]
+        if tags:
+            combined_tags = list(dict.fromkeys(tags + [format_type, "vyom-ai-cloud", "ai", "technology"]))
+        else:
+            combined_tags = tech_meta.get("tags", []) + [format_type, "vyom-ai-cloud", "ai", "technology"]
 
         print(f"[PUBLISHER] Uploading YouTube video: {title} (format={format_type}, publish_at={publish_at})")
         result = upload_video_to_youtube(
             video_file=video_path,
             title=title,
             description=description,
-            tags=tags[:15],
+            tags=combined_tags[:15],
             thumbnail_file=thumbnail_path,
             category_id=tech_meta["categoryId"],
             is_shorts=(format_type == "shorts"),
@@ -675,7 +678,7 @@ def multi_platform_publish(video_id: str, title: str, description: str, video_pa
                            thumbnail_path: str, format_type: str = 'shorts',
                            platforms: list = None, publish_at: str = None,
                            category: str = "", cleanup: bool = True,
-                           subtitle_path: str = None) -> dict:
+                           subtitle_path: str = None, tags: list = None) -> dict:
     """Publish to multiple platforms with progress tracking."""
     if platforms is None:
         platforms = ['youtube']
@@ -698,7 +701,7 @@ def multi_platform_publish(video_id: str, title: str, description: str, video_pa
             platform_desc = optimize_for_platform(title, description, platform)
             log_activity('publisher', f"Uploading to {PLATFORMS[platform]['name']}...", 'info')
             result = upload_to_platform(platform, platform_title, platform_desc, video_path,
-                                        thumbnail_path, format_type, publish_at, subtitle_path)
+                                        thumbnail_path, format_type, publish_at, subtitle_path, tags=tags)
             results['platforms'][platform] = result
 
             # Update queue in Firestore

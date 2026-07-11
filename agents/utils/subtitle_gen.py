@@ -1,10 +1,38 @@
 import json
+import logging
 import os
+import re
 from pathlib import Path
 from typing import Optional
 
+logger = logging.getLogger(__name__)
+
 SUBTITLE_DIR = Path(__file__).parent.parent / "tmp" / "subtitles"
 SUBTITLE_DIR.mkdir(parents=True, exist_ok=True)
+
+
+def _load_segment_timing_dir(timing_file: str) -> list[dict]:
+    base = os.path.dirname(timing_file)
+    if not base or not os.path.isdir(base):
+        return []
+    word_events = []
+    pattern = re.compile(r"seg_(\d+)_timing\.json$")
+    files = []
+    for fname in os.listdir(base):
+        m = pattern.match(fname)
+        if m:
+            files.append((int(m.group(1)), os.path.join(base, fname)))
+    files.sort(key=lambda x: x[0])
+    for _, fpath in files:
+        try:
+            with open(fpath, "r") as f:
+                data = json.load(f)
+            for sent in data.get("sentences", []):
+                if sent.get("type") == "WordBoundary":
+                    word_events.append(sent)
+        except Exception:
+            continue
+    return word_events
 
 
 def load_phrase_timing(timing_file: str) -> list[dict]:
@@ -23,6 +51,15 @@ def load_word_timing(timing_file: str) -> list[dict]:
             data = json.load(f)
             if isinstance(data, list):
                 return data
+    return _load_segment_timing_dir(timing_file)
+
+
+def _fallback_to_word_timing(timing_file: str) -> list[dict]:
+    word_events = load_word_timing(timing_file)
+    if word_events:
+        logger.warning("[subtitle_gen] Phrase timing empty, falling back to word-level timing (%d words)", len(word_events))
+        return _convert_word_times_to_phrases(word_events)
+    logger.warning("[subtitle_gen] Phrase timing empty and no word-level timing available")
     return []
 
 
@@ -31,8 +68,9 @@ def generate_srt(timing_file: str, full_text: str, output_path: Optional[str] = 
     phrases = load_phrase_timing(timing_file)
 
     if not phrases:
-        print("[subtitle_gen] WARNING: phrase_timing.json is empty — no SRT subtitles will be generated")
-        return ""
+        phrases = _fallback_to_word_timing(timing_file)
+        if not phrases:
+            return ""
 
     srt_content = ""
     for i, phrase in enumerate(phrases, 1):
@@ -48,7 +86,7 @@ def generate_srt(timing_file: str, full_text: str, output_path: Optional[str] = 
     with open(output_path, "w", encoding="utf-8") as f:
         f.write(srt_content)
 
-    print(f"[subtitle_gen] SRT saved: {output_path} ({len(phrases)} phrases)")
+    logger.info("[subtitle_gen] SRT saved: %s (%d phrases)", output_path, len(phrases))
     return output_path
 
 
@@ -57,8 +95,9 @@ def generate_vtt(timing_file: str, full_text: str, output_path: Optional[str] = 
     phrases = load_phrase_timing(timing_file)
 
     if not phrases:
-        print("[subtitle_gen] WARNING: phrase_timing.json is empty — no VTT subtitles will be generated")
-        return ""
+        phrases = _fallback_to_word_timing(timing_file)
+        if not phrases:
+            return ""
 
     vtt_content = "WEBVTT\n\n"
     for i, phrase in enumerate(phrases, 1):
@@ -74,7 +113,7 @@ def generate_vtt(timing_file: str, full_text: str, output_path: Optional[str] = 
     with open(output_path, "w", encoding="utf-8") as f:
         f.write(vtt_content)
 
-    print(f"[subtitle_gen] VTT saved: {output_path} ({len(phrases)} phrases)")
+    logger.info("[subtitle_gen] VTT saved: %s (%d phrases)", output_path, len(phrases))
     return output_path
 
 

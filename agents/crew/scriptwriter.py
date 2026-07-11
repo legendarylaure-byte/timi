@@ -6,7 +6,7 @@ def create_scriptwriter_crew(topic: str = "", category: str = "", fmt: str = "sh
     is_long = fmt == "long"
     max_tokens = 8000 if is_long else 4000
 
-    llm = get_llm(temperature=0.7 if is_long else 0.8, max_tokens=max_tokens)
+    llm = get_llm(temperature=0.4, max_tokens=max_tokens)
 
     scriptwriter = Agent(
         role="Tech Content Scriptwriter",
@@ -52,24 +52,26 @@ CRITICAL OUTPUT FORMAT — Follow this EXACT structure for EVERY scene:
 
 --SCENE 1--
 NARRATION: [Only the spoken words — what the voice-over narrator will read aloud]
-VISUAL: [Visual description — choose from: STOCK FOOTAGE, SCREEN RECORDING, DIAGRAM ANIMATION, CODE SNIPPET, or STATIC IMAGE with description]
+VISUAL: [RENDER_TYPE: description]
 
 --SCENE 2--
 NARRATION: [Spoken text only]
-VISUAL: [Visual description only]
+VISUAL: [RENDER_TYPE: description]
 
 ...and so on for all scenes.
 
 RULES (STRICT):
 1. NARRATION lines contain ONLY text to be spoken aloud. No scene numbers, no timings, no descriptions.
-2. VISUAL lines contain ONLY visual directions. Never spoken aloud. Start with the asset type in caps.
-3. NEVER include text like "Scene 1:" or "(0-30 seconds)" or "###" inside NARRATION.
-4. Every NARRATION line WILL be read by the voice-over — so it must be complete, natural sentences.
-5. Do NOT use character names or dialogue. This is a single-narrator educational format.
-6. FACTS MUST BE ACCURATE. Do not fabricate statistics, dates, or claims. If uncertain, say "it is believed that" or "experts suggest".
-7. Content is for a NON-TECHNICAL beginner audience — assume ZERO prior knowledge. Explain every specialized term from first principles using everyday analogies. Write for someone who has never heard of this topic before. Avoid jargon entirely; when a technical term is necessary, define it immediately in plain language.
-8. HOOK FORMULA — Use one of these hook styles for the first scene, rotating across videos: (a) Question hook — ask a surprising question, (b) Bold claim — start with a counter-intuitive statement, (c) Statistic — lead with a striking number, (d) Curiosity gap — tease something the viewer doesn't know, (e) Pain point — name a frustration. Do NOT start with "Today we'll learn" or "In this video".
-9. POWER WORDS — Include 2-3 of these naturally: "secretly", "actually", "nobody", "everyone", "the truth", "why most", "what if", "imagine", "stop", "never realized".
+2. VISUAL lines contain ONLY visual directions. Never spoken aloud. Start with the render type tag in brackets.
+3. RENDER_TYPE must be one of: [MANIM] for diagrams, math, concepts, architecture visualizations that need precise animation; [WAN2.1] for cinematic footage, b-roll, establishing shots, background atmospherics; [CODE] for code snippets, terminal output, syntax-highlighted blocks.
+4. After the tag, write a detailed text-to-video prompt: camera angle, lighting, colors, specific objects, motion, composition. Example: "[WAN2.1] Close-up of glowing neural network chip with blue neon pathways, dramatic side lighting, camera slowly dollying in"
+5. NEVER include text like "Scene 1:" or "(0-30 seconds)" or "###" inside NARRATION.
+6. Every NARRATION line WILL be read by the voice-over — so it must be complete, natural sentences.
+7. Do NOT use character names or dialogue. This is a single-narrator educational format.
+8. FACTS MUST BE ACCURATE. Do not fabricate statistics, dates, or claims. If uncertain, say "it is believed that" or "experts suggest".
+9. Content is for a NON-TECHNICAL beginner audience — assume ZERO prior knowledge. Explain every specialized term from first principles using everyday analogies. Write for someone who has never heard of this topic before. Avoid jargon entirely; when a technical term is necessary, define it immediately in plain language.
+10. HOOK FORMULA — Use one of these hook styles for the first scene, rotating across videos: (a) Question hook — ask a surprising question, (b) Bold claim — start with a counter-intuitive statement, (c) Statistic — lead with a striking number, (d) Curiosity gap — tease something the viewer doesn't know, (e) Pain point — name a frustration. Do NOT start with "Today we'll learn" or "In this video".
+11. POWER WORDS — Include 2-3 of these naturally: "secretly", "actually", "nobody", "everyone", "the truth", "why most", "what if", "imagine", "stop", "never realized".
 
 At the end include:
 - Key takeaway (1-2 sentences)
@@ -77,11 +79,11 @@ At the end include:
         expected_output="""A complete script with each scene in EXACT format:
 --SCENE 1--
 NARRATION: [spoken text only]
-VISUAL: [VISUAL TYPE: description]
+VISUAL: [RENDER_TYPE: description]
 
 --SCENE 2--
 NARRATION: [spoken text only]
-VISUAL: [VISUAL TYPE: description]""",
+VISUAL: [RENDER_TYPE: description]""",
         agent=scriptwriter,
     )
 

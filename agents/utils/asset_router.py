@@ -20,16 +20,47 @@ MAX_STOCK_FOOTAGE_RATIO = 0.6
 
 
 def _generate_static_image(description: str, keyword: str = "", width: int = 1920, height: int = 1080) -> str:
-    colors = ["#1a1a2e", "#16213e", "#0f3460", "#533483", "#2d3436", "#0c0c1d", "#1e272e", "#130f40"]
-    bg = random.choice(colors)
+    from PIL import ImageFont
+    bg = "#1e1e1e"
     img = Image.new("RGB", (width, height), bg)
     draw = ImageDraw.Draw(img)
-    accent = tuple(int(bg[i:i+2], 16) for i in (1, 3, 5))
-    accent = tuple(min(c + 40, 255) for c in accent)
-    for _ in range(random.randint(3, 6)):
-        x1, y1 = random.randint(0, width), random.randint(0, height)
-        x2, y2 = random.randint(0, width), random.randint(0, height)
-        draw.ellipse([(min(x1, x2), min(y1, y2)), (max(x1, x2), max(y1, y2))], outline=accent, width=random.randint(1, 3))
+    accent = (0, 204, 204)
+    title_text = (keyword or description or "AI Explained").strip()
+    if len(title_text) > 60:
+        title_text = title_text[:57] + "..."
+    font_size = 64
+    try:
+        font = ImageFont.truetype("/System/Library/Fonts/Helvetica.ttc", font_size)
+    except (OSError, IOError):
+        font = ImageFont.load_default()
+    bbox = draw.textbbox((0, 0), title_text, font=font)
+    tw = bbox[2] - bbox[0]
+    th = bbox[3] - bbox[1]
+    x = (width - tw) // 2
+    y = (height - th) // 2
+    for dx, dy in [(2, 2), (-2, -2), (2, -2), (-2, 2)]:
+        draw.text((x + dx, y + dy), title_text, fill=(0, 0, 0), font=font)
+    draw.text((x, y), title_text, fill=(255, 255, 255), font=font)
+    stripe_y = y + th + 24
+    stripe_w = min(tw + 120, width - 80)
+    stripe_x = (width - stripe_w) // 2
+    draw.rectangle([stripe_x, stripe_y, stripe_x + stripe_w, stripe_y + 4], fill=accent)
+    subtitle_text = "Vyom Ai Cloud"
+    sub_font_size = 28
+    try:
+        sub_font = ImageFont.truetype("/System/Library/Fonts/Helvetica.ttc", sub_font_size)
+    except (OSError, IOError):
+        sub_font = ImageFont.load_default()
+    sub_bbox = draw.textbbox((0, 0), subtitle_text, font=sub_font)
+    sub_tw = sub_bbox[2] - sub_bbox[0]
+    sub_x = (width - sub_tw) // 2
+    sub_y = stripe_y + 16
+    draw.text((sub_x, sub_y), subtitle_text, fill=(180, 180, 180), font=sub_font)
+    corner_size = 6
+    draw.ellipse([60, 60, 60 + corner_size * 2, 60 + corner_size * 2], fill=accent)
+    draw.ellipse([width - 60 - corner_size * 2, 60, width - 60, 60 + corner_size * 2], fill=accent)
+    draw.ellipse([60, height - 60 - corner_size * 2, 60 + corner_size * 2, height - 60], fill=accent)
+    draw.ellipse([width - 60 - corner_size * 2, height - 60 - corner_size * 2, width - 60, height - 60], fill=accent)
     filename = f"static_{keyword or description}_{hash(description) % 10000:04d}.png"
     path = os.path.join(OUTPUT_DIR, filename)
     img.save(path)
@@ -73,25 +104,27 @@ def _get_stock_clip(keyword: str, orientation: str = "landscape", duration: floa
     return None
 
 
-def dispatch_scene(scene: dict, video_id: str, scene_idx: int = 0, format_type: str = "long") -> dict | None:
+def _render_scene_inner(scene: dict, video_id: str, scene_idx: int,
+                        format_type: str, duration: float) -> dict | None:
+    render_type = scene.get("render_type", "stock")
     asset_type = scene.get("asset_type", "STOCK_FOOTAGE")
     orientation = "portrait" if format_type == "shorts" else "landscape"
     kw = scene.get("keyword", "technology")
-    scene.setdefault("asset_keywords", [kw])
-    keywords = scene["asset_keywords"]
     description = scene.get("description", "")
-    duration = scene.get("target_duration", scene.get("duration", 8.0))
+    kw_list = scene.get("asset_keywords", [kw])
+    if isinstance(kw_list, list):
+        kw_list = kw_list
+    else:
+        kw_list = [kw_list]
 
-    kw_list = keywords if isinstance(keywords, list) else [keywords]
-
-    if asset_type == "SCREEN_CAPTURE":
-        code = description.split("\n") if description else [f"# {kw}"]
-        path = render_terminal(code, title=f"scene_{scene_idx}.py", width=1920, height=1080)
+    if render_type == "manim":
+        path = render_manim_scene(scene, video_id, scene_idx)
         if path:
-            return {"path": path, "duration": duration, "asset_type": "SCREEN_CAPTURE", "source": "screen_capture"}
+            return {"path": path, "duration": duration, "asset_type": "DIAGRAM_ANIMATION", "source": "manim"}
+        logger.warning(f"[AssetRouter] Manim not available for scene {scene_idx}, falling back to stock")
 
-    if asset_type == "CODE_SNIPPET":
-        code = description.split("\n") if description else ["import ai", "ai.explain(kw)"]
+    if render_type == "code" or asset_type in ("CODE_SNIPPET", "SCREEN_CAPTURE"):
+        code = description.split("\n") if description else ["# code example", f"# {kw}"]
         path = render_code_snippet(code, width=1920, height=1080)
         if path:
             return {"path": path, "duration": duration, "asset_type": "CODE_SNIPPET", "source": "code_snippet"}
@@ -101,24 +134,55 @@ def dispatch_scene(scene: dict, video_id: str, scene_idx: int = 0, format_type: 
         if path:
             return {"path": path, "duration": duration, "asset_type": "STATIC_IMAGE", "source": "static_image"}
 
-    if asset_type == "DIAGRAM_ANIMATION":
-        path = render_manim_scene(scene, video_id)
-        if path:
-            return {"path": path, "duration": duration, "asset_type": "DIAGRAM_ANIMATION", "source": "manim"}
-
     model = get_video_model()
     if model and model.is_available():
         prompt = scene.get("ltx_prompt", "") or description or ", ".join(kw_list)
         clip_path = model.generate_clip(prompt, int(duration))
         if clip_path:
             return {"path": clip_path, "duration": duration, "asset_type": "STOCK_FOOTAGE", "source": "ltx"}
-    for kw in kw_list:
-        path = _get_stock_clip(kw, orientation, duration)
+    for k in kw_list:
+        path = _get_stock_clip(k, orientation, duration)
         if path and os.path.exists(path):
             return {"path": path, "duration": duration, "asset_type": "STOCK_FOOTAGE", "source": "stock"}
     fallback = _get_stock_clip("technology", orientation, duration)
     if fallback and os.path.exists(fallback):
         return {"path": fallback, "duration": duration, "asset_type": "STOCK_FOOTAGE", "source": "stock"}
+    return None
+
+
+def dispatch_scene(scene: dict, video_id: str, scene_idx: int = 0,
+                   format_type: str = "long") -> dict | None:
+    from utils.video_qa import check_corruption
+
+    scene.setdefault("asset_keywords", [scene.get("keyword", "technology")])
+    duration = scene.get("target_duration", scene.get("duration", 8.0))
+    source = None
+
+    for attempt in range(2):
+        result = _render_scene_inner(scene, video_id, scene_idx, format_type, duration)
+        if not result or not os.path.exists(result["path"]):
+            continue
+        if attempt == 1:
+            return result
+        qa = check_corruption(result["path"])
+        if not qa["is_corrupt"]:
+            return result
+        logger.warning(
+            f"[AssetRouter] Scene {scene_idx} QA failed (attempt {attempt + 1}): "
+            f"{qa['decode_errors']} decode errors — retrying"
+        )
+        if source is None:
+            source = result["source"]
+        scene["render_type"] = "stock"
+        scene.pop("ltx_prompt", None)
+        duration = max(duration * 1.1, duration + 1.0)
+
+    if result and os.path.exists(result["path"]):
+        return result
+    static = _generate_static_image(scene.get("description", ""),
+                                     scene.get("keyword", "technology"))
+    if static:
+        return {"path": static, "duration": duration, "asset_type": "STATIC_IMAGE", "source": "static_image"}
     return None
 
 
@@ -132,9 +196,10 @@ def dispatch_scenes(scenes: list[dict], video_id: str, format_type: str = "long"
     use_ltx = model and model.is_available()
 
     for idx, scene in enumerate(scenes):
-        if scene.get("asset_type") == "DIAGRAM_ANIMATION":
+        rt = scene.get("render_type", "stock")
+        if rt == "manim" or scene.get("asset_type") == "DIAGRAM_ANIMATION":
             manim_scenes.append(scene)
-        elif use_ltx:
+        elif rt == "stock" and use_ltx:
             ltx_batch.append((idx, scene))
         else:
             result = dispatch_scene(scene, video_id, idx, format_type)
@@ -160,10 +225,18 @@ def dispatch_scenes(scenes: list[dict], video_id: str, format_type: str = "long"
         if manim_path:
             total_dur = sum(s.get("duration", s.get("target_duration", 8.0)) for s in manim_scenes)
             manim_idx = next(
-                (i for i, s in enumerate(scenes) if s.get("asset_type") == "DIAGRAM_ANIMATION"),
+                (i for i, s in enumerate(scenes) if s.get("render_type") == "manim" or s.get("asset_type") == "DIAGRAM_ANIMATION"),
                 len(clips)
             )
             insert_pos = min(manim_idx, len(clips))
             clips.insert(insert_pos, {"path": manim_path, "duration": total_dur, "asset_type": "DIAGRAM_ANIMATION", "source": "manim_block"})
+        else:
+            logger.warning(f"[AssetRouter] compose_manim_block failed, rendering {len(manim_scenes)} scenes individually")
+            for ms in manim_scenes:
+                ms_idx = next(i for i, s in enumerate(scenes) if s is ms)
+                result = dispatch_scene(ms, video_id, ms_idx, format_type)
+                if result:
+                    clips_map[ms_idx] = result
+            clips = [clips_map[i] for i in range(len(scenes)) if i in clips_map]
 
     return clips
