@@ -58,6 +58,7 @@ logger = logging.getLogger(__name__)
 PRESET = "medium"
 
 SFX_VOLUME_DB = float(os.getenv("SFX_VOLUME_DB", "-12"))
+_AMBIENT_VOLUME_DB = float(os.getenv("AMBIENT_VOLUME_DB", "-24"))
 
 
 def _sws_flags() -> list:
@@ -193,36 +194,95 @@ def apply_ken_burns(input_path: str, output_path: str, target_w: int, target_h: 
     return resize_to_target(trim_path, output_path, target_w, target_h)
 
 
+MUSIC_FADE_MS = 800
+SFX_EMPHASIS_VOLUME_DB = -10
+
+
+def _generate_emphasis_tone(duration_ms: int = 200, freq: int = 440) -> AudioSegment:
+    import math
+    sample_rate = 44100
+    n_samples = int(sample_rate * duration_ms / 1000)
+    samples = [int(8192 * math.sin(2 * math.pi * freq * t / sample_rate)) for t in range(n_samples)]
+    for t in range(min(50, n_samples)):
+        samples[t] = int(samples[t] * t / 50)
+        samples[-(t + 1)] = int(samples[-(t + 1)] * t / 50)
+    return AudioSegment(samples, frame_rate=sample_rate, sample_width=2, channels=1)
+
+
+def _generate_ambient_pad(duration_ms: int) -> AudioSegment:
+    import math
+    import random
+    sample_rate = 44100
+    n_samples = int(sample_rate * duration_ms / 1000)
+    samples = []
+    for t in range(n_samples):
+        env = 0.5 - 0.5 * math.cos(2 * math.pi * t / n_samples)
+        chord = (math.sin(2 * math.pi * 110 * t / sample_rate) * 0.15 +
+                 math.sin(2 * math.pi * 165 * t / sample_rate) * 0.10 +
+                 math.sin(2 * math.pi * 220 * t / sample_rate) * 0.08)
+        noise = (random.random() - 0.5) * 0.02
+        samples.append(int(4096 * env * (chord + noise)))
+    return AudioSegment(samples, frame_rate=sample_rate, sample_width=2, channels=1)
+
+
 def mix_audio(voice_path: str, music_path: Optional[str], output_path: str,
               voice_volume_db: float = 0, music_volume_db: float = -18,
-              duck_db: float = -6, sfx_scenes: Optional[list] = None) -> bool:
+              duck_db: float = -6, sfx_scenes: Optional[list] = None,
+              duration_ms: Optional[int] = None) -> bool:
     try:
         voice = AudioSegment.from_file(voice_path) + voice_volume_db
+        if duration_ms:
+            voice = voice[:duration_ms]
+
         if music_path and os.path.exists(music_path):
             music_raw = (AudioSegment.from_file(music_path) + music_volume_db)
             music_raw = (music_raw * (len(voice) // len(music_raw) + 1))[:len(voice)]
+            if len(music_raw) > MUSIC_FADE_MS * 2:
+                music_raw = music_raw.fade_in(MUSIC_FADE_MS).fade_out(MUSIC_FADE_MS)
             music_raw = _apply_ducking(music_raw, voice, duck_db=duck_db)
             mixed = voice.overlay(music_raw)
         else:
             mixed = voice
 
+        ambient_pad = _generate_ambient_pad(len(mixed))
+        ambient_pad = ambient_pad + _AMBIENT_VOLUME_DB
+        mixed = mixed.overlay(ambient_pad)
+
         if sfx_scenes:
             sfx_track = AudioSegment.silent(duration=len(mixed))
             cumulative_ms = 0
-            for scene in sfx_scenes:
+            emphasis_markers = []
+            for si, scene in enumerate(sfx_scenes):
                 dur = scene.get("duration", scene.get("target_duration", 8.0))
                 scene_sfx = scene.get("sfx", [])
                 for sfx in scene_sfx:
                     sfx_path = sfx.get("path", "")
-                    if not os.path.exists(sfx_path):
-                        continue
-                    try:
-                        sfx_audio = AudioSegment.from_file(sfx_path) + SFX_VOLUME_DB
-                        sfx_track = sfx_track.overlay(sfx_audio, position=cumulative_ms)
-                    except Exception:
-                        pass
+                    if os.path.exists(sfx_path):
+                        try:
+                            sfx_audio = AudioSegment.from_file(sfx_path) + SFX_VOLUME_DB
+                            sfx_track = sfx_track.overlay(sfx_audio, position=cumulative_ms)
+                        except Exception:
+                            pass
+                scene_mood = scene.get("music_mood", "focused")
+                if scene_mood == "transition" or si > 0 and si % 3 == 0:
+                    emphasis_markers.append(cumulative_ms + int(dur * 500))
                 cumulative_ms += int(dur * 1000)
+
+            for pos_ms in emphasis_markers:
+                tone = _generate_emphasis_tone(120, 660)
+                tone = tone + SFX_EMPHASIS_VOLUME_DB
+                sfx_track = sfx_track.overlay(tone, position=min(pos_ms, len(sfx_track) - len(tone)))
+
+            if len(mixed) > 1000:
+                cta_pos = max(0, len(mixed) - 3000)
+                cta_tone = _generate_emphasis_tone(300, 880)
+                cta_tone = cta_tone.fade_in(50).fade_out(100) + SFX_EMPHASIS_VOLUME_DB
+                sfx_track = sfx_track.overlay(cta_tone, position=min(cta_pos, len(sfx_track) - len(cta_tone)))
+
             mixed = mixed.overlay(sfx_track)
+
+        if len(mixed) > 400:
+            mixed = mixed.fade_in(300).fade_out(400)
 
         mixed.export(output_path, format="wav")
         return os.path.exists(output_path) and os.path.getsize(output_path) > 1000
@@ -264,6 +324,7 @@ def _process_clip(clip: dict, target_w: int, target_h: int, idx: int, format_typ
     src = clip["path"]
     dur = clip.get("duration", 8.0)
     out = str(TEMP_DIR / f"clip_{idx:03d}.mp4")
+    camera = clip.get("camera", {}) or {}
 
     try:
         clip_size = os.path.getsize(src)
@@ -278,9 +339,19 @@ def _process_clip(clip: dict, target_w: int, target_h: int, idx: int, format_typ
         trimmed = str(TEMP_DIR / f"kb_trim_{idx:03d}.mp4")
         if not trim_clip(src, trimmed, 0, dur):
             return None
+
+        zoom = float(camera.get("zoom", 1.0))
+        pan_x = float(camera.get("pan_x", 0))
+        pan_y = float(camera.get("pan_y", 0))
+        has_camera_effect = zoom != 1.0 or pan_x != 0 or pan_y != 0
+
         if format_type == "shorts" and target_h > target_w:
             if not pad_with_blurred_background(trimmed, out, target_w, target_h):
                 return None
+        elif has_camera_effect:
+            if not _apply_camera_motion(trimmed, out, target_w, target_h, dur, zoom, pan_x, pan_y):
+                if not apply_ken_burns(trimmed, out, target_w, target_h, dur, idx):
+                    return None
         else:
             if not apply_ken_burns(trimmed, out, target_w, target_h, dur, idx):
                 return None
@@ -289,6 +360,29 @@ def _process_clip(clip: dict, target_w: int, target_h: int, idx: int, format_typ
             return None
 
     return out if os.path.exists(out) and os.path.getsize(out) > 1000 else None
+
+
+def _apply_camera_motion(input_path: str, output_path: str, target_w: int, target_h: int,
+                         duration: float, zoom: float = 1.0, pan_x: float = 0, pan_y: float = 0) -> bool:
+    if zoom > 1.25:
+        zoom = 1.25
+    zoom_pct = zoom * 100
+    pan_x_px = int(pan_x * target_w * 0.2)
+    pan_y_px = int(pan_y * target_h * 0.2)
+    vf = (
+        f"zoompan=z='if(eq(on,1),{zoom_pct},min({zoom_pct},zoom+0.005))':"
+        f"d={int(duration * 24)}:"
+        f"x='iw/2-(iw/zoom/2)+{pan_x_px}*on/{int(duration*24)}':"
+        f"y='ih/2-(ih/zoom/2)+{pan_y_px}*on/{int(duration*24)}':"
+        f"s={target_w}x{target_h}:fps=24"
+    )
+    cmd = [
+        _ffmpeg_cmd(), "-y", "-i", input_path, *_sws_flags(),
+        "-vf", vf,
+        "-c:v", "libx264", "-preset", PRESET, "-crf", CRF,
+        "-an", "-pix_fmt", "yuv420p", output_path,
+    ]
+    return safe_run_bool(cmd, timeout=120)
 
 
 def _xfade_duration_for_scene(duration: float) -> float:
@@ -662,7 +756,7 @@ def composite_video(clips: list[dict], voice_path: str, music_path: Optional[str
 
     if subtitle_path and os.path.exists(subtitle_path):
         abs_sub = os.path.abspath(subtitle_path)
-        sub_fs = 24
+        sub_fs = 18
         vf_parts.append(
             f"subtitles=filename='{abs_sub}':force_style="
             f"'FontSize={sub_fs},PrimaryColour=&HFF00CCCC&,OutlineColour=&H40002B00&,"

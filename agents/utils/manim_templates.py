@@ -941,6 +941,649 @@ class ConceptMapScene(Scene):
     )
 
 
+def intro_template(
+    channel_name: str = "Vyom Ai Cloud",
+    tagline: str = "AI Education for Everyone",
+    duration: float = 4.0,
+    entry_time: float = 0.5,
+    exit_time: float = 0.5,
+) -> str:
+    template = INJECT_IMPORTS + """
+class IntroScene(Scene):
+    def construct(self):
+        self.camera.background_color = "#1e1e1e"
+        bg = Rectangle(width=16, height=9, fill_opacity=0, stroke_width=0)
+        accent_bar = Rectangle(width=0.08, height=1.2, fill_opacity=1, fill_color="#00CCCC", stroke_width=0)
+        accent_bar.move_to([-1.8, 0, 0])
+        self.play(FadeIn(accent_bar, scale=0.5), run_time=0.5)
+        name_text = Text("__CHANNEL__", font_size=48, color="#00CCCC", weight=BOLD)
+        name_text.next_to(accent_bar, RIGHT, buff=0.4)
+        self.play(Write(name_text), run_time=0.6)
+        tagline_text = Text("__TAGLINE__", font_size=22, color=GRAY)
+        tagline_text.next_to(name_text, DOWN, buff=0.2, aligned_edge=LEFT)
+        self.play(FadeIn(tagline_text, shift=UP * 0.1), run_time=0.4)
+        glow = Rectangle(width=10, height=0.002, fill_opacity=0.3, fill_color="#00CCCC", stroke_width=0)
+        glow.next_to(tagline_text, DOWN, buff=0.3)
+        self.play(FadeIn(glow), run_time=0.3)
+        remaining = max(0, __DURATION__ - self.time - __EXIT__)
+        if remaining > 0:
+            self.wait(remaining)
+        if __EXIT__ > 0:
+            self.play(FadeOut(VGroup(accent_bar, name_text, tagline_text, glow)), run_time=__EXIT__)
+""".replace("__CHANNEL__", channel_name).replace("__TAGLINE__", tagline)
+    return (
+        template
+        .replace("__DURATION__", str(duration))
+        .replace("__ENTRY__", str(entry_time))
+        .replace("__EXIT__", str(exit_time))
+    )
+
+
+def outro_template(
+    channel_name: str = "Vyom Ai Cloud",
+    cta_text: str = "Subscribe for more AI content",
+    url: str = "vyomcloud.com",
+    duration: float = 5.0,
+    entry_time: float = 0.5,
+    exit_time: float = 0.5,
+) -> str:
+    template = INJECT_IMPORTS + """
+class OutroScene(Scene):
+    def construct(self):
+        self.camera.background_color = "#1e1e1e"
+        cta = Text("__CTA__", font_size=40, color=WHITE, weight=BOLD)
+        cta.move_to([0, 0.5, 0])
+        self.play(Write(cta), run_time=0.6)
+        btn = RoundedRectangle(width=3.5, height=0.6, corner_radius=0.1, fill_opacity=0.2, fill_color="#00CCCC", stroke_color="#00CCCC", stroke_width=2)
+        btn.next_to(cta, DOWN, buff=0.5)
+        btn_label = Text("SUBSCRIBE", font_size=20, color="#00CCCC", weight=BOLD)
+        btn_label.move_to(btn.get_center())
+        self.play(FadeIn(btn, scale=0.8), Write(btn_label), run_time=0.5)
+        pulse = btn.copy().set_stroke("#00CCCC", width=4).set_fill(opacity=0)
+        self.play(pulse.animate.scale(1.08).set_opacity(0), run_time=0.6)
+        url_text = Text("__URL__", font_size=16, color=GRAY)
+        url_text.next_to(btn, DOWN, buff=0.3)
+        self.play(FadeIn(url_text), run_time=0.3)
+        channel = Text("__CHANNEL__", font_size=18, color="#00CCCC").to_corner(DR)
+        self.play(FadeIn(channel), run_time=0.3)
+        remaining = max(0, __DURATION__ - self.time - __EXIT__)
+        if remaining > 0:
+            self.wait(remaining)
+        if __EXIT__ > 0:
+            self.play(FadeOut(VGroup(cta, btn, btn_label, url_text, channel)), run_time=__EXIT__)
+""".replace("__CHANNEL__", channel_name).replace("__CTA__", cta_text).replace("__URL__", url)
+    return (
+        template
+        .replace("__DURATION__", str(duration))
+        .replace("__ENTRY__", str(entry_time))
+        .replace("__EXIT__", str(exit_time))
+    )
+
+
+def loss_landscape_template(
+    title: str = "Loss Landscape",
+    duration: float = 10.0,
+    surface_type: str = "saddle",
+    num_steps: int = 8,
+    entry_time: float = 0.5,
+    exit_time: float = 0.5,
+) -> str:
+    if surface_type == "saddle":
+        def_surface = "def f(u, v): return np.array([u, v, 0.15 * (u**2 - v**2)])"
+        contour_desc = "saddle point at center, gradients flow down the sides"
+    elif surface_type == "plateau":
+        def_surface = "def f(u, v): return np.array([u, v, 0.02 * (u**2 + v**2) + 0.5 / (1 + np.exp(-6 * (u**2 + v**2 - 2)))])"
+        contour_desc = "flat plateau with steep ravines on the edges"
+    else:
+        def_surface = "def f(u, v): return np.array([u, v, 0.3 * (np.sin(u) * np.sin(v) + 0.3 * (u**2 + v**2) * 0.1)])"
+        contour_desc = "multiple local minima with sinusoidal ridges"
+    template = INJECT_IMPORTS + f"""
+class LossLandscapeScene(ThreeDScene):
+    def construct(self):
+        title_text = Text("__TITLE__", font_size=36, color=WHITE).to_edge(UP)
+        self.add_fixed_in_frame_mobjects(title_text)
+        self.play(Write(title_text), run_time=__ENTRY__)
+
+        self.set_camera_orientation(phi=70 * DEGREES, theta=-40 * DEGREES, zoom=0.85)
+        axes = ThreeDAxes(
+            x_range=[-3, 3, 1], y_range=[-3, 3, 1], z_range=[-2, 3, 1],
+            x_length=6, y_length=6, z_length=4,
+        )
+        x_label = Text("w₁", font_size=16, color=GRAY).move_to(axes.x_axis.get_end() + RIGHT * 0.3)
+        y_label = Text("w₂", font_size=16, color=GRAY).move_to(axes.y_axis.get_end() + UP * 0.3)
+        z_label = Text("Loss", font_size=16, color="#00CCCC").move_to(axes.z_axis.get_end() + OUT * 0.3)
+
+        {def_surface}
+        surface = Surface(
+            f, u_range=[-2.5, 2.5], v_range=[-2.5, 2.5],
+            resolution=(24, 24), fill_opacity=0.7, fill_color=BLUE_B,
+            stroke_width=0.3, stroke_color=BLUE_D,
+        )
+        self.play(Create(axes), Write(x_label), Write(y_label), Write(z_label), run_time=0.5)
+        self.play(Create(surface), run_time=1.2)
+
+        contour_label = Text("{contour_desc}", font_size=16, color=GRAY_C).to_corner(DL)
+        self.add_fixed_in_frame_mobjects(contour_label)
+        self.play(Write(contour_label), run_time=0.3)
+
+        np.random.seed(42)
+        flat_region = [[-2 + 4 * np.random.random(), -2 + 4 * np.random.random()] for _ in range(__STEPS__)]
+        grad_path = _compute_grad_descent_path(lr=0.2, steps=__STEPS__)
+        points_3d = []
+        for p in grad_path:
+            f_out = f(p[0], p[1])
+            z = f_out[2] + 0.05
+            points_3d.append(np.array([p[0], p[1], z]))
+
+        path_mob = VMobject(stroke_color="#FF6B35", stroke_width=5)
+        path_mob.set_points_smoothly(points_3d)
+        self.play(Create(path_mob), run_time=1.0)
+
+        sphere = Sphere(radius=0.1, color="#FF6B35", fill_opacity=1.0)
+        sphere.move_to(points_3d[0])
+        self.add(sphere)
+
+        step_label = Text("Init", font_size=20, color="#FF6B35").to_corner(DR)
+        self.add_fixed_in_frame_mobjects(step_label)
+        self.play(Write(step_label))
+
+        for i, target in enumerate(points_3d[1:]):
+            new_label = Text(f"Step {{i + 1}}", font_size=20, color="#FF6B35").to_corner(DR)
+            self.add_fixed_in_frame_mobjects(new_label)
+            self.play(sphere.animate.move_to(target), Transform(step_label, new_label), run_time=0.35)
+
+        self.begin_ambient_camera_rotation(rate=0.08)
+        remaining = max(0, __DURATION__ - self.time - __EXIT__)
+        if remaining > 0:
+            self.wait(remaining)
+        if __EXIT__ > 0:
+            self.play(FadeOut(VGroup(title_text, axes, surface, contour_label, path_mob, sphere, step_label)), run_time=__EXIT__)
+"""
+    return (
+        template
+        .replace("__TITLE__", title)
+        .replace("__DURATION__", str(duration))
+        .replace("__ENTRY__", str(entry_time))
+        .replace("__EXIT__", str(exit_time))
+        .replace("__STEPS__", str(num_steps))
+    )
+
+
+def embedding_space_template(
+    title: str = "Embedding Space",
+    duration: float = 10.0,
+    dimensions: int = 2,
+    num_points: int = 8,
+    entry_time: float = 0.5,
+    exit_time: float = 0.5,
+) -> str:
+    template = INJECT_IMPORTS + """
+class EmbeddingSpaceScene(ThreeDScene):
+    def construct(self):
+        title_text = Text("__TITLE__", font_size=36, color=WHITE).to_edge(UP)
+        self.add_fixed_in_frame_mobjects(title_text)
+        self.play(Write(title_text), run_time=__ENTRY__)
+
+        axes = ThreeDAxes(
+            x_range=[-4, 4, 1], y_range=[-4, 4, 1], z_range=[-4, 4, 1],
+            x_length=7, y_length=7, z_length=5,
+        )
+        x_label = MathTex("x_1", font_size=24, color=GRAY).move_to(axes.x_axis.get_end() + RIGHT * 0.3)
+        y_label = MathTex("x_2", font_size=24, color=GRAY).move_to(axes.y_axis.get_end() + UP * 0.3)
+        z_label = MathTex("x_3", font_size=24, color=GRAY).move_to(axes.z_axis.get_end() + OUT * 0.3)
+        self.play(Create(axes), Write(x_label), Write(y_label), Write(z_label), run_time=0.6)
+
+        np.random.seed(42)
+        vectors = []
+        labels = ["king", "queen", "man", "woman", "apple", "orange", "car", "dog"]
+        for _ in range(min(8, __POINTS__)):
+            v = np.random.uniform(-3, 3, 3)
+            v = v / np.linalg.norm(v) * np.random.uniform(1, 3)
+            vectors.append(v)
+
+        dots = []
+        dot_labels = []
+        for i, vec in enumerate(vectors):
+            dot = Dot3D(point=vec, radius=0.08, color="#00CCCC")
+            self.play(Create(dot), run_time=0.15)
+            dots.append(dot)
+            if i < len(labels):
+                lbl = Text(labels[i].split("_")[0], font_size=12, color=GRAY_C).move_to(vec + [0, -0.3, 0])
+                self.add_fixed_in_frame_mobjects(lbl)
+                dot_labels.append(lbl)
+                self.play(Write(lbl), run_time=0.1)
+
+        king_vec = vectors[0] if len(vectors) > 0 else np.array([2, 1, 1])
+        queen_vec = vectors[1] if len(vectors) > 1 else np.array([2, -1, 0])
+        woman_vec = vectors[3] if len(vectors) > 3 else np.array([-1, 1, 1])
+        man_vec = vectors[2] if len(vectors) > 2 else np.array([-1, -1, 0])
+
+        arrow_king_queen = Arrow3D(king_vec, queen_vec, color="#FF6B35", thickness=0.02)
+        arrow_man_woman = Arrow3D(man_vec, woman_vec, color="#FF6B35", thickness=0.02)
+        self.play(Create(arrow_king_queen), Create(arrow_man_woman), run_time=0.5)
+
+        gp_label = MathTex("\\vec{g}_{gender}", font_size=22, color="#FF6B35")
+        gp_label.move_to((king_vec + queen_vec) / 2 + [0.5, 0.5, 0])
+        self.add_fixed_in_frame_mobjects(gp_label)
+        self.play(Write(gp_label), run_time=0.3)
+
+        self.set_camera_orientation(phi=75 * DEGREES, theta=-30 * DEGREES)
+        self.begin_ambient_camera_rotation(rate=0.06)
+        remaining = max(0, __DURATION__ - self.time - __EXIT__)
+        if remaining > 0:
+            self.wait(remaining)
+        if __EXIT__ > 0:
+            self.play(FadeOut(VGroup(title_text, axes, *dots, *dot_labels, arrow_king_queen, arrow_man_woman, gp_label)), run_time=__EXIT__)
+"""
+    return (
+        template
+        .replace("__TITLE__", title)
+        .replace("__DURATION__", str(duration))
+        .replace("__ENTRY__", str(entry_time))
+        .replace("__EXIT__", str(exit_time))
+        .replace("__POINTS__", str(min(num_points, 8)))
+    )
+
+
+def decision_boundary_template(
+    title: str = "Decision Boundary",
+    duration: float = 10.0,
+    boundary_type: str = "linear",
+    entry_time: float = 0.5,
+    exit_time: float = 0.5,
+) -> str:
+    template = INJECT_IMPORTS + """
+class DecisionBoundaryScene(Scene):
+    def construct(self):
+        self.camera.background_color = "#1e1e1e"
+        title_text = Text("__TITLE__", font_size=36, color=WHITE).to_edge(UP)
+        self.play(Write(title_text), run_time=__ENTRY__)
+
+        axes = Axes(
+            x_range=[-3, 3, 1], y_range=[-3, 3, 1],
+            x_length=10, y_length=10,
+            axis_config={'color': GRAY, 'stroke_width': 1},
+        ).move_to([0, 0, 0])
+        x_label = Text("x₁", font_size=18, color=GRAY).next_to(axes.x_axis.get_end(), RIGHT)
+        y_label = Text("x₂", font_size=18, color=GRAY).next_to(axes.y_axis.get_end(), UP)
+        self.play(Create(axes), Write(x_label), Write(y_label), run_time=0.5)
+
+        def curve_func(x):
+            __CURVE_BODY__
+
+        boundary = axes.plot(curve_func, color="#00CCCC", stroke_width=3)
+        fill_above = axes.get_area(boundary, x_range=[-3, 3], color="#00CCCC", opacity=0.1)
+        fill_below = axes.get_area(
+            axes.plot(lambda x: -3, stroke_width=0),
+            x_range=[-3, 3], color="#FF6B35", opacity=0.1,
+        )
+        self.play(Create(boundary), run_time=0.6)
+        self.play(FadeIn(fill_above), FadeIn(fill_below), run_time=0.3)
+
+        np.random.seed(42)
+        n_pos = 12
+        n_neg = 12
+        pos_x = np.random.uniform(-2, 0, n_pos)
+        pos_y = np.random.uniform(curve_func(pos_x) + 0.2, 2.5)
+        neg_x = np.random.uniform(-2, 2, n_neg)
+        neg_y = np.random.uniform(-2.5, curve_func(neg_x) - 0.2)
+
+        pos_dots = []
+        neg_dots = []
+        for i in range(n_pos):
+            dot = Dot(axes.c2p(pos_x[i], pos_y[i]), radius=0.06, color="#00CCCC")
+            self.play(Create(dot), run_time=0.08)
+            pos_dots.append(dot)
+        for i in range(n_neg):
+            dot = Dot(axes.c2p(neg_x[i], neg_y[i]), radius=0.06, color="#FF6B35")
+            self.play(Create(dot), run_time=0.08)
+            neg_dots.append(dot)
+
+        class_a_label = Text("Class A", font_size=16, color="#00CCCC").to_corner(UR)
+        class_b_label = Text("Class B", font_size=16, color="#FF6B35").to_corner(UL)
+        self.add_fixed_in_frame_mobjects(class_a_label, class_b_label)
+        self.play(Write(class_a_label), Write(class_b_label), run_time=0.2)
+
+        remaining = max(0, __DURATION__ - self.time - __EXIT__)
+        if remaining > 0:
+            self.wait(remaining)
+        if __EXIT__ > 0:
+            self.play(FadeOut(VGroup(title_text, axes, boundary, fill_above, fill_below, *pos_dots, *neg_dots, class_a_label, class_b_label)), run_time=__EXIT__)
+"""
+    curve_body = "return 0.5 * x - 0.2"
+    if boundary_type == "nonlinear":
+        curve_body = "return 0.6 * np.sin(1.8 * x) + 0.1 * x**2 - 0.3"
+    elif boundary_type == "complex":
+        curve_body = "return 0.4 * np.sin(2.5 * x) + 0.2 * np.cos(3 * x) - 0.1 * x**2"
+    return (
+        template
+        .replace("__TITLE__", title)
+        .replace("__CURVE_BODY__", curve_body)
+        .replace("__DURATION__", str(duration))
+        .replace("__ENTRY__", str(entry_time))
+        .replace("__EXIT__", str(exit_time))
+    )
+
+
+def matrix_multiplication_template(
+    title: str = "Matrix Multiplication",
+    duration: float = 12.0,
+    rows_a: int = 3,
+    cols_a: int = 3,
+    cols_b: int = 2,
+    entry_time: float = 0.5,
+    exit_time: float = 0.5,
+) -> str:
+    np.random.seed(42)
+    mat_a = np.random.randint(0, 5, (rows_a, cols_a)).tolist()
+    mat_b = np.random.randint(0, 5, (cols_a, cols_b)).tolist()
+    mat_c = np.dot(np.array(mat_a), np.array(mat_b)).tolist()
+    a_json = json.dumps(mat_a)
+    b_json = json.dumps(mat_b)
+    c_json = json.dumps(mat_c)
+    template = INJECT_IMPORTS + f"""
+class MatrixMultiplyScene(Scene):
+    def construct(self):
+        self.camera.background_color = "#1e1e1e"
+        title_text = Text("__TITLE__", font_size=36, color=WHITE).to_edge(UP)
+        self.play(Write(title_text), run_time=__ENTRY__)
+
+        a_data = {a_json}
+        b_data = {b_json}
+        c_data = {c_json}
+        r_a, c_a = len(a_data), len(a_data[0])
+        c_b = len(b_data[0])
+        cell_size = 0.5
+        gap = 0.6
+
+        a_group = VGroup()
+        for i in range(r_a):
+            for j in range(c_a):
+                val = a_data[i][j]
+                sq = Square(side_length=cell_size, stroke_color=GRAY_C, stroke_width=1, fill_opacity=0.15)
+                sq.move_to([j * gap - (c_a - 1) * gap / 2, (r_a - 1) * gap / 2 - i * gap, 0])
+                num = Text(str(val), font_size=14, color="#00CCCC").move_to(sq.get_center())
+                a_group.add(VGroup(sq, num))
+
+        a_label = MathTex("A", font_size=28, color="#00CCCC").next_to(a_group, LEFT, buff=0.5)
+        self.play(Create(a_group), Write(a_label), run_time=0.6)
+
+        multiply = Text("×", font_size=24, color=WHITE).next_to(a_group, RIGHT, buff=0.3)
+
+        b_group = VGroup()
+        b_offset_x = (c_a - 1) * gap / 2 + gap + 0.6
+        for i in range(c_a):
+            for j in range(c_b):
+                val = b_data[i][j]
+                sq = Square(side_length=cell_size, stroke_color=GRAY_C, stroke_width=1, fill_opacity=0.15)
+                sq.move_to([b_offset_x + j * gap - (c_b - 1) * gap / 2, (r_a - 1) * gap / 2 - i * gap, 0])
+                num = Text(str(val), font_size=14, color="#FF6B35").move_to(sq.get_center())
+                b_group.add(VGroup(sq, num))
+
+        b_label = MathTex("B", font_size=28, color="#FF6B35").next_to(b_group, LEFT, buff=0.3)
+        self.play(Write(multiply), Create(b_group), Write(b_label), run_time=0.6)
+
+        equals = Text("=", font_size=24, color=WHITE).next_to(b_group, RIGHT, buff=0.3)
+
+        c_group = VGroup()
+        c_offset_x = b_offset_x + (c_b - 1) * gap / 2 + gap + 0.6
+        for i in range(r_a):
+            for j in range(c_b):
+                val = c_data[i][j]
+                sq = Square(side_length=cell_size, stroke_color=YELLOW, stroke_width=1, fill_opacity=0.15)
+                sq.move_to([c_offset_x + j * gap - (c_b - 1) * gap / 2, (r_a - 1) * gap / 2 - i * gap, 0])
+                num = Text(str(val), font_size=14, color=YELLOW).move_to(sq.get_center())
+                c_group.add(VGroup(sq, num))
+
+        self.play(Write(equals), run_time=0.2)
+
+        row_highlight = VGroup()
+        col_highlight = VGroup()
+        result_highlight = VGroup()
+        explanation = Text("Dot product: row × column", font_size=18, color=GRAY_C).to_corner(DL)
+        self.add_fixed_in_frame_mobjects(explanation)
+        self.play(Write(explanation))
+
+        all_done = VGroup(a_group, b_group, c_group, multiply, equals, a_label, b_label)
+
+        for ri in range(min(r_a, 3)):
+            r_highlight = VGroup(*a_group[ri * c_a:(ri + 1) * c_a]).copy()
+            r_highlight.set_stroke(YELLOW, width=3)
+            self.play(r_highlight.animate.set_stroke(opacity=1), run_time=0.2)
+
+            for ci in range(min(c_b, 2)):
+                c_highlight = VGroup(*[b_group[i * c_b + ci] for i in range(c_a)]).copy()
+                c_highlight.set_stroke(YELLOW, width=3)
+                self.play(c_highlight.animate.set_stroke(opacity=1), run_time=0.2)
+                cell_idx = ri * c_b + ci
+                if cell_idx < len(c_group):
+                    rh = c_group[cell_idx].copy().set_stroke("#00CCCC", width=3)
+                    self.play(rh.animate.set_stroke(opacity=1), run_time=0.15)
+
+            if r_highlight in self.mobjects:
+                self.remove(r_highlight)
+
+        remaining = max(0, __DURATION__ - self.time - __EXIT__)
+        if remaining > 0:
+            self.wait(remaining)
+        if __EXIT__ > 0:
+            self.play(FadeOut(VGroup(all_done, explanation)), run_time=__EXIT__)
+"""
+    return (
+        template
+        .replace("__TITLE__", title)
+        .replace("__DURATION__", str(duration))
+        .replace("__ENTRY__", str(entry_time))
+        .replace("__EXIT__", str(exit_time))
+    )
+
+
+def backpropagation_template(
+    title: str = "Backpropagation",
+    duration: float = 14.0,
+    num_layers: int = 4,
+    learning_rate: float = 0.1,
+    entry_time: float = 0.5,
+    exit_time: float = 0.5,
+) -> str:
+    template = INJECT_IMPORTS + """
+class BackpropagationScene(Scene):
+    def construct(self):
+        self.camera.background_color = "#1e1e1e"
+        title_text = Text("__TITLE__", font_size=36, color=WHITE).to_edge(UP)
+        self.play(Write(title_text), run_time=__ENTRY__)
+
+        layer_sizes = [4, 5, 5, 3]
+        layers = len(layer_sizes)
+        spacing_x = 2.2
+        neuron_radius = 0.15
+
+        all_neurons = []
+        all_edges = []
+        for l in range(layers):
+            n_count = layer_sizes[l]
+            layer_neurons = []
+            for i in range(n_count):
+                y = (n_count - 1) * 0.35 / 2 - i * 0.35
+                x = l * spacing_x - (layers - 1) * spacing_x / 2
+                neuron = Circle(radius=neuron_radius, color=BLUE_C, fill_opacity=0.3, fill_color=BLUE_C)
+                neuron.move_to([x, y, 0])
+                layer_neurons.append(neuron)
+                all_neurons.append(neuron)
+            if l > 0:
+                prev = all_neurons[-n_count - layer_sizes[l - 1]:-n_count] if l > 1 else all_neurons[:layer_sizes[l - 1]]
+                for p in prev:
+                    for n in layer_neurons:
+                        edge = Line(p.get_center(), n.get_center(), stroke_color=GRAY_D, stroke_width=1)
+                        all_edges.append(edge)
+
+        network = VGroup(*all_neurons, *all_edges)
+        self.play(Create(network), run_time=1.0)
+
+        layer_labels = ["Input", "Hidden 1", "Hidden 2", "Output"]
+        for l in range(layers):
+            x = l * spacing_x - (layers - 1) * spacing_x / 2
+            label = Text(layer_labels[l], font_size=14, color=GRAY_C).move_to([x, -2.0, 0])
+            self.play(Write(label), run_time=0.1)
+
+        fwd_label = Text("Forward pass", font_size=22, color="#00CCCC").to_corner(UR)
+        self.add_fixed_in_frame_mobjects(fwd_label)
+        self.play(Write(fwd_label))
+
+        for e in all_edges:
+            e.set_stroke("#00CCCC", width=1, opacity=0.3)
+            self.play(e.animate.set_stroke(opacity=0.8), run_time=0.02)
+        for n in all_neurons:
+            self.play(n.animate.set_fill(opacity=0.6), run_time=0.02)
+
+        loss_box = RoundedRectangle(width=2, height=0.5, corner_radius=0.08, stroke_color="#FF6B35", fill_opacity=0.15)
+        loss_box.move_to([0, -2.8, 0])
+        loss_text = Text("Loss = 2.47", font_size=16, color="#FF6B35").move_to(loss_box.get_center())
+        self.play(Create(loss_box), Write(loss_text), run_time=0.3)
+
+        bwd_label = Text("Backward pass", font_size=22, color="#FF6B35").to_corner(UR)
+        self.add_fixed_in_frame_mobjects(bwd_label)
+        self.play(Transform(fwd_label, bwd_label), run_time=0.3)
+
+        loss_val = 2.47
+        for step in range(4):
+            loss_val *= 0.6
+            new_loss = Text(f"Loss = {loss_val:.2f}", font_size=16, color="#FF6B35").move_to(loss_box.get_center())
+            self.play(Transform(loss_text, new_loss), run_time=0.3)
+            for i, n in enumerate(reversed(all_neurons)):
+                if step < 2:
+                    n.set_stroke(YELLOW, width=2)
+                self.play(n.animate.set_fill(opacity=0.4 + 0.4 * (1 - step * 0.2)), run_time=0.005)
+
+        grad_label = Text(f"lr = __LR__", font_size=16, color=GRAY_C).next_to(loss_box, DOWN, buff=0.2)
+        self.add_fixed_in_frame_mobjects(grad_label)
+        self.play(Write(grad_label))
+
+        remaining = max(0, __DURATION__ - self.time - __EXIT__)
+        if remaining > 0:
+            self.wait(remaining)
+        if __EXIT__ > 0:
+            self.play(FadeOut(VGroup(network, title_text, fwd_label, loss_box, loss_text, grad_label)), run_time=__EXIT__)
+"""
+    return (
+        template
+        .replace("__TITLE__", title)
+        .replace("__DURATION__", str(duration))
+        .replace("__ENTRY__", str(entry_time))
+        .replace("__EXIT__", str(exit_time))
+        .replace("__LR__", str(learning_rate))
+    )
+
+
+def probability_distribution_template(
+    title: str = "Probability Distribution",
+    duration: float = 10.0,
+    dist_type: str = "gaussian",
+    entry_time: float = 0.5,
+    exit_time: float = 0.5,
+) -> str:
+    template = INJECT_IMPORTS + """
+class ProbabilityDistributionScene(Scene):
+    def construct(self):
+        self.camera.background_color = "#1e1e1e"
+        title_text = Text("__TITLE__", font_size=36, color=WHITE).to_edge(UP)
+        self.play(Write(title_text), run_time=__ENTRY__)
+
+        axes = Axes(
+            x_range=[-4, 4, 1], y_range=[0, 0.5, 0.1],
+            x_length=10, y_length=6,
+            axis_config={'color': GRAY, 'stroke_width': 1},
+        ).move_to([0, -0.5, 0])
+        x_label = Text("x", font_size=18, color=GRAY).next_to(axes.x_axis.get_end(), RIGHT)
+        y_label = Text("P(x)", font_size=18, color="#00CCCC").next_to(axes.y_axis.get_end(), UP)
+        self.play(Create(axes), Write(x_label), Write(y_label), run_time=0.5)
+
+        mu = 0
+        sigma = 1
+        def gaussian(x):
+            return np.exp(-0.5 * ((x - mu) / sigma) ** 2) / (sigma * np.sqrt(2 * np.pi))
+
+        curve = axes.plot(gaussian, color="#00CCCC", stroke_width=3)
+        fill = axes.get_area(curve, x_range=[-3, 3], color="#00CCCC", opacity=0.15)
+        self.play(Create(curve), run_time=0.8)
+        self.play(FadeIn(fill), run_time=0.3)
+
+        mean_line = DashedLine(
+            axes.c2p(mu, 0), axes.c2p(mu, gaussian(mu)),
+            color=WHITE, stroke_width=1, dash_length=0.05,
+        )
+        mean_label = MathTex("\\mu", font_size=22, color=WHITE).next_to(mean_line, UP, buff=0.1)
+        self.play(Create(mean_line), Write(mean_label), run_time=0.3)
+
+        std_left = DashedLine(
+            axes.c2p(mu - sigma, 0), axes.c2p(mu - sigma, gaussian(mu - sigma)),
+            color="#FF6B35", stroke_width=1, dash_length=0.05,
+        )
+        std_right = DashedLine(
+            axes.c2p(mu + sigma, 0), axes.c2p(mu + sigma, gaussian(mu + sigma)),
+            color="#FF6B35", stroke_width=1, dash_length=0.05,
+        )
+        std_label = MathTex("\\pm\\sigma", font_size=18, color="#FF6B35")
+        std_label.move_to([mu, gaussian(mu) * 0.6, 0])
+        self.play(Create(std_left), Create(std_right), Write(std_label), run_time=0.3)
+
+        sample_points = np.random.normal(mu, sigma, 50)
+        sample_dots = VGroup()
+        for val in sample_points:
+            if -3.5 < val < 3.5:
+                dot = Dot(axes.c2p(val, 0.005), radius=0.02, color=YELLOW)
+                sample_dots.add(dot)
+        self.play(LaggedStart(
+            *[GrowFromCenter(d) for d in sample_dots],
+            lag_ratio=0.03, run_time=1.0,
+        ))
+
+        n_label = Text("n = 50 samples", font_size=16, color=GRAY_C).to_corner(DL)
+        self.add_fixed_in_frame_mobjects(n_label)
+        self.play(Write(n_label))
+
+        remaining = max(0, __DURATION__ - self.time - __EXIT__)
+        if remaining > 0:
+            self.wait(remaining)
+        if __EXIT__ > 0:
+            self.play(FadeOut(VGroup(title_text, axes, curve, fill, mean_line, mean_label, std_left, std_right, std_label, sample_dots, n_label)), run_time=__EXIT__)
+"""
+    return (
+        template
+        .replace("__TITLE__", title)
+        .replace("__DURATION__", str(duration))
+        .replace("__ENTRY__", str(entry_time))
+        .replace("__EXIT__", str(exit_time))
+    )
+
+
+TEMPLATE_REGISTRY: dict[str, callable] = {
+    "neural_network": neural_network_template,
+    "attention": attention_template,
+    "transformer": transformer_block_template,
+    "convolution": convolution_template,
+    "recurrent": recurrent_template,
+    "algorithm_flow": algorithm_flow_template,
+    "bar_chart": bar_chart_template,
+    "gradient_descent": gradient_descent_template,
+    "text_reveal": text_reveal_template,
+    "architecture_diagram": architecture_diagram_template,
+    "data_flow": data_flow_diagram_template,
+    "timeline": timeline_template,
+    "comparison": comparison_chart_template,
+    "process_flow": process_flow_template,
+    "concept_map": concept_map_template,
+    "loss_landscape": loss_landscape_template,
+    "embedding_space": embedding_space_template,
+    "decision_boundary": decision_boundary_template,
+    "matrix_multiplication": matrix_multiplication_template,
+    "backpropagation": backpropagation_template,
+    "probability_distribution": probability_distribution_template,
+    "intro": intro_template,
+    "outro": outro_template,
+}
+
+
 CUSTOM_TEMPLATE_REGISTRY: dict[str, callable] = {}
 
 

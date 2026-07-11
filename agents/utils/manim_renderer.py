@@ -22,6 +22,14 @@ from utils.manim_templates import (
     comparison_chart_template,
     process_flow_template,
     concept_map_template,
+    loss_landscape_template,
+    embedding_space_template,
+    decision_boundary_template,
+    matrix_multiplication_template,
+    backpropagation_template,
+    probability_distribution_template,
+    intro_template,
+    outro_template,
 )
 from crew.manim_agent import enhance_manim_params, ManimScenePlan, select_template_llm
 from utils.manim_validator import validate_manim_code
@@ -58,6 +66,14 @@ TEMPLATE_MAP = {
     "comparison": comparison_chart_template,
     "process_flow": process_flow_template,
     "concept_map": concept_map_template,
+    "loss_landscape": loss_landscape_template,
+    "embedding_space": embedding_space_template,
+    "decision_boundary": decision_boundary_template,
+    "matrix_multiplication": matrix_multiplication_template,
+    "backpropagation": backpropagation_template,
+    "probability_distribution": probability_distribution_template,
+    "intro": intro_template,
+    "outro": outro_template,
 }
 
 
@@ -89,6 +105,14 @@ TEMPLATE_CLASS_NAMES: dict[str, str] = {
     "comparison": "ComparisonScene",
     "process_flow": "ProcessFlowScene",
     "concept_map": "ConceptMapScene",
+    "loss_landscape": "LossLandscapeScene",
+    "embedding_space": "EmbeddingSpaceScene",
+    "decision_boundary": "DecisionBoundaryScene",
+    "matrix_multiplication": "MatrixMultiplyScene",
+    "backpropagation": "BackpropagationScene",
+    "probability_distribution": "ProbabilityDistributionScene",
+    "intro": "IntroScene",
+    "outro": "OutroScene",
 }
 
 TEMPLATE_CLASS_KEYS = list(TEMPLATE_CLASS_NAMES.values())

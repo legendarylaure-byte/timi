@@ -31,6 +31,14 @@ TEMPLATE_KEYWORDS: dict[str, list[str]] = {
     "gradient_descent": ["gradient", "descent", "optimization", "loss surface", "convergence", "learning rate", "saddle", "minimum", "optimizer"],
     "convolution": ["convolution", "conv", "kernel", "filter", "feature map", "cnn", "stride", "pooling", "convnet"],
     "recurrent": ["recurrent", "rnn", "lstm", "gru", "sequence", "hidden state", "time step", "recurrence", "memory"],
+    "loss_landscape": ["loss", "landscape", "surface", "optimization path", "saddle point", "loss surface", "convergence", "gradient descent path", "minimum", "local minima"],
+    "embedding_space": ["embedding", "vector space", "word vector", "latent space", "embedding space", "dimensionality reduction", "projection", "semantic space", "representation"],
+    "decision_boundary": ["decision boundary", "classification", "classifier", "separating", "hyperplane", "binary classification", "class boundary", "logistic regression", "svm"],
+    "matrix_multiplication": ["matrix", "multiplication", "dot product", "linear algebra", "matrix multiply", "matmul", "tensor product", "matrix operation", "matrix product"],
+    "backpropagation": ["backpropagation", "backprop", "backward pass", "gradient flow", "chain rule", "gradient descent", "update weights", "weight update", "loss gradient"],
+    "probability_distribution": ["probability", "distribution", "gaussian", "normal distribution", "pdf", "density", "statistics", "likelihood", "bayesian", "sampling", "random variable"],
+    "intro": ["intro", "brand", "channel id", "channel_brand", "opening", "introduction"],
+    "outro": ["outro", "subscribe", "cta", "call to action", "ending", "subscribe button", "closing"],
 }
 
 

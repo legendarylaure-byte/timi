@@ -147,6 +147,7 @@ def _build_musicgen_prompt(category: str, scene_moods: list[str]) -> str:
         if not unique_moods or unique_moods[-1] != m:
             unique_moods.append(m)
 
+    arc = ""
     if unique_moods:
         mood_labels = {
             "focused": "focused and clear", "energetic": "energetic and driving",
@@ -154,13 +155,33 @@ def _build_musicgen_prompt(category: str, scene_moods: list[str]) -> str:
             "modern": "modern and rhythmic", "uplifting": "uplifting and inspiring",
         }
         arc_parts = [mood_labels.get(m, m) for m in unique_moods]
-        arc = f"The music starts {' and then transitions to '.join(arc_parts)}."
-    else:
-        arc = ""
+        total_dur = len(scene_moods) * 8
+        if len(unique_moods) == 1:
+            arc = f"The music has a consistent {arc_parts[0]} mood throughout."
+        else:
+            timed_parts = []
+            current_time = 0
+            prev_mood = scene_moods[0]
+            for i, m in enumerate(scene_moods):
+                if m != prev_mood or i == len(scene_moods) - 1:
+                    if i > 0:
+                        timed_parts.append(f"at {current_time}s it transitions to {mood_labels.get(prev_mood, prev_mood)}")
+                    current_time = i * 8
+                prev_mood = m
+            if timed_parts:
+                arc = f"The music starts {mood_labels.get(scene_moods[0], scene_moods[0])}, {' then '.join(timed_parts)}."
+
+    bpm_hint = ""
+    if unique_moods:
+        bpms = [MOOD_CONFIGS.get(m, {}).get("bpm", 100) for m in unique_moods if m in MOOD_CONFIGS]
+        if bpms:
+            avg_bpm = sum(bpms) // len(bpms)
+            bpm_hint = f"Tempo around {avg_bpm} BPM. "
 
     return (
         f"{' and '.join(style_keywords)} background music for an educational tech video. "
         f"{arc} "
+        f"{bpm_hint}"
         f"Clean studio recording, no vocals, suitable for narration voiceover. "
         f"Professional, modern instrumental."
     )
@@ -218,7 +239,10 @@ def _try_musicgen(category: str, duration: float, scene_moods: list[str], output
 # Procedural music generation (last resort)
 # ---------------------------------------------------------------------------
 
-def generate_melody(duration_seconds: float, mood: str = "focused", output_path: Optional[str] = None) -> Optional[str]:
+def generate_melody(duration_seconds: float, mood: str = "focused", output_path: Optional[str] = None,
+                    scene_moods: Optional[list[str]] = None) -> Optional[str]:
+    if scene_moods and len(scene_moods) > 1:
+        return _generate_mood_arc_melody(duration_seconds, scene_moods, output_path)
     config = MOOD_CONFIGS.get(mood, MOOD_CONFIGS["focused"])
     bpm = config["bpm"]
     notes = config["notes"]
@@ -243,6 +267,26 @@ def generate_melody(duration_seconds: float, mood: str = "focused", output_path:
         output_path = str(MUSIC_DIR / f"music_{mood}_{random.randint(1000,9999)}.wav")
 
     melody.export(output_path, format="wav")
+    return output_path
+
+
+def _generate_mood_arc_melody(duration_seconds: float, scene_moods: list[str], output_path: str) -> str:
+    n_moods = len(scene_moods)
+    seg_duration = duration_seconds / n_moods
+    segments = []
+    for i, mood in enumerate(scene_moods):
+        if mood not in MOOD_CONFIGS:
+            mood = "focused"
+        seg_path = str(MUSIC_DIR / f"mood_seg_{i:03d}.wav")
+        generate_melody(seg_duration, mood=mood, output_path=seg_path, scene_moods=None)
+        segments.append(seg_path)
+    combined = AudioSegment.empty()
+    for i, seg_path in enumerate(segments):
+        if os.path.exists(seg_path):
+            seg = AudioSegment.from_file(seg_path)
+            crossfade = min(2000, len(seg) // 2)
+            combined = combined.append(seg, crossfade=crossfade if combined else 0)
+    combined.export(output_path, format="wav")
     return output_path
 
 
@@ -275,7 +319,7 @@ def generate_background_music(category: str, duration: float = 60, output_filena
     # Fall back to procedural
     if not music_path:
         logger.info("[music_gen] All external music sources failed, using procedural fallback")
-        music_path = generate_melody(duration, mood, output_path)
+        music_path = generate_melody(duration, mood, output_path, scene_moods=scene_moods)
         source = "procedural"
 
     if music_path and os.path.exists(music_path):

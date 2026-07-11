@@ -24,6 +24,7 @@ Return ONLY a valid JSON array of scene objects. Each scene object has this exac
   "render_type": "stock|manim|code",
   "asset_type": "STOCK_FOOTAGE|SCREEN_CAPTURE|DIAGRAM_ANIMATION|CODE_SNIPPET|STATIC_IMAGE",
   "asset_keywords": ["keyword1", "keyword2"],
+  "narration_text": "The EXACT spoken narration text that will be read during this scene. Copy it verbatim from the script's NARRATION lines.",
   "ltx_prompt": "Describe the scene in 2-3 vivid sentences optimized for AI video generation. Include camera angle, lighting, composition, colors, and motion. Be specific.",
   "text": [
     {
@@ -61,6 +62,42 @@ RULES:
 Generate scenes that follow the narrative arc of the script. Maintain visual continuity across consecutive scenes."""  # noqa: E501
 
 
+def _ensure_visual_variety(scenes: list[dict]) -> list[dict]:
+    if len(scenes) < 2:
+        return scenes
+
+    variety_indicators = {
+        "render_type": {"stock", "manim", "code", "static"},
+        "music_mood": {"focused", "uplifting", "energetic", "calm", "serious", "suspenseful", "hopeful", "curious"},
+        "background": None,
+    }
+
+    result = []
+    prev_sig = None
+    for scene in scenes:
+        rt = scene.get("render_type", "stock")
+        mm = scene.get("music_mood", "focused")
+        bg = scene.get("background", "solid_black")
+
+        curr_sig = (rt, mm, bg)
+
+        if curr_sig == prev_sig and prev_sig is not None:
+            mm_options = [m for m in variety_indicators["music_mood"] if m != mm]
+            if mm_options:
+                import random
+                scene["music_mood"] = random.choice(mm_options)
+                curr_sig = (rt, scene["music_mood"], bg)
+            bg_options = [b for b in ["solid_black", "solid_slate", "brand_dark", "gradient_dark_tech", "solid_indigo"] if b != bg]
+            if curr_sig == prev_sig and bg_options:
+                scene["background"] = random.choice(bg_options)
+                curr_sig = (rt, scene["music_mood"], scene["background"])
+
+        prev_sig = curr_sig
+        result.append(scene)
+
+    return result
+
+
 def parse_script_to_scenes(
     script_text: str, title: str = "", category: str = "",
     format_type: str = "shorts", storyboard_text: str = "",
@@ -71,16 +108,16 @@ def parse_script_to_scenes(
 
     scenes = _llm_scene_parse(script_text, title, category, format_type, storyboard_text, max_duration)
     if scenes:
-        return scenes
+        return _ensure_visual_variety(scenes)
 
     scenes = _rule_based_parse(script_text, storyboard_text, format_type, title, max_duration)
     if scenes:
         print(f"[SCENE_PARSER] Rule-based parse produced {len(scenes)} scenes")
-        return scenes
+        return _ensure_visual_variety(scenes)
 
     scenes = _minimal_fallback(title, category, format_type)
     print(f"[SCENE_PARSER] Using minimal fallback ({len(scenes)} scenes)")
-    return scenes
+    return _ensure_visual_variety(scenes)
 
 
 def _llm_scene_parse(
@@ -97,7 +134,7 @@ def _llm_scene_parse(
         else:
             target_hint = f"\nAim for total duration around {max_duration} seconds across all scenes."
 
-    prompt = f"""Convert this tech/AI educational video script into structured scenes with asset types. CRITICAL: Each scene MUST include a vivid "ltx_prompt" field — a 2-3 sentence visual description optimized for AI text-to-video generation. Include camera angle, lighting, composition, colors, and motion. The ltx_prompt MUST reference SPECIFIC visual elements from the NARRATION text — if the narration mentions GPUs, describe GPU chips and data pathways; if it mentions training, show loss curves and gradient flow. Never use generic descriptions. Also include a "render_type" field: "stock" for cinematic/b-roll footage, "manim" for diagrams and concept animations, "code" for code snippets.
+    prompt = f"""Convert this tech/AI educational video script into structured scenes with asset types. CRITICAL: Each scene MUST include a "narration_text" field containing the EXACT spoken narration for that scene (copy verbatim from the NARRATION lines). Also include a vivid "ltx_prompt" field — a 2-3 sentence visual description optimized for AI text-to-video generation. Include camera angle, lighting, composition, colors, and motion. The ltx_prompt MUST reference SPECIFIC visual elements from the narration_text — if the narration mentions GPUs, describe GPU chips and data pathways; if it mentions training, show loss curves and gradient flow. Never use generic descriptions. Also include a "render_type" field: "stock" for cinematic/b-roll footage, "manim" for diagrams and concept animations, "code" for code snippets.
 
 Read the VISUAL lines from the script/storyboard — they contain [MANIM], [WAN2.1], or [CODE] tags. Use these to set render_type: [MANIM] → "manim", [CODE] → "code", [WAN2.1] or no tag → "stock".
 
@@ -116,7 +153,7 @@ Important: Choose asset types that fit the category:
 
 CRITICAL for visual continuity: Each scene's ltx_prompt MUST reference the PREVIOUS scene's visual state. Maintain consistent color palette (dark teal/cyan/neon), lighting, and camera flow across adjacent scenes. Avoid sudden jumps in camera angle or lighting between consecutive scenes. If scene 1 ends on a close-up, scene 2 should start with a similar close-up slowly pulling back. This creates smooth visual storytelling.
 
-The ltx_prompt is the most important field — it's what gets sent to the video generation AI. Make it specific, reference real objects and actions from the narration, and directly based on the VISUAL descriptions in the storyboard.
+The narration_text and ltx_prompt are the most important fields. ltx_prompt is sent to the video generation AI — make it specific, reference real objects and actions from the narration_text, and directly based on the VISUAL descriptions in the storyboard.
 
 Return ONLY valid JSON array of scene objects."""
 
@@ -180,7 +217,8 @@ def _rule_based_parse(script_text: str, storyboard_text: str, format_type: str, 
 
     prev_state: Optional[SceneState] = None
     for i, block in enumerate(scene_blocks):
-        duration = _estimate_scene_duration(block, format_type, len(scene_blocks), max_duration)
+        narration_text = _extract_narration_text_from_block(block)
+        duration = _estimate_scene_duration(block, format_type, len(scene_blocks), max_duration, narration_text)
         background = _infer_background(block)
         asset_type = _infer_asset_type(block)
         asset_keywords = _infer_keywords(block, title)
@@ -188,7 +226,8 @@ def _rule_based_parse(script_text: str, storyboard_text: str, format_type: str, 
         effects = _infer_effects(block, i, len(scene_blocks))
         transition = _infer_transition(i, len(scene_blocks), block)
 
-        ltx_prompt, state = _infer_ltx_prompt(block, title, i, None, prev_state)
+        scene_dict = {"narration_text": narration_text} if narration_text else {}
+        ltx_prompt, state = _infer_ltx_prompt(block, title, i, scene_dict, prev_state)
         prev_state = state
 
         scene = {
@@ -203,6 +242,7 @@ def _rule_based_parse(script_text: str, storyboard_text: str, format_type: str, 
             "transition": transition,
             "camera": {"zoom": 1.0, "pan_x": 0, "pan_y": 0},
             "music_mood": _infer_mood(block),
+            "narration_text": narration_text,
         }
 
         try:
@@ -228,6 +268,7 @@ def _minimal_fallback(title: str, category: str, format_type: str) -> list[dict]
             "transition": "fade" if i > 0 else "cut",
             "camera": {"zoom": 1.0, "pan_x": 0, "pan_y": 0},
             "music_mood": "focused",
+            "narration_text": "",
         })
     return scenes
 
@@ -266,8 +307,42 @@ def _extract_json_array(text: str) -> list | None:
     return None
 
 
-def _estimate_scene_duration(block: str, format_type: str, total_scenes: int, max_duration: int = None) -> float:
+def _extract_narration_text_from_block(block: str) -> str:
+    lines = block.split('\n')
+    narration_parts = []
+    for line in lines:
+        stripped = line.strip()
+        m = re.match(r'NARRATION\s*:\s*(.+)', stripped, re.IGNORECASE)
+        if m:
+            text = m.group(1).strip()
+            text = re.sub(r'\*{1,2}([^\*]+)\*{1,2}', r'\1', text)
+            if text and len(text) > 5:
+                narration_parts.append(text)
+            continue
+        if re.match(r'VISUAL\s*:', stripped, re.IGNORECASE):
+            continue
+        if re.match(r'^--SCENE\s+\d+--', stripped, re.IGNORECASE):
+            continue
+        if stripped and not stripped.startswith(('*', '-', '#', '(', '[')):
+            colon_m = re.match(r'^[A-Z][A-Z\s]+:\s*(.+)', stripped)
+            if colon_m and not re.match(r'^(HTTP|HTTPS|WWW)\b', stripped, re.IGNORECASE):
+                text = colon_m.group(1).strip()
+                text = re.sub(r'[\*\'\"]', '', text).strip()
+                if text and len(text) > 10:
+                    narration_parts.append(text)
+    return ' '.join(narration_parts).strip()
+
+
+def _estimate_scene_duration(block: str, format_type: str, total_scenes: int, max_duration: int = None, narration_text: str = "") -> float:
     word_count = len(block.split())
+    narration_wc = len(narration_text.split()) if narration_text else 0
+    if narration_wc > 5:
+        duration_from_narration = narration_wc / 2.5
+        if format_type == "shorts":
+            duration_from_narration = min(duration_from_narration, 15.0)
+        else:
+            duration_from_narration = min(duration_from_narration, 25.0)
+        return round(max(4.0, duration_from_narration), 1)
     if format_type == "shorts":
         total_seconds = float(max_duration) if max_duration else 60.0
     else:
@@ -440,25 +515,32 @@ def _infer_ltx_prompt(text: str, title: str = "", scene_index: int = 0, scene: d
         elif trans in ("wipe_left", "wipe_right", "wipe_up", "wipe_down"):
             transition_hint = "subject positioned with clear directional space for wipe transition, "
 
-    visual_desc_hint = ""
-    visual_match = re.search(r'VISUAL\s*:\s*(.+?)(?=\n|$)', text, re.IGNORECASE | re.DOTALL)
-    if visual_match:
-        visual_text = visual_match.group(1).strip()[:400]
-        visual_text = re.sub(r'\[(MANIM|CODE|WAN2\.1)\]\s*', '', visual_text, flags=re.IGNORECASE)
-        if visual_text and len(visual_text) > 10:
-            visual_desc_hint = f"scene depicts {visual_text}, "
+    scene_narration = scene.get("narration_text", "") if scene else ""
+    if scene_narration and len(scene_narration) > 20:
+        narration_hint = f"illustrating: {scene_narration[:300]}. "
+    else:
+        visual_desc_hint = ""
+        visual_match = re.search(r'VISUAL\s*:\s*(.+?)(?=\n|$)', text, re.IGNORECASE | re.DOTALL)
+        if visual_match:
+            visual_text = visual_match.group(1).strip()[:400]
+            visual_text = re.sub(r'\[(MANIM|CODE|WAN2\.1)\]\s*', '', visual_text, flags=re.IGNORECASE)
+            if visual_text and len(visual_text) > 10:
+                visual_desc_hint = f"scene depicts {visual_text}, "
 
-    narration_hint = ""
-    narration_match = re.search(r'NARRATION\s*:\s*(.+?)(?=\n|$)', text, re.IGNORECASE | re.DOTALL)
-    if narration_match:
-        narration_text = narration_match.group(1).strip()[:200]
-        if narration_text and len(narration_text) > 20:
-            key_nouns = re.findall(r'\b[A-Z][a-z]{2,}\b', narration_text)
-            key_terms = [w for w in key_nouns if w.lower() not in {'the', 'this', 'that', 'with', 'from', 'they', 'what', 'when', 'where', 'there', 'these', 'those'}]
-            if key_terms:
-                narration_hint = f"visualizing {', '.join(key_terms[:4])}, "
+        narration_hint = ""
+        narration_match = re.search(r'NARRATION\s*:\s*(.+?)(?=\n|$)', text, re.IGNORECASE | re.DOTALL)
+        if narration_match:
+            narration_text = narration_match.group(1).strip()[:200]
+            if narration_text and len(narration_text) > 20:
+                key_nouns = re.findall(r'\b[A-Z][a-z]{2,}\b', narration_text)
+                key_terms = [w for w in key_nouns if w.lower() not in {'the', 'this', 'that', 'with', 'from', 'they', 'what', 'when', 'where', 'there', 'these', 'those'}]
+                if key_terms:
+                    narration_hint = f"visualizing {', '.join(key_terms[:4])}, "
 
-    prompt = f"Cinematic shot of {', '.join(keywords[:2])}, {keywords[-1] if len(keywords) > 2 else 'technology'} visualization, {continuity_hint}{visual_desc_hint}{narration_hint}{bg_hint}{asset_hint}{text_hint}{transition_hint}{cam}, {lighting}, rich colors, professional educational style, 24fps, high quality"  # noqa: E501
+    if scene_narration and len(scene_narration) > 20:
+        prompt = f"Cinematic shot, {continuity_hint}{narration_hint}{bg_hint}{asset_hint}{transition_hint}{cam}, {lighting}, rich colors, professional educational style, 24fps, high quality"
+    else:
+        prompt = f"Cinematic shot of {', '.join(keywords[:2])}, {keywords[-1] if len(keywords) > 2 else 'technology'} visualization, {continuity_hint}{visual_desc_hint}{narration_hint}{bg_hint}{asset_hint}{text_hint}{transition_hint}{cam}, {lighting}, rich colors, professional educational style, 24fps, high quality"  # noqa: E501
 
     color_terms = set()
     for term in text_lower.split():
@@ -680,6 +762,9 @@ def add_end_scene(scenes: list[dict]) -> list[dict]:
         "music_mood": "uplifting",
     }
     return scenes + [end]
+
+
+
 
 
 def build_timestamps(scenes: list[dict]) -> str:

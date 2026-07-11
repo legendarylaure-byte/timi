@@ -107,6 +107,7 @@ def validate_scene(scene: dict, index: int = 0) -> dict:
     result.setdefault("effects", [])
     result.setdefault("text", [])
     result.setdefault("music_mood", "ambient")
+    result.setdefault("narration_text", "")
     return result
 
 

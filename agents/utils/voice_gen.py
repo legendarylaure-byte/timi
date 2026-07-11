@@ -28,10 +28,10 @@ KIDS_VOICES = {
 }
 
 DEFAULT_VOICE = KIDS_VOICES["narrator_warm"]
-DEFAULT_RATE = "0%"
+DEFAULT_RATE = "-8%"
 DEFAULT_PITCH = "-2Hz"
 
-NARRATOR_VOICE = {"voice": "en-US-JennyNeural", "rate": "0%", "pitch": "-2Hz"}
+NARRATOR_VOICE = {"voice": "en-US-JennyNeural", "rate": "-8%", "pitch": "-2Hz"}
 
 SSML_EMPHASIS_WORDS = [
     "key", "important", "crucial", "critical", "essential", "fundamental",
@@ -58,6 +58,44 @@ def _wrap_ssml(text: str, voice_name: str = None, rate: str = "0%") -> str:
         f"</speak>"
     )
     return ssml
+
+
+def _expand_symbols_for_tts(text: str) -> str:
+    expansions = [
+        (r'\bC\+\+', 'C plus plus'),
+        (r'\bC#', 'C sharp'),
+        (r'\bF#', 'F sharp'),
+        (r'\b\.NET\b', 'dot net'),
+        (r'\bA\+\+', 'A plus'),
+        (r'(\w+)/(\w+)', r'\1 or \2'),
+        (r' \+ ', ' plus '),
+        (r' = ', ' equals '),
+        (r' != ', ' not equal to '),
+        (r' == ', ' equals '),
+        (r' <= ', ' less than or equal to '),
+        (r' >= ', ' greater than or equal to '),
+        (r' < ', ' less than '),
+        (r' > ', ' greater than '),
+        (r' && ', ' and '),
+        (r' \|\| ', ' or '),
+        (r' \| ', ' pipe '),
+        (r' #(\w)', r' hash \1'),
+        (r' \* ', ' times '),
+        (r' & ', ' and '),
+        (r' % ', ' percent '),
+        (r' ~ ', ' approximately '),
+        (r' @ ', ' at '),
+        (r' \{', ' open brace '),
+        (r' \}', ' close brace '),
+        (r' \[', ' open bracket '),
+        (r' \]', ' close bracket '),
+        (r' \\ ', ' backslash '),
+        (r'`(\w+)`', r'\1'),
+    ]
+    result = text
+    for pattern, replacement in expansions:
+        result = re.sub(pattern, replacement, result)
+    return result
 
 
 def _extract_narration_via_markers(script: str) -> str | None:
@@ -337,7 +375,7 @@ def get_voice_settings(content_type: str = "general") -> dict:
         },
         "educational": {
             "voice": "en-US-JennyNeural",
-            "rate": "0%",
+            "rate": "-8%",
             "pitch": "-2Hz",
         },
         "energetic": {
@@ -457,14 +495,50 @@ def generate_phrase_timings_from_sentences(text: str, sentence_times: list[dict]
     return phrase_timings
 
 
-def concatenate_audio(segment_files: list[str], output_path: str) -> bool:
+SECTION_TRANSITION_WORDS = [
+    "now", "next", "finally", "first", "second", "third",
+    "another", "however", "meanwhile", "in addition",
+    "let's talk", "let me", "moving on", "beyond that",
+    "the real", "what makes", "at its", "in practice",
+    "specifically", "for instance", "for example",
+    "the key", "crucially", "importantly",
+]
+
+
+def _detect_section_transition(segments: list[str]) -> list[int]:
+    gaps = []
+    base_gap = 300
+    for i, seg in enumerate(segments):
+        lower = seg.lower().strip()
+        is_transition = any(lower.startswith(w) for w in SECTION_TRANSITION_WORDS)
+        if is_transition and i > 0:
+            gaps.append(1200)
+        else:
+            gaps.append(base_gap)
+    return gaps
+
+
+def concatenate_audio(segment_files: list[str], output_path: str, gap_ms: list[int] = None) -> bool:
     try:
         combined = AudioSegment.empty()
-        for f in segment_files:
+        fade_ms = 50
+        for i, f in enumerate(segment_files):
             if os.path.exists(f):
                 audio = AudioSegment.from_file(f)
-                silence = AudioSegment.silent(duration=500)
+                if len(audio) > fade_ms * 2:
+                    audio = audio.fade_in(fade_ms).fade_out(fade_ms)
+                gap = (gap_ms[i] if gap_ms and i < len(gap_ms) else 300)
+                if i > 0 and gap < 100 and len(combined) > 50:
+                    overlap = min(gap, fade_ms)
+                    seg_start = audio[:overlap].fade_in(overlap) * 0.5
+                    combined_end = combined[-overlap:].fade_out(overlap) * 0.5
+                    combined = combined[:-overlap] + combined_end.overlay(seg_start)
+                    audio = audio[overlap:]
+                    gap = 0
+                silence = AudioSegment.silent(duration=gap)
                 combined += audio + silence
+        if len(combined) > 200:
+            combined = combined.fade_in(150).fade_out(200)
         combined.export(output_path, format="wav")
         return os.path.exists(output_path) and os.path.getsize(output_path) > 1000
     except Exception as e:
@@ -488,6 +562,7 @@ async def generate_voiceover(script: str, voice: str = DEFAULT_VOICE, output_fil
     if not narration_text.strip():
         print("[voice_gen] WARNING: Narration extraction failed, using raw script")
         narration_text = script
+    narration_text = _expand_symbols_for_tts(narration_text)
     voice_settings = get_voice_settings(content_type)
     if voice == DEFAULT_VOICE:
         voice = voice_settings["voice"]
@@ -512,6 +587,7 @@ async def generate_voiceover(script: str, voice: str = DEFAULT_VOICE, output_fil
     segment_files = [r[1] for r in sorted(results) if r[2]]
     all_phrase_timings = []
     cumulative_offset = 0.0
+    gap_ms = _detect_section_transition(segments)
 
     for i, seg_text in enumerate(segments):
         seg_path = str(VOICE_DIR / f"seg_{i+1:03d}.wav")
@@ -530,15 +606,16 @@ async def generate_voiceover(script: str, voice: str = DEFAULT_VOICE, output_fil
             with open(timing_path, "w") as f:
                 json.dump({"sentences": sentence_times, "phrases": phrase_timings}, f)
 
+        this_gap = gap_ms[i] if i < len(gap_ms) else 300
         try:
             seg_audio = AudioSegment.from_file(seg_path)
-            cumulative_offset += len(seg_audio) + 100
+            cumulative_offset += len(seg_audio) + this_gap
         except Exception as e:
             print(f"[voice_gen] Failed to load seg_{i+1:03d} audio, guessing 5s offset: {e}")
             cumulative_offset += 5000
 
     output_path = str(VOICE_DIR / output_filename)
-    concat_success = concatenate_audio(segment_files, output_path)
+    concat_success = concatenate_audio(segment_files, output_path, gap_ms=gap_ms)
 
     timing_file = str(VOICE_DIR / "phrase_timing.json")
     if all_phrase_timings:

@@ -69,8 +69,41 @@ def generate_srt(timing_file: str, full_text: str, output_path: Optional[str] = 
 
     if not phrases:
         phrases = _fallback_to_word_timing(timing_file)
-        if not phrases:
-            return ""
+
+    if not phrases and full_text:
+        logger.warning("[subtitle_gen] Phrase + word timings both empty, generating fallback SRT from full_text (%d chars)", len(full_text))
+        sentences = re.split(r'(?<=[.!?])\s+', full_text.strip())
+        words_per_sec = 2.5
+        total_words = len(full_text.split())
+        estimated_duration_ms = (total_words / words_per_sec) * 1000
+        chunk_duration = estimated_duration_ms / max(len(sentences), 1)
+        for i, sent in enumerate(sentences):
+            sent = sent.strip()
+            if not sent:
+                continue
+            words = sent.split()
+            if len(words) <= 8:
+                phrases.append({
+                    "text": sent,
+                    "start_ms": int(i * chunk_duration),
+                    "end_ms": int((i + 1) * chunk_duration),
+                })
+            else:
+                num_chunks = (len(words) + 8 - 1) // 8
+                for j in range(num_chunks):
+                    chunk_words = words[j * 8:(j + 1) * 8]
+                    chunk_text = " ".join(chunk_words)
+                    chunk_start = int((i + j / num_chunks) * chunk_duration)
+                    chunk_end = int((i + (j + 1) / num_chunks) * chunk_duration)
+                    phrases.append({
+                        "text": chunk_text,
+                        "start_ms": chunk_start,
+                        "end_ms": chunk_end,
+                    })
+
+    if not phrases:
+        logger.error("[subtitle_gen] No subtitles could be generated")
+        return ""
 
     srt_content = ""
     for i, phrase in enumerate(phrases, 1):
@@ -86,7 +119,7 @@ def generate_srt(timing_file: str, full_text: str, output_path: Optional[str] = 
     with open(output_path, "w", encoding="utf-8") as f:
         f.write(srt_content)
 
-    logger.info("[subtitle_gen] SRT saved: %s (%d phrases)", output_path, len(phrases))
+    logger.info("[subtitle_gen] SRT saved: %s (%d phrases, %d chars)", output_path, len(phrases), len(srt_content))
     return output_path
 
 
