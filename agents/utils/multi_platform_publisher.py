@@ -176,7 +176,7 @@ def upload_to_platform(platform: str, title: str, description: str, video_path: 
 
     try:
         if platform == 'youtube':
-            return _upload_youtube(title, description, video_path, thumbnail_path, format_type, publish_at, subtitle_path)
+            return _upload_youtube(title, description, video_path, thumbnail_path, format_type, publish_at, subtitle_path, tags=tags)
         elif platform == 'tiktok':
             return _upload_tiktok(title, video_path, format_type)
         elif platform == 'instagram':
@@ -190,7 +190,7 @@ def upload_to_platform(platform: str, title: str, description: str, video_path: 
         return {'success': False, 'error': safe_log(str(e))}
 
 
-def _upload_youtube(title: str, description: str, video_path: str, thumbnail_path: str, format_type: str, publish_at: str = None, subtitle_path: str = None) -> dict:  # noqa: E501
+def _upload_youtube(title: str, description: str, video_path: str, thumbnail_path: str, format_type: str, publish_at: str = None, subtitle_path: str = None, tags: list = None) -> dict:  # noqa: E501
     try:
         from utils.youtube_upload import upload_video_to_youtube
         from utils.description_gen import get_tech_metadata

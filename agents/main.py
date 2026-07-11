@@ -793,6 +793,7 @@ def run_director_review(stage: str, topic: str, category: str, format_type: str,
     if not ENABLE_DIRECTOR_REVIEW:
         return {"decision": "pass", "score": 100, "issues": [], "feedback": "Director review disabled"}
     from crew.director import create_director_crew
+    last_review = None
     for attempt in range(2):
         try:
             extra_context = ""
@@ -2286,7 +2287,7 @@ if __name__ == "__main__":
     log_event("SYSTEM", f"Review gate: {ENABLE_REVIEW_GATE} (threshold: {AUTO_APPROVE_THRESHOLD})")
     log_event("SYSTEM", f"Pipeline timeout: {PIPELINE_TIMEOUT_MINUTES}min per video")
     log_event("SYSTEM", f"Concurrent pipeline workers: {os.getenv('CONCURRENT_PIPELINE_WORKERS', '2')}")
-    log_event("SYSTEM", f"LTX prompt cache: {os.getenv('LTX_CACHE_ENABLED', 'true')}")
+    log_event("SYSTEM", f"LTX prompt cache: {os.getenv('ENABLE_LTX_CACHE', 'true')}")
     log_event("SYSTEM", f"Max retries per topic: {MAX_RETRIES_PER_TOPIC}")
     log_event("SYSTEM", f"Gate enforcement: {GATE_ENFORCEMENT_MODE}")
 
