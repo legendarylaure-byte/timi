@@ -18,6 +18,8 @@ services:
       - ./agents/youtube_token.json:/app/youtube_token.json
       - ./agents/output:/app/output
       - ./agents/data:/app/data
+      - ./keys/:/app/keys/:ro
+      - ./agents/tmp/community_cookies/:/app/tmp/community_cookies/
     logging:
       driver: "json-file"
       options:

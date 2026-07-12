@@ -32,6 +32,9 @@ RUN pip install --no-cache-dir torch --index-url https://download.pytorch.org/wh
 # pip install remaining dependencies
 RUN pip install --no-cache-dir -r requirements.txt
 
+# install playwright browsers (for community posts automation)
+RUN python3 -m playwright install chromium --with-deps
+
 COPY . .
 
 CMD ["python", "main.py"]
