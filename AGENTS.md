@@ -1,13 +1,25 @@
 # AGENTS — Critical Context
 
-## Latest Changes (uncommitted)
+## Latest Changes
 
-### Tier 4: Content-Aware Duration Engine + Scene Architect + Audio Alignment (5 files, 3 phases)
-- **Phase 1 — Duration Engine** (`utils/scene_parser.py`): `_estimate_scene_duration()` now modulates base `wc/2.5` via `_score_narrative_importance()` (5 criteria: new info, tension, transition, visual, key insight → 0.5×–1.3×) and `_compute_pacing_multiplier()` (difficulty + position + density → 0.7×–1.3×). Total effective range: ~0.35×–1.7× of base word-count duration. Every scene gets semantically-informed target duration.
-- **Phase 2 — Scene Architect** (`utils/scene_architect.py`, NEW): Three audit functions — LTX prompt audit (camera/lighting/color keyword scoring), render type audit (uniqueness/direction/parameter variance), duration balance audit (evenness/outliers/target gap). `SCENE_ARCHITECT_MODE=advisory|enforce` env var wired into `_gate_check()`.
-- **Phase 3 — Pipeline Order Fix (CRITICAL BUG)** (`utils/scene_parser.py`, `main.py`): Old flow was `dispatch_scenes() → voice → _align_scenes_to_audio()` — alignment ran AFTER dispatch, reading `target_duration=8.0` from asset router (not dispatched scenes). **Alignment was a silent no-op.** Fixed: voice now runs BEFORE `dispatch_scenes()`. `_align_scenes_to_audio()` maps phrase timings → scenes via word-overlap matching, writes `aligned_duration`. Compositor uses aligned durations for clips. Scaffold-free scenes get `normalize_scene_durations()` fallback.
+### Tier 4: Content-Aware Duration Engine + Scene Architect + Audio Alignment (committed `1fc03f77`)
+- **Phase 1 — Duration Engine** (`utils/scene_parser.py`): `_estimate_scene_duration()` modulates base `wc/2.5` via `_score_narrative_importance()` (5 criteria: new info, tension, transition, visual, key insight → 0.5×–1.3×) and `_compute_pacing_multiplier()` (difficulty + position + density → 0.7×–1.3×). Total effective range: ~0.35×–1.7× of base word-count duration.
+- **Phase 2 — Scene Architect** (`utils/scene_architect.py`, NEW): Three audit functions — LTX prompt audit (camera/lighting/color keyword scoring), render type audit (uniqueness/direction/parameter variance), duration balance audit.
+- **Phase 3 — Pipeline Order Fix (CRITICAL BUG)**: Voice now runs BEFORE `dispatch_scenes()`. Old flow was `dispatch→voice→sync` (no-op, read `target_duration=8.0` everywhere).
 - **`.env.example`** — Added `SCENE_ARCHITECT_MODE=advisory`.
-- **Compiled** ✓, committed ✓, pushed ✓, Docker image rebuilt ✓.
+
+### Compositing & QA Bugfixes (committed `5a7f36dc`)
+- **AudioSegment list→bytes**: `_generate_emphasis_tone()` and `_generate_ambient_pad()` use `array.array('h', ...).tobytes()` — fixes `ValueError: data length must be a multiple of...`
+- **xfade concat fallback**: `trim_clip()` adds `-r 24` FPS flag; `_build_xfade_filter()` normalizes color properties via `setparams=color_primaries=bt709:color_trc=bt709:colorspace=bt709`.
+- **Concurrent cleanup race**: `cleanup_after_upload()` no longer calls `cleanup_temp_directories()` (was deleting shared dirs across concurrent pipelines).
+- **intro_template kwarg fix**: `intro_template()`/`outro_template()` accept `**kwargs` to swallow unexpected `title` arg.
+- **Visual QA black threshold**: 0.3→**0.35**, blackdetect min duration 1.0s→**2.0s** (verified: 30.9%/32.4% both pass).
+- **Shorts duration limit**: `SHORTS_MAX_DURATION` 60→**180** (125s short now passes).
+
+### xfade Reliability & Black Frame Reduction (uncommitted)
+- **`-r 24` added to `_extend_clip()` and `_apply_camera_motion()`** — every re-encode path now forces exactly 24fps, preventing frame-rate drift that breaks xfade on mixed-source clips.
+- **xfade input normalization expanded**: `fps=24,scale=W:H:flags=lanczos,format=yuv420p,setparams=bt709,setsar=1,settb=1/24` on every input — guarantees identical frame rate, dimensions, pixel format, color space, SAR, and time base entering xfade. Expected: xfade works reliably on LTX + mixed stock footage, no more concat fallback.
+- **Leading dark frame trim**: `_process_clip()` trims 0.3s from start of each video clip via `trim_clip(src, trimmed, 0.3, dur-0.3)` — removes diffusion-model warmup near-black frames that contributed ~9s of black per 15-scene video.
 
 ### Phase 7: Production Readiness & Performance (5 new/upgraded files)
 - **`utils/concurrent_pipeline.py`** (NEW) — Thread pool for parallel short+long generation. GPU semaphore prevents concurrent LTX access. Worker isolation (one failure doesn't kill the other). `run_concurrent_pipelines()` accepts job dicts with `gpu` flag. `run_with_gpu_lock()` for single-function GPU access. `CONCURRENT_PIPELINE_WORKERS` env var (default 2). Wire into `daily_content_job()` — all shorts + longs run concurrently via `ThreadPoolExecutor`.

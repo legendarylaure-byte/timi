@@ -115,6 +115,7 @@ def _extend_clip(input_path: str, output_path: str, target_dur: float) -> bool:
         _ffmpeg_cmd(), "-y", "-stream_loop", "-1", "-i", input_path,
         *_sws_flags(),
         "-c:v", "libx264", "-preset", "fast", "-crf", CRF,
+        "-r", str(OUTPUT_FPS),
         "-t", str(target_dur),
         "-pix_fmt", "yuv420p",
         "-an", output_path,
@@ -342,8 +343,11 @@ def _process_clip(clip: dict, target_w: int, target_h: int, idx: int, format_typ
 
     if src.endswith(".mp4") and clip_size > 10000:
         trimmed = str(TEMP_DIR / f"kb_trim_{idx:03d}.mp4")
-        if not trim_clip(src, trimmed, 0, dur):
+        # Skip leading dark frames (diffusion models produce near-black at boundaries)
+        lead = 0.3 if not clip.get("is_static", False) else 0
+        if not trim_clip(src, trimmed, lead, max(dur - lead, 1.0)):
             return None
+        dur = dur - lead
 
         zoom = float(camera.get("zoom", 1.0))
         pan_x = float(camera.get("pan_x", 0))
@@ -385,7 +389,7 @@ def _apply_camera_motion(input_path: str, output_path: str, target_w: int, targe
         _ffmpeg_cmd(), "-y", "-i", input_path, *_sws_flags(),
         "-vf", vf,
         "-c:v", "libx264", "-preset", PRESET, "-crf", CRF,
-        "-an", "-pix_fmt", "yuv420p", output_path,
+        "-r", str(OUTPUT_FPS), "-an", "-pix_fmt", "yuv420p", output_path,
     ]
     return safe_run_bool(cmd, timeout=120)
 
@@ -398,7 +402,8 @@ def _xfade_duration_for_scene(duration: float) -> float:
     return 1.0
 
 
-def _build_xfade_filter(processed: list[str], transitions: list[str], durations: list[float]) -> tuple[str, str]:
+def _build_xfade_filter(processed: list[str], transitions: list[str], durations: list[float],
+                        target_w: int = 1920, target_h: int = 1080) -> tuple[str, str]:
     n = len(processed)
     if n == 0:
         return "", ""
@@ -412,7 +417,11 @@ def _build_xfade_filter(processed: list[str], transitions: list[str], durations:
     for i in range(n):
         label = f"v{i}"
         labels.append(label)
-        filter_parts.append(f"[{i}:v]setpts=PTS-STARTPTS,format=yuv420p,setparams=color_primaries=bt709:color_trc=bt709:colorspace=bt709[{label}]")
+        filter_parts.append(
+            f"[{i}:v]fps={OUTPUT_FPS},scale={target_w}:{target_h}:flags=lanczos,"
+            f"format=yuv420p,setparams=color_primaries=bt709:color_trc=bt709:colorspace=bt709,"
+            f"setsar=1,settb=expr=1/{OUTPUT_FPS}[{label}]"
+        )
 
     prev_label = labels[0]
     cumulative = durations[0]
@@ -697,7 +706,7 @@ def composite_video(clips: list[dict], voice_path: str, music_path: Optional[str
         if not combined_video:
             return None
     else:
-        filter_str, out_label = _build_xfade_filter(processed, transitions, durations)
+        filter_str, out_label = _build_xfade_filter(processed, transitions, durations, tw, th)
         inputs = []
         for p in processed:
             inputs.extend(["-i", p])
