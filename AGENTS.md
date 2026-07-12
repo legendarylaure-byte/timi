@@ -2,6 +2,13 @@
 
 ## Latest Changes (uncommitted)
 
+### Tier 4: Content-Aware Duration Engine + Scene Architect + Audio Alignment (5 files, 3 phases)
+- **Phase 1 — Duration Engine** (`utils/scene_parser.py`): `_estimate_scene_duration()` now modulates base `wc/2.5` via `_score_narrative_importance()` (5 criteria: new info, tension, transition, visual, key insight → 0.5×–1.3×) and `_compute_pacing_multiplier()` (difficulty + position + density → 0.7×–1.3×). Total effective range: ~0.35×–1.7× of base word-count duration. Every scene gets semantically-informed target duration.
+- **Phase 2 — Scene Architect** (`utils/scene_architect.py`, NEW): Three audit functions — LTX prompt audit (camera/lighting/color keyword scoring), render type audit (uniqueness/direction/parameter variance), duration balance audit (evenness/outliers/target gap). `SCENE_ARCHITECT_MODE=advisory|enforce` env var wired into `_gate_check()`.
+- **Phase 3 — Pipeline Order Fix (CRITICAL BUG)** (`utils/scene_parser.py`, `main.py`): Old flow was `dispatch_scenes() → voice → _align_scenes_to_audio()` — alignment ran AFTER dispatch, reading `target_duration=8.0` from asset router (not dispatched scenes). **Alignment was a silent no-op.** Fixed: voice now runs BEFORE `dispatch_scenes()`. `_align_scenes_to_audio()` maps phrase timings → scenes via word-overlap matching, writes `aligned_duration`. Compositor uses aligned durations for clips. Scaffold-free scenes get `normalize_scene_durations()` fallback.
+- **`.env.example`** — Added `SCENE_ARCHITECT_MODE=advisory`.
+- **Compiled** ✓, committed ✓, pushed ✓, Docker image rebuilt ✓.
+
 ### Phase 7: Production Readiness & Performance (5 new/upgraded files)
 - **`utils/concurrent_pipeline.py`** (NEW) — Thread pool for parallel short+long generation. GPU semaphore prevents concurrent LTX access. Worker isolation (one failure doesn't kill the other). `run_concurrent_pipelines()` accepts job dicts with `gpu` flag. `run_with_gpu_lock()` for single-function GPU access. `CONCURRENT_PIPELINE_WORKERS` env var (default 2). Wire into `daily_content_job()` — all shorts + longs run concurrently via `ThreadPoolExecutor`.
 - **`utils/translate.py`** (UPGRADED) — Added `generate_dubbed_audio()` (TTS audio for translated scripts per language using edge_tts_voice from LANGUAGES dict), `dub_all_languages()` (batch dubbing for all translations), `register_dub_cleanup()` (register temp dub dirs for cleanup). Controlled by `ENABLE_MULTI_LANG_DUB=false` env var.
@@ -337,6 +344,7 @@
 | `SLOT` | — | Content slot auto-detection |
 | `USE_ANIMATION_ENGINE` | `true` | LTX vs stock footage |
 | `LONG_MAX_DURATION` | `180` | Max long video seconds |
+| `SHORTS_MAX_DURATION` | `180` | Max short video seconds (was 60) |
 | `FORCE_PUBLISH` | `false` | Override blocking gates, publish despite quality/virality failures |
 | `MIN_VIRALITY_SCORE` | `40` | Minimum virality score for shorts |
 | `MIN_VIRALITY_SCORE_LONG` | `30` | Minimum virality score for long videos |
@@ -349,3 +357,5 @@
 | `ENABLE_COLOR_GRADING` | `false` | Cross-scene color balancing via YUV histogram matching |
 | `COLOR_GRADING_THRESHOLD` | `0.15` | Max allowable YUV shift between adjacent scenes |
 | `QA_BLUR_THRESHOLD` | `100.0` | Laplacian variance threshold for blur detection |
+| `QA_BLACK_THRESHOLD` | `0.35` | Max black frame ratio before QA fails |
+| `QA_FREEZE_THRESHOLD` | `0.1` | Max freeze frame ratio before QA fails |

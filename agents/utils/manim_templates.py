@@ -947,6 +947,7 @@ def intro_template(
     duration: float = 4.0,
     entry_time: float = 0.5,
     exit_time: float = 0.5,
+    **kwargs,
 ) -> str:
     template = INJECT_IMPORTS + """
 class IntroScene(Scene):
@@ -986,6 +987,7 @@ def outro_template(
     duration: float = 5.0,
     entry_time: float = 0.5,
     exit_time: float = 0.5,
+    **kwargs,
 ) -> str:
     template = INJECT_IMPORTS + """
 class OutroScene(Scene):

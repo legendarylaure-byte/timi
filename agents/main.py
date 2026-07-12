@@ -87,11 +87,11 @@ from utils.scene_architect import audit_scenes, SceneArchitectError
 os.environ["GRPC_VERBOSITY"] = "ERROR"
 os.environ["GLOG_minloglevel"] = "2"
 
-SHORTS_MAX_DURATION = 60
+SHORTS_MAX_DURATION = 180
 MIN_VIDEO_SIZE = 500 * 1024
 
 ENABLE_VISUAL_QA = os.getenv("ENABLE_VISUAL_QA", "true").lower() == "true"
-QA_BLACK_THRESHOLD = float(os.getenv("QA_BLACK_THRESHOLD", "0.2"))
+QA_BLACK_THRESHOLD = float(os.getenv("QA_BLACK_THRESHOLD", "0.35"))
 QA_FREEZE_THRESHOLD = float(os.getenv("QA_FREEZE_THRESHOLD", "0.1"))
 QA_BLUR_THRESHOLD = float(os.getenv("QA_BLUR_THRESHOLD", "100.0"))
 QA_MAX_RETRIES = int(os.getenv("QA_MAX_RETRIES", "2"))

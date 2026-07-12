@@ -186,7 +186,10 @@ def render_manim_scene(scene: dict, video_id: str, scene_idx: int = 0, quality: 
     title = params.get("title", "Concept")
     dur = scene.get("target_duration", scene.get("duration", 6.0))
     tmpl_kwargs = {k: v for k, v in params.items() if k not in ("title", "entry_time", "exit_time")}
-    code = tmpl_fn(title=title, duration=dur, **tmpl_kwargs)
+    if tmpl_name in ("intro", "outro"):
+        code = tmpl_fn(duration=dur, **tmpl_kwargs)
+    else:
+        code = tmpl_fn(title=title, duration=dur, **tmpl_kwargs)
 
     scene_class_name = TEMPLATE_CLASS_NAMES.get(tmpl_name, "Scene")
 

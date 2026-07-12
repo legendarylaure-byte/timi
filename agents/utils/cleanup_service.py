@@ -159,10 +159,6 @@ def cleanup_after_upload(video_path: str, thumbnail_path: str = None, voice_path
         except Exception as e:
             result["errors"].append(f"{fpath}: {e}")
 
-    tmp_cleanup = cleanup_temp_directories()
-    result["deleted"].extend(tmp_cleanup.get("deleted_files", 0) * ["[tmp_file]"])
-    result["freed_bytes"] += tmp_cleanup.get("freed_bytes", 0)
-
     freed_mb = result["freed_bytes"] / (1024 * 1024)
     print(f"[cleanup] Post-upload cleanup: {len(result['deleted'])} files removed, {freed_mb:.1f}MB freed")
     return result

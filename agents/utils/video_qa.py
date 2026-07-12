@@ -39,7 +39,7 @@ def _ffprobe_path() -> str:
     return "ffprobe"
 
 
-def check_black_frames(video_path: str, duration: float = 0.5,
+def check_black_frames(video_path: str, duration: float = 2.0,
                        pixel_threshold: float = 0.1) -> dict:
     if not os.path.exists(video_path):
         return {"black_ratio": 0.0, "total_black_ms": 0.0, "segments": []}

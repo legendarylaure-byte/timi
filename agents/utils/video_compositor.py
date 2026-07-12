@@ -100,6 +100,7 @@ def trim_clip(input_path: str, output_path: str, start: float = 0, duration: flo
         _ffmpeg_cmd(), "-y", "-i", input_path, *_sws_flags(),
         "-ss", str(start), "-t", str(duration),
         "-c:v", "libx264", "-preset", PRESET, "-crf", CRF,
+        "-r", str(OUTPUT_FPS),
         "-an", "-pix_fmt", "yuv420p", output_path,
     ]
     return safe_run_bool(cmd, timeout=120)
@@ -200,18 +201,21 @@ SFX_EMPHASIS_VOLUME_DB = -10
 
 def _generate_emphasis_tone(duration_ms: int = 200, freq: int = 440) -> AudioSegment:
     import math
+    import array
     sample_rate = 44100
     n_samples = int(sample_rate * duration_ms / 1000)
     samples = [int(8192 * math.sin(2 * math.pi * freq * t / sample_rate)) for t in range(n_samples)]
     for t in range(min(50, n_samples)):
         samples[t] = int(samples[t] * t / 50)
         samples[-(t + 1)] = int(samples[-(t + 1)] * t / 50)
-    return AudioSegment(samples, frame_rate=sample_rate, sample_width=2, channels=1)
+    raw = array.array('h', samples).tobytes()
+    return AudioSegment(raw, frame_rate=sample_rate, sample_width=2, channels=1)
 
 
 def _generate_ambient_pad(duration_ms: int) -> AudioSegment:
     import math
     import random
+    import array
     sample_rate = 44100
     n_samples = int(sample_rate * duration_ms / 1000)
     samples = []
@@ -222,7 +226,8 @@ def _generate_ambient_pad(duration_ms: int) -> AudioSegment:
                  math.sin(2 * math.pi * 220 * t / sample_rate) * 0.08)
         noise = (random.random() - 0.5) * 0.02
         samples.append(int(4096 * env * (chord + noise)))
-    return AudioSegment(samples, frame_rate=sample_rate, sample_width=2, channels=1)
+    raw = array.array('h', samples).tobytes()
+    return AudioSegment(raw, frame_rate=sample_rate, sample_width=2, channels=1)
 
 
 def mix_audio(voice_path: str, music_path: Optional[str], output_path: str,
@@ -407,7 +412,7 @@ def _build_xfade_filter(processed: list[str], transitions: list[str], durations:
     for i in range(n):
         label = f"v{i}"
         labels.append(label)
-        filter_parts.append(f"[{i}:v]setpts=PTS-STARTPTS,format=yuv420p[{label}]")
+        filter_parts.append(f"[{i}:v]setpts=PTS-STARTPTS,format=yuv420p,setparams=color_primaries=bt709:color_trc=bt709:colorspace=bt709[{label}]")
 
     prev_label = labels[0]
     cumulative = durations[0]
