@@ -24,6 +24,7 @@ def main():
         model_dir=config["model_dir"],
         gemma_model_id=config["gemma_id"],
         low_memory=True,
+        low_ram_streaming=True,
     )
     pipe.verbose = False
 
@@ -35,8 +36,8 @@ def main():
             seed = random.randint(0, 2**31 - 1)
             video_latent, audio_latent = pipe.generate_two_stage(
                 prompt=scene["prompt"],
-                height=448,
-                width=704,
+                height=384,
+                width=512,
                 num_frames=scene["frames"],
                 frame_rate=24,
                 seed=seed,

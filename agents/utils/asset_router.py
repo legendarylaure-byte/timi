@@ -137,7 +137,7 @@ def _render_scene_inner(scene: dict, video_id: str, scene_idx: int,
     model = get_video_model()
     if model and model.is_available():
         prompt = scene.get("ltx_prompt", "") or description or ", ".join(kw_list)
-        clip_path = model.generate_clip(prompt, int(duration))
+        clip_path = model.generate_clip(prompt, int(duration), format_type=format_type)
         if clip_path:
             return {"path": clip_path, "duration": duration, "asset_type": "STOCK_FOOTAGE", "source": "ltx"}
     for k in kw_list:

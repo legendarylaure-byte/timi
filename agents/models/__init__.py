@@ -9,3 +9,9 @@ try:
     register("wan2.1", WanVideoModel)
 except ImportError:
     pass
+
+try:
+    from models.replicate_model import ReplicateVideoModel
+    register("replicate", ReplicateVideoModel)
+except ImportError:
+    pass
