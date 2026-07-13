@@ -446,7 +446,7 @@ def _upload_instagram(title: str, video_path: str, format_type: str) -> dict:
             raise RuntimeError('No media creation ID from Instagram')
 
         import time
-        poll_attempts = 12
+        poll_attempts = 60
         poll_finished = False
         for attempt in range(poll_attempts):
             status_resp = requests.get(
@@ -462,7 +462,7 @@ def _upload_instagram(title: str, video_path: str, format_type: str) -> dict:
                     break
                 elif status_code == 'ERROR':
                     raise RuntimeError('Instagram media processing failed')
-            time.sleep(2)
+            time.sleep(5)
         if not poll_finished:
             raise RuntimeError('Instagram media processing timed out')
 
