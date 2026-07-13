@@ -741,7 +741,7 @@ def run_video_pipeline(script_text: str, storyboard_text: str, category: str, fo
     is_long = format_type == "long"
     from utils.voice_gen import extract_narration_text
     narration_text = extract_narration_text(script_text, is_long_form=is_long)
-    voice_result = _run_async(generate_voiceover(script_text, content_type="educational", is_long_form=is_long))
+    voice_result = _run_async(generate_voiceover(script_text, output_filename=f"voiceover_{video_id}.wav", content_type="educational", is_long_form=is_long))
     if not voice_result.get("success"):
         log_pipeline_error(video_id, "Voice-over generation failed", "voice_generation")
         raise Exception("Voice-over generation failed.")
@@ -763,11 +763,12 @@ def run_video_pipeline(script_text: str, storyboard_text: str, category: str, fo
         total_video_duration = audio_dur
 
     subtitle_path = None
-    if generate_subs and ENABLE_SUBTITLES and voice_result.get("timing_file"):
-        log_event("PIPELINE", "Step 2.5: Generating subtitles")
+    if generate_subs and ENABLE_SUBTITLES:
+        timing_file = voice_result.get("timing_file", "")
+        log_event("PIPELINE", f"Step 2.5: Generating subtitles (timing_file={'yes' if timing_file else 'no — using text fallback'})")
         update_agent_status("voice", "working", "Generating subtitles from voice timing")
         sub_result = generate_subtitles_for_video(
-            timing_file=voice_result["timing_file"],
+            timing_file=timing_file,
             full_text=narration_text,
             language=subtitle_lang,
         )

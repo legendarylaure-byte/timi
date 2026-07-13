@@ -61,6 +61,8 @@ def _wrap_ssml(text: str, voice_name: str = None, rate: str = "0%") -> str:
 
 
 def _expand_symbols_for_tts(text: str) -> str:
+    text = re.sub(r'https?://\S+', ' link ', text)
+    text = re.sub(r'www\.\S+', ' link ', text)
     expansions = [
         (r'\bC\+\+', 'C plus plus'),
         (r'\bC#', 'C sharp'),

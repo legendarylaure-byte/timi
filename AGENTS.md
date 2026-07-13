@@ -2,6 +2,14 @@
 
 ## Latest Changes
 
+### Quality Improvement Pass — Video Review Fixes: URL TTS, Subtitles, End Scene, Scriptwriter Viral Rule, Voiceover Race (uncommitted)
+- **URL stripping in TTS** (`utils/voice_gen.py`): `_expand_symbols_for_tts()` now replaces `https?://\S+` and `www\.\S+` with " link " before symbol expansion — prevents TTS reading URLs as "forward slash forward slash" for 20s.
+- **Subtitle color & font size** (`utils/video_compositor.py`, `utils/shorts_renderer.py`): Changed from teal `&HFF00CCCC&` to dark yellow `&HFF0088CC&` for better readability. Font sizes increased: `burn_subtitles()` 28→32, `composite_video()` 18→24, `shorts_renderer.py` 24→28.
+- **Subtitle generation without timing file** (`main.py:766`): Removed `timing_file` gate — subtitle generation now runs even when voice timing file is missing, falling back to text-based estimation in `generate_srt()`.
+- **End scene fix** (`utils/scene_parser.py:806`): Removed incorrect `vyomcloud.com` URL from outro scene text. Changed title from "Subscribe for more AI Tech" → "Subscribe for more AI content".
+- **Viral/trending rule** (`crew/scriptwriter.py`): Added Rule #12 — explicit viral/trending optimization instruction using gap frame technique, trending hooks from `extra_context`, and surprise→breakdown→mind-blown structure.
+- **Voiceover race fix** (`main.py:744`): `generate_voiceover()` now passes `output_filename=f"voiceover_{video_id}.wav"` — eliminates concurrent pipeline race where short+long both wrote to/deleted `voiceover.wav`.
+
 ### Tier 4: Content-Aware Duration Engine + Scene Architect + Audio Alignment (committed `1fc03f77`)
 - **Phase 1 — Duration Engine** (`utils/scene_parser.py`): `_estimate_scene_duration()` modulates base `wc/2.5` via `_score_narrative_importance()` (5 criteria: new info, tension, transition, visual, key insight → 0.5×–1.3×) and `_compute_pacing_multiplier()` (difficulty + position + density → 0.7×–1.3×). Total effective range: ~0.35×–1.7× of base word-count duration.
 - **Phase 2 — Scene Architect** (`utils/scene_architect.py`, NEW): Three audit functions — LTX prompt audit (camera/lighting/color keyword scoring), render type audit (uniqueness/direction/parameter variance), duration balance audit.

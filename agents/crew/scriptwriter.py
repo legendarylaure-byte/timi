@@ -72,6 +72,7 @@ RULES (STRICT):
 9. Content is for a NON-TECHNICAL beginner audience — assume ZERO prior knowledge. Explain every specialized term from first principles using everyday analogies. Write for someone who has never heard of this topic before. Avoid jargon entirely; when a technical term is necessary, define it immediately in plain language.
 10. HOOK FORMULA — Use one of these hook styles for the first scene, rotating across videos: (a) Question hook — ask a surprising question, (b) Bold claim — start with a counter-intuitive statement, (c) Statistic — lead with a striking number, (d) Curiosity gap — tease something the viewer doesn't know, (e) Pain point — name a frustration. Do NOT start with "Today we'll learn" or "In this video".
 11. POWER WORDS — Include 2-3 of these naturally: "secretly", "actually", "nobody", "everyone", "the truth", "why most", "what if", "imagine", "stop", "never realized".
+12. VIRAL & TRENDING — Write for maximum shareability. Use hooks that tap into current AI trends, controversies, or breakthroughs (from extra_context if provided). Structure for: surprising insight → simple breakdown → mind-blown moment. Include a curiosity gap that makes viewers NEED to watch until the end. Use the "gap frame" technique: tease the most interesting insight in the hook, then deliver it at the end.
 
 At the end include:
 - Key takeaway (1-2 sentences)

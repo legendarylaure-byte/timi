@@ -811,8 +811,7 @@ def add_end_scene(scenes: list[dict]) -> list[dict]:
         "asset_keywords": ["subscribe", "technology", "animated"],
         "ltx_prompt": "Cinematic shot of glowing subscribe button with neon light burst, camera slowly zooming in, dark background with particle effects, professional call-to-action style, rich colors, high quality",
         "text": [
-            {"text": "Subscribe for more AI Tech", "style": "title", "position": "center"},
-            {"text": "vyomcloud.com", "style": "caption", "position": "bottom"},
+            {"text": "Subscribe for more AI content", "style": "title", "position": "center"},
         ],
         "transition": "fade",
         "camera": {"zoom": 1.05, "pan_x": 0, "pan_y": 0},

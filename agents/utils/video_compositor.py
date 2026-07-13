@@ -507,11 +507,11 @@ def add_logo_overlay(video_path: str, logo_path: str, output_path: str,
 
 
 def burn_subtitles(video_path: str, subtitle_path: str, output_path: str,
-                   fontsize: int = 28) -> bool:
+                   fontsize: int = 32) -> bool:
     abs_sub = os.path.abspath(subtitle_path)
     vf = (
         f"subtitles=filename='{abs_sub}':force_style="
-        f"'FontSize={fontsize},PrimaryColour=&HFF00CCCC&,OutlineColour=&H40002B00&,"
+        f"'FontSize={fontsize},PrimaryColour=&HFF0088CC&,OutlineColour=&H40002B00&,"
         f"Outline=0,Shadow=0,BorderStyle=3,BackColour=&H40000000&,"
         f"Alignment=2,MarginV=40,FontName=Arial'"
     )
@@ -770,10 +770,10 @@ def composite_video(clips: list[dict], voice_path: str, music_path: Optional[str
 
     if subtitle_path and os.path.exists(subtitle_path):
         abs_sub = os.path.abspath(subtitle_path)
-        sub_fs = 18
+        sub_fs = 24
         vf_parts.append(
             f"subtitles=filename='{abs_sub}':force_style="
-            f"'FontSize={sub_fs},PrimaryColour=&HFF00CCCC&,OutlineColour=&H40002B00&,"
+            f"'FontSize={sub_fs},PrimaryColour=&HFF0088CC&,OutlineColour=&H40002B00&,"
             f"Outline=0,Shadow=0,BorderStyle=3,BackColour=&H40000000&,"
             f"Alignment=2,MarginV=40,FontName=Arial'"
         )
