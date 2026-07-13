@@ -3,6 +3,7 @@ import hashlib
 import json
 import logging
 import textwrap
+import inspect
 from utils.subprocess_helper import safe_run, register_temp_dir
 from datetime import datetime
 
@@ -186,6 +187,8 @@ def render_manim_scene(scene: dict, video_id: str, scene_idx: int = 0, quality: 
     title = params.get("title", "Concept")
     dur = scene.get("target_duration", scene.get("duration", 6.0))
     tmpl_kwargs = {k: v for k, v in params.items() if k not in ("title", "entry_time", "exit_time")}
+    tmpl_sig = inspect.signature(tmpl_fn)
+    tmpl_kwargs = {k: v for k, v in tmpl_kwargs.items() if k in tmpl_sig.parameters}
     if tmpl_name in ("intro", "outro"):
         code = tmpl_fn(duration=dur, **tmpl_kwargs)
     else:
@@ -329,6 +332,8 @@ def compose_manim_block(scenes: list[dict], video_id: str, quality: str = "h") -
         title = params.get("title", f"Part {idx + 1}")
         dur = scene.get("target_duration", scene.get("duration", 6.0))
         tmpl_kwargs = {k: v for k, v in params.items() if k not in ("title", "entry_time", "exit_time")}
+        tmpl_sig = inspect.signature(tmpl_fn)
+        tmpl_kwargs = {k: v for k, v in tmpl_kwargs.items() if k in tmpl_sig.parameters}
         code = tmpl_fn(title=title, duration=dur, **tmpl_kwargs)
         unique_class = f"ManimBlock_{sanitized_id}_{idx}"
         for pattern in TEMPLATE_CLASS_PATTERNS:
