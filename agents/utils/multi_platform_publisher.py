@@ -10,7 +10,50 @@ from utils.firebase_status import get_firestore_client, log_activity, update_vid
 from compliance.ai_disclosure import get_ai_disclosure
 from utils.sanitize import safe_log
 from utils.platform_captions import optimize_for_platform, optimize_title_for_platform
-from utils.subprocess_helper import retry_with_backoff, rate_limiter, security_audit
+from utils.subprocess_helper import retry_with_backoff, rate_limiter, security_audit, safe_run, register_temp_dir
+
+_FACEBOOK_CRF = os.getenv("FACEBOOK_CRF", "30")
+_FACEBOOK_TEMP_DIR = os.path.join(
+    os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "tmp", "facebook"
+)
+os.makedirs(_FACEBOOK_TEMP_DIR, exist_ok=True)
+register_temp_dir(_FACEBOOK_TEMP_DIR)
+
+
+def _compress_for_facebook(video_path: str) -> str:
+    """Compress video for Facebook upload to reduce processing timeouts.
+    
+    Uses lower CRF (higher compression) than the master render since Facebook
+    re-encodes videos anyway. Returns path to compressed temp file.
+    """
+    base = os.path.splitext(os.path.basename(video_path))[0]
+    out_path = os.path.join(_FACEBOOK_TEMP_DIR, f"{base}_fb.mp4")
+    original_size = os.path.getsize(video_path)
+
+    cmd = [
+        "ffmpeg", "-y",
+        "-i", video_path,
+        "-c:v", "libx264",
+        "-preset", "fast",
+        "-crf", _FACEBOOK_CRF,
+        "-c:a", "aac",
+        "-b:a", "96k",
+        "-movflags", "+faststart",
+        out_path,
+    ]
+    result = safe_run(cmd, timeout=300, capture_output=True, text=True)
+    if result.returncode != 0:
+        log_activity('publisher', f"Facebook compression failed, falling back to original: {result.stderr[-200:]}", 'warn')
+        return video_path
+
+    compressed_size = os.path.getsize(out_path)
+    ratio = compressed_size / original_size if original_size else 1
+    log_activity(
+        'publisher',
+        f"Facebook compression: {original_size // 1024}KB → {compressed_size // 1024}KB ({ratio:.0%})",
+        'info',
+    )
+    return out_path
 
 PLATFORMS = {
     'youtube': {
@@ -522,6 +565,8 @@ def _upload_facebook(title: str, description: str, video_path: str) -> dict:
     if not os.path.exists(video_path):
         return {'success': False, 'platform': 'facebook', 'error': f'Video file not found: {video_path}'}
 
+    upload_path = _compress_for_facebook(video_path)
+
     _facebook_refresh_attempted = False
     idem_key = _idempotency_key()
 
@@ -539,7 +584,7 @@ def _upload_facebook(title: str, description: str, video_path: str) -> dict:
         nonlocal access_token, _facebook_refresh_attempted
         import requests
 
-        file_size = os.path.getsize(video_path)
+        file_size = os.path.getsize(upload_path)
         upload_method = 'resumable' if file_size > 50 * 1024 * 1024 else 'direct'
 
         ai_flags = get_ai_disclosure("facebook")
@@ -548,7 +593,7 @@ def _upload_facebook(title: str, description: str, video_path: str) -> dict:
             fb_description += f"\n\n{ai_flags['caption_hashtag']}"
 
         if upload_method == 'direct':
-            with open(video_path, 'rb') as f:
+            with open(upload_path, 'rb') as f:
                 upload_resp = requests.post(
                     f'https://graph.facebook.com/v25.0/{page_id}/videos',
                     params={'access_token': access_token, 'idempotency_key': idem_key},
@@ -613,7 +658,7 @@ def _upload_facebook(title: str, description: str, video_path: str) -> dict:
             if not upload_session_id:
                 raise RuntimeError(f'No upload session ID from Facebook (size={file_size})')
 
-            with open(video_path, 'rb') as f:
+            with open(upload_path, 'rb') as f:
                 chunk_resp = requests.post(
                     f'https://graph.facebook.com/v25.0/{page_id}/videos',
                     params={
