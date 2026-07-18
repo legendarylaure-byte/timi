@@ -35,6 +35,9 @@ pytrends>=4.9.2
 # Manim animation engine for [MANIM] scenes — pinned to CE v0.20.x for stable API
 manim>=0.20.0,<0.21.0
 
+# Cloud video generation fallback (Replicate.com API)
+replicate>=0.30.0
+
 # chromadb is pulled in by crewai/crewai-tools — pinned here for visibility  
 # embedchain (transitive dep) requires <0.6.0, so we stay on the 0.5.x line  
 chromadb>=0.5.10,<0.6.0
@@ -42,6 +45,12 @@ chromadb>=0.5.10,<0.6.0
 # Kokoro TTS (local Apple Silicon voice synthesis)
 kokoro>=0.7.0,<1.0.0
 onnxruntime>=1.20.0
+
+# MLX + LTX (Apple Silicon video generation)
+mlx>=0.31.0
+ltx-core-mlx>=0.14.14
+ltx-pipelines-mlx>=0.14.14
+mlx-arsenal>=0.2.4
 
 # Pinned transitive deps to stop pip backtracking during Docker build
 litellm==1.53.3

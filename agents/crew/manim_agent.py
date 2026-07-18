@@ -39,6 +39,17 @@ TEMPLATE_KEYWORDS: dict[str, list[str]] = {
     "probability_distribution": ["probability", "distribution", "gaussian", "normal distribution", "pdf", "density", "statistics", "likelihood", "bayesian", "sampling", "random variable"],
     "intro": ["intro", "brand", "channel id", "channel_brand", "opening", "introduction"],
     "outro": ["outro", "subscribe", "cta", "call to action", "ending", "subscribe button", "closing"],
+    "tokenization": ["token", "tokenize", "subword", "bpe", "byte pair", "vocabulary", "word piece", "split", "character"],
+    "vocabulary_table": ["vocab", "lookup", "mapping", "table", "dictionary", "token to id", "embedding lookup", "word to id", "index"],
+    "bigram_probability": ["bigram", "next token", "probability", "prediction", "language model", "n-gram", "markov", "autoregressive", "next word"],
+    "architecture_diagram": ["architecture", "system design", "high-level", "overview", "block diagram", "component", "module", "structure", "pipeline architecture"],
+    "data_flow": ["data flow", "information flow", "data pipeline", "data movement", "flow of", "passes through", "routing", "data path", "io"],
+    "timeline": ["timeline", "history", "evolution", "chronology", "progress", "milestone", "development", "over time", "era", "phase"],
+    "comparison": ["comparison", "vs", "versus", "difference", "trade-off", "alternative", "better", "worse", "pros cons", "side by side"],
+    "process_flow": ["process", "workflow", "sequence", "step by step", "procedure", "method", "technique", "how to", "guide", "walkthrough"],
+    "concept_map": ["concept", "relationship", "mind map", "connected", "related to", "depends on", "hierarchy", "tree", "branch", "category"],
+    "activation_functions": ["activation", "relu", "sigmoid", "tanh", "leaky", "nonlinearity", "activation function", "neuron activation", "gating"],
+    "line_chart": ["trend", "growth", "decline", "curve", "line graph", "over time", "trajectory", "increase", "decrease", "rising", "falling"],
 }
 
 
@@ -193,8 +204,27 @@ You maintain a library of pre-built templates:
 - text_reveal: Key insight / takeaway text typewriter reveals with highlight frames
 - convolution: CNN kernel sliding over feature maps with pooling visualization
 - recurrent: RNN/LSTM cell with hidden state propagation through time steps
+- backpropagation: Forward pass + backward pass with gradient flow and loss display
+- loss_landscape: 3D loss surface with saddle/plateau/multi-minimum topology
+- embedding_space: 3D word vector space showing analogies (king-queen-man-woman)
+- matrix_multiplication: Step-by-step matrix multiply with row/column highlighting
+- decision_boundary: 2D classification boundary with positive/negative regions
+- probability_distribution: Gaussian curve with mean, sigma, and random sampling
+- activation_functions: ReLU/Sigmoid/Tanh plots side-by-side with animated trace
+- architecture_diagram: Labeled boxes with arrows for system pipeline overview
+- tokenization: Input text → colored token boxes → token IDs sequence
+- vocabulary_table: Token-to-ID lookup table with header rows and border
+- bigram_probability: Heatmap grid showing next-token probabilities with max highlight
+- data_flow: Circular/radial node diagram with directional flow arrows
+- timeline: Horizontal timeline with labeled milestone dots
+- comparison_chart: Side-by-side bullet list comparison with divider
+- process_flow: Vertical numbered step list with circle indicators
+- concept_map: Radial concept map with rounded-rect nodes and connections
+- line_chart: Simple line chart with axis labels and data points
+- intro: Brand intro with channel name, tagline, and glow accent
+- outro: Subscribe CTA with button, pulse animation, and channel URL
 
-For novel scenes, return template_name "custom" with a description of what to build.""",
+For novel scenes not matching any template, return template_name "custom".""",
         llm=llm,
         verbose=False,
         allow_delegation=False,
@@ -208,7 +238,7 @@ Category: {category}
 Format: {format_type}
 
 Return a ManimScenePlan with:
-- template_name: one of neural_network, attention, transformer, algorithm_flow, bar_chart, text_reveal, gradient_descent, convolution, recurrent, custom
+- template_name: one of neural_network, attention, transformer, gradient_descent, algorithm_flow, bar_chart, text_reveal, convolution, recurrent, backpropagation, loss_landscape, embedding_space, matrix_multiplication, decision_boundary, probability_distribution, activation_functions, architecture_diagram, tokenization, vocabulary_table, bigram_probability, data_flow, timeline, comparison_chart, process_flow, concept_map, line_chart, intro, outro, custom
 - params: dict with title, and template-specific fields (labels, values, layers, lines, etc.)
 - timing: dict with entry, dwell, exit in seconds
 - scene_type: educational | technical | data_viz | overview

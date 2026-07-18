@@ -17,7 +17,7 @@ export const themeConfig = {
     background: '#0F0F23',
     card: '#1A1A2E',
     primary: '#FF7675',
-    secondary: '#00D2FF',
+    secondary: '#8a50e8',
     accent: '#F39C12',
     text: '#F1F5F9',
     textSecondary: '#94A3B8',

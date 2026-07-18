@@ -15,7 +15,7 @@ TERM_FILE = os.path.join(DATA_DIR, "vocabulary.json")
 DEFAULT_STYLE_GUIDE = {
     "channel_name": "Vyom Ai Cloud",
     "tagline": "AI Made Simple",
-    "colors": {"primary": "#00CCCC", "secondary": "#1e1e1e", "accent": "#FF6B35", "text": "#FFFFFF"},
+    "colors": {"primary": "#8a50e8", "secondary": "#c060d0", "accent": "#e07040", "text": "#FFFFFF"},
     "fonts": {"title": "Inter Bold", "body": "Inter Regular", "caption": "Inter Medium"},
     "voice": {
         "tone": "educational, friendly, authoritative",
@@ -32,8 +32,8 @@ DEFAULT_STYLE_GUIDE = {
         "intro_duration": 3.0,
         "outro_duration": 5.0,
         "transition": "fade",
-        "subtitle_color": "&HFF00CCCC&",
-        "subtitle_font_size": 14,
+        "subtitle_color": "&H00FFFFFF&",
+        "subtitle_font_size": 24,
         "thumbnail_style": "bold text on dark background with accent color",
     },
     "structure": {

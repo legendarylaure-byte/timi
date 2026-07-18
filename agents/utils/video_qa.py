@@ -252,6 +252,45 @@ def _laplacian_variance(img) -> float:
     return float(arr.var())
 
 
+def check_visual_narration_match(narration_text: str, scene_keywords: list[str] | None = None,
+                                  asset_type: str = "STOCK_FOOTAGE",
+                                  ltx_prompt: str = "") -> tuple[bool, float, str]:
+    if asset_type in ("DIAGRAM_ANIMATION", "CODE_SNIPPET", "SCREEN_CAPTURE"):
+        return True, 1.0, "Auto-pass: Manim/code/screen scenes directly explain the content"
+    if not narration_text:
+        return True, 0.5, "No narration text to compare"
+    import re
+    stopwords = {
+        "the", "a", "an", "is", "are", "was", "were", "be", "been", "being",
+        "have", "has", "had", "do", "does", "did", "will", "would", "could",
+        "should", "may", "might", "can", "shall", "to", "of", "in", "for",
+        "on", "with", "at", "by", "from", "as", "into", "through", "during",
+        "this", "that", "these", "those", "it", "its", "they", "them", "their",
+        "and", "or", "but", "if", "while", "about", "up", "down", "like",
+        "just", "because", "also", "very", "too", "not", "no", "only",
+        "show", "see", "use", "used", "using", "make", "made", "get",
+    }
+    nar_words = {w for w in re.findall(r'\b[a-z]{4,}\b', narration_text.lower()) if w not in stopwords}
+    if not nar_words:
+        return True, 0.5, "No significant words in narration"
+    if asset_type == "STOCK_FOOTAGE" and scene_keywords:
+        kw_text = " ".join(scene_keywords).lower()
+        match_count = sum(1 for w in nar_words if w in kw_text)
+        ratio = match_count / max(len(nar_words), 1)
+        if ratio >= 0.15:
+            return True, ratio, f"{match_count}/{len(nar_words)} narration words in stock keywords (ratio={ratio:.2f})"
+        return False, ratio, f"Stock keywords miss narration: only {match_count}/{len(nar_words)} words match (ratio={ratio:.2f}, need ≥0.15)"
+    if ltx_prompt:
+        prompt_lower = ltx_prompt.lower()
+        match_count = sum(1 for w in nar_words if w in prompt_lower)
+        ratio = match_count / max(len(nar_words), 1)
+        if ratio >= 0.1:
+            return True, ratio, f"{match_count}/{len(nar_words)} narration words in LTX prompt (ratio={ratio:.2f})"
+        logger.warning(f"LTX prompt may not match narration: {match_count}/{len(nar_words)} words match")
+        return True, ratio, f"Weak LTX prompt match: {match_count}/{len(nar_words)} (ratio={ratio:.2f})"
+    return True, 0.0, "No reference text to compare"
+
+
 def check_frame_quality(video_path: str, format_type: str = "shorts",
                         blur_threshold: float = 100.0) -> dict:
     report = {

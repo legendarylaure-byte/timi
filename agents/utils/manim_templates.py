@@ -29,8 +29,8 @@ def neural_network_template(
     title: str = "Neural Network",
     duration: float = 6.0,
     layer_labels: list[str] = None,
-    node_color: str = "#4ECDC4",
-    edge_color: str = "#A29BFE",
+    node_color: str = "#1C758A",
+    edge_color: str = "#58C4DD",
     entry_time: float = 0.5,
     exit_time: float = 0.5,
 ) -> str:
@@ -61,7 +61,7 @@ class NeuralNetworkScene(Scene):
             layers.add(col)
             label = Text(layer_labels[li] if li < len(layer_labels) else "", font_size=16, color=GRAY)
             label.next_to(col, DOWN, buff=0.3)
-            self.play(Create(col), Write(label), run_time=0.4)
+            self.play(Create(col), Write(label), run_time=0.5)
         edges = VGroup()
         for li in range(len(dims) - 1):
             for d1 in layers[li]:
@@ -72,9 +72,9 @@ class NeuralNetworkScene(Scene):
             self.play(Create(edges), run_time=0.8)
         self.wait(0.3)
         glow = Circle(radius=0.3, color=YELLOW, stroke_width=3, fill_opacity=0)
-        self.play(glow.animate.move_to(layers[-1].get_center()), run_time=0.3)
+        self.play(glow.animate.move_to(layers[-1].get_center()), run_time=0.5)
         output_label = Text("Output", font_size=20, color=YELLOW).next_to(layers[-1], RIGHT, buff=0.5)
-        self.play(Write(output_label), run_time=0.3)
+        self.play(Write(output_label), run_time=0.5)
         remaining = max(0, __DURATION__ - self.time - __EXIT__)
         if remaining > 0:
             self.wait(remaining)
@@ -106,6 +106,7 @@ def attention_template(
     template = INJECT_IMPORTS + """
 class AttentionScene(Scene):
     def construct(self):
+        self.camera.background_color = "#000000"
         title_text = Text("__TITLE__", font_size=36, color=WHITE).to_edge(UP)
         self.play(Write(title_text), run_time=__ENTRY__)
         sq_size = 0.35
@@ -120,9 +121,9 @@ class AttentionScene(Scene):
             lbl = Text(label, font_size=16, color=color_hex).next_to(group, DOWN, buff=0.3)
             group.add(lbl)
             return group
-        q = make_matrix(8, 4, "Query", "#FF6B6B"
-        k = make_matrix(8, 4, "Key", "#4ECDC4"
-        v = make_matrix(8, 4, "Value", "#A29BFE"
+        q = make_matrix(8, 4, "Query", "#e07040")
+        k = make_matrix(8, 4, "Key", "#58C4DD")
+        v = make_matrix(8, 4, "Value", "#8a50e8")
         q.move_to([-3.5, 0, 0])
         k.move_to([0, 0, 0])
         v.move_to([3.5, 0, 0])
@@ -135,7 +136,7 @@ class AttentionScene(Scene):
         heatmap = Square(side_length=2.0, fill_opacity=0.4, fill_color=ORANGE, stroke_color=YELLOW, stroke_width=2)
         heatmap.move_to([0, -2.5, 0])
         heat_lbl = Text("Attention Weights", font_size=16, color=ORANGE).next_to(heatmap, DOWN, buff=0.2)
-        self.play(Create(heatmap), Write(heat_lbl), run_time=0.4)
+        self.play(Create(heatmap), Write(heat_lbl), run_time=0.5)
         self.wait(0.2)
         arrow_kv = Arrow(k.get_center(), v.get_center(), color=YELLOW, stroke_width=3)
         softmax_label = Text("Softmax", font_size=28, color=ORANGE).move_to([1.75, 1.5, 0])
@@ -164,6 +165,7 @@ def transformer_block_template(
     template = INJECT_IMPORTS + """
 class TransformerScene(Scene):
     def construct(self):
+        self.camera.background_color = "#000000"
         title_text = Text("__TITLE__", font_size=36, color=WHITE).to_edge(UP)
         self.play(Write(title_text), run_time=__ENTRY__)
         box_w, box_h = 2.2, 0.55
@@ -188,27 +190,27 @@ class TransformerScene(Scene):
         outputs = Text("Output\\nEmbedding", font_size=14, color=GRAY).move_to([2.5, -3.0, 0])
         pos_enc_in = Text("+ Positional\\n  Encoding", font_size=10, color=GRAY, opacity=0.7).next_to(inputs, DOWN, buff=0.15)
         pos_enc_out = Text("+ Positional\\n  Encoding", font_size=10, color=GRAY, opacity=0.7).next_to(outputs, DOWN, buff=0.15)
-        self.play(Create(inputs), Create(outputs), run_time=0.4)
-        self.play(Write(pos_enc_in), Write(pos_enc_out), run_time=0.2)
+        self.play(Create(inputs), Create(outputs), run_time=0.5)
+        self.play(Write(pos_enc_in), Write(pos_enc_out), run_time=0.5)
         enc_groups = []
         prev_bx = None
         for i in range(enc_count):
             g, bx = enc_block(2.0 - i * 2.2, f"Encoder Layer {i+1}")
             enc_groups.append(g)
-            self.play(Create(g), run_time=0.4)
+            self.play(Create(g), run_time=0.5)
             if prev_bx is not None:
                 arrow = Arrow(prev_bx.get_bottom(), bx.get_top(), stroke_width=2, color=BLUE_D)
-                self.play(Create(arrow), run_time=0.2)
+                self.play(Create(arrow), run_time=0.5)
             prev_bx = bx
         dec_groups = []
         prev_dec_bx = None
         for i in range(dec_count):
             g, bx = dec_block(2.5 - i * 2.5, f"Decoder Layer {i+1}")
             dec_groups.append(g)
-            self.play(Create(g), run_time=0.4)
+            self.play(Create(g), run_time=0.5)
             if prev_dec_bx is not None:
                 arrow = Arrow(prev_dec_bx.get_bottom(), bx.get_top(), stroke_width=2, color=GREEN_D)
-                self.play(Create(arrow), run_time=0.2)
+                self.play(Create(arrow), run_time=0.5)
             prev_dec_bx = bx
         cross_arrows = VGroup()
         for i in range(min(enc_count, dec_count)):
@@ -217,11 +219,11 @@ class TransformerScene(Scene):
             arr = Arrow(enc_bottom, dec_center, stroke_width=1.5, color=YELLOW, stroke_opacity=0.4)
             cross_arrows.add(arr)
         if cross_arrows:
-            self.play(Create(cross_arrows), run_time=0.4)
+            self.play(Create(cross_arrows), run_time=0.5)
         linear = Rectangle(width=2.0, height=0.5, fill_opacity=0.2, fill_color=YELLOW, stroke_color=YELLOW_C, stroke_width=2)
         linear.move_to([0, -3.5, 0])
         linear_label = Text("Linear + Softmax", font_size=14, color=YELLOW_C).move_to(linear.get_center())
-        self.play(Create(linear), Write(linear_label), run_time=0.4)
+        self.play(Create(linear), Write(linear_label), run_time=0.5)
         output_probs = Text("Output\\nProbabilities", font_size=14, color=WHITE).next_to(linear, DOWN, buff=0.4)
         self.play(Write(output_probs))
         remaining = max(0, __DURATION__ - self.time - __EXIT__)
@@ -253,6 +255,7 @@ def convolution_template(
     template = INJECT_IMPORTS + """
 class ConvolutionScene(Scene):
     def construct(self):
+        self.camera.background_color = "#000000"
         title_text = Text("__TITLE__", font_size=36, color=WHITE).to_edge(UP)
         self.play(Write(title_text), run_time=__ENTRY__)
         cell_size = 0.4
@@ -283,12 +286,12 @@ class ConvolutionScene(Scene):
                             -(r * cell_size - (kernel_s-1) * cell_size / 2), 0])
                 kernel_overlay.add(sq)
         kernel_overlay.move_to([-3.5, 0, 0])
-        self.play(Create(kernel_overlay), run_time=0.3)
+        self.play(Create(kernel_overlay), run_time=0.5)
         kernel_label = Text("Kernel (Filter)", font_size=14, color=YELLOW).next_to(kernel_overlay, DOWN, buff=0.3)
         self.play(Write(kernel_label))
 
         formula = Text("(Input * Kernel) + Bias", font_size=20, color=ORANGE).move_to([0, 2.5, 0])
-        self.play(Write(formula), run_time=0.3)
+        self.play(Write(formula), run_time=0.5)
 
         output_grid = VGroup()
         out_size = grid_rows - kernel_s + 1
@@ -303,7 +306,7 @@ class ConvolutionScene(Scene):
         self.play(Create(output_grid), Write(output_label), run_time=0.6)
 
         arrow_conv = Arrow(input_grid.get_center(), output_grid.get_center(), color=YELLOW, stroke_width=2)
-        self.play(Create(arrow_conv), run_time=0.3)
+        self.play(Create(arrow_conv), run_time=0.5)
 
         slide_tracker = kernel_overlay.copy()
         slide_tracker.set_stroke(RED, width=4)
@@ -349,6 +352,7 @@ def recurrent_template(
     template = INJECT_IMPORTS + """
 class RecurrentScene(Scene):
     def construct(self):
+        self.camera.background_color = "#000000"
         title_text = Text("__TITLE__", font_size=36, color=WHITE).to_edge(UP)
         self.play(Write(title_text), run_time=__ENTRY__)
 
@@ -382,13 +386,13 @@ class RecurrentScene(Scene):
         for i in range(n_steps):
             arrow = Arrow(inputs[i].get_top(), hidden_states[i].get_bottom(), color=BLUE_C, stroke_width=2)
             input_arrows.add(arrow)
-        self.play(Create(input_arrows), run_time=0.4)
+        self.play(Create(input_arrows), run_time=0.5)
 
         time_arrows = VGroup()
         for i in range(n_steps - 1):
             arrow = Arrow(hidden_states[i].get_right(), hidden_states[i+1].get_left(), color=PURPLE_C, stroke_width=3)
             time_arrows.add(arrow)
-        self.play(Create(time_arrows), run_time=0.4)
+        self.play(Create(time_arrows), run_time=0.5)
         self.wait(0.2)
 
         self.play(Create(outputs), run_time=0.5)
@@ -396,7 +400,7 @@ class RecurrentScene(Scene):
         for i in range(n_steps):
             arrow = Arrow(hidden_states[i].get_top(), outputs[i].get_bottom(), color=GREEN_C, stroke_width=2)
             output_arrows.add(arrow)
-        self.play(Create(output_arrows), run_time=0.4)
+        self.play(Create(output_arrows), run_time=0.5)
 
         loop_label = Text("Hidden state propagates through time steps", font_size=18, color=PURPLE_C).to_edge(DOWN)
         self.play(Write(loop_label))
@@ -431,6 +435,7 @@ def algorithm_flow_template(
     template = INJECT_IMPORTS + """
 class AlgorithmFlowScene(Scene):
     def construct(self):
+        self.camera.background_color = "#000000"
         title_text = Text("__TITLE__", font_size=36, color=WHITE).to_edge(UP)
         self.play(Write(title_text), run_time=__ENTRY__)
         steps = __STEPS__
@@ -440,13 +445,13 @@ class AlgorithmFlowScene(Scene):
             box.move_to([0, 2.0 - i * 1.5, 0])
             label = Text(step_name, font_size=18, color=WHITE).move_to(box.get_center())
             group = VGroup(box, label)
-            self.play(Create(group), run_time=0.3)
+            self.play(Create(group), run_time=0.5)
             if prev_box is not None:
                 arrow = Arrow(prev_box.get_bottom(), box.get_top(), stroke_width=2, color=YELLOW)
-                self.play(Create(arrow), run_time=0.2)
+                self.play(Create(arrow), run_time=0.5)
             prev_box = box
         glow = box.copy().set_stroke(YELLOW, width=6).set_fill(opacity=0)
-        self.play(Create(glow), run_time=0.2)
+        self.play(Create(glow), run_time=0.5)
         remaining = max(0, __DURATION__ - self.time - __EXIT__)
         if remaining > 0:
             self.wait(remaining)
@@ -468,7 +473,7 @@ def bar_chart_template(
     values: list[float] = None,
     title: str = "Performance Comparison",
     duration: float = 6.0,
-    bar_color: str = "#00D2FF",
+    bar_color: str = "#58C4DD",
     entry_time: float = 0.5,
     exit_time: float = 0.5,
 ) -> str:
@@ -479,6 +484,7 @@ def bar_chart_template(
     template = INJECT_IMPORTS + """
 class BarChartScene(Scene):
     def construct(self):
+        self.camera.background_color = "#000000"
         title_text = Text("__TITLE__", font_size=36, color=WHITE).to_edge(UP)
         self.play(Write(title_text), run_time=__ENTRY__)
         labels = __LABELS__
@@ -494,11 +500,11 @@ class BarChartScene(Scene):
             bar.move_to([start_x + i * (bar_width + 0.3), -1.5 + 0.005, 0])
             self.play(
                 bar.animate.set_height(height).move_to([start_x + i * (bar_width + 0.3), -1.5 + height / 2, 0]),
-                run_time=0.4
+                run_time=0.5
             )
             lbl = Text(str(label), font_size=16, color=GRAY).next_to(bar, DOWN, buff=0.15)
             val_lbl = Text(f"{val:.1f}", font_size=14, color=WHITE).next_to(bar, UP, buff=0.1)
-            self.play(Write(lbl), Write(val_lbl), run_time=0.15)
+            self.play(Write(lbl), Write(val_lbl), run_time=0.5)
             bars_created.extend([bar, lbl, val_lbl])
         remaining = max(0, __DURATION__ - self.time - __EXIT__)
         if remaining > 0:
@@ -584,7 +590,7 @@ class GradientDescentScene(ThreeDScene):
             self.play(
                 sphere.animate.move_to(target),
                 Transform(step_label, new_label),
-                run_time=0.4,
+                run_time=0.5,
             )
 
         self.begin_ambient_camera_rotation(rate=0.10)
@@ -611,7 +617,7 @@ def text_reveal_template(
     lines: list[str] = None,
     title: str = "Key Insight",
     duration: float = 6.0,
-    line_color: str = "#00CCCC",
+    line_color: str = "#8a50e8",
     entry_time: float = 0.5,
     exit_time: float = 0.5,
 ) -> str:
@@ -620,19 +626,19 @@ def text_reveal_template(
     template = INJECT_IMPORTS + """
 class TextRevealScene(Scene):
     def construct(self):
-        self.camera.background_color = "#1e1e1e"
-        title_text = Text("__TITLE__", font_size=36, color="#00CCCC").to_edge(UP)
+        self.camera.background_color = "#000000"
+        title_text = Text("__TITLE__", font_size=36, color="#1C758A").to_edge(UP)
         self.play(Write(title_text), run_time=__ENTRY__)
         lines = __LINES__
         text_group = VGroup()
         for i, line in enumerate(lines):
             t = Text(line, font_size=28 - min(len(line) // 10, 3) * 2, color="__LINE_COLOR__")
             t.move_to([0, 1.0 - i * 0.8, 0])
-            self.play(Write(t), run_time=0.4)
+            self.play(Write(t), run_time=0.5)
             text_group.add(t)
         self.wait(0.3)
         glow = SurroundingRectangle(text_group, buff=0.2, color="__LINE_COLOR__", stroke_width=1, stroke_opacity=0.5)
-        self.play(Create(glow), run_time=0.3)
+        self.play(Create(glow), run_time=0.5)
         remaining = max(0, __DURATION__ - self.time - __EXIT__)
         if remaining > 0:
             self.wait(remaining)
@@ -664,9 +670,9 @@ def architecture_diagram_template(
     template = INJECT_IMPORTS + """
 class ArchitectureDiagramScene(Scene):
     def construct(self):
-        self.camera.background_color = "#1e1e1e"
+        self.camera.background_color = "#000000"
         components = json.loads('__COMPS__')
-        title_text = Text("__TITLE__", font_size=32, color="#00CCCC").to_edge(UP)
+        title_text = Text("__TITLE__", font_size=32, color="#1C758A").to_edge(UP)
         self.play(Write(title_text), run_time=0.5)
         boxes = VGroup()
         arrows = VGroup()
@@ -674,7 +680,7 @@ class ArchitectureDiagramScene(Scene):
         total_w = n * 2.5 - 0.5
         start_x = -total_w / 2
         for i, name in enumerate(components):
-            box = Rectangle(height=1.2, width=2.0, color="#00CCCC", fill_opacity=0.15)
+            box = Rectangle(height=1.2, width=2.0, color="#1C758A", fill_opacity=0.15)
             box.move_to([start_x + i * 2.5, 0, 0])
             label = Text(name, font_size=20, color=WHITE)
             label.move_to(box.get_center())
@@ -682,7 +688,7 @@ class ArchitectureDiagramScene(Scene):
             if i < n - 1:
                 arrow = Arrow(
                     box.get_right(), [start_x + (i + 1) * 2.5 - 1.0, 0, 0],
-                    color="#FF6B35", stroke_width=3
+                    color="#e07040", stroke_width=3
                 )
                 arrows.add(arrow)
         self.play(LaggedStart(*[FadeIn(b, shift=UP * 0.3) for b in boxes], lag_ratio=0.15), run_time=1.5)
@@ -713,9 +719,9 @@ def data_flow_diagram_template(
     template = INJECT_IMPORTS + """
 class DataFlowScene(Scene):
     def construct(self):
-        self.camera.background_color = "#1e1e1e"
+        self.camera.background_color = "#000000"
         nodes = json.loads('__NODES__')
-        title_text = Text("__TITLE__", font_size=32, color="#00CCCC").to_edge(UP)
+        title_text = Text("__TITLE__", font_size=32, color="#1C758A").to_edge(UP)
         self.play(Write(title_text), run_time=0.5)
         circles = VGroup()
         labels = VGroup()
@@ -723,7 +729,7 @@ class DataFlowScene(Scene):
         for i, name in enumerate(nodes):
             angle = -PI/2 + i * 2*PI / n
             pos = [2.5 * np.cos(angle), 2.5 * np.sin(angle), 0]
-            circle = Circle(radius=0.7, color="#00CCCC", fill_opacity=0.15)
+            circle = Circle(radius=0.7, color="#1C758A", fill_opacity=0.15)
             circle.move_to(pos)
             label = Text(name, font_size=16, color=WHITE)
             label.move_to(pos)
@@ -731,9 +737,9 @@ class DataFlowScene(Scene):
             labels.add(label)
             if i > 0:
                 prev_pos = [2.5 * np.cos(-PI/2 + (i-1) * 2*PI / n), 2.5 * np.sin(-PI/2 + (i-1) * 2*PI / n), 0]
-                arrow = Arrow(prev_pos, pos, color="#FF6B35", stroke_width=2)
-                self.play(GrowArrow(arrow), run_time=0.3)
-            self.play(FadeIn(circle), Write(label), run_time=0.3)
+                arrow = Arrow(prev_pos, pos, color="#e07040", stroke_width=2)
+                self.play(GrowArrow(arrow), run_time=0.5)
+            self.play(FadeIn(circle), Write(label), run_time=0.5)
         self.wait(max(0, __DURATION__ - 2.5 - __EXIT__))
         self.play(FadeOut(VGroup(circles, labels, title_text)), run_time=__EXIT__)
 """.replace("__NODES__", nodes_json).replace("__TITLE__", title)
@@ -759,22 +765,22 @@ def timeline_template(
     template = INJECT_IMPORTS + """
 class TimelineScene(Scene):
     def construct(self):
-        self.camera.background_color = "#1e1e1e"
+        self.camera.background_color = "#000000"
         milestones = json.loads('__MS__')
-        title_text = Text("__TITLE__", font_size=32, color="#00CCCC").to_edge(UP)
+        title_text = Text("__TITLE__", font_size=32, color="#1C758A").to_edge(UP)
         self.play(Write(title_text), run_time=0.5)
-        line = Line([-5, 0, 0], [5, 0, 0], color="#00CCCC", stroke_width=3)
+        line = Line([-5, 0, 0], [5, 0, 0], color="#1C758A", stroke_width=3)
         self.play(Create(line), run_time=0.5)
         n = len(milestones)
         dots = VGroup()
         labels = VGroup()
         for i, ms in enumerate(milestones):
             x = -4.5 + i * 9.0 / (n - 1) if n > 1 else 0
-            dot = Dot([x, 0, 0], color="#FF6B35", radius=0.1)
+            dot = Dot([x, 0, 0], color="#e07040", radius=0.1)
             label = Text(ms, font_size=18, color=WHITE).next_to(dot, DOWN if i % 2 == 0 else UP, buff=0.3)
             dots.add(dot)
             labels.add(label)
-            self.play(FadeIn(dot), Write(label), run_time=0.3)
+            self.play(FadeIn(dot), Write(label), run_time=0.5)
         self.wait(max(0, __DURATION__ - 3.0 - __EXIT__))
         self.play(FadeOut(VGroup(line, dots, labels, title_text)), run_time=__EXIT__)
 """.replace("__MS__", ms_json).replace("__TITLE__", title)
@@ -806,15 +812,15 @@ def comparison_chart_template(
     template = INJECT_IMPORTS + """
 class ComparisonScene(Scene):
     def construct(self):
-        self.camera.background_color = "#1e1e1e"
+        self.camera.background_color = "#000000"
         left_items = json.loads('__LEFT__')
         right_items = json.loads('__RIGHT__')
-        title_text = Text("__TITLE__", font_size=32, color="#00CCCC").to_edge(UP)
+        title_text = Text("__TITLE__", font_size=32, color="#1C758A").to_edge(UP)
         self.play(Write(title_text), run_time=0.5)
-        div = Line([0, -3, 0], [0, 3, 0], color="#00CCCC", stroke_width=1, opacity=0.5)
-        self.play(Create(div), run_time=0.3)
-        left_header = Text("__LEFT_LABEL__", font_size=24, color="#FF6B35").move_to([-3, 2.5, 0])
-        right_header = Text("__RIGHT_LABEL__", font_size=24, color="#00CCCC").move_to([3, 2.5, 0])
+        div = Line([0, -3, 0], [0, 3, 0], color="#1C758A", stroke_width=1, opacity=0.5)
+        self.play(Create(div), run_time=0.5)
+        left_header = Text("__LEFT_LABEL__", font_size=24, color="#e07040").move_to([-3, 2.5, 0])
+        right_header = Text("__RIGHT_LABEL__", font_size=24, color="#1C758A").move_to([3, 2.5, 0])
         self.play(Write(left_header), Write(right_header), run_time=0.5)
         left_group = VGroup()
         right_group = VGroup()
@@ -853,24 +859,24 @@ def process_flow_template(
     template = INJECT_IMPORTS + """
 class ProcessFlowScene(Scene):
     def construct(self):
-        self.camera.background_color = "#1e1e1e"
+        self.camera.background_color = "#000000"
         steps = json.loads('__STEPS__')
-        title_text = Text("__TITLE__", font_size=32, color="#00CCCC").to_edge(UP)
+        title_text = Text("__TITLE__", font_size=32, color="#1C758A").to_edge(UP)
         self.play(Write(title_text), run_time=0.5)
         n = len(steps)
         start_y = 2.5
         step_group = VGroup()
         for i, step in enumerate(steps):
             y = start_y - i * 1.5
-            circle = Circle(radius=0.35, color="#00CCCC", fill_opacity=0.2)
+            circle = Circle(radius=0.35, color="#1C758A", fill_opacity=0.2)
             circle.move_to([-3, y, 0])
-            num = Text(str(i+1), font_size=16, color="#00CCCC")
+            num = Text(str(i+1), font_size=16, color="#1C758A")
             num.move_to(circle.get_center())
             label = Text(step, font_size=20, color=WHITE)
             label.next_to(circle, RIGHT, buff=0.5)
             step_group.add(VGroup(circle, num, label))
             if i < n - 1:
-                connector = Line([-3, y - 0.35, 0], [-3, y - 1.5 + 0.35, 0], color="#FF6B35", stroke_width=2)
+                connector = Line([-3, y - 0.35, 0], [-3, y - 1.5 + 0.35, 0], color="#e07040", stroke_width=2)
                 step_group.add(connector)
         self.play(LaggedStart(*[FadeIn(s, shift=RIGHT * 0.3) for s in step_group], lag_ratio=0.2), run_time=2.0)
         self.wait(max(0, __DURATION__ - 3.5 - __EXIT__))
@@ -898,9 +904,9 @@ def concept_map_template(
     template = INJECT_IMPORTS + """
 class ConceptMapScene(Scene):
     def construct(self):
-        self.camera.background_color = "#1e1e1e"
+        self.camera.background_color = "#000000"
         concepts = json.loads('__CONCEPTS__')
-        title_text = Text("__TITLE__", font_size=32, color="#00CCCC").to_edge(UP)
+        title_text = Text("__TITLE__", font_size=32, color="#1C758A").to_edge(UP)
         self.play(Write(title_text), run_time=0.5)
         n = len(concepts)
         center = [0, 0, 0] if n > 1 else [0, 0, 0]
@@ -909,16 +915,16 @@ class ConceptMapScene(Scene):
             angle = -PI/2 + i * 2*PI / n
             r = 2.5
             pos = [r * np.cos(angle), r * np.sin(angle), 0]
-            box = RoundedRectangle(corner_radius=0.2, height=0.7, width=1.8, color="#00CCCC", fill_opacity=0.15)
+            box = RoundedRectangle(corner_radius=0.2, height=0.7, width=1.8, color="#1C758A", fill_opacity=0.15)
             box.move_to(pos)
             label = Text(concept, font_size=16, color=WHITE)
             label.move_to(pos)
             nodes.add(VGroup(box, label))
             if i > 0:
                 prev_pos = [r * np.cos(-PI/2 + (i-1) * 2*PI / n), r * np.sin(-PI/2 + (i-1) * 2*PI / n), 0]
-                line = Line(prev_pos, pos, color="#FF6B35", stroke_width=1.5, opacity=0.6)
-                self.play(Create(line), run_time=0.2)
-            self.play(FadeIn(box), Write(label), run_time=0.3)
+                line = Line(prev_pos, pos, color="#e07040", stroke_width=1.5, opacity=0.6)
+                self.play(Create(line), run_time=0.5)
+            self.play(FadeIn(box), Write(label), run_time=0.5)
         if n > 2:
             for i in range(n):
                 for j in range(i+2, n):
@@ -927,7 +933,7 @@ class ConceptMapScene(Scene):
                         angle_j = -PI/2 + j * 2*PI / n
                         pos_i = [r * np.cos(angle_i), r * np.sin(angle_i), 0]
                         pos_j = [r * np.cos(angle_j), r * np.sin(angle_j), 0]
-                        line = Line(pos_i, pos_j, color="#00CCCC", stroke_width=0.5, opacity=0.2)
+                        line = Line(pos_i, pos_j, color="#1C758A", stroke_width=0.5, opacity=0.2)
                         self.add(line)
                         self.wait(0.05)
         self.wait(max(0, __DURATION__ - 3.5 - __EXIT__))
@@ -952,20 +958,20 @@ def intro_template(
     template = INJECT_IMPORTS + """
 class IntroScene(Scene):
     def construct(self):
-        self.camera.background_color = "#1e1e1e"
+        self.camera.background_color = "#000000"
         bg = Rectangle(width=16, height=9, fill_opacity=0, stroke_width=0)
-        accent_bar = Rectangle(width=0.08, height=1.2, fill_opacity=1, fill_color="#00CCCC", stroke_width=0)
+        accent_bar = Rectangle(width=0.08, height=1.2, fill_opacity=1, fill_color="#1C758A", stroke_width=0)
         accent_bar.move_to([-1.8, 0, 0])
         self.play(FadeIn(accent_bar, scale=0.5), run_time=0.5)
-        name_text = Text("__CHANNEL__", font_size=48, color="#00CCCC", weight=BOLD)
+        name_text = Text("__CHANNEL__", font_size=48, color="#1C758A", weight=BOLD)
         name_text.next_to(accent_bar, RIGHT, buff=0.4)
         self.play(Write(name_text), run_time=0.6)
         tagline_text = Text("__TAGLINE__", font_size=22, color=GRAY)
         tagline_text.next_to(name_text, DOWN, buff=0.2, aligned_edge=LEFT)
-        self.play(FadeIn(tagline_text, shift=UP * 0.1), run_time=0.4)
-        glow = Rectangle(width=10, height=0.002, fill_opacity=0.3, fill_color="#00CCCC", stroke_width=0)
+        self.play(FadeIn(tagline_text, shift=UP * 0.1), run_time=0.5)
+        glow = Rectangle(width=10, height=0.002, fill_opacity=0.3, fill_color="#1C758A", stroke_width=0)
         glow.next_to(tagline_text, DOWN, buff=0.3)
-        self.play(FadeIn(glow), run_time=0.3)
+        self.play(FadeIn(glow), run_time=0.5)
         remaining = max(0, __DURATION__ - self.time - __EXIT__)
         if remaining > 0:
             self.wait(remaining)
@@ -983,7 +989,7 @@ class IntroScene(Scene):
 def outro_template(
     channel_name: str = "Vyom Ai Cloud",
     cta_text: str = "Subscribe for more AI content",
-    url: str = "vyomcloud.com",
+    url: str = "vyomai.cloud",
     duration: float = 5.0,
     entry_time: float = 0.5,
     exit_time: float = 0.5,
@@ -992,22 +998,22 @@ def outro_template(
     template = INJECT_IMPORTS + """
 class OutroScene(Scene):
     def construct(self):
-        self.camera.background_color = "#1e1e1e"
+        self.camera.background_color = "#000000"
         cta = Text("__CTA__", font_size=40, color=WHITE, weight=BOLD)
         cta.move_to([0, 0.5, 0])
         self.play(Write(cta), run_time=0.6)
-        btn = RoundedRectangle(width=3.5, height=0.6, corner_radius=0.1, fill_opacity=0.2, fill_color="#00CCCC", stroke_color="#00CCCC", stroke_width=2)
+        btn = RoundedRectangle(width=3.5, height=0.6, corner_radius=0.1, fill_opacity=0.2, fill_color="#1C758A", stroke_color="#1C758A", stroke_width=2)
         btn.next_to(cta, DOWN, buff=0.5)
-        btn_label = Text("SUBSCRIBE", font_size=20, color="#00CCCC", weight=BOLD)
+        btn_label = Text("SUBSCRIBE", font_size=20, color="#1C758A", weight=BOLD)
         btn_label.move_to(btn.get_center())
         self.play(FadeIn(btn, scale=0.8), Write(btn_label), run_time=0.5)
-        pulse = btn.copy().set_stroke("#00CCCC", width=4).set_fill(opacity=0)
+        pulse = btn.copy().set_stroke("#8a50e8", width=4).set_fill(opacity=0)
         self.play(pulse.animate.scale(1.08).set_opacity(0), run_time=0.6)
         url_text = Text("__URL__", font_size=16, color=GRAY)
         url_text.next_to(btn, DOWN, buff=0.3)
-        self.play(FadeIn(url_text), run_time=0.3)
-        channel = Text("__CHANNEL__", font_size=18, color="#00CCCC").to_corner(DR)
-        self.play(FadeIn(channel), run_time=0.3)
+        self.play(FadeIn(url_text), run_time=0.5)
+        channel = Text("__CHANNEL__", font_size=18, color="#1C758A").to_corner(DR)
+        self.play(FadeIn(channel), run_time=0.5)
         remaining = max(0, __DURATION__ - self.time - __EXIT__)
         if remaining > 0:
             self.wait(remaining)
@@ -1053,7 +1059,7 @@ class LossLandscapeScene(ThreeDScene):
         )
         x_label = Text("w₁", font_size=16, color=GRAY).move_to(axes.x_axis.get_end() + RIGHT * 0.3)
         y_label = Text("w₂", font_size=16, color=GRAY).move_to(axes.y_axis.get_end() + UP * 0.3)
-        z_label = Text("Loss", font_size=16, color="#00CCCC").move_to(axes.z_axis.get_end() + OUT * 0.3)
+        z_label = Text("Loss", font_size=16, color="#1C758A").move_to(axes.z_axis.get_end() + OUT * 0.3)
 
         {def_surface}
         surface = Surface(
@@ -1066,33 +1072,33 @@ class LossLandscapeScene(ThreeDScene):
 
         contour_label = Text("{contour_desc}", font_size=16, color=GRAY_C).to_corner(DL)
         self.add_fixed_in_frame_mobjects(contour_label)
-        self.play(Write(contour_label), run_time=0.3)
+        self.play(Write(contour_label), run_time=0.5)
 
         np.random.seed(42)
         flat_region = [[-2 + 4 * np.random.random(), -2 + 4 * np.random.random()] for _ in range(__STEPS__)]
-        grad_path = _compute_grad_descent_path(lr=0.2, steps=__STEPS__)
+        grad_path = _compute_grad_descent_path(learning_rate=0.2, steps=__STEPS__)
         points_3d = []
         for p in grad_path:
             f_out = f(p[0], p[1])
             z = f_out[2] + 0.05
             points_3d.append(np.array([p[0], p[1], z]))
 
-        path_mob = VMobject(stroke_color="#FF6B35", stroke_width=5)
+        path_mob = VMobject(stroke_color="#e07040", stroke_width=5)
         path_mob.set_points_smoothly(points_3d)
         self.play(Create(path_mob), run_time=1.0)
 
-        sphere = Sphere(radius=0.1, color="#FF6B35", fill_opacity=1.0)
+        sphere = Sphere(radius=0.1, color="#e07040", fill_opacity=1.0)
         sphere.move_to(points_3d[0])
         self.add(sphere)
 
-        step_label = Text("Init", font_size=20, color="#FF6B35").to_corner(DR)
+        step_label = Text("Init", font_size=20, color="#e07040").to_corner(DR)
         self.add_fixed_in_frame_mobjects(step_label)
         self.play(Write(step_label))
 
         for i, target in enumerate(points_3d[1:]):
-            new_label = Text(f"Step {{i + 1}}", font_size=20, color="#FF6B35").to_corner(DR)
+            new_label = Text(f"Step {{i + 1}}", font_size=20, color="#e07040").to_corner(DR)
             self.add_fixed_in_frame_mobjects(new_label)
-            self.play(sphere.animate.move_to(target), Transform(step_label, new_label), run_time=0.35)
+            self.play(sphere.animate.move_to(target), Transform(step_label, new_label), run_time=0.5)
 
         self.begin_ambient_camera_rotation(rate=0.08)
         remaining = max(0, __DURATION__ - self.time - __EXIT__)
@@ -1146,28 +1152,28 @@ class EmbeddingSpaceScene(ThreeDScene):
         dots = []
         dot_labels = []
         for i, vec in enumerate(vectors):
-            dot = Dot3D(point=vec, radius=0.08, color="#00CCCC")
-            self.play(Create(dot), run_time=0.15)
+            dot = Dot3D(point=vec, radius=0.08, color="#1C758A")
+            self.play(Create(dot), run_time=0.5)
             dots.append(dot)
             if i < len(labels):
                 lbl = Text(labels[i].split("_")[0], font_size=12, color=GRAY_C).move_to(vec + [0, -0.3, 0])
                 self.add_fixed_in_frame_mobjects(lbl)
                 dot_labels.append(lbl)
-                self.play(Write(lbl), run_time=0.1)
+                self.play(Write(lbl), run_time=0.5)
 
         king_vec = vectors[0] if len(vectors) > 0 else np.array([2, 1, 1])
         queen_vec = vectors[1] if len(vectors) > 1 else np.array([2, -1, 0])
         woman_vec = vectors[3] if len(vectors) > 3 else np.array([-1, 1, 1])
         man_vec = vectors[2] if len(vectors) > 2 else np.array([-1, -1, 0])
 
-        arrow_king_queen = Arrow3D(king_vec, queen_vec, color="#FF6B35", thickness=0.02)
-        arrow_man_woman = Arrow3D(man_vec, woman_vec, color="#FF6B35", thickness=0.02)
+        arrow_king_queen = Arrow3D(king_vec, queen_vec, color="#e07040", thickness=0.02)
+        arrow_man_woman = Arrow3D(man_vec, woman_vec, color="#e07040", thickness=0.02)
         self.play(Create(arrow_king_queen), Create(arrow_man_woman), run_time=0.5)
 
-        gp_label = MathTex("\\vec{g}_{gender}", font_size=22, color="#FF6B35")
+        gp_label = MathTex("\\vec{g}_{gender}", font_size=22, color="#e07040")
         gp_label.move_to((king_vec + queen_vec) / 2 + [0.5, 0.5, 0])
         self.add_fixed_in_frame_mobjects(gp_label)
-        self.play(Write(gp_label), run_time=0.3)
+        self.play(Write(gp_label), run_time=0.5)
 
         self.set_camera_orientation(phi=75 * DEGREES, theta=-30 * DEGREES)
         self.begin_ambient_camera_rotation(rate=0.06)
@@ -1197,7 +1203,7 @@ def decision_boundary_template(
     template = INJECT_IMPORTS + """
 class DecisionBoundaryScene(Scene):
     def construct(self):
-        self.camera.background_color = "#1e1e1e"
+        self.camera.background_color = "#000000"
         title_text = Text("__TITLE__", font_size=36, color=WHITE).to_edge(UP)
         self.play(Write(title_text), run_time=__ENTRY__)
 
@@ -1213,14 +1219,14 @@ class DecisionBoundaryScene(Scene):
         def curve_func(x):
             __CURVE_BODY__
 
-        boundary = axes.plot(curve_func, color="#00CCCC", stroke_width=3)
-        fill_above = axes.get_area(boundary, x_range=[-3, 3], color="#00CCCC", opacity=0.1)
+        boundary = axes.plot(curve_func, color="#1C758A", stroke_width=3)
+        fill_above = axes.get_area(boundary, x_range=[-3, 3], color="#1C758A", opacity=0.1)
         fill_below = axes.get_area(
             axes.plot(lambda x: -3, stroke_width=0),
-            x_range=[-3, 3], color="#FF6B35", opacity=0.1,
+            x_range=[-3, 3], color="#e07040", opacity=0.1,
         )
         self.play(Create(boundary), run_time=0.6)
-        self.play(FadeIn(fill_above), FadeIn(fill_below), run_time=0.3)
+        self.play(FadeIn(fill_above), FadeIn(fill_below), run_time=0.5)
 
         np.random.seed(42)
         n_pos = 12
@@ -1233,18 +1239,18 @@ class DecisionBoundaryScene(Scene):
         pos_dots = []
         neg_dots = []
         for i in range(n_pos):
-            dot = Dot(axes.c2p(pos_x[i], pos_y[i]), radius=0.06, color="#00CCCC")
-            self.play(Create(dot), run_time=0.08)
+            dot = Dot(axes.c2p(pos_x[i], pos_y[i]), radius=0.06, color="#1C758A")
+            self.play(Create(dot), run_time=0.5)
             pos_dots.append(dot)
         for i in range(n_neg):
-            dot = Dot(axes.c2p(neg_x[i], neg_y[i]), radius=0.06, color="#FF6B35")
-            self.play(Create(dot), run_time=0.08)
+            dot = Dot(axes.c2p(neg_x[i], neg_y[i]), radius=0.06, color="#e07040")
+            self.play(Create(dot), run_time=0.5)
             neg_dots.append(dot)
 
-        class_a_label = Text("Class A", font_size=16, color="#00CCCC").to_corner(UR)
-        class_b_label = Text("Class B", font_size=16, color="#FF6B35").to_corner(UL)
+        class_a_label = Text("Class A", font_size=16, color="#1C758A").to_corner(UR)
+        class_b_label = Text("Class B", font_size=16, color="#e07040").to_corner(UL)
         self.add_fixed_in_frame_mobjects(class_a_label, class_b_label)
-        self.play(Write(class_a_label), Write(class_b_label), run_time=0.2)
+        self.play(Write(class_a_label), Write(class_b_label), run_time=0.5)
 
         remaining = max(0, __DURATION__ - self.time - __EXIT__)
         if remaining > 0:
@@ -1286,7 +1292,7 @@ def matrix_multiplication_template(
     template = INJECT_IMPORTS + f"""
 class MatrixMultiplyScene(Scene):
     def construct(self):
-        self.camera.background_color = "#1e1e1e"
+        self.camera.background_color = "#000000"
         title_text = Text("__TITLE__", font_size=36, color=WHITE).to_edge(UP)
         self.play(Write(title_text), run_time=__ENTRY__)
 
@@ -1304,10 +1310,10 @@ class MatrixMultiplyScene(Scene):
                 val = a_data[i][j]
                 sq = Square(side_length=cell_size, stroke_color=GRAY_C, stroke_width=1, fill_opacity=0.15)
                 sq.move_to([j * gap - (c_a - 1) * gap / 2, (r_a - 1) * gap / 2 - i * gap, 0])
-                num = Text(str(val), font_size=14, color="#00CCCC").move_to(sq.get_center())
+                num = Text(str(val), font_size=14, color="#1C758A").move_to(sq.get_center())
                 a_group.add(VGroup(sq, num))
 
-        a_label = MathTex("A", font_size=28, color="#00CCCC").next_to(a_group, LEFT, buff=0.5)
+        a_label = MathTex("A", font_size=28, color="#1C758A").next_to(a_group, LEFT, buff=0.5)
         self.play(Create(a_group), Write(a_label), run_time=0.6)
 
         multiply = Text("×", font_size=24, color=WHITE).next_to(a_group, RIGHT, buff=0.3)
@@ -1319,10 +1325,10 @@ class MatrixMultiplyScene(Scene):
                 val = b_data[i][j]
                 sq = Square(side_length=cell_size, stroke_color=GRAY_C, stroke_width=1, fill_opacity=0.15)
                 sq.move_to([b_offset_x + j * gap - (c_b - 1) * gap / 2, (r_a - 1) * gap / 2 - i * gap, 0])
-                num = Text(str(val), font_size=14, color="#FF6B35").move_to(sq.get_center())
+                num = Text(str(val), font_size=14, color="#e07040").move_to(sq.get_center())
                 b_group.add(VGroup(sq, num))
 
-        b_label = MathTex("B", font_size=28, color="#FF6B35").next_to(b_group, LEFT, buff=0.3)
+        b_label = MathTex("B", font_size=28, color="#e07040").next_to(b_group, LEFT, buff=0.3)
         self.play(Write(multiply), Create(b_group), Write(b_label), run_time=0.6)
 
         equals = Text("=", font_size=24, color=WHITE).next_to(b_group, RIGHT, buff=0.3)
@@ -1337,7 +1343,7 @@ class MatrixMultiplyScene(Scene):
                 num = Text(str(val), font_size=14, color=YELLOW).move_to(sq.get_center())
                 c_group.add(VGroup(sq, num))
 
-        self.play(Write(equals), run_time=0.2)
+        self.play(Write(equals), run_time=0.5)
 
         row_highlight = VGroup()
         col_highlight = VGroup()
@@ -1351,16 +1357,16 @@ class MatrixMultiplyScene(Scene):
         for ri in range(min(r_a, 3)):
             r_highlight = VGroup(*a_group[ri * c_a:(ri + 1) * c_a]).copy()
             r_highlight.set_stroke(YELLOW, width=3)
-            self.play(r_highlight.animate.set_stroke(opacity=1), run_time=0.2)
+            self.play(r_highlight.animate.set_stroke(opacity=1), run_time=0.5)
 
             for ci in range(min(c_b, 2)):
                 c_highlight = VGroup(*[b_group[i * c_b + ci] for i in range(c_a)]).copy()
                 c_highlight.set_stroke(YELLOW, width=3)
-                self.play(c_highlight.animate.set_stroke(opacity=1), run_time=0.2)
+                self.play(c_highlight.animate.set_stroke(opacity=1), run_time=0.5)
                 cell_idx = ri * c_b + ci
                 if cell_idx < len(c_group):
-                    rh = c_group[cell_idx].copy().set_stroke("#00CCCC", width=3)
-                    self.play(rh.animate.set_stroke(opacity=1), run_time=0.15)
+                    rh = c_group[cell_idx].copy().set_stroke("#8a50e8", width=3)
+                    self.play(rh.animate.set_stroke(opacity=1), run_time=0.5)
 
             if r_highlight in self.mobjects:
                 self.remove(r_highlight)
@@ -1391,7 +1397,7 @@ def backpropagation_template(
     template = INJECT_IMPORTS + """
 class BackpropagationScene(Scene):
     def construct(self):
-        self.camera.background_color = "#1e1e1e"
+        self.camera.background_color = "#000000"
         title_text = Text("__TITLE__", font_size=36, color=WHITE).to_edge(UP)
         self.play(Write(title_text), run_time=__ENTRY__)
 
@@ -1426,36 +1432,36 @@ class BackpropagationScene(Scene):
         for l in range(layers):
             x = l * spacing_x - (layers - 1) * spacing_x / 2
             label = Text(layer_labels[l], font_size=14, color=GRAY_C).move_to([x, -2.0, 0])
-            self.play(Write(label), run_time=0.1)
+            self.play(Write(label), run_time=0.5)
 
-        fwd_label = Text("Forward pass", font_size=22, color="#00CCCC").to_corner(UR)
+        fwd_label = Text("Forward pass", font_size=22, color="#1C758A").to_corner(UR)
         self.add_fixed_in_frame_mobjects(fwd_label)
         self.play(Write(fwd_label))
 
         for e in all_edges:
-            e.set_stroke("#00CCCC", width=1, opacity=0.3)
-            self.play(e.animate.set_stroke(opacity=0.8), run_time=0.02)
+            e.set_stroke("#8a50e8", width=1, opacity=0.3)
+            self.play(e.animate.set_stroke(opacity=0.8), run_time=0.5)
         for n in all_neurons:
-            self.play(n.animate.set_fill(opacity=0.6), run_time=0.02)
+            self.play(n.animate.set_fill(opacity=0.6), run_time=0.5)
 
-        loss_box = RoundedRectangle(width=2, height=0.5, corner_radius=0.08, stroke_color="#FF6B35", fill_opacity=0.15)
+        loss_box = RoundedRectangle(width=2, height=0.5, corner_radius=0.08, stroke_color="#e07040", fill_opacity=0.15)
         loss_box.move_to([0, -2.8, 0])
-        loss_text = Text("Loss = 2.47", font_size=16, color="#FF6B35").move_to(loss_box.get_center())
-        self.play(Create(loss_box), Write(loss_text), run_time=0.3)
+        loss_text = Text("Loss = 2.47", font_size=16, color="#e07040").move_to(loss_box.get_center())
+        self.play(Create(loss_box), Write(loss_text), run_time=0.5)
 
-        bwd_label = Text("Backward pass", font_size=22, color="#FF6B35").to_corner(UR)
+        bwd_label = Text("Backward pass", font_size=22, color="#e07040").to_corner(UR)
         self.add_fixed_in_frame_mobjects(bwd_label)
-        self.play(Transform(fwd_label, bwd_label), run_time=0.3)
+        self.play(Transform(fwd_label, bwd_label), run_time=0.5)
 
         loss_val = 2.47
         for step in range(4):
             loss_val *= 0.6
-            new_loss = Text(f"Loss = {loss_val:.2f}", font_size=16, color="#FF6B35").move_to(loss_box.get_center())
-            self.play(Transform(loss_text, new_loss), run_time=0.3)
+            new_loss = Text(f"Loss = {loss_val:.2f}", font_size=16, color="#e07040").move_to(loss_box.get_center())
+            self.play(Transform(loss_text, new_loss), run_time=0.5)
             for i, n in enumerate(reversed(all_neurons)):
                 if step < 2:
                     n.set_stroke(YELLOW, width=2)
-                self.play(n.animate.set_fill(opacity=0.4 + 0.4 * (1 - step * 0.2)), run_time=0.005)
+                self.play(n.animate.set_fill(opacity=0.4 + 0.4 * (1 - step * 0.2)), run_time=0.5)
 
         grad_label = Text(f"lr = __LR__", font_size=16, color=GRAY_C).next_to(loss_box, DOWN, buff=0.2)
         self.add_fixed_in_frame_mobjects(grad_label)
@@ -1487,7 +1493,7 @@ def probability_distribution_template(
     template = INJECT_IMPORTS + """
 class ProbabilityDistributionScene(Scene):
     def construct(self):
-        self.camera.background_color = "#1e1e1e"
+        self.camera.background_color = "#000000"
         title_text = Text("__TITLE__", font_size=36, color=WHITE).to_edge(UP)
         self.play(Write(title_text), run_time=__ENTRY__)
 
@@ -1497,7 +1503,7 @@ class ProbabilityDistributionScene(Scene):
             axis_config={'color': GRAY, 'stroke_width': 1},
         ).move_to([0, -0.5, 0])
         x_label = Text("x", font_size=18, color=GRAY).next_to(axes.x_axis.get_end(), RIGHT)
-        y_label = Text("P(x)", font_size=18, color="#00CCCC").next_to(axes.y_axis.get_end(), UP)
+        y_label = Text("P(x)", font_size=18, color="#1C758A").next_to(axes.y_axis.get_end(), UP)
         self.play(Create(axes), Write(x_label), Write(y_label), run_time=0.5)
 
         mu = 0
@@ -1505,29 +1511,29 @@ class ProbabilityDistributionScene(Scene):
         def gaussian(x):
             return np.exp(-0.5 * ((x - mu) / sigma) ** 2) / (sigma * np.sqrt(2 * np.pi))
 
-        curve = axes.plot(gaussian, color="#00CCCC", stroke_width=3)
-        fill = axes.get_area(curve, x_range=[-3, 3], color="#00CCCC", opacity=0.15)
+        curve = axes.plot(gaussian, color="#1C758A", stroke_width=3)
+        fill = axes.get_area(curve, x_range=[-3, 3], color="#1C758A", opacity=0.15)
         self.play(Create(curve), run_time=0.8)
-        self.play(FadeIn(fill), run_time=0.3)
+        self.play(FadeIn(fill), run_time=0.5)
 
         mean_line = DashedLine(
             axes.c2p(mu, 0), axes.c2p(mu, gaussian(mu)),
             color=WHITE, stroke_width=1, dash_length=0.05,
         )
         mean_label = MathTex("\\mu", font_size=22, color=WHITE).next_to(mean_line, UP, buff=0.1)
-        self.play(Create(mean_line), Write(mean_label), run_time=0.3)
+        self.play(Create(mean_line), Write(mean_label), run_time=0.5)
 
         std_left = DashedLine(
             axes.c2p(mu - sigma, 0), axes.c2p(mu - sigma, gaussian(mu - sigma)),
-            color="#FF6B35", stroke_width=1, dash_length=0.05,
+            color="#e07040", stroke_width=1, dash_length=0.05,
         )
         std_right = DashedLine(
             axes.c2p(mu + sigma, 0), axes.c2p(mu + sigma, gaussian(mu + sigma)),
-            color="#FF6B35", stroke_width=1, dash_length=0.05,
+            color="#e07040", stroke_width=1, dash_length=0.05,
         )
-        std_label = MathTex("\\pm\\sigma", font_size=18, color="#FF6B35")
+        std_label = MathTex("\\pm\\sigma", font_size=18, color="#e07040")
         std_label.move_to([mu, gaussian(mu) * 0.6, 0])
-        self.play(Create(std_left), Create(std_right), Write(std_label), run_time=0.3)
+        self.play(Create(std_left), Create(std_right), Write(std_label), run_time=0.5)
 
         sample_points = np.random.normal(mu, sigma, 50)
         sample_dots = VGroup()
@@ -1559,6 +1565,312 @@ class ProbabilityDistributionScene(Scene):
     )
 
 
+def tokenization_template(
+    title: str = "Tokenization",
+    duration: float = 8.0,
+    input_text: str = "Hello, world!",
+    tokens: list[str] = None,
+    entry_time: float = 0.5,
+    exit_time: float = 0.5,
+) -> str:
+    if tokens is None:
+        tokens = ["Hel", "lo", ",", " world", "!"]
+    template = INJECT_IMPORTS + """
+class TokenizationScene(Scene):
+    def construct(self):
+        self.camera.background_color = "#000000"
+        title_text = Text("__TITLE__", font_size=36, color=WHITE).to_edge(UP)
+        self.play(Write(title_text), run_time=0.8)
+        self.wait(0.3)
+
+        raw_text = Text('__RAW_TEXT__', font_size=28, color=GRAY).next_to(title_text, DOWN, buff=0.5)
+        raw_label = Text("Input:", font_size=20, color=BLUE_C).next_to(raw_text, LEFT, buff=0.3)
+        raw_group = VGroup(raw_label, raw_text).center()
+        self.play(Write(raw_group), run_time=0.6)
+        self.wait(0.5)
+
+        arrow = Arrow(LEFT, RIGHT, color=GRAY).next_to(raw_group, DOWN, buff=0.4)
+        arrow_label = Text("Tokenize", font_size=20, color=GRAY).next_to(arrow, DOWN, buff=0.1)
+        self.play(GrowArrow(arrow), Write(arrow_label), run_time=0.5)
+        self.wait(0.3)
+
+        token_boxes = VGroup()
+        token_colors = ["#8a50e8", "#e07040", "#58C4DD", "#8a50e8", "#FFD93D"]
+        for i, token in enumerate(__TOKENS__):
+            color = token_colors[i % len(token_colors)]
+            t = Text(token, font_size=26, color=WHITE)
+            box = Square(side_length=max(t.width + 0.3, 0.6), color=color, fill_opacity=0.15)
+            box.surround(t)
+            token_boxes.add(box)
+        token_group = VGroup(*token_boxes).arrange(RIGHT, buff=0.15).next_to(arrow, DOWN, buff=0.5)
+        token_group.center()
+        self.play(
+            *[Write(box) for box in token_group],
+            FadeOut(raw_group), FadeOut(arrow), FadeOut(arrow_label),
+            run_time=0.8
+        )
+        self.wait(0.5)
+
+        token_ids = VGroup()
+        for i, box in enumerate(token_boxes):
+            tid = Text(f"[{i}]", font_size=18, color=GRAY_C).next_to(box, DOWN, buff=0.15)
+            token_ids.add(tid)
+        self.play(*[Write(tid) for tid in token_ids], run_time=0.6)
+        self.wait(0.5)
+
+        label = Text("Each token maps to an ID in the vocabulary", font_size=22, color=GRAY).to_edge(DOWN)
+        self.play(Write(label), run_time=0.5)
+        self.wait(__DWELL__)
+""".replace("__TITLE__", title)
+    template = template.replace("__RAW_TEXT__", input_text[:40])
+    template = template.replace("__TOKENS__", str(tokens))
+    dwell = max(duration - entry_time - exit_time - 3.0, 1.0)
+    template = template.replace("__DWELL__", f"{dwell:.1f}")
+    return template
+
+
+def vocabulary_table_template(
+    title: str = "Vocabulary Table",
+    duration: float = 8.0,
+    vocab: list[list[str]] = None,
+    entry_time: float = 0.5,
+    exit_time: float = 0.5,
+) -> str:
+    if vocab is None:
+        vocab = [
+            ["0", "<PAD>", "Padding"],
+            ["1", "<UNK>", "Unknown"],
+            ["2", "the", "Article"],
+            ["3", "a", "Article"],
+            ["4", "hello", "Greeting"],
+            ["5", "world", "Noun"],
+            ["6", "!", "Punctuation"],
+            ["7", ",", "Punctuation"],
+        ]
+    template = INJECT_IMPORTS + """
+class VocabularyTableScene(Scene):
+    def construct(self):
+        self.camera.background_color = "#000000"
+        title_text = Text("__TITLE__", font_size=36, color=WHITE).to_edge(UP)
+        self.play(Write(title_text), run_time=0.8)
+        self.wait(0.3)
+
+        headers = ["ID", "Token", "Type"]
+        header_items = VGroup(*[Text(h, font_size=22, color="#1C758A", weight=BOLD) for h in headers])
+        header_row = VGroup(*header_items).arrange(RIGHT, buff=1.5).next_to(title_text, DOWN, buff=0.5)
+        header_row.center()
+        self.play(Write(header_row), run_time=0.5)
+
+        rows = VGroup()
+        for i, row_data in enumerate(__VOCAB__):
+            cells = VGroup(*[Text(str(cell), font_size=20, color=WHITE) for cell in row_data])
+            row = VGroup(*cells).arrange(RIGHT, buff=1.5).center()
+            row.next_to(header_row, DOWN, buff=0.15 + i * 0.5)
+            rows.add(row)
+
+            line = Line(
+                row.get_left() + LEFT * 0.3, row.get_right() + RIGHT * 0.3,
+                color=GRAY_D, stroke_width=0.5
+            ).next_to(row, DOWN, buff=0.05)
+
+            self.play(Write(row), run_time=0.5)
+            self.play(Create(line), run_time=0.5)
+
+        box = SurroundingRectangle(VGroup(header_row, rows), color="#1C758A", buff=0.2, stroke_width=1)
+        self.play(Create(box), run_time=0.5)
+
+        label = Text("Vocabulary: token-to-ID mapping", font_size=22, color=GRAY).to_edge(DOWN)
+        self.play(Write(label), run_time=0.5)
+        self.wait(__DWELL__)
+""".replace("__TITLE__", title)
+    template = template.replace("__VOCAB__", str(vocab))
+    dwell = max(duration - entry_time - exit_time - 3.0, 1.0)
+    template = template.replace("__DWELL__", f"{dwell:.1f}")
+    return template
+
+
+def bigram_probability_template(
+    title: str = "Next-Token Prediction",
+    duration: float = 10.0,
+    prob_matrix: list[list[float]] = None,
+    tokens: list[str] = None,
+    entry_time: float = 0.5,
+    exit_time: float = 0.5,
+) -> str:
+    if prob_matrix is None:
+        prob_matrix = [
+            [0.02, 0.01, 0.30, 0.25, 0.15, 0.27],
+            [0.10, 0.05, 0.20, 0.15, 0.30, 0.20],
+            [0.03, 0.02, 0.10, 0.05, 0.50, 0.30],
+            [0.01, 0.01, 0.35, 0.20, 0.20, 0.23],
+            [0.05, 0.03, 0.15, 0.10, 0.40, 0.27],
+        ]
+    if tokens is None:
+        tokens = ["the", "a", "hello", "world", "!"]
+    template = INJECT_IMPORTS + """
+class BigramProbabilityScene(Scene):
+    def construct(self):
+        self.camera.background_color = "#000000"
+        title_text = Text("__TITLE__", font_size=36, color=WHITE).to_edge(UP)
+        self.play(Write(title_text), run_time=0.8)
+        self.wait(0.3)
+
+        next_label = Text("Next token \\u2192", font_size=20, color="#1C758A").to_corner(UR).shift(LEFT * 0.5)
+        given_label = Text("\\u2193 Given", font_size=20, color="#e07040").to_corner(DL).shift(RIGHT * 0.5)
+        self.play(Write(next_label), Write(given_label), run_time=0.5)
+
+        grid = VGroup()
+        token_list = __TOKENS__
+        n = len(token_list)
+        prob = __PROBS__
+
+        for i, given in enumerate(token_list):
+            row_label = Text(given, font_size=16, color="#e07040")
+            row_label.to_edge(LEFT).shift(DOWN * (n/2 - i) * 0.8)
+            grid.add(row_label)
+
+            for j, next_tok in enumerate(token_list):
+                val = prob[i][j]
+                cell = Square(side_length=0.7, fill_opacity=min(val * 2.5, 0.9), fill_color="#1C758A", stroke_width=0.5, stroke_color=GRAY)
+                if i < n and j < n:
+                    cell.move_to([j * 0.8 - (n-1) * 0.4, (n/2 - i) * 0.8 - 0.4, 0])
+                cell_label = Text(f"{val:.2f}", font_size=12, color=WHITE)
+                cell_label.move_to(cell.get_center())
+                grid.add(cell)
+                grid.add(cell_label)
+
+        self.play(Create(VGroup(*[m for m in grid if isinstance(m, Square)])), run_time=0.8)
+
+        max_row = 0
+        max_idx = 0
+        for j in range(n):
+            if prob[0][j] > max_row:
+                max_row = prob[0][j]
+                max_idx = j
+        highlight = SurroundingRectangle(
+            VGroup(*[m for m in grid if isinstance(m, Square)][max_idx]),
+            color="#FFD93D", stroke_width=2, buff=0.05
+        )
+        self.play(Create(highlight), run_time=0.5)
+        self.wait(0.5)
+
+        explain = Text("Model picks the most likely next token", font_size=22, color=GRAY).to_edge(DOWN)
+        self.play(Write(explain), run_time=0.5)
+        self.wait(__DWELL__)
+""".replace("__TITLE__", title)
+    template = template.replace("__TOKENS__", str(tokens))
+    template = template.replace("__PROBS__", str(prob_matrix))
+    dwell = max(duration - entry_time - exit_time - 3.0, 1.0)
+    template = template.replace("__DWELL__", f"{dwell:.1f}")
+    return template
+
+
+def activation_functions_template(
+    title: str = "Activation Functions",
+    duration: float = 8.0,
+    entry_time: float = 0.5,
+    exit_time: float = 0.5,
+) -> str:
+    labels = ["ReLU", "Sigmoid", "Tanh"]
+    colors = ["#58C4DD", "#e07040", "#8a50e8"]
+    template = INJECT_IMPORTS + """
+class ActivationFunctionsScene(Scene):
+    def construct(self):
+        self.camera.background_color = "#000000"
+        title_text = Text("__TITLE__", font_size=36, color=WHITE).to_edge(UP)
+        self.play(Write(title_text), run_time=__ENTRY__)
+
+        axes_list = []
+        func_objs = []
+        for i, (lbl, color) in enumerate(zip(__LABELS__, __COLORS__)):
+            ax = Axes(x_range=[-3, 3, 1], y_range=[-1.5, 1.5, 0.5], x_length=3.5, y_length=2.5)
+            ax.shift(LEFT * 3.8 + RIGHT * 3.8 * i + DOWN * 0.3)
+            label = Text(lbl, font_size=18, color=color).next_to(ax, UP, buff=0.1)
+            self.play(Create(ax), Write(label), run_time=0.5)
+            axes_list.extend([ax, label])
+            if lbl == "ReLU":
+                graph = ax.plot(lambda x: max(0, x), x_range=[-3, 3], color=color, stroke_width=3)
+            elif lbl == "Sigmoid":
+                graph = ax.plot(lambda x: 1 / (1 + __E__ ** (-x)), x_range=[-3, 3], color=color, stroke_width=3)
+            else:
+                graph = ax.plot(lambda x: (__E__ ** x - __E__ ** (-x)) / (__E__ ** x + __E__ ** (-x)), x_range=[-3, 3], color=color, stroke_width=3)
+            self.play(Create(graph), run_time=0.5)
+            func_objs.append(graph)
+
+            dot = Dot(color=color, radius=0.08)
+            dot.move_to(ax.c2p(0, 0))
+            self.play(dot.animate.move_to(ax.c2p(0.5, 0.5 if lbl == "ReLU" else 0.5 if lbl == "Sigmoid" else 0.462)), run_time=0.5)
+            self.remove(dot)
+
+        remaining = max(0, __DURATION__ - self.time - __EXIT__)
+        if remaining > 0:
+            self.wait(remaining)
+        if __EXIT__ > 0:
+            self.play(FadeOut(title_text), *[FadeOut(m) for m in axes_list + func_objs], run_time=__EXIT__)
+"""
+    e_approx = 2.71828
+    return (
+        template
+        .replace("__TITLE__", title)
+        .replace("__LABELS__", str(labels))
+        .replace("__COLORS__", str(colors))
+        .replace("__DURATION__", str(duration))
+        .replace("__ENTRY__", str(entry_time))
+        .replace("__EXIT__", str(exit_time))
+        .replace("__E__", str(e_approx))
+    )
+
+
+def line_chart_template(
+    labels: list[str] = None,
+    values: list[float] = None,
+    title: str = "Trend",
+    duration: float = 6.0,
+    line_color: str = "#58C4DD",
+    entry_time: float = 0.5,
+    exit_time: float = 0.5,
+) -> str:
+    if labels is None:
+        labels = ["A", "B", "C", "D"]
+    if values is None:
+        values = [3.0, 5.0, 2.0, 7.0]
+    template = INJECT_IMPORTS + """
+class LineChartScene(Scene):
+    def construct(self):
+        self.camera.background_color = "#000000"
+        title_text = Text("__TITLE__", font_size=36, color=WHITE).to_edge(UP)
+        self.play(Write(title_text), run_time=__ENTRY__)
+        labels = __LABELS__
+        values = __VALUES__
+        ax = Axes(x_range=[0, len(labels)-1, 1], y_range=[0, max(values)*1.2, max(values)*0.3], x_length=8, y_length=4)
+        ax.shift(DOWN * 0.5)
+        self.play(Create(ax), run_time=0.5)
+        pts = [ax.c2p(i, v) for i, v in enumerate(values)]
+        dots = VGroup(*[Dot(p, color="__LINE_COLOR__", radius=0.08) for p in pts])
+        line = VMobject(stroke_color="__LINE_COLOR__", stroke_width=3, stroke_opacity=0.8)
+        line.set_points_smoothly(pts)
+        self.play(Create(line), run_time=0.6)
+        self.play(LaggedStart(*[GrowFromCenter(d) for d in dots], lag_ratio=0.15), run_time=0.5)
+        x_labels = VGroup(*[Text(str(l), font_size=14, color=GRAY).next_to(ax.c2p(i, 0), DOWN, buff=0.15) for i, l in enumerate(labels)])
+        self.play(Write(x_labels), run_time=0.5)
+        remaining = max(0, __DURATION__ - self.time - __EXIT__)
+        if remaining > 0:
+            self.wait(remaining)
+        if __EXIT__ > 0:
+            self.play(FadeOut(title_text, ax, line, dots, x_labels), run_time=__EXIT__)
+"""
+    return (
+        template
+        .replace("__TITLE__", title)
+        .replace("__LABELS__", str(labels))
+        .replace("__VALUES__", str(values))
+        .replace("__LINE_COLOR__", line_color)
+        .replace("__DURATION__", str(duration))
+        .replace("__ENTRY__", str(entry_time))
+        .replace("__EXIT__", str(exit_time))
+    )
+
+
 TEMPLATE_REGISTRY: dict[str, callable] = {
     "neural_network": neural_network_template,
     "attention": attention_template,
@@ -1583,6 +1895,11 @@ TEMPLATE_REGISTRY: dict[str, callable] = {
     "probability_distribution": probability_distribution_template,
     "intro": intro_template,
     "outro": outro_template,
+    "tokenization": tokenization_template,
+    "vocabulary_table": vocabulary_table_template,
+    "bigram_probability": bigram_probability_template,
+    "activation_functions": activation_functions_template,
+    "line_chart": line_chart_template,
 }
 
 

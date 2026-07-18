@@ -33,11 +33,11 @@ def main():
 
     for i, scene in enumerate(scenes):
         try:
-            seed = random.randint(0, 2**31 - 1)
+            seed = (hash(scene.get("prompt", "")) + i) & 0x7FFFFFFF
             video_latent, audio_latent = pipe.generate_two_stage(
                 prompt=scene["prompt"],
-                height=384,
-                width=512,
+                height=480,
+                width=704,
                 num_frames=scene["frames"],
                 frame_rate=24,
                 seed=seed,

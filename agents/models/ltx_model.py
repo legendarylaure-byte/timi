@@ -128,9 +128,9 @@ class LtxVideoModel(BaseVideoModel):
         num_frames = ((num_frames - 1) // 8) * 8 + 1
 
         if format_type == "short":
-            width, height = 480, 832
+            width, height = 544, 960
         else:
-            width, height = 704, 480
+            width, height = 832, 480
 
         cached = _check_cache(built_prompt, width, height, num_frames)
         if cached:
@@ -143,7 +143,7 @@ class LtxVideoModel(BaseVideoModel):
         try:
             logger.info("[LTX] Generating clip: '%s' (%d frames, %ds, %dx%d, seed=%d)",
                         prompt[:60], num_frames, duration, width, height, seed)
-            ok = self._run_mlx_pipeline(prompt, num_frames, output_path, width, height, seed=seed)
+            ok = self._run_mlx_pipeline(built_prompt, num_frames, output_path, width, height, seed=seed)
             if ok and os.path.exists(output_path) and os.path.getsize(output_path) > 0:
                 size = os.path.getsize(output_path)
                 logger.info("[LTX] Done: %s (%d MB)", output_path, size // 1024 // 1024)
@@ -169,8 +169,9 @@ class LtxVideoModel(BaseVideoModel):
         from models.gpu_prep import prepare_gpu_for_generation, check_memory_pressure
         mp = check_memory_pressure()
         if mp.get("pressure") == "critical":
-            logger.warning("[LTX] Memory pressure CRITICAL (%.1f GB free) — generation may fail",
+            logger.warning("[LTX] Memory pressure CRITICAL (%.1f GB free) — early exiting, all scenes will fall back",
                            mp.get("available_gb", -1))
+            return results
         elif mp.get("pressure") == "warning":
             logger.info("[LTX] Memory pressure warning (%.1f GB free) — proceeding carefully",
                         mp.get("available_gb", -1))
@@ -193,40 +194,31 @@ class LtxVideoModel(BaseVideoModel):
             )
             os.makedirs(out_dir, exist_ok=True)
             output_path = os.path.join(out_dir, f"ltx_scene_{video_id}_{i}.mp4")
+            scene_prompt = base_prompt + continuity
             result = self.generate_clip(
-                prompt=base_prompt,
+                prompt=scene_prompt,
                 duration=int(duration),
                 output_path=output_path,
                 seed=shared_seed + i,
-                prev_colors=prev_colors,
+                prev_colors=None,
                 format_type=format_type,
             )
             results[i] = result
             if result:
-                prev_colors = "teal, cyan, dark gray"
+                prev_colors = "violet, magenta, dark gray"
 
         logger.info("[LTX] Per-scene generation done: %d/%d generated",
                     sum(1 for r in results if r), len(scenes))
         return results
 
     def _build_prompt(self, raw_prompt: str) -> str:
-        lower = raw_prompt.lower()
         word_count = raw_prompt.count(" ") + 1
-
         if word_count < 12:
-            return f"Tech educational animation, clean professional style, {raw_prompt}, smooth camera motion, cinematic lighting, consistent color palette, 24fps, high quality, negative: {NEGATIVE_PROMPT}"
+            return f"{raw_prompt}, cinematic lighting, smooth camera motion, 24fps, high quality, negative: {NEGATIVE_PROMPT}"
+        return f"{raw_prompt}, 24fps, high quality, negative: {NEGATIVE_PROMPT}"
 
-        if any(w in lower for w in ["circuit", "chip", "processor", "server", "data center", "infrastructure"]):
-            return f"{raw_prompt}, {QUALITY_SUFFIX}, negative: {NEGATIVE_PROMPT}"
-
-        if any(w in lower for w in ["neural", "network", "brain", "synapse", "digital", "data"]):
-            return f"{raw_prompt}, {QUALITY_SUFFIX}, negative: {NEGATIVE_PROMPT}"
-
-        return f"{raw_prompt}, {QUALITY_SUFFIX}, negative: {NEGATIVE_PROMPT}"
-
-    def _run_mlx_pipeline(self, prompt: str, num_frames: int, output_path: str,
+    def _run_mlx_pipeline(self, ltx_prompt: str, num_frames: int, output_path: str,
                           width: int = 704, height: int = 480, seed: int = -1) -> bool:
-        ltx_prompt = self._build_prompt(prompt)
 
         gemma_id = os.getenv("LTX_GEMMA_MODEL", "mlx-community/gemma-3-12b-it-4bit")
 
@@ -251,14 +243,15 @@ class LtxVideoModel(BaseVideoModel):
             cmd.extend(["--tile-frames", "2", "--tile-overlap", "4"])
 
         try:
-            logger.info("[LTX] Generating: '%s' (%d frames, %ds, %dx%d)",
-                        prompt[:60], num_frames, int(num_frames / 24), width, height)
+            logger.info("[LTX] Running MLX pipeline: '%s' (%d frames, %ds, %dx%d)",
+                        ltx_prompt[:60], num_frames, int(num_frames / 24), width, height)
             result = safe_run(
                 cmd, timeout=1800, capture_output=True, text=True,
             )
             if result.returncode == 0:
+                logger.info("[LTX] MLX pipeline succeeded: %s", output_path)
                 return True
-            stderr_clean = result.stderr.replace("I0701", "").replace("ev_poll_posix.cc", "")[:300]
+            stderr_clean = result.stderr[:500] if result.stderr else ""
             logger.warning("[LTX] Failed (rc=%d): %s",
                            result.returncode, stderr_clean[:200])
         except Exception as e:

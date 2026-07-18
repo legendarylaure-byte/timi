@@ -1,7 +1,7 @@
 import type { Metadata } from 'next';
 
 export const metadata: Metadata = {
-  title: 'Terms of Service — Vyom Ai Cloud',
+  title: 'Vyom Ai Cloud Terms of Service',
   description: 'Terms of Service for Vyom Ai Cloud (Timi)',
 };
 
@@ -9,7 +9,7 @@ export default function TermsPage() {
   return (
     <main className="min-h-screen bg-white dark:bg-gray-950 text-gray-900 dark:text-gray-100 py-16 px-4">
       <div className="max-w-3xl mx-auto">
-        <h1 className="text-3xl font-bold mb-8">Terms of Service</h1>
+        <h1 className="text-3xl font-bold mb-8">Vyom Ai Cloud Terms of Service</h1>
         <p className="text-sm text-gray-500 dark:text-gray-400 mb-8">Last updated: July 4, 2026</p>
 
         <section className="mb-8">

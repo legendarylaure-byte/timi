@@ -407,6 +407,18 @@ export default function SignupPage() {
           </motion.div>
         </motion.div>
       </motion.div>
+
+      {/* Footer */}
+      <footer className="absolute bottom-0 left-0 right-0 z-50 py-4 px-6">
+        <div className="flex items-center justify-center gap-6 text-xs">
+          <Link href="/terms" className="text-red-200/40 hover:text-red-200/70 transition-colors">
+            Terms of Service
+          </Link>
+          <Link href="/privacy" className="text-red-200/40 hover:text-red-200/70 transition-colors">
+            Privacy Policy
+          </Link>
+        </div>
+      </footer>
     </div>
   );
 }

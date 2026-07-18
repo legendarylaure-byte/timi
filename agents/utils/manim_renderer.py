@@ -31,6 +31,11 @@ from utils.manim_templates import (
     probability_distribution_template,
     intro_template,
     outro_template,
+    tokenization_template,
+    vocabulary_table_template,
+    bigram_probability_template,
+    activation_functions_template,
+    line_chart_template,
 )
 from crew.manim_agent import enhance_manim_params, ManimScenePlan, select_template_llm
 from utils.manim_validator import validate_manim_code
@@ -47,9 +52,44 @@ register_temp_dir(str(MANIM_OUTPUT_DIR))
 CODE_CACHE_DIR = os.path.join(MANIM_CACHE_DIR, "gen_codes")
 os.makedirs(CODE_CACHE_DIR, exist_ok=True)
 
-MANIM_BIN = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), ".venv", "bin", "manim")
-if not os.path.exists(MANIM_BIN):
-    MANIM_BIN = "manim"
+def _find_manim_python() -> str:
+    """Find the Python interpreter that can run `python -m manim`."""
+    base = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    candidates = [
+        os.path.join(base, ".venv", "bin", "python3.12"),
+        os.path.join(base, ".venv", "bin", "python3"),
+        "python3.12",
+        "python3",
+    ]
+    seen = set()
+    for c in candidates:
+        if c in seen:
+            continue
+        seen.add(c)
+        try:
+            r = _sp.run(
+                [c, "-m", "manim", "--version"],
+                capture_output=True, text=True, timeout=10,
+                env={**os.environ, "MANIM_HEADLESS": "1", "DISPLAY": ""},
+            )
+            if r.returncode == 0:
+                logger.info(f"[Manim] Using Python: {c} ({r.stdout.strip()})")
+                return c
+        except Exception:
+            continue
+    logger.warning("[Manim] No Python with manim found, falling back")
+    return "manim"
+
+
+def _manim_cli(cmd: list[str]) -> list[str]:
+    """Build a manim CLI command, handling Python binary vs binary fallback."""
+    if MANIM_BIN == "manim":
+        return ["manim"] + cmd
+    return [MANIM_BIN, "-m", "manim"] + cmd
+
+
+import subprocess as _sp
+MANIM_BIN = _find_manim_python()
 
 TEMPLATE_MAP = {
     "neural_network": neural_network_template,
@@ -61,7 +101,7 @@ TEMPLATE_MAP = {
     "gradient_descent": gradient_descent_template,
     "convolution": convolution_template,
     "recurrent": recurrent_template,
-    "architecture": architecture_diagram_template,
+    "architecture_diagram": architecture_diagram_template,
     "data_flow": data_flow_diagram_template,
     "timeline": timeline_template,
     "comparison": comparison_chart_template,
@@ -75,6 +115,11 @@ TEMPLATE_MAP = {
     "probability_distribution": probability_distribution_template,
     "intro": intro_template,
     "outro": outro_template,
+    "tokenization": tokenization_template,
+    "vocabulary_table": vocabulary_table_template,
+    "bigram_probability": bigram_probability_template,
+    "activation_functions": activation_functions_template,
+    "line_chart": line_chart_template,
 }
 
 
@@ -100,7 +145,7 @@ TEMPLATE_CLASS_NAMES: dict[str, str] = {
     "gradient_descent": "GradientDescentScene",
     "convolution": "ConvolutionScene",
     "recurrent": "RecurrentScene",
-    "architecture": "ArchitectureDiagramScene",
+    "architecture_diagram": "ArchitectureDiagramScene",
     "data_flow": "DataFlowScene",
     "timeline": "TimelineScene",
     "comparison": "ComparisonScene",
@@ -114,6 +159,11 @@ TEMPLATE_CLASS_NAMES: dict[str, str] = {
     "probability_distribution": "ProbabilityDistributionScene",
     "intro": "IntroScene",
     "outro": "OutroScene",
+    "tokenization": "TokenizationScene",
+    "vocabulary_table": "VocabularyTableScene",
+    "bigram_probability": "BigramProbabilityScene",
+    "activation_functions": "ActivationFunctionsScene",
+    "line_chart": "LineChartScene",
 }
 
 TEMPLATE_CLASS_KEYS = list(TEMPLATE_CLASS_NAMES.values())
@@ -205,7 +255,7 @@ def render_manim_scene(scene: dict, video_id: str, scene_idx: int = 0, quality: 
 
     try:
         result = safe_run(
-            [MANIM_BIN, quality_flag, "--format=mp4", "-o", output_path, py_path, scene_class_name],
+            _manim_cli([quality_flag, "--format=mp4", "-o", output_path, py_path, scene_class_name]),
             timeout=120,
         )
         if os.path.exists(output_path) and os.path.getsize(output_path) > 1000:
@@ -285,7 +335,7 @@ def _generate_custom_scene(scene: dict, plan: ManimScenePlan, s_hash: str, video
 
     try:
         result = safe_run(
-            [MANIM_BIN, quality_flag, "--format=mp4", "-o", output_path, py_path, scene_class_name],
+            _manim_cli([quality_flag, "--format=mp4", "-o", output_path, py_path, scene_class_name]),
             timeout=120,
         )
         if os.path.exists(output_path) and os.path.getsize(output_path) > 1000:
@@ -351,9 +401,9 @@ def compose_manim_block(scenes: list[dict], video_id: str, quality: str = "h") -
         f.write(combined_code)
 
     quality_flag = f"-q{quality}"
-    cmd = [MANIM_BIN, quality_flag, "--format=mp4", "-o", output_path, py_path] + class_names
+    cmd = _manim_cli([quality_flag, "--format=mp4", "-o", output_path, py_path] + class_names)
     try:
-        result = safe_run(cmd, timeout=300)
+        result = safe_run(cmd, timeout=600)
         if os.path.exists(output_path) and os.path.getsize(output_path) > 1000:
             logger.info(f"[Manim] Composed block: {len(class_names)} scenes -> {output_path} ({os.path.getsize(output_path)} bytes)")
             return output_path

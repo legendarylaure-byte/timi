@@ -50,37 +50,45 @@ PEXELS_KEYWORD_MAP = {
     "chip": ["microchip", "processor", "circuit board"],
     "space": ["stars", "galaxy", "space", "planet"],
     "network": ["network", "cloud computing", "internet"],
-    "abstract": ["abstract tech", "digital art", "technology background"],
-    "office": ["modern office", "coworking space", "tech startup"],
     "analytics": ["data analytics", "dashboard", "statistics"],
     "brain": ["human brain", "neuroscience", "thinking"],
-    "innovation": ["innovation", "future technology", "modern tech"],
     "science": ["laboratory", "scientist", "research"],
     "ai": ["artificial intelligence", "machine learning", "AI"],
     "education": ["online learning", "e-learning", "study"],
-    "business": ["business meeting", "presentation", "corporate"],
     "phone": ["smartphone", "mobile app", "technology device"],
     "screen": ["computer screen", "monitor", "display"],
     "cloud": ["cloud computing", "cloud storage", "server cloud"],
     "engineering": ["engineering", "blueprint", "technical drawing"],
     "cybersecurity": ["cybersecurity", "data protection", "encryption"],
     "research": ["research paper", "scientific study", "analysis"],
-    "startup": ["startup team", "entrepreneur", "innovation lab"],
-    "digital": ["digital transformation", "digital technology", "tech"],
-    "future": ["futuristic", "future tech", "technology"],
     "algorithm": ["algorithm", "data flow", "binary code"],
     "scientist": ["data scientist", "researcher", "lab work"],
     "computer": ["computer lab", "computing", "pc"],
     "math": ["mathematics", "formula", "equations"],
     "presentation": ["presentation", "conference", "tech talk"],
+    "transformer": ["transformer architecture", "neural network", "data processing"],
+    "attention": ["attention mechanism", "data streams", "neural connections"],
+    "embedding": ["vector space", "data mapping", "3d visualization"],
+    "backprop": ["neural network layers", "network flow", "deep learning"],
+    "gradient": ["data optimization", "mathematical function", "algorithm"],
+    "token": ["text processing", "data encoding", "language model"],
+    "training": ["machine learning training", "model optimization", "AI training"],
+    "inference": ["AI processing", "neural computation", "model inference"],
+    "layer": ["neural network layers", "deep learning", "network architecture"],
+    "weight": ["neural weights", "network parameters", "AI model"],
+    "loss": ["loss function", "optimization curve", "data analysis"],
+    "activation": ["neural activation", "signal processing", "data filter"],
+    "convolution": ["pattern recognition", "signal processing", "data filter"],
+    "latent": ["latent space", "data distribution", "abstract visualization"],
+    "encoder": ["encoder decoder", "data transformation", "code transformation"],
+    "diagram": ["diagram animation", "flowchart", "technical illustration"],
+    "visualization": ["data visualization", "3d visualization", "molecular visualization"],
+    "explanation": ["explainer video", "educational", "science animation"],
+    "simulation": ["scientific simulation", "particle simulation", "physics simulation"],
+    "model": ["3d model", "architecture model", "mathematical model"],
+    "tutorial": ["tutorial video", "educational animation", "how it works"],
+    "chart": ["animated chart", "graph animation", "data chart"],
 }
-
-UNIVERSAL_KEYWORDS = [
-    "technology background", "abstract tech", "digital network",
-    "data visualization", "circuit board", "server room",
-    "computer code", "artificial intelligence", "futuristic",
-    "blue digital background", "abstract animation", "tech innovation",
-]
 
 
 def _keyword_expand(base_keyword: str) -> list[str]:
@@ -88,7 +96,7 @@ def _keyword_expand(base_keyword: str) -> list[str]:
     for key, aliases in PEXELS_KEYWORD_MAP.items():
         if key in base or base in key:
             return aliases
-    return [base, base + " technology", base + " abstract", base + " 4k"]
+    return [base, base + " animation", base + " visualization", base + " educational"]
 
 
 def _handle_rate_limit(resp: requests.Response, source: str, max_retries: int = 1) -> requests.Response:
@@ -314,11 +322,8 @@ def search_and_download(
     all_candidates = _search_providers(expanded, orientation)
 
     if not all_candidates:
-        fallback_kw = [scene_keyword, "nature", "colorful background"]
+        fallback_kw = [scene_keyword, scene_keyword + " video", scene_keyword + " footage"]
         all_candidates = _search_providers(fallback_kw, orientation, per_page=3)
-
-    if not all_candidates:
-        all_candidates = _search_providers(UNIVERSAL_KEYWORDS, orientation, per_page=3)
 
     seen_ids = set()
     unique = []
@@ -393,14 +398,5 @@ def search_videos_for_scenes(scenes: list[dict], orientation: str = "landscape")
                 print(f"[stock_video] Scene {idx+1} search failed: {e}")
 
     clips = [clip_map[i] for i in sorted(clip_map) if clip_map[i] is not None]
-
-    if not clips:
-        print("[stock_video] CRITICAL: No clips found for any scene. Using universal fallback.")
-        for kw in UNIVERSAL_KEYWORDS:
-            clip = search_and_download(kw, target_duration=5.0, orientation=orientation, scene_idx=len(clips))
-            if clip:
-                clips.append(clip)
-            if len(clips) >= min(n, 5):
-                break
 
     return clips

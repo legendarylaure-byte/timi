@@ -11,7 +11,7 @@ logger = logging.getLogger(__name__)
 
 # Default edge-tts voices (same constants as voice_gen.py)
 DEFAULT_VOICE = "en-US-AriaNeural"
-DEFAULT_RATE = "-5%"
+DEFAULT_RATE = "-8%"
 DEFAULT_PITCH = "-2Hz"
 
 GOOGLE_VOICE_MAP = {
@@ -66,14 +66,16 @@ class BaseTTSProvider(ABC):
     async def generate(self, text: str, output_path: str,
                        voice: str = DEFAULT_VOICE,
                        rate: str = DEFAULT_RATE,
-                       pitch: str = DEFAULT_PITCH) -> bool:
+                       pitch: str = DEFAULT_PITCH,
+                       is_deep_lesson: bool = False) -> bool:
         ...
 
     @abstractmethod
     async def generate_timing(self, text: str,
                               voice: str = DEFAULT_VOICE,
                               rate: str = DEFAULT_RATE,
-                              pitch: str = DEFAULT_PITCH) -> list[dict]:
+                              pitch: str = DEFAULT_PITCH,
+                              is_deep_lesson: bool = False) -> list[dict]:
         ...
 
     @abstractmethod
@@ -96,12 +98,11 @@ class EdgeTTSProvider(BaseTTSProvider):
     async def generate(self, text: str, output_path: str,
                        voice: str = DEFAULT_VOICE,
                        rate: str = DEFAULT_RATE,
-                       pitch: str = DEFAULT_PITCH) -> bool:
+                       pitch: str = DEFAULT_PITCH,
+                       is_deep_lesson: bool = False) -> bool:
         try:
             import edge_tts
-            from utils.voice_gen import _wrap_ssml
-            ssml_text = _wrap_ssml(text, voice_name=voice, rate=rate)
-            communicate = edge_tts.Communicate(ssml_text, voice, rate=rate, pitch=pitch)
+            communicate = edge_tts.Communicate(text, voice, rate=rate, pitch=pitch)
             await communicate.save(output_path)
             return os.path.exists(output_path) and os.path.getsize(output_path) > 100
         except Exception as e:
@@ -111,13 +112,12 @@ class EdgeTTSProvider(BaseTTSProvider):
     async def generate_timing(self, text: str,
                               voice: str = DEFAULT_VOICE,
                               rate: str = DEFAULT_RATE,
-                              pitch: str = DEFAULT_PITCH) -> list[dict]:
+                              pitch: str = DEFAULT_PITCH,
+                              is_deep_lesson: bool = False) -> list[dict]:
         sentence_times = []
         try:
             import edge_tts
-            from utils.voice_gen import _wrap_ssml
-            ssml_text = _wrap_ssml(text, voice_name=voice, rate=rate)
-            communicate = edge_tts.Communicate(ssml_text, voice, rate=rate, pitch=pitch)
+            communicate = edge_tts.Communicate(text, voice, rate=rate, pitch=pitch)
             async for chunk in communicate.stream():
                 if chunk["type"] in ("SentenceBoundary", "WordBoundary"):
                     sentence_times.append({
@@ -179,7 +179,8 @@ class GoogleCloudTTSProvider(BaseTTSProvider):
     async def generate(self, text: str, output_path: str,
                        voice: str = DEFAULT_VOICE,
                        rate: str = DEFAULT_RATE,
-                       pitch: str = DEFAULT_PITCH) -> bool:
+                       pitch: str = DEFAULT_PITCH,
+                       is_deep_lesson: bool = False) -> bool:
         try:
             client = self._get_client()
             voice_name = self._map_voice(voice)
@@ -215,7 +216,8 @@ class GoogleCloudTTSProvider(BaseTTSProvider):
     async def generate_timing(self, text: str,
                               voice: str = DEFAULT_VOICE,
                               rate: str = DEFAULT_RATE,
-                              pitch: str = DEFAULT_PITCH) -> list[dict]:
+                              pitch: str = DEFAULT_PITCH,
+                              is_deep_lesson: bool = False) -> list[dict]:
         try:
             client = self._get_client()
             voice_name = self._map_voice(voice)
@@ -311,7 +313,8 @@ class KokoroProvider(BaseTTSProvider):
     async def generate(self, text: str, output_path: str,
                        voice: str = DEFAULT_VOICE,
                        rate: str = DEFAULT_RATE,
-                       pitch: str = DEFAULT_PITCH) -> bool:
+                       pitch: str = DEFAULT_PITCH,
+                       is_deep_lesson: bool = False) -> bool:
         try:
             pipe = self._get_pipeline()
             speed = self._rate_to_speed(rate)
@@ -344,7 +347,8 @@ class KokoroProvider(BaseTTSProvider):
     async def generate_timing(self, text: str,
                               voice: str = DEFAULT_VOICE,
                               rate: str = DEFAULT_RATE,
-                              pitch: str = DEFAULT_PITCH) -> list[dict]:
+                              pitch: str = DEFAULT_PITCH,
+                              is_deep_lesson: bool = False) -> list[dict]:
         events = await self._hybrid_timing(text, voice, rate, pitch)
         if events:
             return events

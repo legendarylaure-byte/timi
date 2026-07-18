@@ -740,7 +740,14 @@ def multi_platform_publish(video_id: str, title: str, description: str, video_pa
         'all_success': True,
     }
 
-    for platform in platforms:
+    import time
+    _inter_platform_delay = int(os.getenv("PLATFORM_UPLOAD_DELAY", "60"))
+
+    for i, platform in enumerate(platforms):
+        if i > 0 and _inter_platform_delay > 0:
+            log_activity('publisher', f"Waiting {_inter_platform_delay}s before {PLATFORMS[platform]['name']} upload to avoid rate limiting...", 'info')
+            time.sleep(_inter_platform_delay)
+
         try:
             platform_title = optimize_title_for_platform(title, platform)
             platform_desc = optimize_for_platform(title, description, platform)

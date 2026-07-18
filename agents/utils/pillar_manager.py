@@ -8,14 +8,18 @@ from typing import Optional
 logger = logging.getLogger(__name__)
 
 CONTENT_PILLARS = {
-    "AI Explained": {"ratio": 0.25, "priority": 5, "description": "Foundational AI/ML concepts explained simply"},
-    "Code & Build": {"ratio": 0.20, "priority": 4, "description": "Tutorials, code walkthroughs, build projects"},
-    "Deep Tech": {"ratio": 0.15, "priority": 3, "description": "Advanced technical deep dives"},
-    "AI News": {"ratio": 0.15, "priority": 3, "description": "Latest AI developments and updates"},
-    "Tool Tutorials": {"ratio": 0.10, "priority": 2, "description": "Software tool guides and how-tos"},
-    "Career & Learning": {"ratio": 0.10, "priority": 2, "description": "Career advice, learning paths, industry insights"},
-    "Paper Breakdowns": {"ratio": 0.03, "priority": 1, "description": "Academic paper summaries"},
-    "Industry Analysis": {"ratio": 0.02, "priority": 1, "description": "Market trends and industry analysis"},
+    # Deep lesson pillars (Manim-heavy, curriculum-based, 3/week)
+    "AI Foundations": {"ratio": 0.15, "priority": 5, "category_type": "deep_lesson", "description": "Foundational AI/ML concepts — neural networks, backpropagation, gradient descent"},
+    "LLM Internals": {"ratio": 0.15, "priority": 5, "category_type": "deep_lesson", "description": "How LLMs work — tokenization, embeddings, attention, transformers, generation"},
+    "Training & Data": {"ratio": 0.10, "priority": 4, "category_type": "deep_lesson", "description": "Training pipelines — RLHF, fine-tuning, LoRA, datasets, evaluation"},
+    "AI Systems": {"ratio": 0.08, "priority": 4, "category_type": "deep_lesson", "description": "Systems — RAG, agents, multi-modal, deployment, best practices"},
+    # Quick short pillars (LTX/stock, fast-paced, 3/day)
+    "AI Explained": {"ratio": 0.18, "priority": 3, "category_type": "quick_short", "description": "Quick AI/ML concept explainers"},
+    "AI News": {"ratio": 0.12, "priority": 3, "category_type": "quick_short", "description": "Latest AI developments and updates"},
+    "Tool Tutorials": {"ratio": 0.08, "priority": 2, "category_type": "quick_short", "description": "AI tool guides and how-tos"},
+    "Code & Build": {"ratio": 0.06, "priority": 2, "category_type": "quick_short", "description": "Code walkthroughs, build projects"},
+    "Paper Breakdowns": {"ratio": 0.04, "priority": 1, "category_type": "quick_short", "description": "Academic paper summaries"},
+    "Career & Learning": {"ratio": 0.04, "priority": 1, "category_type": "quick_short", "description": "Career advice, learning paths"},
 }
 
 PILLAR_DATA_DIR = os.path.join(

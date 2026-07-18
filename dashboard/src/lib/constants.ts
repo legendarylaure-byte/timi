@@ -42,7 +42,7 @@ export const AGENT_ROLES: AgentRole[] = [
     id: 'animator',
     name: 'Animator',
     emoji: '🎬',
-    color: '#00D2FF',
+    color: '#8a50e8',
     description: 'Gathers all the visuals — stock footage, screen recordings, diagrams, and code snippets',
   },
   {
@@ -156,7 +156,7 @@ export const AGENT_COLORS: Record<string, string> = {
   storyboard: '#4ECDC4',
   voice: '#FFD93D',
   composer: '#A29BFE',
-  animator: '#00D2FF',
+  animator: '#8a50e8',
   editor: '#F39C12',
   thumbnail: '#E056FD',
   metadata: '#22A6B3',

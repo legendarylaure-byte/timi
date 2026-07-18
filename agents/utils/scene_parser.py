@@ -1,4 +1,5 @@
 import json
+import os
 import re
 from dataclasses import dataclass, field
 from typing import Optional
@@ -37,8 +38,8 @@ STOPWORDS = {
 class SceneState:
     camera_angle: str = ""
     lighting: str = ""
-    color_palette: str = "teal and dark gray"
-    dominant_colors: list[str] = field(default_factory=lambda: ["#1e1e1e", "#00CCCC"])
+    color_palette: str = "violet and dark gray"
+    dominant_colors: list[str] = field(default_factory=lambda: ["#1e1e1e", "#8a50e8"])
 
 SYSTEM_PROMPT = """You are a scene director for tech/AI educational videos. Convert the given script into structured scene descriptions.
 
@@ -73,7 +74,7 @@ RULES:
 - Use asset_type to specify what visual content to show
 - asset_keywords should describe what to search for or render
 - render_type: "stock" for cinematic/b-roll, "manim" for diagrams/math/concept animations, "code" for code snippets
-- ltx_prompt is CRITICAL: Write a detailed 2-3 sentence visual description optimized for text-to-video AI. Reference SPECIFIC visual elements mentioned in the script's NARRATION — if the narration talks about GPUs, describe GPU chips and data pathways; if it mentions training data, show data streams and processing pipelines. Never use generic descriptions. Include: camera angle (close-up, wide, tracking, dolly, over-the-shoulder, top-down), lighting (neon glow, soft diffused, dramatic side, volumetric, rim light), composition (subject placement, depth layers), colors, and motion. Example: "Close-up of futuristic circuit board with glowing neon blue pathways, dramatic side lighting casting long shadows, camera slowly pulling back to reveal a glowing central processor chip, sparks of light traveling along the circuits, deep teal and purple color palette, cinematic 24fps quality"
+- ltx_prompt is CRITICAL: Write a detailed 2-3 sentence visual description optimized for text-to-video AI. Reference SPECIFIC visual elements mentioned in the script's NARRATION — if the narration talks about GPUs, describe GPU chips and data pathways; if it mentions training data, show data streams and processing pipelines. Never use generic descriptions. Include: camera angle (close-up, wide, tracking, dolly, over-the-shoulder, top-down), lighting (neon glow, soft diffused, dramatic side, volumetric, rim light), composition (subject placement, depth layers), colors, and motion. Example: "Close-up of futuristic circuit board with glowing purple neon pathways, dramatic side lighting casting long shadows, camera slowly pulling back to reveal a glowing central processor chip, sparks of light traveling along the circuits, deep violet to magenta gradient color palette, cinematic 24fps quality"
 - Text should be short phrases (3-8 words), not full sentences
 - Background should match the scene mood
 - camera.zoom of 1.0 means no zoom, >1 zooms in
@@ -141,7 +142,7 @@ def parse_script_to_scenes(
         print(f"[SCENE_PARSER] Rule-based parse produced {len(scenes)} scenes")
         return _ensure_visual_variety(scenes)
 
-    scenes = _minimal_fallback(title, category, format_type)
+    scenes = _minimal_fallback(title, category, format_type, max_duration)
     print(f"[SCENE_PARSER] Using minimal fallback ({len(scenes)} scenes)")
     return _ensure_visual_variety(scenes)
 
@@ -150,19 +151,29 @@ def _llm_scene_parse(
     script_text: str, title: str, category: str, format_type: str, storyboard_text: str,
     max_duration: int = None
 ) -> list[dict] | None:
-    if len(script_text) > 6000:
-        script_text = script_text[:6000] + "\n...[truncated]"
+    if max_duration and max_duration >= 600:
+        truncate_at = 16000
+    else:
+        truncate_at = 12000
+    if len(script_text) > truncate_at:
+        script_text = script_text[:truncate_at] + "\n...[truncated]"
 
     target_hint = ""
     if max_duration:
-        if format_type == "long":
+        if max_duration >= 600:
+            target_hint = f"\nCRITICAL: The TOTAL duration of ALL scenes combined must be approximately {max_duration} seconds (sum of all 'duration' fields). Generate enough scenes to fill this time — typically 30-60 scenes, each 8-20 seconds."
+        elif format_type == "long":
             target_hint = f"\nCRITICAL: The TOTAL duration of ALL scenes combined must be approximately {max_duration} seconds (sum of all 'duration' fields). Generate enough scenes to fill this time — typically 10-15 scenes for long-form, each 12-20 seconds."
         else:
             target_hint = f"\nAim for total duration around {max_duration} seconds across all scenes."
 
-    prompt = f"""Convert this tech/AI educational video script into structured scenes with asset types. CRITICAL: Each scene MUST include a "narration_text" field containing the EXACT spoken narration for that scene (copy verbatim from the NARRATION lines). Also include a vivid "ltx_prompt" field — a 2-3 sentence visual description optimized for AI text-to-video generation. Include camera angle, lighting, composition, colors, and motion. The ltx_prompt MUST reference SPECIFIC visual elements from the narration_text — if the narration mentions GPUs, describe GPU chips and data pathways; if it mentions training, show loss curves and gradient flow. Never use generic descriptions. Also include a "render_type" field: "stock" for cinematic/b-roll footage, "manim" for diagrams and concept animations, "code" for code snippets.
+    prompt = f"""Convert this tech/AI educational video script into structured scenes with asset types. CRITICAL: Each scene MUST include:
+  - "narration_text": EXACT spoken narration for that scene (copy verbatim from NARRATION lines)
+  - "description": A 10-15 word summary of what this scene visually IS (e.g. "neural network diagram with animated forward pass", "GPU chip closeup with data flow arrows"). This field is used to select the BEST animation template — be specific about the visual concept.
+  - "ltx_prompt": A vivid 2-3 sentence visual description for AI text-to-video generation. Include camera angle, lighting, composition, colors, and motion. CRITICAL: The PRIMARY source for ltx_prompt is the STORYBOARD's VISUAL/CAMERA/LIGHTING fields — copy their specific visual elements (camera angle, lighting, colors, objects, motion) into the ltx_prompt. The narration_text provides context only. Never use generic descriptions.
+  - "render_type": "stock" for cinematic/b-roll footage, "manim" for diagrams and concept animations, "code" for code snippets.
 
-Read the VISUAL lines from the script/storyboard — they contain [MANIM], [WAN2.1], or [CODE] tags. Use these to set render_type: [MANIM] → "manim", [CODE] → "code", [WAN2.1] or no tag → "stock".
+Read the VISUAL lines from the script/storyboard — they contain [MANIM], [LTX], or [CODE] tags. Use these to set render_type: [MANIM] → "manim", [CODE] → "code", [LTX] or no tag → "stock".
 
 Title: {title}
 Category: {category}
@@ -172,14 +183,16 @@ Script:
 {script_text}
 
 Storyboard:
-{storyboard_text[:3000] if storyboard_text else "N/A"}
+{storyboard_text[:15000] if storyboard_text else "N/A"}
 
 Important: Choose asset types that fit the category:
 - {category} related assets: {_get_suggested_assets(category)}
 
-CRITICAL for visual continuity: Each scene's ltx_prompt MUST reference the PREVIOUS scene's visual state. Maintain consistent color palette (dark teal/cyan/neon), lighting, and camera flow across adjacent scenes. Avoid sudden jumps in camera angle or lighting between consecutive scenes. If scene 1 ends on a close-up, scene 2 should start with a similar close-up slowly pulling back. This creates smooth visual storytelling.
+CRITICAL for visual continuity: Each scene's ltx_prompt MUST reference the PREVIOUS scene's visual state. Maintain consistent color palette (violet/magenta/orange), lighting, and camera flow across adjacent scenes. Avoid sudden jumps in camera angle or lighting between consecutive scenes. If scene 1 ends on a close-up, scene 2 should start with a similar close-up slowly pulling back. This creates smooth visual storytelling.
 
-The narration_text and ltx_prompt are the most important fields. ltx_prompt is sent to the video generation AI — make it specific, reference real objects and actions from the narration_text, and directly based on the VISUAL descriptions in the storyboard.
+The narration_text and ltx_prompt are the most important fields. ltx_prompt is sent to the video generation AI — make it specific, directly based on the VISUAL/CAMERA/LIGHTING fields in the storyboard. The storyboard's visual directions are your PRIMARY source; preserve them verbatim in ltx_prompt. The narration_text provides context but should NOT override specific visual directions from the storyboard.
+
+The ltx_prompt MUST include: camera angle (close-up/wide/dolly/tracking/top-down/over-the-shoulder), lighting (neon/soft diffused/dramatic side/volumetric/rim), specific concrete objects visible, colors, and camera motion. NEVER write generic descriptions like "technology visualization" or "animated concept". Every ltx_prompt must feel like a real cinematography direction.
 
 Return ONLY valid JSON array of scene objects."""
 
@@ -187,7 +200,7 @@ Return ONLY valid JSON array of scene objects."""
         response = generate_completion(
             prompt=prompt,
             system_prompt=SYSTEM_PROMPT,
-            temperature=0.3,
+            temperature=0.0,
             max_tokens=8192,
         )
 
@@ -234,6 +247,8 @@ def _rule_based_parse(script_text: str, storyboard_text: str, format_type: str, 
 
     word_count = len(script_text.split())
     target_scene_count = 6 if format_type == "shorts" else 12
+    if max_duration and max_duration >= 600:
+        target_scene_count = min(40, max(15, word_count // 25))
     target_scene_count = min(target_scene_count, max(1, word_count // 20))
 
     while len(scene_blocks) < target_scene_count:
@@ -256,9 +271,11 @@ def _rule_based_parse(script_text: str, storyboard_text: str, format_type: str, 
         ltx_prompt, state = _infer_ltx_prompt(block, title, i, scene_dict, prev_state)
         prev_state = state
 
+        desc = block.strip()[:80] if not narration_text else narration_text[:80]
         scene = {
             "background": background,
             "duration": duration,
+            "description": desc,
             "render_type": _infer_render_type(block),
             "asset_type": asset_type,
             "asset_keywords": asset_keywords,
@@ -281,12 +298,16 @@ def _rule_based_parse(script_text: str, storyboard_text: str, format_type: str, 
     return scenes if len(scenes) >= 2 else []
 
 
-def _minimal_fallback(title: str, category: str, format_type: str) -> list[dict]:
-    scene_count = 4 if format_type == "shorts" else 8
+def _minimal_fallback(title: str, category: str, format_type: str, max_duration: int = None) -> list[dict]:
+    if max_duration and max_duration >= 600:
+        scene_count = 20
+    else:
+        scene_count = 4 if format_type == "shorts" else 8
     scenes = []
     for i in range(scene_count):
         scenes.append({
             "background": "stock_footage",
+            "description": f"scene about {title[:40]}",
             "duration": 6.0 if format_type == "shorts" else 10.0,
             "asset_type": "STOCK_FOOTAGE",
             "asset_keywords": ["technology", title[:30]],
@@ -496,7 +517,7 @@ def _pick_lighting_by_content(text_lower: str, mood: str, scene_index: int) -> s
 
 
 def _infer_render_type(text: str) -> str:
-    m = re.search(r'\[(MANIM|CODE|WAN2\.1)\]', text, re.IGNORECASE)
+    m = re.search(r'\[(MANIM|CODE|LTX)\]', text, re.IGNORECASE)
     if m:
         tag = m.group(1).upper()
         if tag == "MANIM":
@@ -601,16 +622,16 @@ def _infer_ltx_prompt(text: str, title: str = "", scene_index: int = 0, scene: d
 
     color_terms = set()
     for term in text_lower.split():
-        if term in ("teal", "cyan", "blue", "purple", "orange", "amber", "red", "green", "neon", "dark", "black", "white", "gray", "gold"):
+        if term in ("teal", "cyan", "blue", "purple", "violet", "magenta", "orange", "amber", "red", "green", "neon", "dark", "black", "white", "gray", "gold"):
             color_terms.add(term)
     if not color_terms:
-        color_terms = {"teal", "dark"}
+        color_terms = {"violet", "dark"}
 
     state = SceneState(
         camera_angle=cam,
         lighting=lighting,
-        color_palette=" and ".join(sorted(color_terms)[:3]) or "teal and dark",
-        dominant_colors=["#1e1e1e", "#00CCCC"],
+        color_palette=" and ".join(sorted(color_terms)[:3]) or "violet and dark",
+        dominant_colors=["#1e1e1e", "#8a50e8"],
     )
     return prompt, state
 
@@ -670,6 +691,22 @@ def _infer_keywords(text: str, title: str = "") -> list[str]:
         "GPU": "processor chip with parallel data pathways",
         "inference": "data flowing through a pipeline with processing nodes",
         "embedding": "word vectors arranged in semantic space",
+        "hallucination": "AI model generating incorrect outputs with visual distortion and glitch effects",
+        "fine_tuning": "pre-trained model weights being adjusted with new data pathways connecting in",
+        "tokenization": "text being split into colored word fragments with token ID labels appearing",
+        "prompt": "text input being processed through an AI pipeline with glowing nodes",
+        "agent": "autonomous AI agent with decision nodes and branching action pathways",
+        "RAG": "knowledge base documents connected to an AI model with retrieval pathway arrows",
+        "diffusion": "image forming from random noise patterns gradually becoming clearer",
+        "encoder": "input data being compressed into a latent representation with arrows converging",
+        "decoder": "latent representation expanding into output data with arrows diverging",
+        "quantization": "numerical precision levels being reduced with rounding visualization",
+        "overfitting": "model curve fitting training data points exactly but diverging from test data",
+        "backpropagation": "error gradients flowing backward through network layers with glow trails",
+        "classification": "data points being sorted into labeled categories with boundary lines",
+        "regression": "data points with a trend line passing through the distribution",
+        "cluster": "data points grouping into colored clusters in 2D space",
+        "latent": "abstract compressed representation space with floating data points",
     }
     found_visual = []
     for word in top_words[:5] + found_tech:
@@ -740,12 +777,19 @@ def _infer_transition(scene_index: int, total_scenes: int, text: str = "") -> st
         return "smooth_left"
     if any(w in text_lower for w in ["explode", "burst", "sudden", "surprising", "shock"]):
         return "pixelize"
-    if any(w in text_lower for w in ["side", "compare", "versus", "alternative", "option"]):
+    if any(w in text_lower for w in ["side", "compare", "versus", "alternative", "option", "tradeoff"]):
         return "slide_left"
-    if any(w in text_lower for w in ["zoom", "focus", "detail", "close", "inside"]):
+    if any(w in text_lower for w in ["zoom", "focus", "detail", "close", "inside", "closeup"]):
         return "zoom"
-    transitions = ["dissolve", "slide_right", "fade", "dissolve", "slide_left", "fade_gradual", "smooth_right"]
-    return transitions[scene_index % len(transitions)]
+    if any(w in text_lower for w in ["pan", "widen", "overview", "broader", "expand", "wide"]):
+        return "wipe_left"
+    if any(w in text_lower for w in ["next", "proceed", "continue", "onward", "advance"]):
+        return "wipe_right"
+    rotation = [
+        "dissolve", "slide_right", "fade", "smooth_right",
+        "fade_gradual", "slide_left", "dissolve",
+    ]
+    return rotation[scene_index % len(rotation)]
 
 
 def _infer_mood(text: str) -> str:
@@ -765,13 +809,15 @@ def _infer_mood(text: str) -> str:
 
 def _get_suggested_assets(category: str) -> str:
     mapping = {
+        "AI Foundations": "DIAGRAM_ANIMATION (neural networks, math, concepts), STOCK_FOOTAGE (tech atmosphere)",
+        "LLM Internals": "DIAGRAM_ANIMATION (transformer, attention, embeddings), STOCK_FOOTAGE (data centers)",
+        "Training & Data": "DIAGRAM_ANIMATION (training curves, pipelines), CODE_SNIPPET (training code)",
+        "AI Systems": "DIAGRAM_ANIMATION (system architecture), CODE_SNIPPET (APIs, integration)",
         "AI Explained": "STOCK_FOOTAGE (tech concepts, AI visuals), DIAGRAM_ANIMATION (neural networks)",
-        "Deep Tech": "DIAGRAM_ANIMATION (architectures), STOCK_FOOTAGE (scientific concepts)",
-        "Paper Breakdowns": "DIAGRAM_ANIMATION (paper figures), CODE_SNIPPET (implementations)",
-        "Tool Tutorials": "SCREEN_CAPTURE (tool walkthrough), CODE_SNIPPET (commands)",
-        "Industry Analysis": "STOCK_FOOTAGE (business/tech), STATIC_IMAGE (charts, graphs)",
-        "Code & Build": "CODE_SNIPPET (code), SCREEN_CAPTURE (build process)",
         "AI News": "STOCK_FOOTAGE (news style), STATIC_IMAGE (logos, products)",
+        "Tool Tutorials": "SCREEN_CAPTURE (tool walkthrough), CODE_SNIPPET (commands)",
+        "Code & Build": "CODE_SNIPPET (code), SCREEN_CAPTURE (build process)",
+        "Paper Breakdowns": "DIAGRAM_ANIMATION (paper figures), CODE_SNIPPET (implementations)",
         "Career & Learning": "STOCK_FOOTAGE (learning), SCREEN_CAPTURE (resources)",
     }
     return mapping.get(category, "STOCK_FOOTAGE (tech visuals), DIAGRAM_ANIMATION (explainers)")
@@ -780,6 +826,7 @@ def _get_suggested_assets(category: str) -> str:
 def _default_scene(index: int) -> dict:
     return {
         "background": "stock_footage",
+        "description": "generic technology background",
         "duration": 6.0,
         "asset_type": "STOCK_FOOTAGE",
         "asset_keywords": ["technology", "abstract"],
@@ -791,15 +838,32 @@ def _default_scene(index: int) -> dict:
 
 
 def _adjust_scenes_for_format(scenes: list[dict], format_type: str, max_allowed: int = None) -> list[dict]:
+    is_deep = max_allowed and max_allowed >= 600
     if format_type == "shorts":
-        cap = 60
+        cap = float(os.getenv("SHORTS_MAX_DURATION", "180"))
     else:
         cap = float(max_allowed) if max_allowed else 480.0
-    current_total = sum(s.get("duration", 6) for s in scenes)
-    if cap and current_total != cap:
-        scale = cap / max(current_total, 1)
+    if cap < 5:
+        cap = 60
+    intro_outro_budget = 5.0
+    content_budget = cap - intro_outro_budget
+    intro_outro_indices = set()
+    for i, s in enumerate(scenes):
+        kw = " ".join(s.get("asset_keywords", [])) + " " + (s.get("description") or "") + " " + (s.get("keyword") or "")
+        if any(t in kw.lower() for t in ["intro", "outro", "subscribe"]):
+            intro_outro_indices.add(i)
+    content_scenes = [s for i, s in enumerate(scenes) if i not in intro_outro_indices]
+    current_content_total = sum(s.get("duration", 6) for s in content_scenes)
+    if content_scenes and current_content_total > 0 and current_content_total != content_budget:
+        scale = content_budget / max(current_content_total, 1)
+        for s in content_scenes:
+            s["duration"] = round(max(s.get("duration", 6) * scale, 2.5), 1)
+    for i, s in enumerate(scenes):
+        if i in intro_outro_indices:
+            s["duration"] = min(s.get("duration", 5.0), 4.0)
+    if is_deep:
         for s in scenes:
-            s["duration"] = round(max(s.get("duration", 6) * scale, 3), 1)
+            s["duration"] = min(s.get("duration", 20.0), 20.0)
     return scenes
 
 

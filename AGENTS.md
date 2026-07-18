@@ -2,6 +2,17 @@
 
 ## Latest Changes
 
+### Deep Lesson Pipeline — 3Blue1Brown-Style Manim-First Education Content (uncommitted)
+- **Phase 3**: Asset router now prefers Manim over LTX/stock for deep lesson categories (`AI Foundations`, `LLM Internals`, `Training & Data`, `AI Systems`). New `_try_manim_for_deep_lesson()` scans scene description against Manim template keywords and routes matching scenes to Manim (`utils/asset_router.py:189`). `category` threaded through `dispatch_scenes()` and `dispatch_scene()`.
+- **Phase 4**: Duration scaling for deep lessons — added `DEEP_LESSON_MAX_DURATION=600` (10 min) env var, used automatically when category is a deep lesson category via `_deep_lesson_dur()` (`main.py:291`). Replaces 180s `LONG_MAX_DURATION`.
+- **Phase 5**: Voice pacing for deep lessons — added `"deep_lesson"` content type (`voice_gen.py:383`) with slower rate (`-5%`), deeper pitch (`-3Hz`). Added `DEEP_LESSON_EMPHASIS_WORDS` (15 technical/educational terms). `_wrap_ssml()` now accepts `is_deep_lesson` flag → 500ms sentence pauses, 200ms clause pauses. Threaded through all providers (`voice_gen.py`, `voice_provider.py`).
+- **Phase 6**: Subtitle sizing for deep lessons — `composite_video()` checks category against `_DEEP_LESSON_CATS`, uses `FontSize=32` + `MarginV=60` for deep lessons vs 24/40 default (`video_compositor.py:776`).
+- **Phase 7**: 3 new Manim templates for Part 1 "How LLMs Actually Work — Tokenization":
+  - `tokenization_template()` — shows input text → token boxes → token IDs with colored subword boxes
+  - `vocabulary_table_template()` — renders a token-to-ID lookup table with headers/rows/border
+  - `bigram_probability_template()` — heatmap grid showing next-token probabilities with max-highlight
+  - All registered in `TEMPLATE_REGISTRY` (`manim_templates.py`), `manim_renderer.py` `TEMPLATE_MAP`/`TEMPLATE_CLASS_NAMES`, and `manim_agent.py` `TEMPLATE_KEYWORDS`.
+
 ### Quality Improvement Pass — Video Review Fixes: URL TTS, Subtitles, End Scene, Scriptwriter Viral Rule, Voiceover Race (uncommitted)
 - **URL stripping in TTS** (`utils/voice_gen.py`): `_expand_symbols_for_tts()` now replaces `https?://\S+` and `www\.\S+` with " link " before symbol expansion — prevents TTS reading URLs as "forward slash forward slash" for 20s.
 - **Subtitle color & font size** (`utils/video_compositor.py`, `utils/shorts_renderer.py`): Changed from teal `&HFF00CCCC&` to dark yellow `&HFF0088CC&` for better readability. Font sizes increased: `burn_subtitles()` 28→32, `composite_video()` 18→24, `shorts_renderer.py` 24→28.

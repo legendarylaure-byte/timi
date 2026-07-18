@@ -86,11 +86,10 @@ def get_firestore_client():
 
 
 AGENT_NAME_MAP = {
-    'scriptwriter': ('Scriptwriter', '#FF6B6B'),
-    'storyboard': ('Storyboard Artist', '#4ECDC4'),
-    'voice': ('Voice Actor', '#FFD93D'),
-    'composer': ('Composer', '#A29BFE'),
-    'animator': ('Animator', '#00D2FF'),
+    'scriptwriter': ('Scriptwriter', '#e07040'),
+    'storyboard': ('Storyboard Artist', '#c060d0'),
+    'composer': ('Composer', '#8a50e8'),
+    'animator': ('Animator', '#8a50e8'),
     'editor': ('Video Editor', '#F39C12'),
     'thumbnail': ('Thumbnail Creator', '#E056FD'),
     'metadata': ('Metadata Writer', '#22A6B3'),

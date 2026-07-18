@@ -1,6 +1,7 @@
 """Concurrent pipeline — Thread pool for parallel short+long generation."""
 import os
 import sys
+import uuid
 import time
 import logging
 import traceback
@@ -14,12 +15,18 @@ GPU_SEMAPHORE = Semaphore(1)
 
 PIPELINE_TIMEOUT_MINUTES = int(os.getenv("PIPELINE_TIMEOUT_MINUTES", "180"))
 
+_MLX_EVAL_EVERY = os.getenv("LTX2_DIT_EVAL_EVERY", "8")
+os.environ.setdefault("LTX2_DIT_EVAL_EVERY", _MLX_EVAL_EVERY)
+
 
 def _run_in_worker(func: Callable, args: tuple, kwargs: dict) -> dict:
     """Run a pipeline function in a worker thread with GPU semaphore."""
     result = {"success": False, "error": None, "video_id": None, "topic": None}
+    pipeline_runtime_id = kwargs.pop("_pipeline_runtime_id", None)
     gpu_needed = kwargs.pop("_gpu", True)
     try:
+        if pipeline_runtime_id:
+            os.environ["PIPELINE_RUNTIME_ID"] = pipeline_runtime_id
         if gpu_needed:
             acquired = GPU_SEMAPHORE.acquire(timeout=600)
             if not acquired:
@@ -53,6 +60,9 @@ def run_concurrent_pipelines(jobs: list[dict]) -> list[dict]:
     max_workers = min(len(jobs), int(os.getenv("CONCURRENT_PIPELINE_WORKERS", "2")))
     logger.info("[concurrent] Running %d pipeline(s) with %d worker(s)", len(jobs), max_workers)
 
+    pipeline_runtime_id = str(uuid.uuid4())[:8]
+    logger.info("[concurrent] Pipeline runtime ID: %s", pipeline_runtime_id)
+
     results = [None] * len(jobs)
     with ThreadPoolExecutor(max_workers=max_workers) as executor:
         fut_map = {}
@@ -61,6 +71,7 @@ def run_concurrent_pipelines(jobs: list[dict]) -> list[dict]:
             args = job.get("args", ())
             kwargs = job.get("kwargs", {})
             kwargs["_gpu"] = job.get("gpu", True)
+            kwargs.setdefault("_pipeline_runtime_id", pipeline_runtime_id)
             fut = executor.submit(_run_in_worker, func, args, kwargs)
             fut_map[fut] = i
 

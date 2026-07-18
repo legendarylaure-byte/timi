@@ -20,11 +20,11 @@ firebase_admin.initialize_app(cred, {
 db = firestore.client()
 
 AGENT_ROLES = [
-    ('scriptwriter', 'Scriptwriter', '#FF6B6B', 'idle', 'Waiting for next task'),
-    ('storyboard', 'Storyboard Artist', '#4ECDC4', 'idle', 'Waiting for next task'),
+    ('scriptwriter', 'Scriptwriter', '#e07040', 'idle', 'Waiting for next task'),
+    ('storyboard', 'Storyboard Artist', '#c060d0', 'idle', 'Waiting for next task'),
     ('voice', 'Voice Actor', '#FFD93D', 'idle', 'Waiting for next task'),
-    ('composer', 'Composer', '#A29BFE', 'idle', 'Waiting for next task'),
-    ('animator', 'Animator', '#00D2FF', 'idle', 'Waiting for next task'),
+    ('composer', 'Composer', '#8a50e8', 'idle', 'Waiting for next task'),
+    ('animator', 'Animator', '#c060d0', 'idle', 'Waiting for next task'),
     ('editor', 'Video Editor', '#F39C12', 'idle', 'Waiting for next task'),
     ('thumbnail', 'Thumbnail Creator', '#E056FD', 'idle', 'Waiting for next task'),
     ('metadata', 'Metadata Writer', '#22A6B3', 'idle', 'Waiting for next task'),

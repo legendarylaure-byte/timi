@@ -6,8 +6,8 @@ export const metadata: Metadata = {
   title: 'Vyom Ai Cloud — Timi',
   description: 'AI-powered tech educational video automation platform',
   icons: {
-    icon: '/favicon.svg',
-    apple: '/favicon.svg',
+    icon: [{ url: '/favicon.svg', type: 'image/svg+xml' }, { url: '/favicon.png', sizes: '32x32' }],
+    apple: '/favicon.png',
   },
 };
 

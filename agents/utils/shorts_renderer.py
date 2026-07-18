@@ -5,6 +5,7 @@ import shutil
 import tempfile
 from pathlib import Path
 from utils.subprocess_helper import register_temp_dir, safe_run_bool
+from utils.video_compositor import _subtitle_style_escaped
 
 logger = logging.getLogger(__name__)
 
@@ -93,7 +94,7 @@ def reformat_to_shorts(input_path: str, hook_text: str, output_path: str,
         f"drawtext=text='{hook_escaped}':"
         f"fontsize=42:fontcolor=white:box=1:boxcolor=black@0.5:"
         f"x=(w-text_w)/2:y=h*0.05:"
-        f"alpha=if(lt(t,{hook_duration}),t/{hook_duration},1):"
+        f"alpha=if(lt(t\\,{hook_duration})\\,t/{hook_duration}\\,1):"
         f"fontfile={os.getenv('FONT_PATH', '/System/Library/Fonts/Helvetica.ttc')}"
     )
 
@@ -102,9 +103,9 @@ def reformat_to_shorts(input_path: str, hook_text: str, output_path: str,
     cta_escaped = cta_text.replace("'", "\\'").replace(":", "\\:").replace("-", "\\-")
     cta_filter = (
         f"drawtext=text='{cta_escaped}':"
-        f"fontsize=38:fontcolor=white:box=1:boxcolor=#00CCCC@0.7:"
+        f"fontsize=38:fontcolor=white:box=1:boxcolor=#8a50e8@0.7:"
         f"x=(w-text_w)/2:y=(h-text_h)/2:"
-        f"alpha=if(lt(t,{cta_start + 1}),0,if(lt(t,{cta_start + 3}),(t-{cta_start})/2,1)):"
+        f"alpha=if(lt(t\\,{cta_start + 1})\\,0\\,if(lt(t\\,{cta_start + 3})\\,(t-{cta_start})/2\\,1)):"
         f"fontfile={os.getenv('FONT_PATH', '/System/Library/Fonts/Helvetica.ttc')}:"
         f"text_align=C:line_spacing=8"
     )
@@ -116,9 +117,7 @@ def reformat_to_shorts(input_path: str, hook_text: str, output_path: str,
         abs_sub = os.path.abspath(subtitle_path)
         subtitle_filter = (
             f",subtitles=filename='{abs_sub}':force_style="
-             f"'FontSize=28,PrimaryColour=&HFF0088CC&,OutlineColour=&H40002B00&,"
-            f"Outline=0,Shadow=0,BorderStyle=3,BackColour=&H40000000&,"
-            f"Alignment=2,MarginV=40,FontName=Arial'"
+            f"{_subtitle_style_escaped(20)}"
         )
 
     vf = f"{scale_filter},{hook_filter},{cta_filter},{quality_filters}{subtitle_filter}"
@@ -129,8 +128,8 @@ def reformat_to_shorts(input_path: str, hook_text: str, output_path: str,
         "-vf", vf,
         "-c:v", "libx264", "-preset", "medium", "-crf", "18",
         "-r", "24",
-        "-af", "compand=attacks=0.1:decays=0.3:points=-80/-80|-30/-18|-10/-5|0/-3:gain=3:volume=auto,"
-               "loudnorm=I=-16:LRA=11:TP=-1.5",
+        "-af", "acompressor=threshold=-18dB:ratio=2:attack=5:release=50,"
+               "loudnorm=I=-14:LRA=11:TP=-1",
         "-c:a", "aac", "-b:a", "192k",
         "-pix_fmt", "yuv420p", output_path,
     ]

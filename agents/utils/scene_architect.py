@@ -6,22 +6,7 @@ logger = logging.getLogger(__name__)
 
 ARCHITECT_MODE = os.getenv("SCENE_ARCHITECT_MODE", "advisory").lower()
 
-MANIM_TEMPLATE_KEYWORDS = {
-    "neural_network": ["neural", "network", "layer", "deep learning", "mlp", "perceptron", "neuron", "feedforward", "fully connected"],
-    "attention": ["attention", "qkv", "query", "key", "value", "self-attention", "multi-head", "attn"],
-    "transformer": ["transformer", "encoder", "decoder", "architecture", "block", "encoder-decoder", "bert", "gpt"],
-    "algorithm_flow": ["flow", "pipeline", "process", "step", "stage", "algorithm", "sequential", "workflow", "diagram"],
-    "bar_chart": ["chart", "graph", "comparison", "performance", "benchmark", "metric", "stat", "accuracy", "bar"],
-    "gradient_descent": ["gradient", "descent", "optimization", "loss surface", "convergence", "learning rate", "saddle", "minimum", "optimizer"],
-    "convolution": ["convolution", "conv", "kernel", "filter", "feature map", "cnn", "stride", "pooling", "convnet"],
-    "recurrent": ["recurrent", "rnn", "lstm", "gru", "sequence", "hidden state", "time step", "recurrence", "memory"],
-    "loss_landscape": ["loss", "landscape", "surface", "optimization path", "saddle point", "loss surface", "convergence", "gradient descent path", "minimum", "local minima"],
-    "embedding_space": ["embedding", "vector space", "word vector", "latent space", "embedding space", "dimensionality reduction", "projection", "semantic space", "representation"],
-    "decision_boundary": ["decision boundary", "classification", "classifier", "separating", "hyperplane", "binary classification", "class boundary", "logistic regression", "svm"],
-    "matrix_multiplication": ["matrix", "multiplication", "dot product", "linear algebra", "matrix multiply", "matmul", "tensor product", "matrix operation", "matrix product"],
-    "backpropagation": ["backpropagation", "backprop", "backward pass", "gradient flow", "chain rule", "gradient descent", "update weights", "weight update", "loss gradient"],
-    "probability_distribution": ["probability", "distribution", "gaussian", "normal distribution", "pdf", "density", "statistics", "likelihood", "bayesian", "sampling", "random variable"],
-}
+from crew.manim_agent import TEMPLATE_KEYWORDS as MANIM_TEMPLATE_KEYWORDS
 
 
 class SceneArchitectError(Exception):

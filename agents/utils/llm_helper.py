@@ -1,5 +1,6 @@
 import os
 import time
+import json as _json
 from pathlib import Path
 
 import httpx
@@ -9,9 +10,13 @@ from dotenv import load_dotenv
 load_dotenv(Path(__file__).resolve().parent.parent / '.env')
 
 _force_next_provider = False
+_gemini_cooldown_until = 0.0
 _ollama_verified = False
 _ollama_verified_at = 0.0
 _OLLAMA_CACHE_TTL = 60
+_consecutive_gemini_failures = 0
+_MAX_GEMINI_FAILURES = 3
+_GEMINI_COOLDOWN_SECONDS = 120
 
 AGENT_LLM_ROUTES = {}
 
@@ -32,7 +37,6 @@ _parse_agent_routes()
 
 
 def verify_ollama_model() -> bool:
-    """Check that the configured Ollama model is actually loaded (cached for 60s)."""
     global _ollama_verified, _ollama_verified_at
     now = time.monotonic()
     if _ollama_verified and (now - _ollama_verified_at) < _OLLAMA_CACHE_TTL:
@@ -59,16 +63,16 @@ def verify_ollama_model() -> bool:
 
 
 def force_fallback():
-    """Force the next get_llm() call to skip primary (Gemini) and use fallback (Ollama)."""
-    global _force_next_provider
+    global _force_next_provider, _gemini_cooldown_until
     _force_next_provider = True
-    print("[LLM] Forcing fallback — next LLM will skip Gemini and use Ollama")
+    _gemini_cooldown_until = time.monotonic() + _GEMINI_COOLDOWN_SECONDS
+    print(f"[LLM] Forcing fallback — Gemini cooldown for {_GEMINI_COOLDOWN_SECONDS}s, using Ollama")
 
 
 def reset_fallback():
-    """Reset the forced fallback flag. Call after each agent step completes."""
-    global _force_next_provider
+    global _force_next_provider, _gemini_cooldown_until
     _force_next_provider = False
+    _gemini_cooldown_until = 0.0
     print("[LLM] Fallback reset — Gemini will be primary again")
 
 
@@ -96,32 +100,77 @@ def _get_gemini_llm(temperature: float, max_tokens: int) -> LLM:
     )
 
 
+def _record_gemini_failure():
+    global _consecutive_gemini_failures
+    _consecutive_gemini_failures += 1
+    if _consecutive_gemini_failures >= _MAX_GEMINI_FAILURES:
+        print(f"[LLM] {_consecutive_gemini_failures} consecutive Gemini failures — forcing fallback to Ollama")
+        force_fallback()
+
+
+def _reset_gemini_failures():
+    global _consecutive_gemini_failures
+    _consecutive_gemini_failures = 0
+
+
 def _try_gemini_or_none(temperature: float, max_tokens: int) -> LLM | None:
-    """Try Gemini, return None if unavailable (ImportError, package missing, etc.)."""
     try:
-        return _get_gemini_llm(temperature, max_tokens)
-    except ImportError as e:
-        print(f"[LLM] Gemini unavailable ({e}), falling back to Ollama")
+        llm = _get_gemini_llm(temperature, max_tokens)
+        _reset_gemini_failures()
+        return llm
+    except Exception as e:
+        print(f"[LLM] Gemini unavailable: {e}")
+        _record_gemini_failure()
         return None
+
+
+def _get_routed_provider(agent_id: str | None) -> str | None:
+    if _force_next_provider:
+        return "ollama"
+    if agent_id and agent_id in AGENT_LLM_ROUTES:
+        return AGENT_LLM_ROUTES[agent_id]
+    if AGENT_LLM_ROUTES.get("*"):
+        return AGENT_LLM_ROUTES["*"]
+    return None
+
+
+def _gemini_on_cooldown() -> bool:
+    return time.monotonic() < _gemini_cooldown_until
 
 
 def get_llm(temperature: float = 0.7, max_tokens: int = 2000, agent_id: str = None) -> LLM:
     global _force_next_provider
 
-    routed_provider = AGENT_LLM_ROUTES.get(agent_id) if agent_id else None
+    if _force_next_provider:
+        print(f"[LLM] Fallback active — skipping Gemini")
+        if verify_ollama_model():
+            return _get_ollama_llm(temperature, max_tokens)
+        raise RuntimeError("Gemini on cooldown and Ollama unavailable")
+
+    routed_provider = _get_routed_provider(agent_id)
     if routed_provider:
-        print(f"[LLM] Agent '{agent_id}' routed to provider '{routed_provider}'")
+        print(f"[LLM] Agent '{agent_id or '*'}' routed to '{routed_provider}'")
         if routed_provider == "gemini":
+            if _gemini_on_cooldown():
+                print(f"[LLM] Gemini on cooldown, falling back to Ollama")
+                if verify_ollama_model():
+                    return _get_ollama_llm(temperature, max_tokens)
+                raise RuntimeError("Gemini on cooldown and Ollama unavailable")
             result = _try_gemini_or_none(temperature, max_tokens)
             if result:
                 return result
-            print("[LLM] Gemini routed but unavailable, falling through to Ollama")
+            print("[LLM] Gemini routed attempt failed, retrying once")
+            result = _try_gemini_or_none(temperature, max_tokens)
+            if result:
+                return result
+            print("[LLM] Gemini routed but unavailable, trying Ollama")
         elif routed_provider == "ollama":
-            return _get_ollama_llm(temperature, max_tokens)
+            if verify_ollama_model():
+                return _get_ollama_llm(temperature, max_tokens)
+            raise RuntimeError("Ollama routed but unavailable")
 
-    # Gemini is much faster than local Ollama on CPU — try it first unless forced to skip
     gemini_key = os.getenv("GEMINI_API_KEY", "")
-    if not _force_next_provider and gemini_key:
+    if not _force_next_provider and gemini_key and not _gemini_on_cooldown():
         result = _try_gemini_or_none(temperature, max_tokens)
         if result:
             return result
@@ -130,7 +179,7 @@ def get_llm(temperature: float = 0.7, max_tokens: int = 2000, agent_id: str = No
     if verify_ollama_model():
         return _get_ollama_llm(temperature, max_tokens)
 
-    if gemini_key:
+    if gemini_key and not _gemini_on_cooldown():
         result = _try_gemini_or_none(temperature, max_tokens)
         if result:
             return result

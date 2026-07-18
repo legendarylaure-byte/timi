@@ -1,13 +1,21 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" width="32" height="32">
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" width="64" height="64">
   <defs>
-    <linearGradient id="favGrad" x1="0%" y1="0%" x2="100%" y2="100%">
-      <stop offset="0%" style="stop-color:#FF6B6B"/>
-      <stop offset="100%" style="stop-color:#4ECDC4"/>
+    <linearGradient id="bg" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" style="stop-color:#1a1a2e"/>
+      <stop offset="100%" style="stop-color:#0f3460"/>
+    </linearGradient>
+    <linearGradient id="play" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" style="stop-color:#FF6969"/>
+      <stop offset="100%" style="stop-color:#C80036"/>
+    </linearGradient>
+    <linearGradient id="accent" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" style="stop-color:#4ECDC4"/>
+      <stop offset="100%" style="stop-color:#2BA89E"/>
     </linearGradient>
   </defs>
-  <rect x="1" y="1" width="30" height="30" rx="8" fill="url(#favGrad)"/>
-  <ellipse cx="16" cy="18" rx="9" ry="5" fill="white" opacity="0.9"/>
-  <ellipse cx="12" cy="16" rx="5" ry="4" fill="white" opacity="0.9"/>
-  <ellipse cx="20" cy="16" rx="5" ry="4" fill="white" opacity="0.9"/>
-  <polygon points="13,14 19,16.5 13,19" fill="#FF6B6B"/>
+  <rect x="1" y="1" width="62" height="62" rx="14" fill="url(#bg)"/>
+  <rect x="3" y="3" width="58" height="58" rx="12" fill="none" stroke="rgba(78,205,196,0.15)" stroke-width="1"/>
+  <polygon points="20,16 20,48 52,32" fill="url(#play)"/>
+  <circle cx="48" cy="14" r="6" fill="url(#accent)"/>
+  <circle cx="48" cy="14" r="2" fill="white"/>
 </svg>

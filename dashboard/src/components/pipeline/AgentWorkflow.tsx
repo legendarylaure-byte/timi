@@ -28,7 +28,7 @@ const WORKFLOW_STEPS = [
   { key: 'storyboard', label: 'Storyboard', icon: '🎨', color: '#4ECDC4' },
   { key: 'voice', label: 'Voice', icon: '🎙️', color: '#FFD93D' },
   { key: 'composer', label: 'Music', icon: '🎵', color: '#A29BFE' },
-  { key: 'animator', label: 'Animate', icon: '🎬', color: '#00D2FF' },
+  { key: 'animator', label: 'Animate', icon: '🎬', color: '#8a50e8' },
   { key: 'editor', label: 'Edit', icon: '✂️', color: '#F39C12' },
   { key: 'thumbnail', label: 'Thumbnail', icon: '🖼️', color: '#E056FD' },
   { key: 'publisher', label: 'Publish', icon: '🚀', color: '#7ED6DF' },

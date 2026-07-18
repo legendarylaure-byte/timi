@@ -11,6 +11,8 @@ from pydub import AudioSegment
 
 load_dotenv()
 
+_DEEP_LESSON_CATS = {"AI Foundations", "LLM Internals", "Training & Data", "AI Systems"}
+
 OUTPUT_DIR = Path(__file__).parent.parent / "output"
 OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
 
@@ -30,34 +32,13 @@ ASPECT_RATIOS = {
     "long": {"w": OUTPUT_W, "h": OUTPUT_H, "ar": "16:9"},
 }
 
-FFMPEG_XFADE_MAP = {
-    "dissolve": "dissolve",
-    "fade": "fade",
-    "slide_left": "slideleft",
-    "slide_right": "slideright",
-    "zoom": "zoompan",
-    "cut": "cut",
-    "circle_open": "circleopen",
-    "circle_close": "circleclose",
-    "pixelize": "pixelize",
-    "wipe_left": "wipeleft",
-    "wipe_right": "wiperight",
-    "wipe_up": "wipeup",
-    "wipe_down": "wipedown",
-    "smooth_left": "smoothleft",
-    "smooth_right": "smoothright",
-    "fade_gradual": "fadegradual",
-    "squeeze_h": "squeezeh",
-    "squeeze_v": "squeezev",
-}
 
 OUTPUT_FPS = 24
-CRF = "20"
+CRF = "18"
 
 logger = logging.getLogger(__name__)
 PRESET = "medium"
 
-SFX_VOLUME_DB = float(os.getenv("SFX_VOLUME_DB", "-12"))
 _AMBIENT_VOLUME_DB = float(os.getenv("AMBIENT_VOLUME_DB", "-24"))
 
 
@@ -107,25 +88,65 @@ def trim_clip(input_path: str, output_path: str, start: float = 0, duration: flo
 
 
 def _extend_clip(input_path: str, output_path: str, target_dur: float) -> bool:
-    """Loop a clip to fill target_dur seconds if it's shorter than requested."""
+    """Loop the LAST 2 seconds of a clip to fill target_dur.
+    Keeps the original clip unchanged, only loops the tail.
+    Caps extension at 1.5x original to avoid obvious looping artifacts.
+    """
+    from pathlib import Path
     current = _get_duration(input_path)
     if current >= target_dur - 0.5:
         return True
-    cmd = [
-        _ffmpeg_cmd(), "-y", "-stream_loop", "-1", "-i", input_path,
-        *_sws_flags(),
-        "-c:v", "libx264", "-preset", "fast", "-crf", CRF,
+    max_extend = current * 1.5
+    capped = min(target_dur, max_extend)
+    if capped < target_dur - 1.0:
+        return False
+
+    tail_dur = min(2.0, current * 0.3)
+    stem = Path(input_path).stem
+    tail_path = str(TEMP_DIR / f"tail_{stem}.mp4")
+
+    cmd_cut = [
+        _ffmpeg_cmd(), "-y", "-i", input_path,
+        *("-ss", str(max(0, current - tail_dur))),
+        "-c:v", "libx264", "-preset", PRESET, "-crf", CRF,
         "-r", str(OUTPUT_FPS),
-        "-t", str(target_dur),
-        "-pix_fmt", "yuv420p",
-        "-an", output_path,
+        "-pix_fmt", "yuv420p", "-an", tail_path,
     ]
-    return safe_run_bool(cmd, timeout=300)
+    if not safe_run_bool(cmd_cut, timeout=120):
+        return False
+
+    needed = capped - current
+    loop_path = str(TEMP_DIR / f"loop_{stem}.mp4")
+    cmd_loop = [
+        _ffmpeg_cmd(), "-y", "-stream_loop", "-1", "-i", tail_path,
+        "-c:v", "libx264", "-preset", PRESET, "-crf", CRF,
+        "-r", str(OUTPUT_FPS),
+        "-t", str(needed),
+        "-pix_fmt", "yuv420p", "-an", loop_path,
+    ]
+    if not safe_run_bool(cmd_loop, timeout=120):
+        return False
+
+    concat_list = str(TEMP_DIR / f"ext_concat_{stem}.txt")
+    with open(concat_list, "w") as f:
+        f.write(f"file '{input_path}'\n")
+        f.write(f"file '{loop_path}'\n")
+
+    cmd_cat = [
+        _ffmpeg_cmd(), "-y", "-f", "concat", "-safe", "0", "-i", concat_list,
+        *_sws_flags(),
+        "-c:v", "libx264", "-preset", PRESET, "-crf", CRF,
+        "-r", str(OUTPUT_FPS),
+        "-pix_fmt", "yuv420p", "-an", output_path,
+    ]
+    return safe_run_bool(cmd_cat, timeout=300)
 
 
-def resize_to_target(input_path: str, output_path: str, target_w: int, target_h: int) -> bool:
+def resize_to_target(input_path: str, output_path: str, target_w: int, target_h: int, duration: float = 0) -> bool:
     cmd = [
-        _ffmpeg_cmd(), "-y", "-i", input_path, *_sws_flags(),
+        _ffmpeg_cmd(), "-y",
+        *(["-loop", "1", "-t", str(duration)] if duration > 0 else []),
+        "-i", input_path, *_sws_flags(),
         "-vf", f"scale={target_w}:{target_h}:flags=lanczos:force_original_aspect_ratio=increase,crop={target_w}:{target_h}",
         "-c:v", "libx264", "-preset", PRESET, "-crf", CRF,
         "-r", str(OUTPUT_FPS), "-an", "-pix_fmt", "yuv420p", output_path,
@@ -196,23 +217,6 @@ def apply_ken_burns(input_path: str, output_path: str, target_w: int, target_h: 
     return resize_to_target(trim_path, output_path, target_w, target_h)
 
 
-MUSIC_FADE_MS = 800
-SFX_EMPHASIS_VOLUME_DB = -10
-
-
-def _generate_emphasis_tone(duration_ms: int = 200, freq: int = 440) -> AudioSegment:
-    import math
-    import array
-    sample_rate = 44100
-    n_samples = int(sample_rate * duration_ms / 1000)
-    samples = [int(8192 * math.sin(2 * math.pi * freq * t / sample_rate)) for t in range(n_samples)]
-    for t in range(min(50, n_samples)):
-        samples[t] = int(samples[t] * t / 50)
-        samples[-(t + 1)] = int(samples[-(t + 1)] * t / 50)
-    raw = array.array('h', samples).tobytes()
-    return AudioSegment(raw, frame_rate=sample_rate, sample_width=2, channels=1)
-
-
 def _generate_ambient_pad(duration_ms: int) -> AudioSegment:
     import math
     import random
@@ -232,19 +236,23 @@ def _generate_ambient_pad(duration_ms: int) -> AudioSegment:
 
 
 def mix_audio(voice_path: str, music_path: Optional[str], output_path: str,
-              voice_volume_db: float = 0, music_volume_db: float = -18,
-              duck_db: float = -6, sfx_scenes: Optional[list] = None,
+              voice_volume_db: float = 2, music_volume_db: float = -24,
+              duck_db: float = -8, sfx_scenes: Optional[list] = None,
               duration_ms: Optional[int] = None) -> bool:
     try:
         voice = AudioSegment.from_file(voice_path) + voice_volume_db
+        if len(voice) > 1000:
+            voice = voice.high_pass_filter(80).compress_dynamic_range(threshold=-16.0, ratio=2.5, attack=5.0, release=50.0)
         if duration_ms:
             voice = voice[:duration_ms]
 
         if music_path and os.path.exists(music_path):
             music_raw = (AudioSegment.from_file(music_path) + music_volume_db)
+            if len(music_raw) > 1000:
+                music_raw = music_raw.high_pass_filter(100).low_pass_filter(8000)
             music_raw = (music_raw * (len(voice) // len(music_raw) + 1))[:len(voice)]
-            if len(music_raw) > MUSIC_FADE_MS * 2:
-                music_raw = music_raw.fade_in(MUSIC_FADE_MS).fade_out(MUSIC_FADE_MS)
+            if len(music_raw) > 4000:
+                music_raw = music_raw.fade_in(3000).fade_out(4000)
             music_raw = _apply_ducking(music_raw, voice, duck_db=duck_db)
             mixed = voice.overlay(music_raw)
         else:
@@ -253,39 +261,6 @@ def mix_audio(voice_path: str, music_path: Optional[str], output_path: str,
         ambient_pad = _generate_ambient_pad(len(mixed))
         ambient_pad = ambient_pad + _AMBIENT_VOLUME_DB
         mixed = mixed.overlay(ambient_pad)
-
-        if sfx_scenes:
-            sfx_track = AudioSegment.silent(duration=len(mixed))
-            cumulative_ms = 0
-            emphasis_markers = []
-            for si, scene in enumerate(sfx_scenes):
-                dur = scene.get("duration", scene.get("target_duration", 8.0))
-                scene_sfx = scene.get("sfx", [])
-                for sfx in scene_sfx:
-                    sfx_path = sfx.get("path", "")
-                    if os.path.exists(sfx_path):
-                        try:
-                            sfx_audio = AudioSegment.from_file(sfx_path) + SFX_VOLUME_DB
-                            sfx_track = sfx_track.overlay(sfx_audio, position=cumulative_ms)
-                        except Exception:
-                            pass
-                scene_mood = scene.get("music_mood", "focused")
-                if scene_mood == "transition" or si > 0 and si % 3 == 0:
-                    emphasis_markers.append(cumulative_ms + int(dur * 500))
-                cumulative_ms += int(dur * 1000)
-
-            for pos_ms in emphasis_markers:
-                tone = _generate_emphasis_tone(120, 660)
-                tone = tone + SFX_EMPHASIS_VOLUME_DB
-                sfx_track = sfx_track.overlay(tone, position=min(pos_ms, len(sfx_track) - len(tone)))
-
-            if len(mixed) > 1000:
-                cta_pos = max(0, len(mixed) - 3000)
-                cta_tone = _generate_emphasis_tone(300, 880)
-                cta_tone = cta_tone.fade_in(50).fade_out(100) + SFX_EMPHASIS_VOLUME_DB
-                sfx_track = sfx_track.overlay(cta_tone, position=min(cta_pos, len(sfx_track) - len(cta_tone)))
-
-            mixed = mixed.overlay(sfx_track)
 
         if len(mixed) > 400:
             mixed = mixed.fade_in(300).fade_out(400)
@@ -344,7 +319,7 @@ def _process_clip(clip: dict, target_w: int, target_h: int, idx: int, format_typ
     if src.endswith(".mp4") and clip_size > 10000:
         trimmed = str(TEMP_DIR / f"kb_trim_{idx:03d}.mp4")
         # Skip leading dark frames (diffusion models produce near-black at boundaries)
-        lead = 0.3 if not clip.get("is_static", False) else 0
+        lead = 0.5 if not clip.get("is_static", False) else 0
         if not trim_clip(src, trimmed, lead, max(dur - lead, 1.0)):
             return None
         dur = dur - lead
@@ -365,10 +340,31 @@ def _process_clip(clip: dict, target_w: int, target_h: int, idx: int, format_typ
             if not apply_ken_burns(trimmed, out, target_w, target_h, dur, idx):
                 return None
     else:
-        if not resize_to_target(src, out, target_w, target_h):
+        if not resize_to_target(src, out, target_w, target_h, duration=dur):
             return None
 
     return out if os.path.exists(out) and os.path.getsize(out) > 1000 else None
+
+
+def _fade_in_first_clip(clip_path: str, idx: int, dur: float) -> str:
+    """Add a 0.5s fade-in from black on the first video clip."""
+    if idx != 0 or not clip_path or not os.path.exists(clip_path):
+        return clip_path
+    out = clip_path.replace(".mp4", "_fadein.mp4")
+    cmd = [
+        _ffmpeg_cmd(), "-y", "-i", clip_path,
+        "-vf", f"fade=t=in:st=0:d=0.5",
+        "-c:v", "libx264", "-preset", PRESET, "-crf", CRF,
+        "-c:a", "copy",
+        out
+    ]
+    try:
+        safe_run(cmd, timeout=60)
+        if os.path.exists(out) and os.path.getsize(out) > 1000:
+            return out
+    except Exception:
+        pass
+    return clip_path
 
 
 def _apply_camera_motion(input_path: str, output_path: str, target_w: int, target_h: int,
@@ -394,58 +390,43 @@ def _apply_camera_motion(input_path: str, output_path: str, target_w: int, targe
     return safe_run_bool(cmd, timeout=120)
 
 
-def _xfade_duration_for_scene(duration: float) -> float:
-    if duration < 5:
-        return 0.5
-    if duration > 15:
-        return 1.5
-    return 1.0
-
-
-def _build_xfade_filter(processed: list[str], transitions: list[str], durations: list[float],
-                        target_w: int = 1920, target_h: int = 1080) -> tuple[str, str]:
+def _build_fade_transition(processed: list[str], durations: list[float],
+                           target_w: int = 1920, target_h: int = 1080,
+                           fade_dur: float = 0.3) -> tuple[str, str]:
     n = len(processed)
     if n == 0:
         return "", ""
     if n == 1:
         return f"[0:v]format=yuv420p[out]", "out"
 
-    labels = []
     filter_parts = []
-    had_none = False
-
+    labels = []
     for i in range(n):
-        label = f"v{i}"
+        label = f"f{i}"
         labels.append(label)
-        filter_parts.append(
-            f"[{i}:v]fps={OUTPUT_FPS},scale={target_w}:{target_h}:flags=lanczos,"
-            f"format=yuv420p,setparams=color_primaries=bt709:color_trc=bt709:colorspace=bt709,"
-            f"setsar=1,settb=expr=1/{OUTPUT_FPS}[{label}]"
-        )
+        dur_sec = durations[i]
+        # Build filter chain: [i:v]fps=24,scale=...,format=...,setparams=...,[fades...],[label]
+        # NOTE: link labels ([i:v], [label]) must NOT have commas adjacent to them
+        chain = f"[{i}:v]fps={OUTPUT_FPS}"
+        chain += f",scale={target_w}:{target_h}:flags=lanczos"
+        chain += f",format=yuv420p"
+        chain += f",setparams=color_primaries=bt709:color_trc=bt709:colorspace=bt709"
+        if i > 0 and dur_sec > fade_dur:
+            chain += f",fade=t=in:start_time=0:d={fade_dur}:color=black"
+        if i < n - 1 and dur_sec > fade_dur:
+            fade_start = max(0, dur_sec - fade_dur)
+            chain += f",fade=t=out:start_time={fade_start}:d={fade_dur}:color=black"
+        chain += f"[{label}]"
+        filter_parts.append(chain)
 
-    prev_label = labels[0]
-    cumulative = durations[0]
-    for i in range(1, n):
-        raw = transitions[i] if i < len(transitions) else "dissolve"
-        if raw == "none":
-            had_none = True
-            out_label = prev_label
-            cumulative += durations[i]
-            continue
-        xfade = FFMPEG_XFADE_MAP.get(raw, "dissolve")
-        xfade_dur = _xfade_duration_for_scene(durations[i])
-        out_label = f"xf{i}"
-        offset = max(0, cumulative - xfade_dur)
-        filter_parts.append(
-            f"[{prev_label}][{labels[i]}]xfade=transition={xfade}:duration={xfade_dur}:offset={offset}[{out_label}]"
-        )
-        prev_label = out_label
-        cumulative += durations[i] - xfade_dur
+    # Concat all streams
+    concat_label = "concat_out"
+    filter_parts.append(
+        f"{''.join(f'[{l}]' for l in labels)}concat=n={n}:v=1:a=0[{concat_label}]"
+    )
 
     result = ";".join(filter_parts)
-    if had_none:
-        result = result.replace("none", "dissolve")
-    return result, prev_label
+    return result, concat_label
 
 
 def add_text_overlay(video_path: str, text: str, output_path: str,
@@ -467,14 +448,14 @@ def add_text_overlay(video_path: str, text: str, output_path: str,
 
 
 def add_animated_lower_third(video_path: str, text: str, output_path: str,
-                              fontsize: int = 22, color: str = "#00CCCC",
+                              fontsize: int = 22, color: str = "#8a50e8",
                               start_time: float = 0, duration: float = 5) -> bool:
     escaped = text.replace("'", "\\'").replace(":", "\\:").replace("-", "\\-")
     ts = start_time
     te = start_time + duration
     x_expr = (
-        f"if(lt(t,{ts}+0.3),-text_w+(w+text_w)*(t-{ts})/0.3,"
-        f"if(gte(t,{te}-0.3),(w-text_w)/2-(w+text_w)*(t-({te}-0.3))/0.3,"
+        f"if(lt(t\\,{ts}+0.3)\\,-text_w+(w+text_w)*(t-{ts})/0.3\\,"
+        f"if(gte(t\\,{te}-0.3)\\,(w-text_w)/2-(w+text_w)*(t-({te}-0.3))/0.3\\,"
         f"(w-text_w)/2))"
     )
     cmd = [
@@ -482,8 +463,8 @@ def add_animated_lower_third(video_path: str, text: str, output_path: str,
         "-vf",
         f"drawtext=text='{escaped}':fontsize={fontsize}:fontcolor={color}:"
         f"box=1:boxcolor=black@0.5:boxborderw=8:"
-        f"x={x_expr}:y=h-100:enable='between(t,{ts},{te})',"
-        f"drawbox=x=(w-text_w)/2-12:y=h-116:w=4:h=22:color={color}:enable='between(t,{ts}+0.3,{te}-0.3)'",
+        f"x={x_expr}:y=h-100:enable='between(t\\,{ts}\\,{te})',"
+        f"drawbox=x=(w-text_w)/2-12:y=h-116:w=4:h=22:color={color}:enable='between(t\\,{ts}+0.3\\,{te}-0.3)'",
         "-c:v", "libx264", "-preset", PRESET, "-crf", CRF,
         "-c:a", "copy", "-pix_fmt", "yuv420p", output_path,
     ]
@@ -506,15 +487,33 @@ def add_logo_overlay(video_path: str, logo_path: str, output_path: str,
     return safe_run_bool(cmd, timeout=120)
 
 
+def _subtitle_style_escaped(fontsize: int, margin_v: int = 60,
+                            primary: str = "&H00FFFFFF&",
+                            outline: str = "&H40000000&",
+                            border_style: int = 1,
+                            has_outline: int = 1,
+                            back_colour: str = "") -> str:
+    parts = [
+        f"FontSize={fontsize}",
+        f"PrimaryColour={primary}",
+        f"OutlineColour={outline}",
+        f"Outline={has_outline}",
+        "Shadow=0",
+        f"BorderStyle={border_style}",
+        f"Alignment=2",
+        f"MarginV={margin_v}",
+        "FontName=Arial",
+    ]
+    if back_colour:
+        parts.append(f"BackColour={back_colour}")
+    style = ",".join(parts)
+    return style.replace(",", "\\,")
+
+
 def burn_subtitles(video_path: str, subtitle_path: str, output_path: str,
                    fontsize: int = 32) -> bool:
     abs_sub = os.path.abspath(subtitle_path)
-    vf = (
-        f"subtitles=filename='{abs_sub}':force_style="
-        f"'FontSize={fontsize},PrimaryColour=&HFF0088CC&,OutlineColour=&H40002B00&,"
-        f"Outline=0,Shadow=0,BorderStyle=3,BackColour=&H40000000&,"
-        f"Alignment=2,MarginV=40,FontName=Arial'"
-    )
+    vf = f"subtitles=filename='{abs_sub}':force_style={_subtitle_style_escaped(fontsize, 40, '&HFF0088CC&', '&H40002B00&', 3, 0, '&H40000000&')}"
     cmd = [
         _ffmpeg_cmd(), "-y", "-i", video_path, *_sws_flags(),
         "-vf", vf,
@@ -663,6 +662,78 @@ def _apply_color_correction(source: str, output: str, target_hist: dict) -> bool
         return False
 
 
+def _extract_keyterms(scene: dict) -> list[str]:
+    """Extract key terms from a scene for animated text overlays."""
+    terms = scene.get("asset_keywords", [])
+    if isinstance(terms, str):
+        terms = [terms]
+    terms = list(filter(None, terms[:3]))
+    if not terms:
+        narration = scene.get("narration_text", "") or scene.get("text", "")
+        if isinstance(narration, str):
+            words = narration.split()
+            terms = [w for w in words if len(w) > 5 and w[0].isupper() and w.isalpha()][:2]
+    kw = scene.get("keyword", "")
+    if kw and kw not in terms:
+        terms.insert(0, kw)
+    return terms[:3]
+
+
+def _build_keyterm_filters(scenes: list[dict], clips: list[dict]) -> list[str]:
+    """Build drawtext filters for animated key-term overlays synced to scenes.
+    
+    Each key term appears at the top of the frame with a fade-in animation,
+    matching how 3Blue1Brown and Universal Resilience highlight concepts.
+    The first content scene (hook) gets a larger, more prominent treatment.
+    """
+    filters = []
+    first_content_idx = None
+    for i, s in enumerate(scenes):
+        if i >= len(clips):
+            break
+        terms = _extract_keyterms(s)
+        if not terms:
+            continue
+        if first_content_idx is None:
+            first_content_idx = i
+
+        ts = sum(c.get("duration", 8.0) for c in clips[:i])
+        dur = clips[i].get("duration", 8.0)
+        term_count = min(len(terms), 3)
+        spacing = max(2.5, dur / (term_count + 1))
+
+        is_hook = (i == first_content_idx)
+        font_size = 48 if is_hook else 36
+        font_color = "#e07040" if is_hook else "#8a50e8"
+        fade_in_dur = 0.8 if is_hook else 0.4
+
+        for j, term in enumerate(terms):
+            escaped = term.replace("'", "\\'").replace(":", "\\:").replace("-", "\\-")
+            appear = ts + spacing * j
+            hold = max(2.0, spacing - 0.8)
+            disappear = appear + fade_in_dur + hold
+            fade_out = 0.4
+            end = disappear + fade_out
+            x_expr = (
+                f"if(lt(t\\,{appear}+{fade_in_dur})\\,"
+                f"(-text_w-20)+(w+text_w+20)*(t-{appear})/{fade_in_dur}\\,"
+                f"if(lt(t\\,{disappear})\\,"
+                f"(w-text_w)/2\\,"
+                f"if(lt(t\\,{disappear}+{fade_out})\\,"
+                f"(w-text_w)/2*(1-(t-{disappear})/{fade_out})\\,"
+                f"-text_w-20)))"
+            )
+            y_expr = "h*0.10" if is_hook else "h*0.12"
+            filters.append(
+                f"drawtext=text='{escaped}':fontsize={font_size}:fontcolor={font_color}:"
+                f"x={x_expr}:y={y_expr}:"
+                f"borderw=2:bordercolor=#1e1e1e@0.8:"
+                f"enable='between(t\\,{appear}\\,{end})':"
+                f"fontfile=/System/Library/Fonts/Helvetica.ttc"
+            )
+    return filters
+
+
 def composite_video(clips: list[dict], voice_path: str, music_path: Optional[str] = None,
                     format_type: str = "shorts", video_id: str = "output",
                     subtitle_path: Optional[str] = None, chapters: Optional[list] = None,
@@ -694,6 +765,8 @@ def composite_video(clips: list[dict], voice_path: str, music_path: Optional[str
         print("[compositor] No clips to composite")
         return None
 
+    processed[0] = _fade_in_first_clip(processed[0], 0, durations[0] if durations else 8.0)
+
     if ENABLE_COLOR_GRADING:
         processed = _color_grade_scenes(processed, video_id, COLOR_GRADING_THRESHOLD)
 
@@ -701,12 +774,12 @@ def composite_video(clips: list[dict], voice_path: str, music_path: Optional[str
     if len(processed) == 1:
         combined_video = processed[0]
     elif force_concat:
-        print("[compositor] force_concat=True, skipping xfade")
+        print("[compositor] force_concat=True, skipping fade transition")
         combined_video = _concat_only(processed, video_id)
         if not combined_video:
             return None
     else:
-        filter_str, out_label = _build_xfade_filter(processed, transitions, durations, tw, th)
+        filter_str, out_label = _build_fade_transition(processed, durations, tw, th)
         inputs = []
         for p in processed:
             inputs.extend(["-i", p])
@@ -720,14 +793,12 @@ def composite_video(clips: list[dict], voice_path: str, music_path: Optional[str
         try:
             result = safe_run(cmd, timeout=600)
             if result.returncode != 0 or not os.path.exists(combined_video):
-                print(f"[compositor] Xfade failed (rc={result.returncode}), full stderr: {result.stderr[-500:]}")
-                print("[compositor] Falling back to concat")
+                print(f"[compositor] Fade transition failed (rc={result.returncode}), full stderr: {result.stderr[-500:]}")
                 combined_video = _concat_only(processed, video_id)
                 if not combined_video:
-                    print(f"[compositor] Concat also failed")
                     return None
         except Exception as e:
-            print(f"[compositor] Xfade error: {e}")
+            print(f"[compositor] Fade transition error: {e}, falling back to concat")
             combined_video = _concat_only(processed, video_id)
             if not combined_video:
                 return None
@@ -747,7 +818,7 @@ def composite_video(clips: list[dict], voice_path: str, music_path: Optional[str
         return None
 
     final_path = str(OUTPUT_DIR / f"{video_id}_{format_type}.mp4")
-    vf_parts = []
+    vf_parts = ["eq=saturation=1.25:contrast=1.1:brightness=0.15:gamma=1.3", "unsharp=5:5:0.8:3:3:0.4"]
 
     if scenes:
         for i, s in enumerate(scenes):
@@ -759,26 +830,35 @@ def composite_video(clips: list[dict], voice_path: str, music_path: Optional[str
                 ts = sum(c.get("duration", 8.0) for c in clips[:i])
                 te = ts + clips[i].get("duration", 8.0) - 0.5
                 x_expr = (
-                    f"if(lt(t,{ts}+0.3),-text_w+(w+text_w)*(t-{ts})/0.3,"
-                    f"if(gte(t,{te}-0.3),(w-text_w)/2-(w+text_w)*(t-({te}-0.3))/0.3,"
+                    f"if(lt(t\\,{ts}+0.3)\\,-text_w+(w+text_w)*(t-{ts})/0.3\\,"
+                    f"if(gte(t\\,{te}-0.3)\\,(w-text_w)/2-(w+text_w)*(t-({te}-0.3))/0.3\\,"
                     f"(w-text_w)/2))"
                 )
                 vf_parts.append(
-                    f"drawtext=text='{escaped}':fontsize=20:fontcolor=#00CCCC:box=1:boxcolor=black@0.4:"
-                    f"boxborderw=6:x={x_expr}:y=h-130:enable='between(t,{ts},{te})'"
+                    f"drawtext=text='{escaped}':fontsize=20:fontcolor=#8a50e8:box=1:boxcolor=black@0.4:"
+                    f"boxborderw=6:x={x_expr}:y=h-130:enable='between(t\\,{ts}\\,{te})'"
                 )
+
+        # Key-term text overlays — show important terms animated on screen
+        vf_parts.extend(_build_keyterm_filters(scenes, clips))
 
     if subtitle_path and os.path.exists(subtitle_path):
         abs_sub = os.path.abspath(subtitle_path)
-        sub_fs = 24
+        is_deep = category in (_DEEP_LESSON_CATS if _DEEP_LESSON_CATS else set())
+        sub_fs = 26 if is_deep else 22
+        margin_v = 90 if is_deep else 80
         vf_parts.append(
             f"subtitles=filename='{abs_sub}':force_style="
-            f"'FontSize={sub_fs},PrimaryColour=&HFF0088CC&,OutlineColour=&H40002B00&,"
-            f"Outline=0,Shadow=0,BorderStyle=3,BackColour=&H40000000&,"
-            f"Alignment=2,MarginV=40,FontName=Arial'"
+            f"{_subtitle_style_escaped(sub_fs, margin_v, '&H00CCFFCC&', '&H80000000&')}"
         )
 
-    vf_parts.extend(["eq=saturation=1.25:contrast=1.1", "unsharp=5:5:0.8:3:3:0.4"])
+    if os.getenv("ENABLE_WATERMARK", "true").lower() == "true":
+        vf_parts.append(
+            "drawtext=text='Vyom AI':fontsize=16:fontcolor=#1C758A@0.6:"
+            "x=w-tw-20:y=20:box=1:boxcolor=black@0.5:boxborderw=4:"
+            "enable='gte(t,5)'"
+        )
+
     vf_filter = ",".join(vf_parts)
 
     cmd = [
@@ -788,15 +868,16 @@ def composite_video(clips: list[dict], voice_path: str, music_path: Optional[str
     cmd += [
         "-c:v", "libx264", "-preset", PRESET, "-crf", CRF,
         "-r", str(OUTPUT_FPS),
-        "-af", "compand=attacks=0.1:decays=0.3:points=-80/-80|-30/-18|-10/-5|0/-3:gain=3,loudnorm=I=-16:LRA=11:TP=-1.5",
+        "-af", "acompressor=threshold=-18dB:ratio=2:attack=5:release=50,loudnorm=I=-14:LRA=11:TP=-1",
         "-c:a", "aac", "-b:a", "192k", "-shortest", "-pix_fmt", "yuv420p", final_path,
     ]
     try:
+        print(f"[compositor] Final mux cmd: {' '.join(str(a) for a in cmd)}")
         result = safe_run(cmd, timeout=300)
         if result.returncode == 0 and os.path.exists(final_path):
             print(f"[compositor] Final video: {final_path} ({os.path.getsize(final_path)} bytes)")
             return final_path
-        print(f"[compositor] Final mux error: {result.stderr[-200:]}")
+        print(f"[compositor] Final mux rc={result.returncode}, stderr: {result.stderr[-500:]}")
     except Exception as e:
         print(f"[compositor] Final mux error: {e}")
     return None

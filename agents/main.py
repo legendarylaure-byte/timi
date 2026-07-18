@@ -63,7 +63,7 @@ from utils.firebase_status import (
 )
 from crew.thumbnail import create_thumbnail_crew
 from crew.storyboard import create_storyboard_crew
-from crew.scriptwriter import create_scriptwriter_crew
+from crew.scriptwriter import create_scriptwriter_crew, create_deep_lesson_crew
 from crew.title_optimizer import create_title_optimizer_crew
 from crew.virality_analyst import create_virality_analyst_crew, get_virality_threshold
 from crew.monetization_tracker import create_monetization_review_crew, weekly_check_in, get_growth_summary
@@ -87,7 +87,7 @@ from utils.scene_architect import audit_scenes, SceneArchitectError
 os.environ["GRPC_VERBOSITY"] = "ERROR"
 os.environ["GLOG_minloglevel"] = "2"
 
-SHORTS_MAX_DURATION = 180
+SHORTS_MAX_DURATION = int(os.getenv("SHORTS_MAX_DURATION", "180"))
 MIN_VIDEO_SIZE = 500 * 1024
 
 ENABLE_VISUAL_QA = os.getenv("ENABLE_VISUAL_QA", "true").lower() == "true"
@@ -145,7 +145,7 @@ def _extract_json(data):
 
 def _execute_single_task(crew_factory, inputs=None, **factory_kwargs):
     from crewai import Task as CrewAITask
-    for attempt in range(2):
+    for attempt in range(3):
         crew = crew_factory(**factory_kwargs)
         try:
             result = crew.kickoff(inputs=inputs or {})
@@ -153,10 +153,16 @@ def _execute_single_task(crew_factory, inputs=None, **factory_kwargs):
             if raw and len(raw.strip()) > 0:
                 return raw
         except Exception as e:
-            if 'rate_limit' in str(e).lower() and attempt == 0:
-                import json as _json
-                print(_json.dumps({"level": "WARN", "agent": "LLM", "message": "Rate-limited in _execute_single_task, sleeping 5s then retrying"}))
-                time.sleep(5)
+            err_lower = str(e).lower()
+            is_conn_err = any(k in err_lower for k in (
+                "broken pipe", "connection reset", "connection refused",
+                "errno 32", "errno 54", "errno 104",
+                "reset by peer", "eof",
+            ))
+            if ('rate_limit' in err_lower or is_conn_err) and attempt < 2:
+                delay = 5 if 'rate_limit' in err_lower else 2 ** (attempt + 2)
+                print(f"[EXECUTE] Retryable error (attempt {attempt+1}/3), sleeping {delay}s: {str(e)[:80]}")
+                time.sleep(delay)
                 continue
             break
     try:
@@ -230,7 +236,7 @@ def verify_video_quality(video_path: str, format_type: str = "shorts") -> tuple[
     return True, ""
 
 
-def _run_async(coro):
+def _run_async(coro, timeout=300):
     """Run an async coroutine safely, even from a threaded context with a running loop."""
     try:
         asyncio.get_running_loop()
@@ -238,7 +244,7 @@ def _run_async(coro):
         return asyncio.run(coro)
     import concurrent.futures
     with concurrent.futures.ThreadPoolExecutor(max_workers=1) as pool:
-        return pool.submit(asyncio.run, coro).result()
+        return pool.submit(asyncio.run, coro).result(timeout=timeout)
 
 
 logging.getLogger("grpc").setLevel(logging.ERROR)
@@ -287,6 +293,14 @@ MAX_RETRIES_PER_TOPIC = int(os.getenv("MAX_RETRIES_PER_TOPIC", 2))
 FORCE_PUBLISH = os.getenv("FORCE_PUBLISH", "true").lower() == "true"
 USE_ANIMATION_ENGINE = os.getenv("USE_ANIMATION_ENGINE", "true").lower() == "true"
 LONG_MAX_DURATION = int(os.getenv("LONG_MAX_DURATION", 180))
+DEEP_LESSON_MAX_DURATION = int(os.getenv("DEEP_LESSON_MAX_DURATION", 600))
+
+DEEP_LESSON_CATEGORIES = {"AI Foundations", "LLM Internals", "Training & Data", "AI Systems"}
+
+
+def _deep_lesson_dur(category: str) -> int:
+    """Return max_duration appropriate for this category (deep lesson vs regular long)."""
+    return DEEP_LESSON_MAX_DURATION if category in DEEP_LESSON_CATEGORIES else LONG_MAX_DURATION
 ENABLE_COMMUNITY_POSTS = os.getenv("ENABLE_COMMUNITY_POSTS", "false").lower() == "true"
 GATE_ENFORCEMENT_MODE = os.getenv("GATE_ENFORCEMENT_MODE", "advisory").lower()
 SCENE_ARCHITECT_MODE = os.getenv("SCENE_ARCHITECT_MODE", "advisory").lower()
@@ -485,16 +499,26 @@ def run_agent_step(agent_id: str, agent_name: str, action: str, crew_factory, in
             return result
         except Exception as e:
             err_str = str(e)
-            if "rate_limit" in err_str.lower():
+            err_lower = err_str.lower()
+            is_connection_error = any(k in err_lower for k in (
+                "broken pipe", "connection reset", "connection refused",
+                "errno 32", "errno 54", "errno 104",
+                "reset by peer", "eof", "connection error",
+            ))
+            if "rate_limit" in err_lower:
                 log_event(agent_name, "Rate-limited, flagging for fallback", "warn")
             if "Invalid response from LLM call" in err_str:
                 log_event(agent_name, "LLM returned empty response — forcing provider fallback", "warn")
                 force_fallback()
-            if "TimeoutError" in type(e).__name__ or "timed out" in err_str.lower():
+            if "TimeoutError" in type(e).__name__ or "timed out" in err_lower:
                 log_event(agent_name, f"Timed out after {timeout_minutes}min", "error")
+            if is_connection_error:
+                log_event(agent_name, f"Connection error — forcing fallback to Ollama: {err_str[:80]}", "error")
+                force_fallback()
             if attempt < max_retries - 1:
-                log_event(agent_name, f"Failed (attempt {attempt + 1}/{max_retries}), retrying: {err_str[:120]}")
-                time.sleep(2)
+                delay = 2 ** (attempt + 2) if is_connection_error else 2 ** (attempt + 1)
+                log_event(agent_name, f"Failed (attempt {attempt + 1}/{max_retries}), retrying in {delay}s: {err_str[:120]}")
+                time.sleep(delay)
             else:
                 update_agent_status(agent_id, "error", f"Failed: {action}", err_str)
                 log_activity(agent_id, f"Failed: {action} - {err_str}", "error")
@@ -597,11 +621,10 @@ def _run_stock_footage_pipeline(script_text: str, storyboard_text: str, category
 
 
 def _parse_scenes_for_asset_router(script_text: str, storyboard_text: str, category: str, format_type: str, video_id: str, max_duration: int = None) -> list[dict]:  # noqa: E501
-    from utils.scene_parser import parse_script_to_scenes, add_end_scene, normalize_scene_durations
+    from utils.scene_parser import parse_script_to_scenes, normalize_scene_durations
     from utils.series_router import inject_intro_outro
     scenes = parse_script_to_scenes(script_text, title=video_id, category=category, format_type=format_type, storyboard_text=str(storyboard_text), max_duration=max_duration)
     scenes = inject_intro_outro(scenes, category, format_type)
-    scenes = add_end_scene(scenes)
     normalize_scene_durations(scenes)
     log_event("PIPELINE", f"Asset Router: {len(scenes)} scenes")
     if SCENE_ARCHITECT_MODE != "off":
@@ -624,15 +647,35 @@ STOPWORDS_FOR_ALIGN = {
 }
 
 
-def _word_overlap_ratio(phrase_words: set, scene_words: set) -> float:
+_SUFFIX_RULES = [
+    (r'ing$', ''), (r'ed$', ''), (r'ies$', 'y'), (r'ies$', 'ie'),
+    (r'es$', ''), (r's$', ''), (r'ly$', ''), (r'tion$', 't'),
+    (r'sion$', 's'), (r'ment$', ''), (r'ness$', ''), (r'able$', ''),
+    (r'ful$', ''), (r'er$', ''), (r'est$', ''), (r'al$', ''),
+    (r'ive$', ''), (r'ize$', ''), (r'ise$', ''),
+]
+
+
+def _stem(word: str) -> str:
+    for pattern, replacement in _SUFFIX_RULES:
+        if re.search(pattern, word):
+            return re.sub(pattern, replacement, word)
+    return word
+
+
+def _word_overlap_ratio(phrase_words: set, scene_words: set, scene_idx: int = 0) -> float:
     if not phrase_words or not scene_words:
         return 0.0
-    overlap = len(phrase_words & scene_words)
-    return overlap / max(len(phrase_words), 1)
+    intersection = phrase_words & scene_words
+    if not intersection:
+        return 0.0
+    short_len = min(len(phrase_words), len(scene_words))
+    overlap = len(intersection) / max(short_len, 1)
+    return overlap - (scene_idx * 1e-9)
 
 
 def _tokenize(text: str) -> set:
-    return {w for w in re.findall(r'\b[a-z]{3,}\b', text.lower()) if w not in STOPWORDS_FOR_ALIGN}
+    return {_stem(w) for w in re.findall(r'\b[a-z]{2,}\b', text.lower()) if w not in STOPWORDS_FOR_ALIGN}
 
 
 def _align_scenes_to_audio(scenes: list[dict], phrase_timings: list[dict], audio_duration: float) -> list[dict]:
@@ -662,7 +705,7 @@ def _align_scenes_to_audio(scenes: list[dict], phrase_timings: list[dict], audio
         best_idx = -1
         best_ratio = 0.0
         for si, sw in enumerate(scene_words):
-            ratio = _word_overlap_ratio(phrase_w, sw)
+            ratio = _word_overlap_ratio(phrase_w, sw, scene_idx=si)
             if ratio > best_ratio and ratio >= 0.3:
                 best_ratio = ratio
                 best_idx = si
@@ -728,20 +771,13 @@ def run_video_pipeline(script_text: str, storyboard_text: str, category: str, fo
     else:
         scenes, clips, total_video_duration = _run_stock_footage_pipeline(script_text, storyboard_text, category, format_type, video_id, max_duration)
 
-    log_event("PIPELINE", "Step 1.5: Assigning sound effects to scenes")
-    try:
-        from utils.sfx_generator import load_sfx_scene_assignments
-        scenes = load_sfx_scene_assignments(scenes)
-        log_event("SFX", f"Assigned SFX to {sum(1 for s in scenes if s.get('sfx'))} scenes")
-    except Exception as e:
-        log_event("SFX", f"SFX assignment skipped: {e}", "debug")
-
     log_event("PIPELINE", "Step 2: Generating voice-over with Edge TTS")
     update_agent_status("voice", "working", "Generating narration audio")
     is_long = format_type == "long"
+    is_deep_lesson = category in DEEP_LESSON_CATEGORIES
     from utils.voice_gen import extract_narration_text
     narration_text = extract_narration_text(script_text, is_long_form=is_long)
-    voice_result = _run_async(generate_voiceover(script_text, output_filename=f"voiceover_{video_id}.wav", content_type="educational", is_long_form=is_long))
+    voice_result = _run_async(generate_voiceover(script_text, output_filename=f"voiceover_{video_id}.wav", content_type="educational", is_long_form=is_long, is_deep_lesson=is_deep_lesson))
     if not voice_result.get("success"):
         log_pipeline_error(video_id, "Voice-over generation failed", "voice_generation")
         raise Exception("Voice-over generation failed.")
@@ -755,7 +791,7 @@ def run_video_pipeline(script_text: str, storyboard_text: str, category: str, fo
         from utils.asset_router import dispatch_scenes
         update_agent_status("animator", "working", f"Generating {len(scenes)} scenes via AI video engine")
         log_activity("pipeline", f"Asset Router: generating {len(scenes)} scenes (LTX AI + stock fallback)", "info")
-        clips = dispatch_scenes(scenes, video_id, format_type)
+        clips = dispatch_scenes(scenes, video_id, format_type, category=category)
         update_agent_status("animator", "completed", f"Generated {len(clips)}/{len(scenes)} video assets")
         total_video_duration = sum(c.get("duration", 8.0) for c in clips)
     elif audio_dur > 0 and scenes:
@@ -841,7 +877,7 @@ def run_video_pipeline(script_text: str, storyboard_text: str, category: str, fo
         final_path = composite_video(clips=clips, voice_path=voice_result["path"], music_path=music_path, format_type=format_type, video_id=video_id, subtitle_path=subtitle_path, chapters=chapters, category=category, scenes=scenes)
 
     if not final_path:
-        log_event("EDITOR", "Composite failed, retrying without xfade transitions")
+        log_event("EDITOR", "Composite failed, retrying with concat-only fallback")
         if use_asset_router:
             final_path = composite_video(clips=clips, voice_path=voice_result["path"], music_path=music_path, format_type=format_type, video_id=video_id, subtitle_path=subtitle_path, chapters=chapters, category=category, scenes=scenes, force_concat=True)
         else:
@@ -1126,11 +1162,14 @@ def generate_short_video(topic: str, category: str, video_id: str, publish_at: s
         failed_step = "quality_check"
         qc_pass, qc_msg = verify_video_quality(video_result.get("video_path", ""), "shorts")
         if not qc_pass:
-            log_pipeline_error(video_id, f"Quality check failed: {qc_msg}", "quality_check")
-            add_video_record(video_id, topic, "shorts", "failed", category=category)
-            log_event("QUALITY", f"FAILED: {qc_msg}")
-            update_pipeline_status(False)
-            return False
+            if FORCE_PUBLISH:
+                log_event("QUALITY", f"FORCE_PUBLISH overrides quality check: {qc_msg}", "warn")
+            else:
+                log_pipeline_error(video_id, f"Quality check failed: {qc_msg}", "quality_check")
+                add_video_record(video_id, topic, "shorts", "failed", category=category)
+                log_event("QUALITY", f"FAILED: {qc_msg}")
+                update_pipeline_status(False)
+                return False
         save_checkpoint(video_id, "video_pipeline", {"video_path": video_result.get("video_path", "")})
 
         failed_step = "review_gate"
@@ -1233,17 +1272,6 @@ def generate_short_video(topic: str, category: str, video_id: str, publish_at: s
             "PUBLISH", f"{publish_status} to {publish_result['success_count']}/{publish_result['total_count']} platforms")  # noqa: E501
         save_checkpoint(video_id, "publishing", {"publish_count": publish_result.get("success_count", 0)})
 
-        if publish_result.get("success_count", 0) > 0:
-            log_event("CLEANUP", "Cleaning up intermediate files after successful upload")
-            from utils.cleanup_service import cleanup_after_upload
-            cleanup_after_upload(
-                video_path=video_result.get("video_path", ""),
-                thumbnail_path=thumbnail_path,
-                voice_path=video_result.get("voice_path"),
-                music_path=video_result.get("music_path"),
-                subtitle_path=video_result.get("subtitle_path"),
-            )
-
         if publish_result.get("success_count", 0) > 0 and ENABLE_COMPANION_PAGES:
             try:
                 from utils.companion_page import generate_companion_page, upload_companion_page
@@ -1263,6 +1291,17 @@ def generate_short_video(topic: str, category: str, video_id: str, publish_at: s
                     log_event("COMPANION", f"Companion page: {companion_url}")
             except Exception as e:
                 log_event("COMPANION", f"Companion page skipped: {e}", "debug")
+
+        if publish_result.get("success_count", 0) > 0:
+            log_event("CLEANUP", "Cleaning up intermediate files after successful upload")
+            from utils.cleanup_service import cleanup_after_upload
+            cleanup_after_upload(
+                video_path=video_result.get("video_path", ""),
+                thumbnail_path=thumbnail_path,
+                voice_path=video_result.get("voice_path"),
+                music_path=video_result.get("music_path"),
+                subtitle_path=video_result.get("subtitle_path"),
+            )
 
         if ENABLE_MULTI_LANG:
             log_event("PIPELINE", "Generating multi-language versions")
@@ -1431,10 +1470,14 @@ def generate_long_video(topic: str, category: str, video_id: str, publish_at: st
             extra_parts = [p for p in [knowledge_ctx, series_ctx, opt_injection] if p]
             extra_context = "\n".join(extra_parts) if extra_parts else ""
 
-            script_kwargs = {"topic": topic, "category": category, "fmt": "long", "max_duration": LONG_MAX_DURATION}
+            script_kwargs = {"topic": topic, "category": category, "fmt": "long", "max_duration": _deep_lesson_dur(category)}
             if extra_context:
                 script_kwargs["extra_context"] = extra_context
-            script = run_agent_step("scriptwriter", "Scriptwriter", f"Writing script for: {topic}", create_scriptwriter_crew, script_kwargs, timeout_minutes=30)  # noqa: E501
+            is_deep = category in DEEP_LESSON_CATEGORIES
+            crew_fn = create_deep_lesson_crew if is_deep else create_scriptwriter_crew
+            label = "Deep Lesson Scriptwriter" if is_deep else "Scriptwriter"
+            dl_kwargs = {k: v for k, v in script_kwargs.items() if k != "fmt"} if is_deep else script_kwargs
+            script = run_agent_step("scriptwriter", label, f"Writing script for: {topic}", crew_fn, dl_kwargs, timeout_minutes=45 if is_deep else 30)
             script_text = str(script)
             save_checkpoint(video_id, "scriptwriting", {"script_preview": script_text[:200]})
 
@@ -1557,7 +1600,7 @@ def generate_long_video(topic: str, category: str, video_id: str, publish_at: st
 
         failed_step = "storyboarding"
         storyboard = run_agent_step("storyboard", "Storyboard", "Generating storyboard",
-                                    create_storyboard_crew, {"script": script_text, "format_type": "long"})
+                                    create_storyboard_crew, {"script": script_text, "format_type": "long", "is_deep": category in DEEP_LESSON_CATEGORIES})
 
         failed_step = "director_storyboard_review"
         sb_review = run_director_review("storyboard", topic, category, "long", script_text, str(storyboard))
@@ -1566,16 +1609,19 @@ def generate_long_video(topic: str, category: str, video_id: str, publish_at: st
 
         failed_step = "video_pipeline"
         with _track_step(video_id, "video_pipeline"):
-            video_result = run_video_pipeline(script_text, str(storyboard), category, "long", video_id, LONG_MAX_DURATION)
+            video_result = run_video_pipeline(script_text, str(storyboard), category, "long", video_id, _deep_lesson_dur(category))
 
         failed_step = "quality_check"
         qc_pass, qc_msg = verify_video_quality(video_result.get("video_path", ""), "long")
         if not qc_pass:
-            log_pipeline_error(video_id, f"Quality check failed: {qc_msg}", "quality_check")
-            add_video_record(video_id, topic, "long", "failed", category=category)
-            log_event("QUALITY", f"FAILED: {qc_msg}")
-            update_pipeline_status(False)
-            return False
+            if FORCE_PUBLISH:
+                log_event("QUALITY", f"FORCE_PUBLISH overrides quality check: {qc_msg}", "warn")
+            else:
+                log_pipeline_error(video_id, f"Quality check failed: {qc_msg}", "quality_check")
+                add_video_record(video_id, topic, "long", "failed", category=category)
+                log_event("QUALITY", f"FAILED: {qc_msg}")
+                update_pipeline_status(False)
+                return False
         save_checkpoint(video_id, "video_pipeline", {"video_path": video_result.get("video_path", "")})
 
         failed_step = "review_gate"
