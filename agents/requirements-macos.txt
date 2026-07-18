@@ -1,0 +1,6 @@
+# macOS-only dependencies (Apple Silicon MLX/LTX video generation)
+# Install with: pip install -r requirements-macos.txt
+mlx>=0.31.0
+ltx-core-mlx>=0.14.14
+ltx-pipelines-mlx>=0.14.14
+mlx-arsenal>=0.2.4
