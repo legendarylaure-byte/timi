@@ -2,7 +2,7 @@ import os
 import time
 import threading
 from google import genai
-from google.genai import types
+from google.genai import types as genai_types
 from crewai.llm import LLM
 
 
@@ -40,7 +40,7 @@ class GeminiLLM(LLM):
         self._model_name = model
         self._temperature = temperature
         self._max_tokens = max_tokens
-        self._client = genai.Client(api_key=api_key)
+        self._client = genai.Client(api_key=api_key, http_options=genai_types.HttpOptions(timeout=300000))
         super().__init__(model=model, api_key=api_key, temperature=temperature, max_tokens=max_tokens, **kwargs)
 
     def call(self, messages, callbacks=None):
@@ -67,12 +67,11 @@ class GeminiLLM(LLM):
                 response = self._client.models.generate_content(
                     model=self._model_name,
                     contents=prompt,
-                    config=types.GenerateContentConfig(
+                    config=genai_types.GenerateContentConfig(
                         system_instruction=system_instruction or None,
                         temperature=self._temperature,
                         max_output_tokens=self._max_tokens,
                     ),
-                    timeout=300,
                 )
                 with _GEMINI_RATE_LOCK:
                     _GEMINI_RATE_LOG.append(time.monotonic())
