@@ -1,0 +1,90 @@
+- generic [active] [ref=e1]:
+  - generic [ref=e2]:
+    - button "Toggle theme" [ref=e4] [cursor=pointer]: 🌙
+    - navigation [ref=e5]:
+      - generic [ref=e6]:
+        - img "Vyom Ai Cloud" [ref=e7]
+        - generic [ref=e8]: Vyom Ai Cloud
+      - generic [ref=e9]:
+        - link "Features" [ref=e10] [cursor=pointer]:
+          - /url: "#features"
+        - link "How It Works" [ref=e11] [cursor=pointer]:
+          - /url: "#how-it-works"
+      - button "Go to Dashboard" [ref=e130] [cursor=pointer]
+    - generic [ref=e16]:
+      - img "Vyom Ai Cloud" [ref=e18]
+      - heading "AI-Powered Video Automation for Educational Creators" [level=1] [ref=e19]: AI-Powered Video Automationfor Educational Creators
+      - paragraph [ref=e20]: From script to published video across YouTube, TikTok, Instagram, and Facebook —all powered by 9 AI agents working together.
+      - button "Go to Dashboard" [ref=e131] [cursor=pointer]
+    - generic [ref=e28]:
+      - generic [ref=e29]:
+        - generic [ref=e30]: 500+
+        - generic [ref=e31]: Active Users
+      - generic [ref=e32]:
+        - generic [ref=e33]: 10K+
+        - generic [ref=e34]: Videos Published
+      - generic [ref=e35]:
+        - generic [ref=e36]: "4"
+        - generic [ref=e37]: Platforms Supported
+      - generic [ref=e38]:
+        - generic [ref=e39]: "9"
+        - generic [ref=e40]: AI Agents
+    - generic [ref=e41]:
+      - heading "Everything You Need" [level=2] [ref=e42]
+      - paragraph [ref=e43]: A complete content creation pipeline — from ideation to publication.
+      - generic [ref=e44]:
+        - generic [ref=e45]:
+          - heading "9 AI Agents" [level=3] [ref=e50]
+          - paragraph [ref=e51]: Scriptwriting, video generation, voiceover, and publishing — all automated.
+        - generic [ref=e52]:
+          - heading "AI Video Generation" [level=3] [ref=e56]
+          - paragraph [ref=e57]: Text-to-video with LTX, Manim animations, and intelligent scene composition.
+        - generic [ref=e58]:
+          - heading "Multi-Platform Publishing" [level=3] [ref=e63]
+          - paragraph [ref=e64]: YouTube, TikTok, Instagram, Facebook — one pipeline, all platforms.
+        - generic [ref=e65]:
+          - heading "AI Voice & Music" [level=3] [ref=e71]
+          - paragraph [ref=e72]: Natural TTS voiceovers with 9 languages and AI-generated background music.
+        - generic [ref=e73]:
+          - heading "Trend Discovery" [level=3] [ref=e77]
+          - paragraph [ref=e78]: AI-powered topic research and hook optimization for maximum reach.
+        - generic [ref=e79]:
+          - heading "Fully Automated" [level=3] [ref=e84]
+          - paragraph [ref=e85]: Schedule daily content. From script to published video, hands-free.
+    - generic [ref=e86]:
+      - heading "How It Works" [level=2] [ref=e87]
+      - paragraph [ref=e88]: Set up once. Generate content daily. Publish everywhere.
+      - generic [ref=e89]:
+        - generic [ref=e90]:
+          - generic [ref=e91]: "01"
+          - heading "Connect" [level=3] [ref=e92]
+          - paragraph [ref=e93]: Link your YouTube, TikTok, Instagram, and Facebook accounts via OAuth.
+        - generic [ref=e94]:
+          - generic [ref=e95]: "02"
+          - heading "Configure" [level=3] [ref=e96]
+          - paragraph [ref=e97]: Set your content preferences, categories, and publishing schedule.
+        - generic [ref=e98]:
+          - generic [ref=e99]: "03"
+          - heading "Automate" [level=3] [ref=e100]
+          - paragraph [ref=e101]: AI generates, edits, and publishes videos daily — hands-free.
+    - generic [ref=e103]:
+      - generic [ref=e104]: Google Auth
+      - generic [ref=e107]: 100% Free
+      - generic [ref=e111]: Encrypted
+    - generic [ref=e116]:
+      - heading "Ready to Automate Your Content?" [level=2] [ref=e117]
+      - paragraph [ref=e118]: Join 500+ creators using Vyom Ai Cloud to publish daily without lifting a finger.
+      - button "Go to Dashboard" [ref=e134] [cursor=pointer]
+    - contentinfo [ref=e120]:
+      - generic [ref=e121]:
+        - generic [ref=e122]:
+          - img "Vyom Ai Cloud" [ref=e123]
+          - generic [ref=e124]: © 2026 Vyom Ai Cloud. All rights reserved.
+        - generic [ref=e125]:
+          - link "Terms of Service" [ref=e126] [cursor=pointer]:
+            - /url: /terms
+          - link "Privacy Policy" [ref=e127] [cursor=pointer]:
+            - /url: /privacy
+          - link "Contact" [ref=e128] [cursor=pointer]:
+            - /url: mailto:support@vyomai.cloud
+  - alert [ref=e129]

@@ -43,26 +43,21 @@ def _rate_limit_delay():
 
 
 PEXELS_KEYWORD_MAP = {
+    # ── Core AI / ML / Tech ──────────────────────────────────────
     "neural": ["neural network", "deep learning", "AI brain"],
     "data": ["data center", "server room", "big data"],
     "code": ["computer code", "programming", "developer coding"],
     "robot": ["robot", "automation", "robotic arm"],
     "chip": ["microchip", "processor", "circuit board"],
-    "space": ["stars", "galaxy", "space", "planet"],
     "network": ["network", "cloud computing", "internet"],
     "analytics": ["data analytics", "dashboard", "statistics"],
     "brain": ["human brain", "neuroscience", "thinking"],
-    "science": ["laboratory", "scientist", "research"],
     "ai": ["artificial intelligence", "machine learning", "AI"],
-    "education": ["online learning", "e-learning", "study"],
     "phone": ["smartphone", "mobile app", "technology device"],
     "screen": ["computer screen", "monitor", "display"],
     "cloud": ["cloud computing", "cloud storage", "server cloud"],
-    "engineering": ["engineering", "blueprint", "technical drawing"],
     "cybersecurity": ["cybersecurity", "data protection", "encryption"],
-    "research": ["research paper", "scientific study", "analysis"],
     "algorithm": ["algorithm", "data flow", "binary code"],
-    "scientist": ["data scientist", "researcher", "lab work"],
     "computer": ["computer lab", "computing", "pc"],
     "math": ["mathematics", "formula", "equations"],
     "presentation": ["presentation", "conference", "tech talk"],
@@ -77,17 +72,214 @@ PEXELS_KEYWORD_MAP = {
     "layer": ["neural network layers", "deep learning", "network architecture"],
     "weight": ["neural weights", "network parameters", "AI model"],
     "loss": ["loss function", "optimization curve", "data analysis"],
-    "activation": ["neural activation", "signal processing", "data filter"],
-    "convolution": ["pattern recognition", "signal processing", "data filter"],
     "latent": ["latent space", "data distribution", "abstract visualization"],
     "encoder": ["encoder decoder", "data transformation", "code transformation"],
+    "llm": ["large language model", "AI text generation", "language AI"],
+    "rag": ["retrieval augmented generation", "knowledge retrieval", "AI search"],
+    "diffusion": ["diffusion model", "AI image generation", "creative AI"],
+    "transformer model": ["transformer architecture", "attention mechanism", "encoder decoder"],
+    "gpu": ["graphics card", "GPU server", "data center hardware"],
+    "server": ["server room", "data center", "network server"],
+    "database": ["database server", "data storage", "sql"],
+    "blockchain": ["blockchain technology", "cryptocurrency", "distributed ledger"],
+    "quantum computing": ["quantum computer", "qubit", "quantum processor"],
+
+    # ── Science & Research ───────────────────────────────────────
+    "science": ["laboratory", "scientist", "research"],
+    "scientist": ["data scientist", "researcher", "lab work"],
+    "research": ["research paper", "scientific study", "analysis"],
+    "physics": ["physics experiment", "quantum", "particle physics", "pendulum", "light prism", "energy", "wave"],
+    "chemistry": ["chemistry lab", "chemical reaction", "molecule", "periodic table", "science experiment", "beaker"],
+    "biology": ["biology lab", "dna", "cells", "microscope", "evolution", "genetics"],
+    "genetics": ["dna sequencing", "genome", "gene editing", "crispr", "chromosome"],
+    "neuroscience": ["brain scan", "neuron", "neural activity", "brain mapping", "synapse"],
+    "mathematics": ["math visualization", "geometry", "abstract math", "numbers", "fractal", "calculus", "statistics"],
+    "logic": ["logic puzzle", "reasoning", "critical thinking", "problem solving", "brain teaser"],
+    "laboratory": ["science lab", "experiment", "test tube", "microscope", "research lab"],
+    "microscope": ["microscope footage", "cells under microscope", "scientific imaging"],
+    "particle physics": ["particle accelerator", "cern", "subatomic", "quantum particles"],
+    "astronomy": ["telescope", "night sky", "milky way", "astronomy", "stars", "nebula", "solar system"],
+    "telescope": ["observatory", "radio telescope", "space telescope", "stargazing"],
+    "geology": ["rocks", "minerals", "volcano", "earthquake", "tectonic plates", "fossil"],
+    "paleontology": ["dinosaur fossil", "dig site", "fossil excavation", "prehistoric"],
+    "archaeology": ["archaeological dig", "ancient artifact", "ruins excavation", "antiquity"],
+    "anthropology": ["human evolution", "ancient civilization", "cultural anthropology", "tribal"],
+    "oceanography": ["deep sea", "ocean exploration", "underwater", "marine biology", "coral reef"],
+
+    # ── History & Civilization ───────────────────────────────────
+    "history": ["historical", "ancient", "old document", "history archive", "vintage", "medieval", "ruins"],
+    "ancient egypt": ["egyptian pyramid", "sphinx", "pharaoh", "hieroglyphics", "temple"],
+    "ancient greece": ["greek ruins", "acropolis", "parthenon", "ancient greek philosophy"],
+    "roman empire": ["roman ruins", "colosseum", "roman architecture", "ancient rome"],
+    "medieval": ["medieval castle", "knight", "cathedral", "middle ages", "feudal"],
+    "renaissance": ["renaissance art", "da vinci", "sistine chapel", "florence"],
+    "industrial revolution": ["factory", "steam engine", "industrial machinery", "assembly line"],
+    "world war": ["war archive", "vintage military", "historical battle", "soldier"],
+    "cold war": ["cold war archive", "space race", "berlin wall", "nuclear"],
+    "space race": ["apollo mission", "moon landing", "rocket launch historical", "nasa archive"],
+
+    # ── Nature & Environment ─────────────────────────────────────
+    "nature": ["nature landscape", "wildlife", "forest", "ocean", "mountains", "sunrise", "nature documentary"],
+    "wildlife": ["wild animals", "nature wildlife", "animal documentary", "safari", "predator", "birds", "marine life"],
+    "forest": ["deep forest", "rainforest", "woodland", "redwood", "jungle", "canopy"],
+    "ocean": ["deep ocean", "waves", "sea", "coastline", "beach", "underwater"],
+    "mountains": ["mountain range", "alps", "himalayas", "peak", "snow capped mountain"],
+    "desert": ["desert landscape", "sahara", "dunes", "arid", "cactus", "sandstorm"],
+    "arctic": ["iceberg", "glacier", "polar bear", "snow", "frozen tundra", "aurora borealis"],
+    "rainforest": ["amazon rainforest", "tropical forest", "canopy", "exotic plants"],
+    "volcano": ["volcanic eruption", "lava", "volcano documentary", "magma"],
+    "weather": ["storm", "hurricane", "lightning", "rain", "snowstorm", "tornado", "clouds"],
+    "climate change": ["global warming", "melting ice", "renewable energy", "climate documentary", "carbon emissions"],
+    "environment": ["environment", "climate change", "renewable energy", "solar panels", "wind turbine", "green planet", "ecology"],
+    "sustainability": ["sustainable", "eco friendly", "recycling", "green technology", "carbon neutral", "clean energy"],
+    "earth": ["earth from space", "planet earth", "globe", "world map", "aerial earth"],
+
+    # ── Space & Astronomy ────────────────────────────────────────
+    "space": ["stars", "galaxy", "space", "planet"],
+    "space exploration": ["rocket launch", "space station", "astronaut", "satellite", "space exploration", "nasa", "spacecraft"],
+    "solar system": ["planets", "sun", "orbits", "solar system animation", "venus", "mars"],
+    "galaxy": ["milky way", "spiral galaxy", "andromeda", "deep space", "nebula"],
+    "black hole": ["black hole simulation", "event horizon", "gravity well", "spacetime"],
+    "exoplanet": ["exoplanet", "distant world", "alien planet", "habitable zone"],
+    "mars": ["mars rover", "red planet", "mars colonization", "spacex starship"],
+
+    # ── Technology & Engineering ─────────────────────────────────
+    "engineering": ["mechanical engineering", "bridge", "construction", "factory", "machine", "industrial design", "gears", "blueprint", "technical drawing"],
+    "innovation": ["innovation", "future technology", "invention", "scientific breakthrough", "modern tech", "futuristic"],
+    "programming": ["programming code", "software engineer", "developer", "coding screen", "agile", "software architecture"],
+    "software": ["software development", "computer programming", "code review", "devops", "clean code"],
+    "hardware": ["computer hardware", "electronics", "circuit board", "processor", "microchip"],
+    "robotics": ["robot arm", "automation factory", "humanoid robot", "drone", "autonomous"],
+    "drones": ["drone footage", "quadcopter", "aerial drone", "uav", "drone technology"],
+    "electric vehicle": ["electric car", "tesla", "ev charging", "electric battery", "sustainable transport"],
+    "renewable energy": ["solar farm", "wind turbine", "hydroelectric dam", "clean energy", "geothermal"],
+    "nuclear": ["nuclear power plant", "nuclear reactor", "cooling tower", "atomic"],
+    "biotechnology": ["biotech lab", "gene editing", "bioengineering", "lab grown", "biotech research"],
+    "nanotechnology": ["nano particles", "microscopic", "nano materials", "atomic scale"],
+    "internet": ["internet infrastructure", "wifi", "fiber optic", "global network"],
+    "telecommunications": ["cell tower", "satellite dish", "5g network", "communication"],
+    "vr": ["virtual reality", "vr headset", "augmented reality", "metaverse"],
+    "semiconductor": ["wafer", "semiconductor fab", "chip manufacturing", "silicon wafer"],
+
+    # ── Business & Economics ─────────────────────────────────────
+    "business": ["office", "business meeting", "corporate", "entrepreneur", "startup", "conference room", "strategy"],
+    "finance": ["finance", "money", "investment", "stock market", "trading", "banking", "cryptocurrency", "economic growth"],
+    "entrepreneurship": ["startup", "entrepreneur", "small business", "founder", "pitch deck"],
+    "economics": ["economic graph", "gdp", "market trends", "global economy", "supply chain"],
+    "manufacturing": ["factory", "assembly line", "manufacturing plant", "industrial production"],
+    "supply chain": ["logistics", "shipping container", "warehouse", "transportation", "cargo ship"],
+    "marketing": ["marketing strategy", "advertising", "branding", "social media marketing"],
+    "global trade": ["cargo ship", "container port", "international trade", "import export", "globalization"],
+
+    # ── Health & Medicine ────────────────────────────────────────
+    "health": ["healthcare", "medical", "hospital", "doctor", "stethoscope", "medicine", "health", "wellness"],
+    "medicine": ["medical research", "laboratory research", "dna", "microscope", "vaccine", "pharmaceutical"],
+    "surgery": ["operating room", "surgical robot", "medical surgery", "hospital surgery"],
+    "human body": ["human anatomy", "body systems", "circulatory system", "organs"],
+    "vaccine": ["vaccination", "immunization", "covid vaccine", "medical syringe", "pharmaceutical research"],
+    "mental health": ["therapy", "meditation", "mental wellness", "brain health", "counseling"],
+
+    # ── Education & Documentary ──────────────────────────────────
+    "education": ["online learning", "e-learning", "study", "classroom", "student"],
+    "biography": ["inventor", "historical figure", "great mind", "portrait", "legacy", "pioneer"],
+    "documentary": ["documentary footage", "archival video", "interview setup", "behind the scenes"],
+    "explanation": ["explainer video", "educational", "science animation"],
+    "tutorial": ["tutorial video", "educational animation", "how it works"],
+    "university": ["campus", "lecture hall", "college", "academic", "graduation"],
+    "lecture": ["professor lecturing", "classroom teaching", "academic presentation"],
+    "library": ["library", "books", "archive", "research library", "manuscript"],
+    "museum": ["museum exhibit", "gallery", "art exhibition", "historical artifact"],
+
+    # ── Psychology & Humanities ──────────────────────────────────
+    "psychology": ["psychology", "human mind", "cognitive", "behavior", "therapy", "mental health", "personality"],
+    "philosophy": ["philosophy", "contemplation", "deep thought", "meditation", "wisdom", "ancient philosophy", "ethics"],
+    "sociology": ["society", "community", "social dynamics", "urban life", "population"],
+    "linguistics": ["language", "speech", "communication", "writing", "translation"],
+    "religion": ["religious ceremony", "church", "temple", "mosque", "spiritual", "faith"],
+    "ethics": ["ethics debate", "moral philosophy", "ethical dilemma", "bioethics"],
+    "artificial consciousness": ["consciousness", "sentient ai", "philosophy of mind", "self awareness"],
+    "mythology": ["mythology", "legend", "greek myth", "folklore", "epic story"],
+
+    # ── Culture & Society ────────────────────────────────────────
+    "culture": ["cultural diversity", "traditions", "festival", "world cultures", "cultural heritage"],
+    "documentary filmmaking": ["behind the scenes", "camera crew", "film production", "interview", "b roll"],
+    "journalism": ["newsroom", "journalist", "press conference", "interview", "broadcast"],
+    "photography": ["photographer", "camera", "time lapse", "photography studio"],
+    "music": ["orchestra", "musician", "concert", "piano", "instruments", "music production"],
+    "art": ["artist painting", "sculpture", "modern art", "art studio", "gallery"],
+    "cinema": ["movie theater", "film reel", "director", "film history", "hollywood"],
+    "architecture": ["modern architecture", "skyscraper", "building design", "city skyline", "brutalist"],
+    "urban": ["city street", "urban landscape", "downtown", "city life", "skyline"],
+    "rural": ["countryside", "farmland", "rural village", "agriculture", "pastoral"],
+    "agriculture": ["farm", "tractor", "harvest", "crops", "organic farming", "livestock"],
+    "food": ["food preparation", "cooking", "kitchen", "cuisine", "gastronomy"],
+    "travel": ["travel destinations", "tourist", "landmark", "adventure travel", "exploration"],
+
+    # ── Arts & Media ─────────────────────────────────────────────
+    "animation": ["motion graphics", "2d animation", "3d animation", "animated explainer"],
+    "design": ["graphic design", "industrial design", "product design", "ui design"],
+    "writing": ["writer typing", "author", "creative writing", "typewriter", "journal"],
+    "publishing": ["printing press", "book publishing", "editorial", "magazine"],
+    "podcast": ["podcast studio", "microphone", "audio recording", "broadcasting"],
+
+    # ── Geography & Exploration ──────────────────────────────────
+    "geography": ["world map", "globe", "topography", "cartography", "satellite imagery"],
+    "exploration": ["explorer", "expedition", "discovery", "adventure", "voyage"],
+    "aerial": ["drone landscape", "birds eye view", "aerial photography", "helicopter view"],
+    "map": ["world map animation", "historical map", "navigation", "cartography"],
+    "timelapse": ["time lapse", "hyperlapse", "city timelapse", "nature timelapse"],
+
+    # ── Short documentary / character ────────────────────────────
+    "inventor": ["inventor workshop", "innovation lab", "prototype", "invention"],
+    "pioneer": ["trailblazer", "first achievement", "historical breakthrough", "explorer"],
+    "scientist portrait": ["scientist thinking", "lab coat", "researcher portrait", "academic"],
+    "expert": ["expert interview", "thought leader", "keynote speaker", "conference"],
+    "debate": ["debate stage", "discussion", "argument", "panel discussion"],
+    "interview": ["interview setting", "talking head", "video interview", "conversation"],
+    "timeline": ["historical timeline", "chronology", "progress bar", "milestone"],
+
+    # ── Music & Audio ────────────────────────────────────────────
+    "orchestra": ["symphony orchestra", "conductor", "classical music", "violin", "piano"],
+    "sound": ["sound waves", "audio frequency", "acoustic", "sound visualization"],
+    "audio production": ["recording studio", "mixing console", "music producer", "audio engineer"],
+
+    # ── Abstract & Visualization ─────────────────────────────────
     "diagram": ["diagram animation", "flowchart", "technical illustration"],
     "visualization": ["data visualization", "3d visualization", "molecular visualization"],
-    "explanation": ["explainer video", "educational", "science animation"],
     "simulation": ["scientific simulation", "particle simulation", "physics simulation"],
     "model": ["3d model", "architecture model", "mathematical model"],
-    "tutorial": ["tutorial video", "educational animation", "how it works"],
     "chart": ["animated chart", "graph animation", "data chart"],
+    "infographic": ["animated infographic", "data graphic", "information design"],
+    "3d rendering": ["3d render", "product rendering", "architectural visualization"],
+    "particle system": ["particle effect", "particle animation", "abstract particles"],
+
+    # ── Specific Documentary Topics ──────────────────────────────
+    "cybersecurity documentary": ["hacker", "cyber attack", "security breach", "encryption"],
+    "social media": ["social media app", "smartphone screen", "social network", "influencer"],
+    "privacy": ["data privacy", "surveillance", "cctv", "digital footprint", "encryption"],
+    "surveillance": ["security camera", "cctv footage", "surveillance state", "monitoring"],
+    "gaming": ["video game", "esports", "gaming setup", "game developer"],
+    "cryptocurrency": ["bitcoin", "crypto mining", "blockchain", "ethereum", "nft"],
+    "startup culture": ["startup office", "tech company", "silicon valley", "coworking"],
+    "automation": ["automated factory", "robotic automation", "self driving car", "ai automation"],
+    "big tech": ["tech campus", "google", "apple", "microsoft", "silicon valley"],
+    "remote work": ["home office", "remote working", "zoom call", "digital nomad"],
+
+    # ── Documentary Production ───────────────────────────────────
+    "archival footage": ["archive film", "historical footage", "vintage film", "old newsreel"],
+    "slow motion": ["slow motion", "high speed camera", "slow mo"],
+    "cinematic": ["cinematic shot", "film look", "movie scene", "cinematic lighting"],
+    "time lapse city": ["city timelapse", "urban timelapse", "traffic timelapse", "skyline timelapse"],
+    "nature timelapse": ["flower blooming", "clouds moving", "sunset timelapse", "season change"],
+    "establishing shot": ["wide landscape", "cityscape", "aerial wide", "exterior shot"],
+    "interview backdrop": ["office background", "bookshelf", "modern interior", "professional setting"],
+
+    # ── Sports & Human Achievement ───────────────────────────────
+    "sports": ["stadium", "athlete", "competition", "olympics", "training"],
+    "exploration history": ["age of exploration", "sailing ship", "explorer map", "voyage"],
+    "human achievement": ["milestone", "record breaking", "human potential", "great accomplishment"],
+    "competition": ["contest", "tournament", "championship", "race", "final match"],
+    "innovation lab": ["research and development", "innovation center", "prototype workshop", "tech incubator"],
 }
 
 
@@ -299,6 +491,87 @@ def get_video_duration(file_path: str) -> float:
         return 0.0
 
 
+def _search_archive_org(query: str) -> list[dict]:
+    """Search Internet Archive for CC0/public-domain stock video."""
+    import xml.etree.ElementTree as ET
+    try:
+        url = "https://archive.org/advancedsearch.php"
+        params = {
+            "q": query + " AND mediatype:(movies)",
+            "fl[]": ["identifier", "title", "description", "downloads"],
+            "sort[]": "downloads desc",
+            "rows": 5,
+            "page": 1,
+            "output": "xml",
+        }
+        resp = requests.get(url, params=params, timeout=15)
+        resp.raise_for_status()
+        root = ET.fromstring(resp.content)
+        ns = {"opensearch": "http://a9.com/-/spec/opensearch/1.1/"}
+        results = []
+        for doc in root.findall(".//doc", ns):
+            identifier = doc.findtext("str[@name='identifier']") or ""
+            title = doc.findtext("str[@name='title']") or ""
+            if not identifier:
+                continue
+            vid_url = f"https://archive.org/download/{identifier}/{identifier}.mp4"
+            results.append({
+                "id": f"ia_{identifier}",
+                "url": vid_url,
+                "width": 1920,
+                "height": 1080,
+                "duration": 30,
+                "fps": 30,
+                "size": 0,
+                "source": "archive_org",
+                "query": query,
+                "title": title,
+            })
+        return results
+    except Exception as e:
+        print(f"[stock_video] Internet Archive search error: {e}")
+        return []
+
+
+def _search_wikimedia(query: str) -> list[dict]:
+    """Search Wikimedia Commons for free-license video files."""
+    try:
+        url = "https://commons.wikimedia.org/w/api.php"
+        params = {
+            "action": "query",
+            "list": "search",
+            "srsearch": f"{query} filetype:video",
+            "srlimit": 5,
+            "format": "json",
+            "srnamespace": 6,
+        }
+        resp = requests.get(url, params=params, timeout=15)
+        resp.raise_for_status()
+        data = resp.json()
+        results = []
+        for item in data.get("query", {}).get("search", []):
+            title = item.get("title", "")
+            page_id = item.get("pageid", 0)
+            if not title or not page_id:
+                continue
+            encoded = title.replace(" ", "_")
+            vid_url = f"https://commons.wikimedia.org/wiki/Special:FilePath/{encoded}"
+            results.append({
+                "id": f"wm_{page_id}",
+                "url": vid_url,
+                "width": 1920,
+                "height": 1080,
+                "duration": 30,
+                "fps": 30,
+                "size": 0,
+                "source": "wikimedia",
+                "query": query,
+                "title": title.replace("File:", ""),
+            })
+        return results
+    except Exception as e:
+        print(f"[stock_video] Wikimedia search error: {e}")
+        return []
 def _search_providers(keywords: list[str], orientation: str, per_page: int = 5) -> list[dict]:
     all_results = []
     for kw in keywords:
@@ -308,6 +581,14 @@ def _search_providers(keywords: list[str], orientation: str, per_page: int = 5) 
             continue
         results = _search_cached(kw, "pixabay", orientation)
         all_results.extend(results)
+        if results:
+            continue
+        archive_results = _search_archive_org(kw)
+        all_results.extend(archive_results)
+        if archive_results:
+            continue
+        wm_results = _search_wikimedia(kw)
+        all_results.extend(wm_results)
     return all_results
 
 

@@ -1,4 +1,5 @@
 import os
+import re
 import logging
 from abc import ABC, abstractmethod
 
@@ -35,6 +36,7 @@ CONTENT_TYPE_VOICES = {
     "storytelling": "en-US-Journey-F",
     "story": "en-GB-Studio-B",
     "energetic": "en-US-Neural2-J",
+    "documentary": "en-US-Studio-Q",
     "general": "en-US-Studio-O",
 }
 
@@ -59,6 +61,45 @@ CONTENT_KOKORO_VOICES = {
 DEFAULT_KOKORO_VOICE = "af_bella"
 KOKORO_SAMPLE_RATE = 24000
 
+_GOOGLE_EMPHASIS_WORDS = [
+    "key", "important", "crucial", "critical", "essential", "fundamental",
+    "never", "always", "must", "cannot", "extremely", "remarkably",
+    "significantly", "dramatically", "revolutionary", "breakthrough",
+]
+
+_DEEP_LESSON_EMPHASIS = _GOOGLE_EMPHASIS_WORDS + [
+    "intuitively", "imagine", "think about", "here.s the key", "notice that",
+    "under the hood", "actually happening", "core idea", "beautiful",
+    "elegant", "fascinating", "powerful", "transforms", "underlying",
+    "precisely", "exactly", "every single", "each", "understands",
+    "emerges", "remarkable", "secret", "hidden",
+]
+
+
+def _build_google_ssml(text: str, rate: str, is_deep_lesson: bool = False, is_documentary: bool = False) -> str:
+    if is_documentary:
+        emphasis_words = []
+        sentence_pause = "750ms"
+        clause_pause = "250ms"
+    elif is_deep_lesson:
+        emphasis_words = _DEEP_LESSON_EMPHASIS
+        sentence_pause = "500ms"
+        clause_pause = "200ms"
+    else:
+        emphasis_words = _GOOGLE_EMPHASIS_WORDS
+        sentence_pause = "300ms"
+        clause_pause = "100ms"
+    for word in emphasis_words:
+        pattern = re.compile(re.escape(word), re.IGNORECASE)
+        text = pattern.sub(lambda m: f'<emphasis level="strong">{m.group()}</emphasis>', text)
+    text = re.sub(r'([.?!])\s+', rf'\1<break time="{sentence_pause}"/> ', text)
+    text = re.sub(r'([,;:])\s', rf'\1<break time="{clause_pause}"/> ', text)
+    return (
+        f'<speak version="1.0" xmlns="http://www.w3.org/2001/10/synthesis" xml:lang="en-US">'
+        f'<prosody rate="{rate}">{text}</prosody>'
+        f'</speak>'
+    )
+
 
 class BaseTTSProvider(ABC):
 
@@ -67,7 +108,8 @@ class BaseTTSProvider(ABC):
                        voice: str = DEFAULT_VOICE,
                        rate: str = DEFAULT_RATE,
                        pitch: str = DEFAULT_PITCH,
-                       is_deep_lesson: bool = False) -> bool:
+                       is_deep_lesson: bool = False,
+                       is_documentary: bool = False) -> bool:
         ...
 
     @abstractmethod
@@ -75,7 +117,8 @@ class BaseTTSProvider(ABC):
                               voice: str = DEFAULT_VOICE,
                               rate: str = DEFAULT_RATE,
                               pitch: str = DEFAULT_PITCH,
-                              is_deep_lesson: bool = False) -> list[dict]:
+                              is_deep_lesson: bool = False,
+                              is_documentary: bool = False) -> list[dict]:
         ...
 
     @abstractmethod
@@ -99,7 +142,8 @@ class EdgeTTSProvider(BaseTTSProvider):
                        voice: str = DEFAULT_VOICE,
                        rate: str = DEFAULT_RATE,
                        pitch: str = DEFAULT_PITCH,
-                       is_deep_lesson: bool = False) -> bool:
+                       is_deep_lesson: bool = False,
+                       is_documentary: bool = False) -> bool:
         try:
             import edge_tts
             communicate = edge_tts.Communicate(text, voice, rate=rate, pitch=pitch)
@@ -113,7 +157,8 @@ class EdgeTTSProvider(BaseTTSProvider):
                               voice: str = DEFAULT_VOICE,
                               rate: str = DEFAULT_RATE,
                               pitch: str = DEFAULT_PITCH,
-                              is_deep_lesson: bool = False) -> list[dict]:
+                              is_deep_lesson: bool = False,
+                              is_documentary: bool = False) -> list[dict]:
         sentence_times = []
         try:
             import edge_tts
@@ -180,13 +225,18 @@ class GoogleCloudTTSProvider(BaseTTSProvider):
                        voice: str = DEFAULT_VOICE,
                        rate: str = DEFAULT_RATE,
                        pitch: str = DEFAULT_PITCH,
-                       is_deep_lesson: bool = False) -> bool:
+                       is_deep_lesson: bool = False,
+                       is_documentary: bool = False) -> bool:
         try:
             client = self._get_client()
             voice_name = self._map_voice(voice)
             voice_info = GOOGLE_VOICE_MAP.get(voice_name, {"name": voice_name, "language_code": "en-US"})
 
-            synthesis_input = texttospeech.SynthesisInput(text=text)
+            if is_documentary or is_deep_lesson:
+                ssml = _build_google_ssml(text, rate, is_deep_lesson=is_deep_lesson, is_documentary=is_documentary)
+                synthesis_input = texttospeech.SynthesisInput(ssml=ssml)
+            else:
+                synthesis_input = texttospeech.SynthesisInput(text=text)
 
             voice_params = texttospeech.VoiceSelectionParams(
                 language_code=voice_info["language_code"],
@@ -195,7 +245,7 @@ class GoogleCloudTTSProvider(BaseTTSProvider):
 
             audio_config = texttospeech.AudioConfig(
                 audio_encoding=texttospeech.AudioEncoding.LINEAR16,
-                speaking_rate=self._rate_to_speed(rate),
+                speaking_rate=self._rate_to_speed(rate) if not is_deep_lesson else 1.0,
                 pitch=self._pitch_to_semitones(pitch),
             )
 

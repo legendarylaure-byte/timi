@@ -9,7 +9,7 @@ logger = logging.getLogger(__name__)
 UPSCALER_BIN = os.getenv("UPSCALER_BIN", os.path.expanduser("~/timi/agents/bin/realesrgan-ncnn-vulkan"))
 UPSCALER_MODEL = os.getenv("UPSCALER_MODEL", "realesrgan-x4plus")
 UPSCALER_MODEL_DIR = os.getenv("UPSCALER_MODEL_DIR", os.path.expanduser("~/timi/agents/bin"))
-UPSCALE_ENABLED = os.getenv("ENABLE_UPSCALE", "false").lower() == "true"
+UPSCALE_ENABLED = os.getenv("ENABLE_UPSCALE", "true").lower() == "true"
 TEMP_DIR = Path(__file__).parent.parent / "tmp" / "upscaler"
 register_temp_dir(str(TEMP_DIR))
 

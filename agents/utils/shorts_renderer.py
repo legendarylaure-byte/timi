@@ -44,7 +44,7 @@ def compute_scene_timestamps(scenes: list[dict]) -> list[dict]:
             "start": current,
             "end": current + dur,
             "duration": dur,
-            "keyword": scene.get("keyword") or scene.get("description", "") or "",
+            "keyword": scene.get("keyword") or (scene.get("asset_keywords") or [None])[0] or scene.get("description", "") or "",
         })
         current += dur
     return result
@@ -88,7 +88,7 @@ def reformat_to_shorts(input_path: str, hook_text: str, output_path: str,
         f"[bg][main]overlay=(W-w)/2:(H-h)/2"
     )
 
-    hook_escaped = hook_text.replace("'", "\\'").replace(":", "\\:").replace("-", "\\-")
+    hook_escaped = hook_text.replace("'", "\u2019").replace(":", "\\:").replace("-", "\\-")
     hook_duration = 2.0
     hook_filter = (
         f"drawtext=text='{hook_escaped}':"
@@ -100,7 +100,7 @@ def reformat_to_shorts(input_path: str, hook_text: str, output_path: str,
 
     cta_start = max(0, clip_duration - 4.0)
     cta_text = "Subscribe for more \\nAI content"
-    cta_escaped = cta_text.replace("'", "\\'").replace(":", "\\:").replace("-", "\\-")
+    cta_escaped = cta_text.replace("'", "\u2019").replace(":", "\\:").replace("-", "\\-")
     cta_filter = (
         f"drawtext=text='{cta_escaped}':"
         f"fontsize=38:fontcolor=white:box=1:boxcolor=#8a50e8@0.7:"
@@ -117,7 +117,7 @@ def reformat_to_shorts(input_path: str, hook_text: str, output_path: str,
         abs_sub = os.path.abspath(subtitle_path)
         subtitle_filter = (
             f",subtitles=filename='{abs_sub}':force_style="
-            f"{_subtitle_style_escaped(20)}"
+            f"{_subtitle_style_escaped(28)}"
         )
 
     vf = f"{scale_filter},{hook_filter},{cta_filter},{quality_filters}{subtitle_filter}"
@@ -130,7 +130,7 @@ def reformat_to_shorts(input_path: str, hook_text: str, output_path: str,
         "-r", "24",
         "-af", "acompressor=threshold=-18dB:ratio=2:attack=5:release=50,"
                "loudnorm=I=-14:LRA=11:TP=-1",
-        "-c:a", "aac", "-b:a", "192k",
+        "-c:a", "aac", "-b:a", "192k", "-ar", "44100",
         "-pix_fmt", "yuv420p", output_path,
     ]
     if not safe_run_bool(cmd, timeout=300):

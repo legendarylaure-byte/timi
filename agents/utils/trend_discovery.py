@@ -76,12 +76,12 @@ def fetch_youtube_trending(max_results: int = 20, region_code: str = "US") -> li
             view_count = int(item.get("statistics", {}).get("viewCount", 0))
 
             category_map = {
-                "1": "AI Explained", "2": "Deep Tech", "10": "AI News",
-                "15": "Gaming", "17": "Code & Build", "18": "Industry Analysis",
-                "19": "Career & Learning", "20": "Gaming", "22": "Industry Analysis",
-                "23": "Industry Analysis", "24": "Industry Analysis", "25": "AI News",
-                "26": "Tool Tutorials", "27": "AI Explained", "28": "Deep Tech",
-                "29": "Career & Learning", "30": "Industry Analysis",
+                "1": "Science & Technology", "2": "Science & Technology", "10": "Science & Technology",
+                "15": "Nature & Wildlife", "17": "Programming & Software", "18": "Science & Technology",
+                "19": "History & Biography", "20": "Nature & Wildlife", "22": "Science & Technology",
+                "23": "Science & Technology", "24": "History & Biography", "25": "AI News",
+                "26": "Tool Tutorials", "27": "Science & Technology", "28": "Science & Technology",
+                "29": "History & Biography", "30": "Science & Technology",
             }
             category = category_map.get(category_id, "AI Explained")
 

@@ -130,7 +130,7 @@ class LtxVideoModel(BaseVideoModel):
         if format_type == "short":
             width, height = 544, 960
         else:
-            width, height = 832, 480
+            width, height = 960, 544
 
         cached = _check_cache(built_prompt, width, height, num_frames)
         if cached:

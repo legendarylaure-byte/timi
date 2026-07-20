@@ -1,7 +1,8 @@
 import os
 import sys
 import logging
-import subprocess
+
+from utils.subprocess_helper import safe_run
 
 logger = logging.getLogger(__name__)
 
@@ -10,9 +11,9 @@ GPU_WIRED_LIMIT = 14000
 
 def prepare_gpu_for_generation():
     try:
-        result = subprocess.run(
+        result = safe_run(
             ["sudo", "sysctl", "-w", f"iogpu.wired_lwm_mb={GPU_WIRED_LIMIT}"],
-            capture_output=True, text=True, timeout=10,
+            timeout=10,
         )
         if result.returncode == 0:
             logger.info("[GPU] Wired limit raised to %d MB", GPU_WIRED_LIMIT)
@@ -31,8 +32,8 @@ def prepare_gpu_for_generation():
 
 def check_memory_pressure() -> dict:
     try:
-        result = subprocess.run(
-            ["memory_pressure"], capture_output=True, text=True, timeout=5,
+        result = safe_run(
+            ["memory_pressure"], timeout=5,
         )
         if "System is memory pressure-relieved" in result.stdout:
             return {"pressure": "ok", "available_gb": -1}
@@ -44,8 +45,8 @@ def check_memory_pressure() -> dict:
         pass
 
     try:
-        result = subprocess.run(
-            ["vm_stat"], capture_output=True, text=True, timeout=5,
+        result = safe_run(
+            ["vm_stat"], timeout=5,
         )
         stats = {}
         for line in result.stdout.split("\n"):

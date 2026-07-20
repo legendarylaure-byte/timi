@@ -15,7 +15,7 @@ import {
 
 const FEATURES = [
   { icon: Bot, title: '9 AI Agents', desc: 'Scriptwriting, video generation, voiceover, and publishing — all automated.' },
-  { icon: Play, title: 'AI Video Generation', desc: 'Text-to-video with LTX, Manim animations, and intelligent scene composition.' },
+  { icon: Play, title: 'AI Video Generation', desc: 'Text-to-video with LTX, Blender 3D renders, and intelligent scene composition.' },
   { icon: TrendingUp, title: 'Multi-Platform Publishing', desc: 'YouTube, TikTok, Instagram, Facebook — one pipeline, all platforms.' },
   { icon: Music, title: 'AI Voice & Music', desc: 'Natural TTS voiceovers with 9 languages and AI-generated background music.' },
   { icon: Zap, title: 'Trend Discovery', desc: 'AI-powered topic research and hook optimization for maximum reach.' },

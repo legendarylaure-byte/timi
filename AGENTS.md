@@ -2,16 +2,15 @@
 
 ## Latest Changes
 
-### Deep Lesson Pipeline — 3Blue1Brown-Style Manim-First Education Content (uncommitted)
-- **Phase 3**: Asset router now prefers Manim over LTX/stock for deep lesson categories (`AI Foundations`, `LLM Internals`, `Training & Data`, `AI Systems`). New `_try_manim_for_deep_lesson()` scans scene description against Manim template keywords and routes matching scenes to Manim (`utils/asset_router.py:189`). `category` threaded through `dispatch_scenes()` and `dispatch_scene()`.
-- **Phase 4**: Duration scaling for deep lessons — added `DEEP_LESSON_MAX_DURATION=600` (10 min) env var, used automatically when category is a deep lesson category via `_deep_lesson_dur()` (`main.py:291`). Replaces 180s `LONG_MAX_DURATION`.
-- **Phase 5**: Voice pacing for deep lessons — added `"deep_lesson"` content type (`voice_gen.py:383`) with slower rate (`-5%`), deeper pitch (`-3Hz`). Added `DEEP_LESSON_EMPHASIS_WORDS` (15 technical/educational terms). `_wrap_ssml()` now accepts `is_deep_lesson` flag → 500ms sentence pauses, 200ms clause pauses. Threaded through all providers (`voice_gen.py`, `voice_provider.py`).
-- **Phase 6**: Subtitle sizing for deep lessons — `composite_video()` checks category against `_DEEP_LESSON_CATS`, uses `FontSize=32` + `MarginV=60` for deep lessons vs 24/40 default (`video_compositor.py:776`).
-- **Phase 7**: 3 new Manim templates for Part 1 "How LLMs Actually Work — Tokenization":
-  - `tokenization_template()` — shows input text → token boxes → token IDs with colored subword boxes
-  - `vocabulary_table_template()` — renders a token-to-ID lookup table with headers/rows/border
-  - `bigram_probability_template()` — heatmap grid showing next-token probabilities with max-highlight
-  - All registered in `TEMPLATE_REGISTRY` (`manim_templates.py`), `manim_renderer.py` `TEMPLATE_MAP`/`TEMPLATE_CLASS_NAMES`, and `manim_agent.py` `TEMPLATE_KEYWORDS`.
+### Branch Education Pipeline — Blender 3D Photorealistic Render Engine
+- **REPLACED Manim entirely** with Blender 3D for all deep lesson/documentary scenes.
+- **14 Blender templates** in `blender_templates/`: `chip_cross_section`, `architecture_block`, `data_flow`, `pcb_layout`, `cutaway_device`, `comparison_bars`, `processor_pipeline`, `network_topology`, `timeline_3d`, `process_flow`, `layer_explosion`, `neural_network`, plus `__init__.py` (registry) and `common.py` (materials/lighting/camera).
+- **Eevee-first rendering**: 60% of scenes use Eevee (real-time, ~0.3s/frame), 40% use Cycles at 64-256 samples with denoising.
+- **Format-adaptive samples**: Shorts=64smp, Longs=128smp, Documentary=256smp. Config via `BLENDER_RENDER_SAMPLES_SHORT/LONG/DOC` env vars.
+- **Render caching**: SHA-256 keyed (template+params), file-backed at `tmp/blender_cache/`.
+- **New files**: `utils/blender_renderer.py` (orchestrator), `utils/blender_asset_router.py` (scene→template mapper).
+- **Removed**: `manim_renderer.py`, `manim_templates.py`, `manim_validator.py`, `manim_agent.py`, `manim_code_gen.py`, `manim.cfg`.
+- **All pipeline paths** (`asset_router._render_scene_inner()`, `dispatch_scene()`, `dispatch_scenes()`) route `render_type="blender"` to the new renderer.
 
 ### Quality Improvement Pass — Video Review Fixes: URL TTS, Subtitles, End Scene, Scriptwriter Viral Rule, Voiceover Race (uncommitted)
 - **URL stripping in TTS** (`utils/voice_gen.py`): `_expand_symbols_for_tts()` now replaces `https?://\S+` and `www\.\S+` with " link " before symbol expansion — prevents TTS reading URLs as "forward slash forward slash" for 20s.
@@ -68,13 +67,12 @@
   - Both short + long video paths fully wired with all 6 checks
 - **Data files created on first use**: `data/knowledge_graph/graph.json`, `data/knowledge_graph/curricula.json`, `data/brand/style_guide.json`, `data/brand/hook_history.json`, `data/brand/vocabulary.json`
 
-### P0: ManimCE Foundation — Docker, Dependencies, Persistent Storage
-- **Dockerfile**: Added `texlive`, `texlive-latex-extra`, `texlive-fonts-extra`, `texlive-science`, `dvipng`, `cm-super` for LaTeX/MathTex rendering in ManimCE.
-- **requirements.txt**: ManimCE pinned to `manim>=0.20.0,<0.21.0` (v0.20.x stable). Added `chromadb>=0.5.10,<0.6.0` (RAG vector store), `kokoro>=0.7.0,<1.0.0` (local TTS), `onnxruntime>=1.20.0`.
-- **manim.cfg**: Created at `agents/manim.cfg` — `high_quality` (1920×1080, 30fps), output/log dirs under `tmp/manim_cache/`, background `#1e1e1e`.
-- **Temp dir registration**: `manim_renderer.py` now calls `register_temp_dir(str(MANIM_OUTPUT_DIR))` so renders are cleaned up on exit.
-- **chroma_db/**: Created at `agents/chroma_db/` for persistent vector store, added to `.gitignore` and `.dockerignore`.
-- **Docker image**: Rebuilt successfully — all deps verified inside container (texlive ✓, dvipng ✓, manim 0.20.1 ✓, chromadb 0.5.20 ✓, kokoro 0.9.4 ✓, onnxruntime 1.27.0 ✓).
+### Blender Render Engine — Setup & Storage
+- **Blender 4.x LTS** required. Install via `brew install blender` or download from blender.org.
+- **No LaTeX deps needed** — removed `texlive*`, `dvipng`, `cm-super` from Dockerfile (were Manim-only).
+- **requirements.txt**: Removed `manim>=0.20.0,<0.21.0`. Blender uses its own bundled Python, no pip package needed.
+- **Render dirs**: `tmp/blender_cache/` (cached renders), `tmp/blender_render/` (active renders). Both registered for cleanup.
+- **chroma_db/**: At `agents/chroma_db/` — unchanged, still used by other pipeline components.
 
 ### D20: Subtitle Pipeline Overhaul + Facebook Permission Hardening + Caption Track Upload
 - **B1 — Phrase timing matching fix**: Rewrote `generate_phrase_timings_from_sentences()` (`voice_gen.py`) — sentence matching now tracks used indices to prevent duplicates; word-level fallback groups `WordBoundary` events into phrases when sentence-level matching produces nothing. Guarantees non-empty phrase timings even on TTS text mismatch.
@@ -246,7 +244,7 @@
 
 ## D10: Phase 2 — Subprocess Safety, Upload Resiliency, Token Refresh (7 files, 1 new)
 - **utils/subprocess_helper.py** (NEW) — `safe_run()` (Popen+communicate+kill on timeout, backwards-compat with `subprocess.run`), `safe_run_bool()` (return bool), `retry_with_backoff()` (exponential backoff + jitter, 3 retries), `register_temp_dir()` + `atexit` cleanup
-- **ALL 7 files with subprocess.run** (video_compositor, compilation_gen, upscaler, stock_video, manim_renderer, validators, thumbnail_gen) — 24+ calls converted from `subprocess.run(timeout=N)` → `safe_run()`/`safe_run_bool()`; orphan processes killed on TimeoutExpired
+  - **ALL 7 files with subprocess.run** (video_compositor, compilation_gen, upscaler, stock_video, blender_renderer, validators, thumbnail_gen) — 24+ calls converted from `subprocess.run(timeout=N)` → `safe_run()`/`safe_run_bool()`; orphan processes killed on TimeoutExpired
 - **utils/multi_platform_publisher.py** (3 uploads upgraded):
   - TikTok: retry_with_backoff (3 attempts, 5-60s), 401→auto-refresh via `_refresh_tiktok_token()`, idempotency key on publish
   - Instagram: retry_with_backoff (3 attempts), 401→auto-refresh via `_refresh_facebook_token()`, idempotency key on publish
@@ -330,14 +328,15 @@
 
 ### Critical Fixes (settings/config)
 - **C1 — LTX resolution**: 704×448 → **832×512** (36% more pixels, much sharper upscaled output) — `models/ltx_model.py:287-288`
-- **C2 — FPS mismatch**: Manim 30fps → **24fps** to match compositor (eliminates stuttering on Manim scenes) — `manim.cfg:9,14`
+- **C2 — FPS enforcement**: All render paths force **24fps** via `-r 24` to match compositor — `video_compositor.py:xfade input normalization`
 - **C3 — Subtitle font sizes**: Long-form FontSize=10→**24**, Shorts FontSize=10→**32**, burn_subtitles default 22→**28** — `video_compositor.py:557`, `shorts_renderer.py:104`, `video_compositor.py:391`
 - **C4 — Static image fallback**: Random ellipses → **styled title card** with topic text, brand teal accent stripe, Vyom Ai Cloud subtitle, corner accents — `asset_router.py:_generate_static_image()`
 - **C5 — Upscaler enabled**: `ENABLE_UPSCALE=true` in `.env` (Real-ESRGAN 2x for LTX clips when binary available)
+- **Blender templates** are standalone Python scripts invoked via `blender --background --python template.py -- --params <json_path>`. Each template reads `params["_output"]` for the frame output directory. Templates are registered in `TEMPLATE_REGISTRY` with keywords, engine preference, and priority. Common utilities (materials, lighting, camera, scene setup) are in `common.py`.
 
 ### High Priority (feature/code)
-- **H1 — Brand color palette enforced**: Video bg now `#1e1e1e` (dark gray like 3B1B), accent `#00CCCC` teal throughout compositor lower-thirds & scene labels, accent `#FF6B35` orange for emphasis — `animation_engine.py`, `video_compositor.py`, `scene_parser.py`, `manim_templates.py`
-- **H2 — 6 new Manim templates**: Added `architecture_diagram`, `data_flow_diagram`, `timeline`, `comparison_chart`, `process_flow`, `concept_map` — total from 9→**15 templates** — `manim_templates.py`, `manim_renderer.py`
+- **H1 — Brand color palette enforced**: Video bg now `#1e1e1e` (dark gray like 3B1B), accent `#00CCCC` teal throughout compositor lower-thirds & scene labels, accent `#FF6B35` orange for emphasis — `blender_templates/common.py`, `video_compositor.py`, `scene_parser.py`
+- **H2 — 6 new Blender templates**: Added `comparison_bars`, `processor_pipeline`, `network_topology`, `timeline_3d`, `process_flow`, `layer_explosion`, `neural_network` — **14 templates total** in `blender_templates/`
 - **H4 — SSML voice enhancement**: Added `_wrap_ssml()` — wraps TTS text with emphasis tags on key terms, 300ms micro-pauses at sentence boundaries, prosody control. Dramatically less robotic delivery — `voice_gen.py`, `voice_provider.py`
 
 ### Medium Priority
@@ -357,7 +356,7 @@
 - **`check_blur()`**: Extracts frames at `sample_interval` (default every 5s), computes Laplacian variance via PIL `Kernel(3×3)` and `numpy.var()`. Returns `avg_blur_score`, `blurry_frames` list with timestamp+score, `blur_ratio`. Frames stored in temp dir `qa_blur_` (cleaned up on exit). Falls through on any failure (non-blocking).
 - **`check_frame_quality()`**: Convenience wrapper combining blur check into structured report with `passed` flag and summary. Called from `main.py:verify_video_quality()` after existing black/freeze/corruption checks.
 - **Env vars**: `QA_BLUR_THRESHOLD=100.0` (Laplacian variance threshold, lower = less tolerant). Wired in `main.py` alongside `QA_BLACK_THRESHOLD` and `QA_FREEZE_THRESHOLD`. Non-blocking — warnings logged but pipeline continues.
-- **Requirements**: Uses PIL (already in requirements.txt) + numpy (already transitive from torch/manim). No new dependencies.
+- **Requirements**: Uses PIL (already in requirements.txt) + numpy (already transitive from torch). No new dependencies.
 
 ## New Env Vars
 | Variable | Default | Purpose |
@@ -391,3 +390,25 @@
 | `QA_BLUR_THRESHOLD` | `100.0` | Laplacian variance threshold for blur detection |
 | `QA_BLACK_THRESHOLD` | `0.35` | Max black frame ratio before QA fails |
 | `QA_FREEZE_THRESHOLD` | `0.1` | Max freeze frame ratio before QA fails |
+
+### Documentary Tier (uncommitted) — New `TIER=documentary` env var
+- **Sprint 1 — Audio, Subs, Color, Voice**:
+  - Audio sample rate fix: `-ar 44100` in shorts_renderer.py and video_compositor.py concat paths — prevents "sample rate mismatch for aac codec" on mixed-source clips.
+  - Subtitle styling: `composite_video()` accepts `tier` param → documentary gets `FontSize=24`, `MarginV=60`, white primary (`&H00FFFFFF&`), black outline (`&H00FFFFFF&/&H80000000&`), `has_outline=2`. Deep lesson and default each keep their own styling. `burn_subtitles()` accepts `tier` param.
+  - Color grading reference: `DOCUMENTARY_YUV = {"y_mean": 90, "u_mean": 128, "v_mean": 118}` cooler/desaturated palette in `video_compositor.py`. `_color_grade_scenes()` accepts optional `target_ref` dict. Documentaries use `DOCUMENTARY_YUV`, everything else uses `BRAND_TEAL_YUV`.
+  - Voice profile: `get_voice_settings("documentary")` → `en-US-JennyNeural`, `-10%` rate, `-3Hz` pitch (`voice_gen.py`). `CONTENT_TYPE_VOICES["documentary"] = "en-US-Studio-Q"` (`voice_provider.py`).
+  - SSML documentary mode: `_build_google_ssml(is_documentary=True)` → 750ms sentence pauses, 250ms clause pauses, no emphasis words (calm documentary narration). Threaded through `EdgeTTSProvider.generate()`, `GoogleCloudTTSProvider.generate()`, all `generate_timing()` methods.
+- **Sprint 2 — Pipeline Wiring**:
+  - `TIER` env var read in `run_video_pipeline()` → `is_documentary` bool set once, threaded to `generate_voiceover(is_documentary=...)` and `composite_video(tier=...)`. All 4 composite_video call sites pass `tier`.
+  - `_deep_lesson_dur()` checks `TIER=documentary` → returns `DOCUMENTARY_MAX_DURATION` (default 2400s = 40min).
+  - Documentary context injected into deep lesson crew's `extra_context` in `generate_long_video()`: narrative storytelling, historical progression, case studies, [STOCK] for b-roll, [BLENDER] for 3D diagrams, 20-40 scenes.
+  - `.env` + `.env.example` updated: `DOCUMENTARY_MAX_DURATION=2400`, `TIER=`.
+- **Sprint 2b — Stock keyword map 70→200 entries**: `PEXELS_KEYWORD_MAP` expanded from ~70 to 200 entries with documentary-relevant categories (history, nature, science, space, culture, psychology, etc.). Fixed duplicate `engineering` key. Added public-domain archive fallback sources: `_search_archive_org()` (Internet Archive) and `_search_wikimedia()` (Wikimedia Commons) — wired into `_search_providers()` as fallback after Pexels/Pixabay (`stock_video.py`).
+- **Sprint 3 — Blender path**: Now implemented — Blender replaces Manim entirely. LTX + Stock + Blender covers all scene types.
+- **Sprint 4 — Scheduler + Ambient Music**: `weekly_documentary_job()` runs Sunday 08:00 UTC (`main.py`). Sets `TIER=documentary`, calls `generate_content_plan(slot="documentary")`, generates long videos as documentaries. With global dedup guard (`EVERYONE_DOCUMENTARY_JOB`). Music: added `"documentary"` mood to `music_gen.py` (55 BPM, low sine notes → sustained chord pads). `detect_mood()` and `generate_background_music()` accept `tier` param. Procedural pad generator for ambient/documentary (sustained overlays instead of note-by-note).
+
+## New Env Vars
+| Variable | Default | Purpose |
+|---|---|---|
+| `DOCUMENTARY_MAX_DURATION` | `2400` | Max documentary video duration (40 min) |
+| `TIER` | — | Set to `"documentary"` for documentary-style long videos |

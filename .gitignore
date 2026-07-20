@@ -46,9 +46,9 @@ keys/
 agents/bin/*.bin
 agents/bin/*.param
 
-# Manim — generated code, renders, and RAG vector stores
-agents/tmp/manim_render/
-agents/tmp/manim_cache/
+# Blender — rendered scenes and cache
+agents/tmp/blender_render/
+agents/tmp/blender_cache/
 agents/chroma_db/
 agents/media/
 

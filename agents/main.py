@@ -292,14 +292,17 @@ PIPELINE_TIMEOUT_MINUTES = int(os.getenv("PIPELINE_TIMEOUT_MINUTES", 120))
 MAX_RETRIES_PER_TOPIC = int(os.getenv("MAX_RETRIES_PER_TOPIC", 2))
 FORCE_PUBLISH = os.getenv("FORCE_PUBLISH", "true").lower() == "true"
 USE_ANIMATION_ENGINE = os.getenv("USE_ANIMATION_ENGINE", "true").lower() == "true"
-LONG_MAX_DURATION = int(os.getenv("LONG_MAX_DURATION", 180))
+LONG_MAX_DURATION = int(os.getenv("LONG_MAX_DURATION", 600))
 DEEP_LESSON_MAX_DURATION = int(os.getenv("DEEP_LESSON_MAX_DURATION", 600))
+DOCUMENTARY_MAX_DURATION = int(os.getenv("DOCUMENTARY_MAX_DURATION", 2400))
 
-DEEP_LESSON_CATEGORIES = {"AI Foundations", "LLM Internals", "Training & Data", "AI Systems"}
+from utils.scene_schema import DEEP_LESSON_CATS as DEEP_LESSON_CATEGORIES
 
 
 def _deep_lesson_dur(category: str) -> int:
     """Return max_duration appropriate for this category (deep lesson vs regular long)."""
+    if os.environ.get("TIER", "") == "documentary":
+        return DOCUMENTARY_MAX_DURATION
     return DEEP_LESSON_MAX_DURATION if category in DEEP_LESSON_CATEGORIES else LONG_MAX_DURATION
 ENABLE_COMMUNITY_POSTS = os.getenv("ENABLE_COMMUNITY_POSTS", "false").lower() == "true"
 GATE_ENFORCEMENT_MODE = os.getenv("GATE_ENFORCEMENT_MODE", "advisory").lower()
@@ -758,8 +761,10 @@ def _proportional_scale(scenes: list[dict], audio_duration: float) -> list[dict]
     return scenes
 
 
-def run_video_pipeline(script_text: str, storyboard_text: str, category: str, format_type: str, video_id: str, max_duration: int, generate_subs: bool = True, subtitle_lang: str = "en") -> dict:  # noqa: E501
+def run_video_pipeline(script_text: str, storyboard_text: str, category: str, format_type: str, video_id: str, max_duration: int, generate_subs: bool = True, subtitle_lang: str = "en", tier: str = "") -> dict:  # noqa: E501
     log_event("PIPELINE", "Step 1: Parsing storyboard into scenes")
+    is_documentary = bool(tier) if tier else (os.environ.get("TIER", "") == "documentary")
+    _tier_param = tier or ("documentary" if is_documentary else "")
     use_asset_router = USE_ANIMATION_ENGINE
 
     scenes = None
@@ -774,10 +779,10 @@ def run_video_pipeline(script_text: str, storyboard_text: str, category: str, fo
     log_event("PIPELINE", "Step 2: Generating voice-over with Edge TTS")
     update_agent_status("voice", "working", "Generating narration audio")
     is_long = format_type == "long"
-    is_deep_lesson = category in DEEP_LESSON_CATEGORIES
+    is_deep_lesson = True if format_type == "long" else (category in DEEP_LESSON_CATEGORIES)
     from utils.voice_gen import extract_narration_text
     narration_text = extract_narration_text(script_text, is_long_form=is_long)
-    voice_result = _run_async(generate_voiceover(script_text, output_filename=f"voiceover_{video_id}.wav", content_type="educational", is_long_form=is_long, is_deep_lesson=is_deep_lesson))
+    voice_result = _run_async(generate_voiceover(script_text, output_filename=f"voiceover_{video_id}.wav", content_type="educational", is_long_form=is_long, is_deep_lesson=is_deep_lesson, is_documentary=is_documentary))
     if not voice_result.get("success"):
         log_pipeline_error(video_id, "Voice-over generation failed", "voice_generation")
         raise Exception("Voice-over generation failed.")
@@ -823,8 +828,18 @@ def run_video_pipeline(script_text: str, storyboard_text: str, category: str, fo
 
     log_event("PIPELINE", "Step 3: Generating background music")
     update_agent_status("composer", "working", "Creating background music")
-    scene_moods = [s.get("music_mood", "happy") for s in scenes if isinstance(s, dict) and s.get("music_mood")]
-    music_result = generate_background_music(category, duration=total_video_duration, scene_moods=scene_moods if scene_moods else None)
+    from utils.music_gen import score_scene_energy, ENERGY_TO_MOOD
+    scene_moods = []
+    for s in (scenes if isinstance(scenes, list) else []):
+        if isinstance(s, dict):
+            mm = s.get("music_mood")
+            if mm and mm != "focused":
+                scene_moods.append(mm)
+            else:
+                text = s.get("narration_text") or s.get("text") or s.get("keyword", "")
+                energy = score_scene_energy(text)
+                scene_moods.append(ENERGY_TO_MOOD.get(energy, "focused"))
+    music_result = generate_background_music(category, duration=total_video_duration, scene_moods=scene_moods if scene_moods else None, tier=_tier_param)
     music_path = music_result.get("path")
     if not music_path:
         log_event("COMPOSER", "Music generation failed — continuing without background music", "warn")
@@ -872,16 +887,16 @@ def run_video_pipeline(script_text: str, storyboard_text: str, category: str, fo
 
     from utils.video_compositor import composite_video
     if use_asset_router:
-        final_path = composite_video(clips=clips, voice_path=voice_result["path"], music_path=music_path, format_type=format_type, video_id=video_id, subtitle_path=subtitle_path, chapters=chapters, category=category, scenes=scenes)
+        final_path = composite_video(clips=clips, voice_path=voice_result["path"], music_path=music_path, format_type=format_type, video_id=video_id, subtitle_path=subtitle_path, chapters=chapters, category=category, scenes=scenes, tier=_tier_param)
     else:
-        final_path = composite_video(clips=clips, voice_path=voice_result["path"], music_path=music_path, format_type=format_type, video_id=video_id, subtitle_path=subtitle_path, chapters=chapters, category=category, scenes=scenes)
+        final_path = composite_video(clips=clips, voice_path=voice_result["path"], music_path=music_path, format_type=format_type, video_id=video_id, subtitle_path=subtitle_path, chapters=chapters, category=category, scenes=scenes, tier=_tier_param)
 
     if not final_path:
         log_event("EDITOR", "Composite failed, retrying with concat-only fallback")
         if use_asset_router:
-            final_path = composite_video(clips=clips, voice_path=voice_result["path"], music_path=music_path, format_type=format_type, video_id=video_id, subtitle_path=subtitle_path, chapters=chapters, category=category, scenes=scenes, force_concat=True)
+            final_path = composite_video(clips=clips, voice_path=voice_result["path"], music_path=music_path, format_type=format_type, video_id=video_id, subtitle_path=subtitle_path, chapters=chapters, category=category, scenes=scenes, force_concat=True, tier=_tier_param)
         else:
-            final_path = composite_video(clips=clips, voice_path=voice_result["path"], music_path=music_path, format_type=format_type, video_id=video_id, subtitle_path=subtitle_path, chapters=chapters, category=category, scenes=scenes, force_concat=True)
+            final_path = composite_video(clips=clips, voice_path=voice_result["path"], music_path=music_path, format_type=format_type, video_id=video_id, subtitle_path=subtitle_path, chapters=chapters, category=category, scenes=scenes, force_concat=True, tier=_tier_param)
 
     if not final_path:
         log_pipeline_error(video_id, "Video compositing failed after retry", "video_compositing")
@@ -1019,7 +1034,17 @@ def generate_short_video(topic: str, category: str, video_id: str, publish_at: s
             except Exception:
                 pass
 
-            extra_parts = [p for p in [knowledge_ctx, series_ctx, opt_injection] if p]
+            trend_ctx = ""
+            try:
+                from utils.trend_discovery import discover_trends as _dt
+                _tr = _dt()
+                if _tr:
+                    _hooks = [t.get("title", "") for t in _tr[:5] if t.get("title")]
+                    trend_ctx = "Current trending hooks for viral optimization:\n" + "\n".join(f"- {h}" for h in _hooks)
+            except Exception:
+                trend_ctx = ""
+
+            extra_parts = [p for p in [knowledge_ctx, series_ctx, trend_ctx, opt_injection] if p]
             extra_context = "\n".join(extra_parts) if extra_parts else ""
 
             script_kwargs = {"topic": topic, "category": category, "fmt": "shorts", "max_duration": SHORTS_MAX_DURATION}
@@ -1254,9 +1279,10 @@ def generate_short_video(topic: str, category: str, video_id: str, publish_at: s
         failed_step = "publishing"
         with _track_step(video_id, "publishing"):
             platforms_to_publish = ['youtube', 'instagram', 'facebook']
+            best_title = title_variants[0] if title_variants else topic
             publish_result = multi_platform_publish(
                 video_id=video_id,
-                title=topic,
+                title=best_title,
                 description=desc_result.get("full_description", ""),
                 video_path=video_result.get("video_path", ""),
                 thumbnail_path=thumbnail_path,
@@ -1467,16 +1493,39 @@ def generate_long_video(topic: str, category: str, video_id: str, publish_at: st
             except Exception:
                 pass
 
-            extra_parts = [p for p in [knowledge_ctx, series_ctx, opt_injection] if p]
+            trend_ctx = ""
+            try:
+                from utils.trend_discovery import discover_trends as _dt
+                _tr = _dt()
+                if _tr:
+                    _hooks = [t.get("title", "") for t in _tr[:5] if t.get("title")]
+                    trend_ctx = "Current trending hooks for viral optimization:\n" + "\n".join(f"- {h}" for h in _hooks)
+            except Exception:
+                trend_ctx = ""
+
+            extra_parts = [p for p in [knowledge_ctx, series_ctx, trend_ctx, opt_injection] if p]
             extra_context = "\n".join(extra_parts) if extra_parts else ""
+
+            _tier_long = os.environ.get("TIER", "")
+            if _tier_long == "documentary":
+                _doc_ctx = (
+                    "DOCUMENTARY TIER — This is a documentary-style video, NOT a tutorial or lesson.\n"
+                    "Write for a general audience. Use narrative storytelling, historical progression, "
+                    "real-world case studies, expert quotes, and cinematic pacing.\n"
+                    "Scenes: 20-40. Duration: 20-40 minutes. Use [STOCK] for archival/b-roll, "
+                    "[BLENDER] for 3D photorealistic visualizations and renders. "
+                    "Include scene-setting descriptions and atmospheric context.\n"
+                    "Structure: Hook → Historical/Rationale Context → Deep Dive → Case Studies → Future Outlook → Credits."
+                )
+                extra_context = (extra_context + "\n\n" + _doc_ctx) if extra_context else _doc_ctx
 
             script_kwargs = {"topic": topic, "category": category, "fmt": "long", "max_duration": _deep_lesson_dur(category)}
             if extra_context:
                 script_kwargs["extra_context"] = extra_context
-            is_deep = category in DEEP_LESSON_CATEGORIES
-            crew_fn = create_deep_lesson_crew if is_deep else create_scriptwriter_crew
-            label = "Deep Lesson Scriptwriter" if is_deep else "Scriptwriter"
-            dl_kwargs = {k: v for k, v in script_kwargs.items() if k != "fmt"} if is_deep else script_kwargs
+            is_deep = True  # ponytail: all long-form gets deep lesson treatment for Sample 6 quality
+            crew_fn = create_deep_lesson_crew
+            label = "Deep Lesson Scriptwriter"
+            dl_kwargs = {k: v for k, v in script_kwargs.items() if k != "fmt"}
             script = run_agent_step("scriptwriter", label, f"Writing script for: {topic}", crew_fn, dl_kwargs, timeout_minutes=45 if is_deep else 30)
             script_text = str(script)
             save_checkpoint(video_id, "scriptwriting", {"script_preview": script_text[:200]})
@@ -1600,7 +1649,7 @@ def generate_long_video(topic: str, category: str, video_id: str, publish_at: st
 
         failed_step = "storyboarding"
         storyboard = run_agent_step("storyboard", "Storyboard", "Generating storyboard",
-                                    create_storyboard_crew, {"script": script_text, "format_type": "long", "is_deep": category in DEEP_LESSON_CATEGORIES})
+                                    create_storyboard_crew, {"script": script_text, "format_type": "long", "is_deep": True})
 
         failed_step = "director_storyboard_review"
         sb_review = run_director_review("storyboard", topic, category, "long", script_text, str(storyboard))
@@ -1707,9 +1756,10 @@ def generate_long_video(topic: str, category: str, video_id: str, publish_at: st
         failed_step = "publishing"
         with _track_step(video_id, "publishing"):
             platforms_to_publish = ['youtube', 'facebook']
+            best_title = title_variants[0] if title_variants else topic
             publish_result = multi_platform_publish(
                 video_id=video_id,
-                title=topic,
+                title=best_title,
                 description=desc_result.get("full_description", ""),
                 video_path=video_result.get("video_path", ""),
                 thumbnail_path=thumbnail_path,
@@ -2216,6 +2266,19 @@ def daily_cleanup_job():
 def weekly_monetization_job():
     log_event("MONETIZATION", "Starting weekly monetization review")
     try:
+        from utils.youtube_upload import get_channel_stats
+        try:
+            stats = get_channel_stats()
+            if stats:
+                hours = int(stats.get("total_views", 0)) / 60  # rough: total_views/60 ~ watch hours
+                update_platform_metrics("youtube", {
+                    "subs": int(stats.get("subscribers", 0)),
+                    "watch_hours": max(1, int(hours)),
+                    "total_views": int(stats.get("total_views", 0)),
+                })
+                log_event("MONETIZATION", f"Real stats: {stats.get('subscribers')} subs, {stats.get('total_views')} views")
+        except Exception as e:
+            log_event("MONETIZATION", f"Could not fetch real YouTube stats: {e}", "warn")
         check_in = weekly_check_in()
         log_event("MONETIZATION", f"Weekly check-in recorded for {check_in['date'][:10]}")
         growth_summary = get_growth_summary()
@@ -2236,6 +2299,59 @@ def weekly_monetization_job():
             log_event("MONETIZATION", f"Review crew failed: {e}", "warn")
     except Exception as e:
         log_event("MONETIZATION", f"Weekly monetization check failed: {e}", "error")
+
+
+EVERYONE_DOCUMENTARY_JOB = False
+
+def weekly_documentary_job():
+    global EVERYONE_DOCUMENTARY_JOB
+    if EVERYONE_DOCUMENTARY_JOB:
+        log_event("SCHEDULER", "Skipping weekly documentary job — documentarians are resting")
+        return
+    log_event("SCHEDULER", "Starting weekly documentary generation")
+    try:
+        from utils.scheduler_planner import generate_content_plan
+        from utils.knowledge_integration import get_coverage_context
+        from utils.pillar_manager import generate_pillar_context
+        combined_ctx = ""
+        try:
+            kc = get_coverage_context()
+            if kc:
+                combined_ctx += kc
+        except Exception:
+            pass
+        try:
+            pc = generate_pillar_context()
+            if pc:
+                combined_ctx += "\n" + pc
+        except Exception:
+            pass
+        plan = generate_content_plan(extra_context=combined_ctx, slot="documentary")
+        log_event("SCHEDULER", f"Content plan: {len(plan.get('shorts', []))} shorts, {len(plan.get('longs', []))} longs")
+        videos = plan.get("longs", [])
+        if not videos:
+            log_event("SCHEDULER", "No long videos in plan — skipping")
+            return
+        original_format = os.environ.get("FORMAT", "")
+        os.environ["TIER"] = "documentary"
+        for video in videos:
+            topic = video.get("topic", "")
+            cat = video.get("category", "AI Explained")
+            video_id = generate_video_id()
+            try:
+                log_event("SCHEDULER", f"Generating documentary: {topic}")
+                update_agent_status("scheduler", "working", f"Documentary: {topic[:40]}")
+                generate_long_video(topic=topic, category=cat, video_id=video_id)
+                log_event("SCHEDULER", f"Documentary generated: {topic}")
+            except Exception as e:
+                log_event("SCHEDULER", f"Documentary failed: {topic}: {e}", "error")
+                continue
+        os.environ["TIER"] = ""
+        if original_format:
+            os.environ["FORMAT"] = original_format
+        EVERYONE_DOCUMENTARY_JOB = True
+    except Exception as e:
+        log_event("SCHEDULER", f"Weekly documentary job failed: {e}", "error")
 
 
 def daily_feedback_job():
@@ -2459,6 +2575,7 @@ if __name__ == "__main__":
     scheduler.add_job(daily_feedback_job, "cron", hour=10, minute=0, misfire_grace_time=86400)
     scheduler.add_job(daily_title_test_job, "cron", hour=12, minute=0, misfire_grace_time=86400)
     scheduler.add_job(daily_community_post_job, "cron", day_of_week="mon,thu", hour=15, minute=0, misfire_grace_time=86400)
+    scheduler.add_job(weekly_documentary_job, "cron", day_of_week="sun", hour=8, minute=0, misfire_grace_time=86400)
     log_event("SCHEDULER", "Daily content job scheduled at 06:00 UTC")
     log_event("SCHEDULER", "Daily analytics pull scheduled at 08:00 UTC")
     log_event("SCHEDULER", "Daily revenue computation scheduled at 08:30 UTC")
@@ -2466,6 +2583,7 @@ if __name__ == "__main__":
     log_event("SCHEDULER", "Daily cleanup job scheduled at 04:00 UTC")
     log_event("SCHEDULER", "Scheduled publish check every 15 minutes")
     log_event("SCHEDULER", "Weekly monetization review scheduled on Mondays at 12:00 UTC")
+    log_event("SCHEDULER", "Weekly documentary generation scheduled on Sundays at 08:00 UTC")
     log_event("SCHEDULER", "Daily analytics feedback loop scheduled at 10:00 UTC")
 
     def _shutdown():

@@ -1,8 +1,13 @@
 VALID_CATEGORIES = [
-    "AI Explained", "Deep Tech", "Paper Breakdowns",
-    "Tool Tutorials", "Industry Analysis", "Code & Build",
-    "AI News", "Career & Learning",
+    "AI Foundations", "LLM Internals", "Training & Data", "AI Systems",
+    "AI Explained", "AI News", "Science & Technology", "Space & Astronomy",
+    "Nature & Wildlife", "History & Biography", "Health & Medicine",
+    "Business & Finance", "Programming & Software", "Engineering & Innovation",
+    "Mathematics & Logic", "Philosophy & Psychology", "Tool Tutorials",
+    "Paper Breakdowns", "Career & Learning",
 ]
+
+DEEP_LESSON_CATS = {"AI Foundations", "LLM Internals", "Training & Data", "AI Systems"}
 
 VALID_FORMATS = ["shorts", "long"]
 VALID_DIRECTIONS = ["left", "right", "top", "bottom"]
@@ -10,7 +15,7 @@ VALID_EFFECTS = ["fade_in", "fade_out", "none"]
 VALID_TRANSITIONS = ["cut", "fade", "dissolve", "slide_left", "slide_right", "zoom", "none", "circle_open", "circle_close", "pixelize", "wipe_left", "wipe_right", "smooth_left", "smooth_right", "fade_gradual"]
 
 ASSET_TYPES = ["STOCK_FOOTAGE", "SCREEN_CAPTURE", "DIAGRAM_ANIMATION", "CODE_SNIPPET", "STATIC_IMAGE"]
-RENDER_TYPES = ["stock", "manim", "code"]
+RENDER_TYPES = ["stock", "blender", "code"]
 
 SHAPE_TYPES = ["circle", "square", "rounded_square", "arrow", "line"]
 ANIMATION_TYPES = [

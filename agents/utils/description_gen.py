@@ -60,8 +60,13 @@ Channel: {channel_name}
 Content preview:
 {hook}
 
+CRITICAL: The first 150 characters (visible before "show more") must contain:
+- The main keyword/topic
+- A hook that makes people want to click
+- A clear value proposition
+
 Generate a description that:
-1. Starts with an engaging hook for tech/AI enthusiasts
+1. Starts with an engaging hook for tech/AI enthusiasts (KEY INFO IN FIRST 150 CHARS)
 2. Includes 5-8 relevant hashtags (tech-focused)
 3. Clearly explains what the viewer will learn
 4. Includes an AI-generated content disclaimer

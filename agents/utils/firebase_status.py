@@ -268,10 +268,7 @@ def update_channel_stats(stats: dict):
     print(f"[FIRESTORE] Channel stats updated: {stats.get('subscribers', '?')} subs, {total_watch_hours:.1f} watch hours")
 
 
-TECH_CATEGORIES = [
-    "AI Explained", "Deep Tech", "Paper Breakdowns", "Tool Tutorials",
-    "Industry Analysis", "Code & Build", "AI News", "Career & Learning",
-]
+from utils.scene_schema import VALID_CATEGORIES as TECH_CATEGORIES
 
 
 ACTIVITY_TTL_DAYS = 30

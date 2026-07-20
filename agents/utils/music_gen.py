@@ -28,6 +28,7 @@ MOOD_TO_PIXABAY_QUERY = {
     "ambient": "ambient atmospheric meditation drone",
     "modern": "modern electronic rhythmic tech",
     "uplifting": "uplifting inspirational happy corporate",
+    "documentary": "ambient documentary cinematic nature",
 }
 
 MOOD_CONFIGS = {
@@ -37,10 +38,13 @@ MOOD_CONFIGS = {
     "ambient": {"bpm": 60, "notes": [174.61, 220.00, 261.63, 349.23, 440.00], "waveform": "sine"},
     "modern": {"bpm": 110, "notes": [261.63, 329.63, 392.00, 523.25, 659.25], "waveform": "triangle"},
     "uplifting": {"bpm": 120, "notes": [261.63, 293.66, 329.63, 349.23, 392.00, 440.00, 493.88], "waveform": "triangle"},
+    "documentary": {"bpm": 55, "notes": [130.81, 164.81, 196.00, 220.00, 261.63, 329.63], "waveform": "sine"},
 }
 
 
-def detect_mood(category: str) -> str:
+def detect_mood(category: str, tier: str = "") -> str:
+    if tier == "documentary":
+        return "documentary"
     category = category.lower()
     mood_map = {
         "explained": "focused", "tutorial": "modern", "deep": "ambient",
@@ -52,6 +56,39 @@ def detect_mood(category: str) -> str:
         if key in category:
             return mood
     return "focused"
+
+
+ENERGY_KEYWORDS = {
+    "high": {"breakthrough", "crucially", "revolutionary", "game-changing",
+             "amazing", "shocking", "incredible", "mind-blowing",
+             "changes everything", "fundamentally", "massive", "huge",
+             "unbelievable", "extraordinary", "remarkable", "transformative",
+             "never before", "cutting-edge", "state-of-the-art", "pioneering"},
+    "low": {"first", "let's", "imagine", "consider", "basically",
+            "introduction", "welcome", "let me", "think about",
+            "what is", "define", "start by", "begin with", "overview",
+            "simply put", "in simple terms", "at its core"},
+}
+
+ENERGY_TO_MOOD = {
+    "high": "energetic",
+    "medium": "focused",
+    "low": "ambient",
+}
+
+
+def score_scene_energy(text: str) -> str:
+    if not text:
+        return "medium"
+    lower = text.lower()
+    high = sum(1 for w in ENERGY_KEYWORDS["high"] if w in lower)
+    low = sum(1 for w in ENERGY_KEYWORDS["low"] if w in lower)
+    net = high - low
+    if net >= 2:
+        return "high"
+    if net <= -1:
+        return "low"
+    return "medium"
 
 
 # ---------------------------------------------------------------------------
@@ -251,6 +288,22 @@ def generate_melody(duration_seconds: float, mood: str = "focused", output_path:
     total_beats = int(duration_seconds / beat_duration)
     gen = Sine if waveform == "sine" else Triangle
 
+    # Documentary/ambient: sustained chord pads instead of note-by-note melody
+    if mood in ("documentary", "ambient", "cinematic"):
+        chord_dur = int(beat_duration * 4 * 1000)
+        pad = AudioSegment.silent(duration=0)
+        for start_beat in range(0, total_beats, 4):
+            freq = random.choice(notes)
+            tone = gen(freq).to_audio_segment(duration=chord_dur)
+            tone = tone - 20
+            pad = pad.overlay(tone, position=int(start_beat * beat_duration * 1000))
+        pad = pad[:int(duration_seconds * 1000)]
+        pad = AudioSegment.from_mono_audiosegments(pad, pad)
+        if output_path is None:
+            output_path = str(MUSIC_DIR / f"music_{mood}_{random.randint(1000,9999)}.wav")
+        pad.export(output_path, format="wav")
+        return output_path
+
     melody = AudioSegment.silent(duration=0)
     for _ in range(total_beats):
         freq = random.choice(notes)
@@ -284,8 +337,12 @@ def _generate_mood_arc_melody(duration_seconds: float, scene_moods: list[str], o
     for i, seg_path in enumerate(segments):
         if os.path.exists(seg_path):
             seg = AudioSegment.from_file(seg_path)
-            crossfade = min(2000, len(seg) // 2)
-            combined = combined.append(seg, crossfade=crossfade if combined else 0)
+            seg_len = len(seg)
+            if seg_len < 100:
+                continue
+            crossfade = min(100, seg_len // 4)
+            crossfade = crossfade if combined else 0
+            combined = combined.append(seg, crossfade=crossfade)
     combined.export(output_path, format="wav")
     return output_path
 
@@ -294,9 +351,9 @@ def _generate_mood_arc_melody(duration_seconds: float, scene_moods: list[str], o
 # Main entry point
 # ---------------------------------------------------------------------------
 
-def generate_background_music(category: str, duration: float = 60, output_filename: Optional[str] = None, scene_moods: Optional[list[str]] = None) -> dict:
+def generate_background_music(category: str, duration: float = 60, output_filename: Optional[str] = None, scene_moods: Optional[list[str]] = None, tier: str = "") -> dict:
     MUSIC_DIR.mkdir(parents=True, exist_ok=True)
-    mood = detect_mood(category)
+    mood = detect_mood(category, tier=tier)
     if output_filename is None:
         output_filename = f"bg_{mood}.wav"
     output_path = str(MUSIC_DIR / output_filename)

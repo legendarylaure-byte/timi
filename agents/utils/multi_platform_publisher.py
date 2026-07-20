@@ -225,7 +225,7 @@ def upload_to_platform(platform: str, title: str, description: str, video_path: 
         elif platform == 'instagram':
             return _upload_instagram(title, video_path, format_type)
         elif platform == 'facebook':
-            return _upload_facebook(title, description, video_path)
+            return _upload_facebook(title, description, video_path, thumbnail_path)
         else:
             return {'success': False, 'error': 'Platform not implemented'}
     except Exception as e:
@@ -547,7 +547,7 @@ def _upload_instagram(title: str, video_path: str, format_type: str) -> dict:
         return {'success': False, 'platform': 'instagram', 'error': safe_log(str(e))}
 
 
-def _upload_facebook(title: str, description: str, video_path: str) -> dict:
+def _upload_facebook(title: str, description: str, video_path: str, thumbnail_path: str = None) -> dict:
     """Upload to Facebook via Graph API with retry, rate limit, token refresh."""
     if not rate_limiter("facebook_upload", max_per_hour=5):
         security_audit("RATE_LIMIT", "Facebook upload rate limit hit", "warning")
@@ -593,11 +593,16 @@ def _upload_facebook(title: str, description: str, video_path: str) -> dict:
             fb_description += f"\n\n{ai_flags['caption_hashtag']}"
 
         if upload_method == 'direct':
-            with open(upload_path, 'rb') as f:
+            source_fp = open(upload_path, 'rb')
+            thumb_fp = open(thumbnail_path, 'rb') if thumbnail_path and os.path.exists(thumbnail_path) else None
+            fb_files = {'source': source_fp}
+            if thumb_fp:
+                fb_files['thumb'] = thumb_fp
+            try:
                 upload_resp = requests.post(
                     f'https://graph.facebook.com/v25.0/{page_id}/videos',
                     params={'access_token': access_token, 'idempotency_key': idem_key},
-                    files={'source': f},
+                    files=fb_files,
                     data={
                         'title': title,
                         'description': fb_description,
@@ -605,6 +610,10 @@ def _upload_facebook(title: str, description: str, video_path: str) -> dict:
                     },
                     timeout=600,
                 )
+            finally:
+                source_fp.close()
+                if thumb_fp:
+                    thumb_fp.close()
 
             _check_meta_rate_limit(upload_resp, 'Facebook')
 

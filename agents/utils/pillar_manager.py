@@ -4,23 +4,38 @@ import json
 import logging
 from datetime import datetime, timedelta
 from typing import Optional
+from utils.scene_schema import DEEP_LESSON_CATS
 
 logger = logging.getLogger(__name__)
 
+def _pillar_type(name: str) -> str:
+    return "deep_lesson" if name in DEEP_LESSON_CATS else "quick_short"
+
 CONTENT_PILLARS = {
-    # Deep lesson pillars (Manim-heavy, curriculum-based, 3/week)
-    "AI Foundations": {"ratio": 0.15, "priority": 5, "category_type": "deep_lesson", "description": "Foundational AI/ML concepts — neural networks, backpropagation, gradient descent"},
-    "LLM Internals": {"ratio": 0.15, "priority": 5, "category_type": "deep_lesson", "description": "How LLMs work — tokenization, embeddings, attention, transformers, generation"},
-    "Training & Data": {"ratio": 0.10, "priority": 4, "category_type": "deep_lesson", "description": "Training pipelines — RLHF, fine-tuning, LoRA, datasets, evaluation"},
-    "AI Systems": {"ratio": 0.08, "priority": 4, "category_type": "deep_lesson", "description": "Systems — RAG, agents, multi-modal, deployment, best practices"},
-    # Quick short pillars (LTX/stock, fast-paced, 3/day)
-    "AI Explained": {"ratio": 0.18, "priority": 3, "category_type": "quick_short", "description": "Quick AI/ML concept explainers"},
-    "AI News": {"ratio": 0.12, "priority": 3, "category_type": "quick_short", "description": "Latest AI developments and updates"},
-    "Tool Tutorials": {"ratio": 0.08, "priority": 2, "category_type": "quick_short", "description": "AI tool guides and how-tos"},
-    "Code & Build": {"ratio": 0.06, "priority": 2, "category_type": "quick_short", "description": "Code walkthroughs, build projects"},
-    "Paper Breakdowns": {"ratio": 0.04, "priority": 1, "category_type": "quick_short", "description": "Academic paper summaries"},
-    "Career & Learning": {"ratio": 0.04, "priority": 1, "category_type": "quick_short", "description": "Career advice, learning paths"},
+    "AI Foundations": {"ratio": 0.08, "priority": 5, "description": "Foundational AI/ML concepts — neural networks, backpropagation, gradient descent"},
+    "LLM Internals": {"ratio": 0.07, "priority": 5, "description": "How LLMs work — tokenization, embeddings, attention, transformers, generation"},
+    "Training & Data": {"ratio": 0.05, "priority": 4, "description": "Training pipelines — RLHF, fine-tuning, LoRA, datasets, evaluation"},
+    "AI Systems": {"ratio": 0.05, "priority": 4, "description": "Systems — RAG, agents, multi-modal, deployment, best practices"},
+    "AI Explained": {"ratio": 0.08, "priority": 3, "description": "Quick AI/ML concept explainers"},
+    "AI News": {"ratio": 0.06, "priority": 3, "description": "Latest AI developments and updates"},
+    "Science & Technology": {"ratio": 0.08, "priority": 3, "description": "Science discoveries, tech innovations, research breakthroughs"},
+    "Space & Astronomy": {"ratio": 0.06, "priority": 2, "description": "Space exploration, astronomy, cosmology, planetary science"},
+    "Nature & Wildlife": {"ratio": 0.06, "priority": 2, "description": "Nature documentaries, wildlife, environmental science, conservation"},
+    "History & Biography": {"ratio": 0.06, "priority": 2, "description": "Historical events, biographies, ancient civilizations, world history"},
+    "Health & Medicine": {"ratio": 0.05, "priority": 2, "description": "Health science, medical breakthroughs, nutrition, wellness"},
+    "Business & Finance": {"ratio": 0.05, "priority": 2, "description": "Business strategy, economics, markets, entrepreneurship"},
+    "Programming & Software": {"ratio": 0.06, "priority": 2, "description": "Code tutorials, software engineering, development tools"},
+    "Engineering & Innovation": {"ratio": 0.05, "priority": 2, "description": "Engineering marvels, industrial design, technological breakthroughs"},
+    "Mathematics & Logic": {"ratio": 0.04, "priority": 1, "description": "Math concepts, logic puzzles, number theory, geometry"},
+    "Philosophy & Psychology": {"ratio": 0.04, "priority": 1, "description": "Philosophical ideas, cognitive science, human behavior"},
+    "Tool Tutorials": {"ratio": 0.04, "priority": 2, "description": "Software tool guides, productivity hacks, workflow tutorials"},
+    "Paper Breakdowns": {"ratio": 0.03, "priority": 1, "description": "Academic paper summaries, research analysis"},
+    "Career & Learning": {"ratio": 0.03, "priority": 1, "description": "Career advice, learning paths, skill development"},
 }
+
+# populate category_type from the single source of truth
+for _name in CONTENT_PILLARS:
+    CONTENT_PILLARS[_name]["category_type"] = _pillar_type(_name)
 
 PILLAR_DATA_DIR = os.path.join(
     os.path.dirname(os.path.dirname(os.path.abspath(__file__))),

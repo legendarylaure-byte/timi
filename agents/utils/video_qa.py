@@ -256,7 +256,7 @@ def check_visual_narration_match(narration_text: str, scene_keywords: list[str] 
                                   asset_type: str = "STOCK_FOOTAGE",
                                   ltx_prompt: str = "") -> tuple[bool, float, str]:
     if asset_type in ("DIAGRAM_ANIMATION", "CODE_SNIPPET", "SCREEN_CAPTURE"):
-        return True, 1.0, "Auto-pass: Manim/code/screen scenes directly explain the content"
+        return True, 1.0, "Auto-pass: Blender/code/screen scenes directly explain the content"
     if not narration_text:
         return True, 0.5, "No narration text to compare"
     import re

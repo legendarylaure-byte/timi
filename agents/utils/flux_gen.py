@@ -1,7 +1,7 @@
 """
 FLUX/SD character sprite generator — DEPRECATED.
 Vyom Ai Cloud no longer uses character sprites.
-All rendering uses stock footage, screen captures, Manim diagrams, and code snippets.
+All rendering uses stock footage, screen captures, Blender 3D diagrams, and code snippets.
 """
 import os
 import warnings

@@ -106,7 +106,7 @@ def cleanup_temp_directories() -> dict:
     agents_dir = Path(PROJECT_ROOT)
 
     subdirs = ["tmp/compositor", "tmp/asset_router", "tmp/music", "tmp/voice",
-               "tmp/subtitles", "tmp/screencaps", "tmp/manim_cache", "tmp/manim_render", "tmp/clips"]
+               "tmp/subtitles", "tmp/screencaps", "tmp/blender_cache", "tmp/blender_render", "tmp/clips"]
 
     for rel_path in subdirs:
         target = agents_dir / rel_path

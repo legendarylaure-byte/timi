@@ -33,43 +33,22 @@ DEFAULT_PITCH = "-2Hz"
 
 NARRATOR_VOICE = {"voice": "en-US-JennyNeural", "rate": "-8%", "pitch": "-2Hz"}
 
-SSML_EMPHASIS_WORDS = [
-    "key", "important", "crucial", "critical", "essential", "fundamental",
-    "never", "always", "must", "cannot", "extremely", "remarkably",
-    "significantly", "dramatically", "revolutionary", "breakthrough",
+# ponytail: rotate 4 voices per segment to avoid monotony across 15+ scenes
+VOICE_ROTATION = [
+    "en-US-JennyNeural",
+    "en-US-AriaNeural",
+    "en-US-ChristopherNeural",
+    "en-US-EricNeural",
 ]
-
-DEEP_LESSON_EMPHASIS_WORDS = SSML_EMPHASIS_WORDS + [
-    "intuitively", "imagine", "think about", "here.s the key", "notice that",
-    "under the hood", "actually happening", "core idea", "beautiful",
-    "elegant", "fascinating", "powerful", "transforms", "underlying",
-    "precisely", "exactly", "every single", "each", "understands",
-    "emerges", "remarkable", "secret", "hidden",
-]
-
 
 def _wrap_ssml(text: str, voice_name: str = None, rate: str = "0%", is_deep_lesson: bool = False) -> str:
-    """Wrap narration text with SSML for improved prosody.
-    
-    Adds emphasis on key terms, micro-pauses at punctuation, and prosody control.
-    Deep lessons get slower pacing with longer pauses for comprehension.
-    """
-    emphasis_words = DEEP_LESSON_EMPHASIS_WORDS if is_deep_lesson else SSML_EMPHASIS_WORDS
-    emphasized = text
-    for word in emphasis_words:
-        pattern = re.compile(re.escape(word), re.IGNORECASE)
-        emphasized = pattern.sub(lambda m: f"<emphasis level=\"strong\">{m.group()}</emphasis>", emphasized)
-    sentence_pause = "500ms" if is_deep_lesson else "300ms"
-    clause_pause = "200ms" if is_deep_lesson else "100ms"
-    emphasized = re.sub(r'([.?!])\s+', rf'\1<break time="{sentence_pause}"/> ', emphasized)
-    emphasized = re.sub(r'([,;:])\s', rf'\1<break time="{clause_pause}"/> ', emphasized)
-    voice_attr = f" name=\"{voice_name}\"" if voice_name else ""
-    ssml = (
-        f"<speak version=\"1.0\" xmlns=\"http://www.w3.org/2001/10/synthesis\" xml:lang=\"en-US\">"
-        f"<prosody rate=\"{rate}\">{emphasized}</prosody>"
-        f"</speak>"
+    """XML-escape text for TTS. No SSML tags — edge-tts escapes all input."""
+    text = (
+        text.replace("&", "&amp;")
+            .replace("<", "&lt;")
+            .replace(">", "&gt;")
     )
-    return ssml
+    return text
 
 
 def _expand_symbols_for_tts(text: str) -> str:
@@ -402,6 +381,11 @@ def get_voice_settings(content_type: str = "general") -> dict:
             "rate": "+5%",
             "pitch": "+2Hz",
         },
+        "documentary": {
+            "voice": "en-US-JennyNeural",
+            "rate": "-10%",
+            "pitch": "-3Hz",
+        },
         "general": {
             "voice": DEFAULT_VOICE,
             "rate": DEFAULT_RATE,
@@ -426,17 +410,17 @@ def split_script_into_segments(script: str, max_chars: int = 300) -> list[str]:
     return segments
 
 
-async def generate_segment_audio(text: str, output_path: str, voice: str = DEFAULT_VOICE, rate: str = DEFAULT_RATE, pitch: str = DEFAULT_PITCH, is_deep_lesson: bool = False) -> bool:  # noqa: E501
+async def generate_segment_audio(text: str, output_path: str, voice: str = DEFAULT_VOICE, rate: str = DEFAULT_RATE, pitch: str = DEFAULT_PITCH, is_deep_lesson: bool = False, is_documentary: bool = False) -> bool:  # noqa: E501
     from utils.voice_provider import get_tts_provider
     provider = get_tts_provider()
-    wrapped = _wrap_ssml(text, voice_name=voice, rate=rate, is_deep_lesson=is_deep_lesson)
-    return await provider.generate(wrapped, output_path, voice, rate, pitch, is_deep_lesson=is_deep_lesson)
+    wrapped = _wrap_ssml(text, voice_name=voice, rate=rate, is_deep_lesson=is_deep_lesson or is_documentary)
+    return await provider.generate(wrapped, output_path, voice, rate, pitch, is_deep_lesson=is_deep_lesson, is_documentary=is_documentary)
 
 
-async def generate_segment_timing(text: str, voice: str = DEFAULT_VOICE, rate: str = DEFAULT_RATE, pitch: str = DEFAULT_PITCH, is_deep_lesson: bool = False) -> list[dict]:  # noqa: E501
+async def generate_segment_timing(text: str, voice: str = DEFAULT_VOICE, rate: str = DEFAULT_RATE, pitch: str = DEFAULT_PITCH, is_deep_lesson: bool = False, is_documentary: bool = False) -> list[dict]:  # noqa: E501
     from utils.voice_provider import get_tts_provider
     provider = get_tts_provider()
-    return await provider.generate_timing(text, voice, rate, pitch, is_deep_lesson=is_deep_lesson)
+    return await provider.generate_timing(text, voice, rate, pitch, is_deep_lesson=is_deep_lesson, is_documentary=is_documentary)
 
 
 def generate_phrase_timings_from_sentences(text: str, sentence_times: list[dict]) -> list[dict]:
@@ -532,7 +516,7 @@ def _detect_section_transition(segments: list[str]) -> list[int]:
         lower = seg.lower().strip()
         is_transition = any(lower.startswith(w) for w in SECTION_TRANSITION_WORDS)
         if is_transition and i > 0:
-            gaps.append(1200)
+            gaps.append(500)
         else:
             gaps.append(base_gap)
     return gaps
@@ -566,7 +550,7 @@ def concatenate_audio(segment_files: list[str], output_path: str, gap_ms: list[i
         return False
 
 
-async def generate_voiceover(script: str, voice: str = DEFAULT_VOICE, output_filename: str = "voiceover.wav", content_type: str = "general", is_long_form: bool = False, is_deep_lesson: bool = False) -> dict:  # noqa: E501
+async def generate_voiceover(script: str, voice: str = DEFAULT_VOICE, output_filename: str = "voiceover.wav", content_type: str = "general", is_long_form: bool = False, is_deep_lesson: bool = False, is_documentary: bool = False) -> dict:  # noqa: E501
     VOICE_DIR.mkdir(parents=True, exist_ok=True)
 
     dialogue_segments = parse_dialogue_segments(script)
@@ -583,7 +567,7 @@ async def generate_voiceover(script: str, voice: str = DEFAULT_VOICE, output_fil
         print("[voice_gen] WARNING: Narration extraction failed, using raw script")
         narration_text = script
     narration_text = _expand_symbols_for_tts(narration_text)
-    voice_settings = get_voice_settings("deep_lesson" if is_deep_lesson else content_type)
+    voice_settings = get_voice_settings("deep_lesson" if is_deep_lesson else ("documentary" if is_documentary else content_type))
     if voice == DEFAULT_VOICE:
         voice = voice_settings["voice"]
     base_rate = voice_settings["rate"]
@@ -598,8 +582,9 @@ async def generate_voiceover(script: str, voice: str = DEFAULT_VOICE, output_fil
 
     async def _gen_seg(i: int, seg_text: str, seg_rate: str) -> tuple[int, str, bool]:
         seg_path = str(VOICE_DIR / f"seg_{i+1:03d}.wav")
+        seg_voice = VOICE_ROTATION[i % len(VOICE_ROTATION)]
         async with _tts_sem:
-            success = await generate_segment_audio(seg_text, seg_path, voice=voice, rate=seg_rate, pitch=pitch, is_deep_lesson=is_deep_lesson)
+            success = await generate_segment_audio(seg_text, seg_path, voice=seg_voice, rate=seg_rate, pitch=pitch, is_deep_lesson=is_deep_lesson, is_documentary=is_documentary)
         return i, seg_path, success
 
     results = await asyncio.gather(*[_gen_seg(i, s, seg_rates[i]) for i, s in enumerate(segments)])
@@ -615,7 +600,7 @@ async def generate_voiceover(script: str, voice: str = DEFAULT_VOICE, output_fil
             continue
         timing_path = str(VOICE_DIR / f"seg_{i+1:03d}_timing.json")
 
-        sentence_times = await generate_segment_timing(seg_text, voice=voice, rate=seg_rates[i], pitch=pitch, is_deep_lesson=is_deep_lesson)
+        sentence_times = await generate_segment_timing(seg_text, voice=voice, rate=seg_rates[i], pitch=pitch, is_deep_lesson=is_deep_lesson, is_documentary=is_documentary)
         if sentence_times:
             phrase_timings = generate_phrase_timings_from_sentences(seg_text, sentence_times)
             for pt in phrase_timings:

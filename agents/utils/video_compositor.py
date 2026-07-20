@@ -11,7 +11,7 @@ from pydub import AudioSegment
 
 load_dotenv()
 
-_DEEP_LESSON_CATS = {"AI Foundations", "LLM Internals", "Training & Data", "AI Systems"}
+from utils.scene_schema import DEEP_LESSON_CATS as _DEEP_LESSON_CATS
 
 OUTPUT_DIR = Path(__file__).parent.parent / "output"
 OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
@@ -24,8 +24,15 @@ OUTPUT_4K = os.getenv("OUTPUT_4K", "false").lower() == "true"
 OUTPUT_W = 3840 if OUTPUT_4K else 1920
 OUTPUT_H = 2160 if OUTPUT_4K else 1080
 
-ENABLE_COLOR_GRADING = os.getenv("ENABLE_COLOR_GRADING", "false").lower() == "true"
+ENABLE_COLOR_GRADING = os.getenv("ENABLE_COLOR_GRADING", "true").lower() == "true"
 COLOR_GRADING_THRESHOLD = float(os.getenv("COLOR_GRADING_THRESHOLD", "0.15"))
+
+# Brand palette reference (teal/dark/orange)
+# YUV histogram target for consistent visual identity across all scenes
+BRAND_TEAL_YUV = {"y_mean": 140.0, "u_mean": 160.0, "v_mean": 80.0}
+
+# Documentary palette (cooler/desaturated — PBS NOVA / Branch Education style)
+DOCUMENTARY_YUV = {"y_mean": 90.0, "u_mean": 128.0, "v_mean": 118.0}
 
 ASPECT_RATIOS = {
     "shorts": {"w": 1080, "h": 1920, "ar": "9:16"},
@@ -34,7 +41,7 @@ ASPECT_RATIOS = {
 
 
 OUTPUT_FPS = 24
-CRF = "18"
+CRF = "17"
 
 logger = logging.getLogger(__name__)
 PRESET = "medium"
@@ -343,6 +350,22 @@ def _process_clip(clip: dict, target_w: int, target_h: int, idx: int, format_typ
         if not resize_to_target(src, out, target_w, target_h, duration=dur):
             return None
 
+    # ponytail: hqdn3d denoise on LTX clips (reduces ML noise artifacts)
+    denoised = out.replace(".mp4", "_dn.mp4")
+    denoise_cmd = [
+        _ffmpeg_cmd(), "-y", "-i", out,
+        "-vf", "hqdn3d=3:2:6:3",
+        "-c:v", "libx264", "-preset", PRESET, "-crf", CRF,
+        "-c:a", "copy",
+        denoised,
+    ]
+    try:
+        safe_run(denoise_cmd, timeout=120)
+        if os.path.exists(denoised) and os.path.getsize(denoised) > 1000:
+            os.replace(denoised, out)
+    except Exception:
+        pass
+
     return out if os.path.exists(out) and os.path.getsize(out) > 1000 else None
 
 
@@ -437,7 +460,7 @@ def add_text_overlay(video_path: str, text: str, output_path: str,
                  "bottom": "(w-text_w)/2:(h-text_h)-50",
                  "top": "(w-text_w)/2:50"}
     pos = positions.get(position, positions["center"])
-    escaped = text.replace("'", "\\'").replace(":", "\\:").replace("-", "\\-")
+    escaped = text.replace("'", "\u2019").replace(":", "\\:").replace("-", "\\-")
     cmd = [
         _ffmpeg_cmd(), "-y", "-i", video_path, *_sws_flags(),
         "-vf", f"drawtext=text='{escaped}':fontsize={fontsize}:fontcolor={color}:x={pos}:enable='between(t,{start_time},{start_time+duration})'",
@@ -450,7 +473,7 @@ def add_text_overlay(video_path: str, text: str, output_path: str,
 def add_animated_lower_third(video_path: str, text: str, output_path: str,
                               fontsize: int = 22, color: str = "#8a50e8",
                               start_time: float = 0, duration: float = 5) -> bool:
-    escaped = text.replace("'", "\\'").replace(":", "\\:").replace("-", "\\-")
+    escaped = text.replace("'", "\u2019").replace(":", "\\:").replace("-", "\\-")
     ts = start_time
     te = start_time + duration
     x_expr = (
@@ -511,9 +534,13 @@ def _subtitle_style_escaped(fontsize: int, margin_v: int = 60,
 
 
 def burn_subtitles(video_path: str, subtitle_path: str, output_path: str,
-                   fontsize: int = 32) -> bool:
+                   fontsize: int = 32, tier: str = "") -> bool:
     abs_sub = os.path.abspath(subtitle_path)
-    vf = f"subtitles=filename='{abs_sub}':force_style={_subtitle_style_escaped(fontsize, 40, '&HFF0088CC&', '&H40002B00&', 3, 0, '&H40000000&')}"
+    if tier == "documentary":
+        sub_style = _subtitle_style_escaped(fontsize, 40, '&H00FFFFFF&', '&H00000000&', has_outline=2)
+    else:
+        sub_style = _subtitle_style_escaped(fontsize, 40, '&HFF0088CC&', '&H40002B00&', 3, 0, '&H40000000&')
+    vf = f"subtitles=filename='{abs_sub}':force_style={sub_style}"
     cmd = [
         _ffmpeg_cmd(), "-y", "-i", video_path, *_sws_flags(),
         "-vf", vf,
@@ -568,38 +595,35 @@ def _concat_only(processed: list[str], video_id: str) -> str | None:
         return None
 
 
-def _color_grade_scenes(processed: list[str], video_id: str, threshold: float = 0.15) -> list[str]:
-    if not ENABLE_COLOR_GRADING or len(processed) < 2:
+def _color_grade_scenes(processed: list[str], video_id: str, threshold: float = 0.15, target_ref: dict = None) -> list[str]:
+    if not ENABLE_COLOR_GRADING or not processed:
         return processed
 
-    graded = [processed[0]]
+    graded = []
+    ref = target_ref or BRAND_TEAL_YUV
 
-    for i in range(1, len(processed)):
-        prev = graded[-1]
-        curr = processed[i]
-
-        prev_hist = _extract_yuv_histogram(prev)
+    for i, curr in enumerate(processed):
         curr_hist = _extract_yuv_histogram(curr)
-
-        if prev_hist is None or curr_hist is None:
+        if curr_hist is None:
             graded.append(curr)
             continue
 
-        shift = _histogram_shift(prev_hist, curr_hist)
-        if shift > threshold:
-            logger.info("[color_grade] Scene %d→%d color shift=%.3f > %.3f, correcting",
-                        i - 1, i, shift, threshold)
+        shift = _histogram_shift(ref, curr_hist)
+        if shift > threshold or i == 0:
+            if i > 0 or shift > threshold:
+                logger.info("[color_grade] Scene %d brand shift=%.3f > %.3f, correcting to brand palette",
+                            i, shift, threshold)
             corrected = str(TEMP_DIR / f"color_corrected_{video_id}_{i:03d}.mp4")
-            if _apply_color_correction(curr, corrected, prev_hist):
+            if _apply_color_correction(curr, corrected, ref):
                 graded.append(corrected)
             else:
                 graded.append(curr)
         else:
             graded.append(curr)
 
-    corrected_count = sum(1 for idx in range(1, len(processed)) if graded[idx] != processed[idx])
-    logger.info("[color_grade] Checked %d scene transitions, corrected %d",
-                len(processed) - 1, corrected_count)
+    corrected_count = sum(1 for i in range(len(processed)) if graded[i] != processed[i])
+    logger.info("[color_grade] Graded %d scenes to brand palette, corrected %d",
+                len(processed), corrected_count)
     return graded
 
 
@@ -708,7 +732,7 @@ def _build_keyterm_filters(scenes: list[dict], clips: list[dict]) -> list[str]:
         fade_in_dur = 0.8 if is_hook else 0.4
 
         for j, term in enumerate(terms):
-            escaped = term.replace("'", "\\'").replace(":", "\\:").replace("-", "\\-")
+            escaped = term.replace("'", "\u2019").replace(":", "\\:").replace("-", "\\-")
             appear = ts + spacing * j
             hold = max(2.0, spacing - 0.8)
             disappear = appear + fade_in_dur + hold
@@ -738,7 +762,7 @@ def composite_video(clips: list[dict], voice_path: str, music_path: Optional[str
                     format_type: str = "shorts", video_id: str = "output",
                     subtitle_path: Optional[str] = None, chapters: Optional[list] = None,
                     category: str = "", scenes: Optional[list] = None,
-                    force_concat: bool = False) -> Optional[str]:
+                    force_concat: bool = False, tier: str = "") -> Optional[str]:
     target = ASPECT_RATIOS.get(format_type, ASPECT_RATIOS["long"])
     tw, th = target["w"], target["h"]
 
@@ -768,7 +792,8 @@ def composite_video(clips: list[dict], voice_path: str, music_path: Optional[str
     processed[0] = _fade_in_first_clip(processed[0], 0, durations[0] if durations else 8.0)
 
     if ENABLE_COLOR_GRADING:
-        processed = _color_grade_scenes(processed, video_id, COLOR_GRADING_THRESHOLD)
+        grade_ref = DOCUMENTARY_YUV if tier == "documentary" else BRAND_TEAL_YUV
+        processed = _color_grade_scenes(processed, video_id, COLOR_GRADING_THRESHOLD, target_ref=grade_ref)
 
     combined_video = str(TEMP_DIR / f"combined_{video_id}.mp4")
     if len(processed) == 1:
@@ -818,7 +843,7 @@ def composite_video(clips: list[dict], voice_path: str, music_path: Optional[str
         return None
 
     final_path = str(OUTPUT_DIR / f"{video_id}_{format_type}.mp4")
-    vf_parts = ["eq=saturation=1.25:contrast=1.1:brightness=0.15:gamma=1.3", "unsharp=5:5:0.8:3:3:0.4"]
+    vf_parts = ["unsharp=3:3:0.5:3:3:0.3"]
 
     if scenes:
         for i, s in enumerate(scenes):
@@ -826,7 +851,7 @@ def composite_video(clips: list[dict], voice_path: str, music_path: Optional[str
                 break
             title = s.get("keyword") or s.get("description") or ""
             if title:
-                escaped = title.replace("'", "\\'").replace(":", "\\:").replace("-", "\\-")
+                escaped = title.replace("'", "\u2019").replace(":", "\\:").replace("-", "\\-")
                 ts = sum(c.get("duration", 8.0) for c in clips[:i])
                 te = ts + clips[i].get("duration", 8.0) - 0.5
                 x_expr = (
@@ -845,18 +870,35 @@ def composite_video(clips: list[dict], voice_path: str, music_path: Optional[str
     if subtitle_path and os.path.exists(subtitle_path):
         abs_sub = os.path.abspath(subtitle_path)
         is_deep = category in (_DEEP_LESSON_CATS if _DEEP_LESSON_CATS else set())
-        sub_fs = 26 if is_deep else 22
-        margin_v = 90 if is_deep else 80
+        is_doc = tier == "documentary"
+        if is_doc:
+            sub_fs = 24
+            margin_v = 60
+            sub_primary = "&H00FFFFFF&"
+            sub_outline = "&H00000000&"
+            sub_border = "&H80000000&"
+            has_outline = 2
+        elif is_deep:
+            sub_fs = 26
+            margin_v = 90
+            sub_primary = "&H00CCFFCC&"
+            sub_outline = "&H80000000&"
+            has_outline = 1
+        elif format_type == "shorts":
+            sub_fs = 12
+            margin_v = 60
+            sub_primary = "&H00CCFFCC&"
+            sub_outline = "&H80000000&"
+            has_outline = 1
+        else:
+            sub_fs = 22
+            margin_v = 80
+            sub_primary = "&H00CCFFCC&"
+            sub_outline = "&H80000000&"
+            has_outline = 1
         vf_parts.append(
             f"subtitles=filename='{abs_sub}':force_style="
-            f"{_subtitle_style_escaped(sub_fs, margin_v, '&H00CCFFCC&', '&H80000000&')}"
-        )
-
-    if os.getenv("ENABLE_WATERMARK", "true").lower() == "true":
-        vf_parts.append(
-            "drawtext=text='Vyom AI':fontsize=16:fontcolor=#1C758A@0.6:"
-            "x=w-tw-20:y=20:box=1:boxcolor=black@0.5:boxborderw=4:"
-            "enable='gte(t,5)'"
+            f"{_subtitle_style_escaped(sub_fs, margin_v, sub_primary, sub_outline, has_outline=has_outline)}"
         )
 
     vf_filter = ",".join(vf_parts)
@@ -868,14 +910,23 @@ def composite_video(clips: list[dict], voice_path: str, music_path: Optional[str
     cmd += [
         "-c:v", "libx264", "-preset", PRESET, "-crf", CRF,
         "-r", str(OUTPUT_FPS),
-        "-af", "acompressor=threshold=-18dB:ratio=2:attack=5:release=50,loudnorm=I=-14:LRA=11:TP=-1",
-        "-c:a", "aac", "-b:a", "192k", "-shortest", "-pix_fmt", "yuv420p", final_path,
+        "-af", "acompressor=threshold=-18dB:ratio=2:attack=5:release=50,"
+               "loudnorm=I=-14:LRA=11:TP=-1,"
+               "alimiter=limit=-1.5dB:attack=0.1:release=1,"
+               "firequalizer=gain='if(gt(f,4000), -6, 0)':fscale=linear",
+        "-c:a", "aac", "-b:a", "192k", "-ar", "44100", "-shortest", "-pix_fmt", "yuv420p", final_path,
     ]
     try:
         print(f"[compositor] Final mux cmd: {' '.join(str(a) for a in cmd)}")
         result = safe_run(cmd, timeout=300)
         if result.returncode == 0 and os.path.exists(final_path):
             print(f"[compositor] Final video: {final_path} ({os.path.getsize(final_path)} bytes)")
+            from utils.upscaler import upscale_video, is_available
+            upscaled = final_path.replace(".mp4", "_2x.mp4")
+            if is_available() and upscale_video(final_path, upscaled, scale=2):
+                print(f"[compositor] Upscaled: {upscaled}")
+                os.replace(upscaled, final_path)
+                print(f"[compositor] Replaced original with upscaled: {final_path}")
             return final_path
         print(f"[compositor] Final mux rc={result.returncode}, stderr: {result.stderr[-500:]}")
     except Exception as e:

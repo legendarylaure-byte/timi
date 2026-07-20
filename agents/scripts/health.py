@@ -43,8 +43,8 @@ def _check_tool(name: str) -> tuple:
 
 def _check_ffmpeg_codecs() -> tuple:
     try:
-        r = subprocess.run(["ffmpeg", "-encoders", "-hide_banner"],
-                           capture_output=True, text=True, timeout=10)
+        from utils.subprocess_helper import safe_run
+        r = safe_run(["ffmpeg", "-encoders", "-hide_banner"], timeout=10)
         has_h264 = "libx264" in r.stdout
         has_aac = "aac" in r.stdout
         if has_h264 and has_aac:

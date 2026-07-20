@@ -48,7 +48,7 @@ Return ONLY a valid JSON array of scene objects. Each scene object has this exac
 {
     "background": "solid_black|solid_white|solid_indigo|solid_slate|brand_dark|gradient_dark_tech|gradient_blueprint|gradient_neon|gradient_corporate|gradient_minimal",
   "duration": 8.0,
-  "render_type": "stock|manim|code",
+  "render_type": "stock|blender|code",
   "asset_type": "STOCK_FOOTAGE|SCREEN_CAPTURE|DIAGRAM_ANIMATION|CODE_SNIPPET|STATIC_IMAGE",
   "asset_keywords": ["keyword1", "keyword2"],
   "narration_text": "The EXACT spoken narration text that will be read during this scene. Copy it verbatim from the script's NARRATION lines.",
@@ -73,7 +73,7 @@ RULES:
 - Each scene should be 5-12 seconds
 - Use asset_type to specify what visual content to show
 - asset_keywords should describe what to search for or render
-- render_type: "stock" for cinematic/b-roll, "manim" for diagrams/math/concept animations, "code" for code snippets
+- render_type: "stock" for cinematic/b-roll, "blender" for 3D diagrams/photorealistic renders/concept animations, "code" for code snippets
 - ltx_prompt is CRITICAL: Write a detailed 2-3 sentence visual description optimized for text-to-video AI. Reference SPECIFIC visual elements mentioned in the script's NARRATION — if the narration talks about GPUs, describe GPU chips and data pathways; if it mentions training data, show data streams and processing pipelines. Never use generic descriptions. Include: camera angle (close-up, wide, tracking, dolly, over-the-shoulder, top-down), lighting (neon glow, soft diffused, dramatic side, volumetric, rim light), composition (subject placement, depth layers), colors, and motion. Example: "Close-up of futuristic circuit board with glowing purple neon pathways, dramatic side lighting casting long shadows, camera slowly pulling back to reveal a glowing central processor chip, sparks of light traveling along the circuits, deep violet to magenta gradient color palette, cinematic 24fps quality"
 - Text should be short phrases (3-8 words), not full sentences
 - Background should match the scene mood
@@ -94,7 +94,7 @@ def _ensure_visual_variety(scenes: list[dict]) -> list[dict]:
         return scenes
 
     variety_indicators = {
-        "render_type": {"stock", "manim", "code", "static"},
+        "render_type": {"stock", "blender", "code", "static"},
         "music_mood": {"focused", "uplifting", "energetic", "calm", "serious", "suspenseful", "hopeful", "curious"},
         "background": None,
     }
@@ -171,9 +171,9 @@ def _llm_scene_parse(
   - "narration_text": EXACT spoken narration for that scene (copy verbatim from NARRATION lines)
   - "description": A 10-15 word summary of what this scene visually IS (e.g. "neural network diagram with animated forward pass", "GPU chip closeup with data flow arrows"). This field is used to select the BEST animation template — be specific about the visual concept.
   - "ltx_prompt": A vivid 2-3 sentence visual description for AI text-to-video generation. Include camera angle, lighting, composition, colors, and motion. CRITICAL: The PRIMARY source for ltx_prompt is the STORYBOARD's VISUAL/CAMERA/LIGHTING fields — copy their specific visual elements (camera angle, lighting, colors, objects, motion) into the ltx_prompt. The narration_text provides context only. Never use generic descriptions.
-  - "render_type": "stock" for cinematic/b-roll footage, "manim" for diagrams and concept animations, "code" for code snippets.
+  - "render_type": "stock" for cinematic/b-roll footage, "blender" for 3D diagrams and photorealistic renders, "code" for code snippets.
 
-Read the VISUAL lines from the script/storyboard — they contain [MANIM], [LTX], or [CODE] tags. Use these to set render_type: [MANIM] → "manim", [CODE] → "code", [LTX] or no tag → "stock".
+Read the VISUAL lines from the script/storyboard — they contain [BLENDER], [LTX], or [CODE] tags. Use these to set render_type: [BLENDER] → "blender", [CODE] → "code", [LTX] or no tag → "stock".
 
 Title: {title}
 Category: {category}
@@ -235,7 +235,7 @@ def _rule_based_parse(script_text: str, storyboard_text: str, format_type: str, 
 
     combined = script_text + "\n" + (storyboard_text or "")
 
-    scene_blocks = re.split(r'(?:^|\n)(?:#{1,3}\s*)?Scene\s+\d+[\s:.-]*', combined, flags=re.IGNORECASE | re.MULTILINE)
+    scene_blocks = re.split(r'(?:^|\n)(?:#{1,3}\s*)?-{0,2}Scene\s+\d+[\s:.-]*', combined, flags=re.IGNORECASE | re.MULTILINE)
     scene_blocks = [s.strip() for s in scene_blocks if s.strip()]
 
     if len(scene_blocks) < 2:
@@ -517,11 +517,11 @@ def _pick_lighting_by_content(text_lower: str, mood: str, scene_index: int) -> s
 
 
 def _infer_render_type(text: str) -> str:
-    m = re.search(r'\[(MANIM|CODE|LTX)\]', text, re.IGNORECASE)
+    m = re.search(r'\[(BLENDER|CODE|LTX)\]', text, re.IGNORECASE)
     if m:
         tag = m.group(1).upper()
-        if tag == "MANIM":
-            return "manim"
+        if tag == "BLENDER":
+            return "blender"
         elif tag == "CODE":
             return "code"
     return "stock"
@@ -601,7 +601,7 @@ def _infer_ltx_prompt(text: str, title: str = "", scene_index: int = 0, scene: d
         visual_match = re.search(r'VISUAL\s*:\s*(.+?)(?=\n|$)', text, re.IGNORECASE | re.DOTALL)
         if visual_match:
             visual_text = visual_match.group(1).strip()[:400]
-            visual_text = re.sub(r'\[(MANIM|CODE|WAN2\.1)\]\s*', '', visual_text, flags=re.IGNORECASE)
+            visual_text = re.sub(r'\[(BLENDER|MANIM|CODE|WAN2\.1)\]\s*', '', visual_text, flags=re.IGNORECASE)
             if visual_text and len(visual_text) > 10:
                 visual_desc_hint = f"scene depicts {visual_text}, "
 

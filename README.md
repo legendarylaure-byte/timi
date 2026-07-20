@@ -5,7 +5,7 @@
 
 ## Overview
 
-Vyom Ai Cloud (codename: Timi) is an automated content pipeline that generates educational tech/AI videos — from script to publish — across YouTube, TikTok, Instagram, and Facebook. Eight CrewAI agents orchestrate the full workflow: scriptwriting, scene routing (Manim diagrams, PIL mockups, stock footage), voiceover (Edge TTS), background music (MusicGen), xfade compositing, and multi-platform upload with API-native AI disclosure.
+Vyom Ai Cloud (codename: Timi) is an automated content pipeline that generates educational tech/AI videos — from script to publish — across YouTube, TikTok, Instagram, and Facebook. Eight CrewAI agents orchestrate the full workflow: scriptwriting, scene routing (Blender 3D diagrams, PIL mockups, stock footage), voiceover (Edge TTS), background music (MusicGen), xfade compositing, and multi-platform upload with API-native AI disclosure.
 
 ### Content Categories
 | Category | Description |
@@ -47,7 +47,7 @@ Vyom Ai Cloud (codename: Timi) is an automated content pipeline that generates e
 ```
 ┌──────────────┐
 │  Scene Parser │──▶ STOCK_FOOTAGE ──▶ Pexels API
-│  (keywords)   │──▶ DIAGRAM_ANIMATION ──▶ Manim (Python)
+│  (keywords)   │──▶ DIAGRAM_3D ──▶ Blender (Python templates)
 └──────────────┘──▶ SCREEN_CAPTURE ──▶ PIL mockups
                    └──▶ CODE_SNIPPET ──▶ PIL mockup
 ```
@@ -68,7 +68,7 @@ Vyom Ai Cloud (codename: Timi) is an automated content pipeline that generates e
 - MusicGen (background music)
 
 ### Video Pipeline
-- Manim 0.20.1 (math animations, neural net diagrams)
+- Blender 4.x LTS (3D Branch Education-style photorealistic renders)
 - FFmpeg 8.1 (xfade compositing with dissolve/fade/slide transitions)
 - PIL/Pillow (terminal/IDE/browser/code mockups)
 - Pexels API (stock footage)
@@ -108,7 +108,7 @@ timi/
 - Node.js 20+
 - Python 3.11+ (3.14.x)
 - FFmpeg 8.0+ (with xfade filter support)
-- Manim 0.20.1 (optional — for diagram animations)
+- Blender 4.x LTS (optional — for 3D diagram renders)
 - Firebase project created
 
 ### Environment Variables
@@ -155,7 +155,7 @@ python test_transformers.py
 | Storyboard Artist | Generates scene descriptions with asset type routing |
 | Voice Actor | Synthesizes narration (Edge TTS) |
 | Composer | Creates background music |
-| Asset Generator | Routes scenes to Manim/PIL/Pexels |
+| Asset Generator | Routes scenes to Blender/PIL/Pexels |
 | Video Editor | xfade composites assets with audio |
 | Thumbnail Creator | Renders Pillow thumbnails with title text |
 | Publisher | Uploads with compliance flags to all platforms |

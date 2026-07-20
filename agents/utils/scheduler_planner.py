@@ -164,42 +164,103 @@ Avoid topics that appear in the blacklist. Prioritize underrepresented categorie
     return None
 
 
-_CATEGORIES = [
-    "AI Explained", "Deep Tech", "Paper Breakdowns",
-    "Tool Tutorials", "Industry Analysis", "Code & Build",
-    "AI News", "Career & Learning",
-]
+from utils.scene_schema import VALID_CATEGORIES as _CATEGORIES
 
 CONTENT_PILLARS = {
+    "AI Foundations": {
+        "description": "Foundational AI/ML concepts — neural networks, backpropagation, gradient descent",
+        "series": ["Neural Networks Explained", "How Backpropagation Works", "Gradient Descent Visualized"],
+        "ratio": 0.05,
+    },
+    "LLM Internals": {
+        "description": "How LLMs work — tokenization, embeddings, attention, transformers, generation",
+        "series": ["How LLMs Actually Work", "Attention Is All You Need", "From Token to Text"],
+        "ratio": 0.05,
+    },
+    "Training & Data": {
+        "description": "Training pipelines — RLHF, fine-tuning, LoRA, datasets, evaluation",
+        "series": ["How AI Learns", "Data Pipeline Secrets", "Training at Scale"],
+        "ratio": 0.04,
+    },
+    "AI Systems": {
+        "description": "Systems — RAG, agents, multi-modal, deployment, best practices",
+        "series": ["Building RAG Systems", "AI Agent Architecture", "Multi-Modal AI"],
+        "ratio": 0.04,
+    },
     "AI Explained": {
-        "description": "Explain AI concepts simply for beginners",
+        "description": "Quick AI/ML concept explainers for beginners",
         "series": ["How Diffusion Works", "Transformer Architecture Explained", "Understanding LLMs"],
-        "ratio": 0.25,
+        "ratio": 0.08,
     },
-    "Build with AI": {
-        "description": "Tutorials building real projects with AI tools",
+    "Science & Technology": {
+        "description": "Science discoveries, tech innovations, research breakthroughs",
+        "series": ["Science Behind the Headlines", "Tech That Changed the World", "Future Technologies"],
+        "ratio": 0.10,
+    },
+    "Space & Astronomy": {
+        "description": "Space exploration, astronomy, cosmology, planetary science",
+        "series": ["Journey Through Space", "The Solar System", "Cosmic Mysteries"],
+        "ratio": 0.08,
+    },
+    "Nature & Wildlife": {
+        "description": "Nature documentaries, wildlife, environmental science, conservation",
+        "series": ["Wild Earth", "Animal Intelligence", "Ecosystems Explained"],
+        "ratio": 0.08,
+    },
+    "History & Biography": {
+        "description": "Historical events, biographies, ancient civilizations, world history",
+        "series": ["History Untold", "Great Minds", "Civilizations Rising"],
+        "ratio": 0.08,
+    },
+    "Health & Medicine": {
+        "description": "Health science, medical breakthroughs, nutrition, wellness",
+        "series": ["Body Science", "Medical Breakthroughs", "The Science of Health"],
+        "ratio": 0.06,
+    },
+    "Business & Finance": {
+        "description": "Business strategy, economics, markets, entrepreneurship",
+        "series": ["Market Forces", "Startup Stories", "Economics Made Simple"],
+        "ratio": 0.06,
+    },
+    "Programming & Software": {
+        "description": "Code tutorials, software engineering, development tools",
         "series": ["Build a RAG App", "AI Agent Tutorial", "Fine-Tuning Guide"],
-        "ratio": 0.20,
+        "ratio": 0.08,
     },
-    "Deep Tech": {
-        "description": "Deep dives into ML research and architecture",
-        "series": ["Attention Mechanisms", "Loss Functions Deep Dive", "Optimization Algorithms"],
-        "ratio": 0.15,
+    "Engineering & Innovation": {
+        "description": "Engineering marvels, industrial design, technological breakthroughs",
+        "series": ["How Things Work", "Engineering Marvels", "Innovation That Changed Us"],
+        "ratio": 0.06,
+    },
+    "Mathematics & Logic": {
+        "description": "Math concepts, logic puzzles, number theory, geometry",
+        "series": ["Math in Nature", "Logic Puzzles Decoded", "The Beauty of Numbers"],
+        "ratio": 0.05,
+    },
+    "Philosophy & Psychology": {
+        "description": "Philosophical ideas, cognitive science, human behavior",
+        "series": ["Thinking Deeply", "The Mind Explained", "Philosophy for Life"],
+        "ratio": 0.05,
     },
     "AI News": {
-        "description": "Weekly AI news and updates",
+        "description": "Latest AI developments and updates",
         "series": ["This Week in AI", "Model Release Roundup", "Funding & Acquisition News"],
-        "ratio": 0.15,
+        "ratio": 0.06,
     },
     "Tool Tutorials": {
-        "description": "Hands-on tool walkthroughs",
-        "series": ["Cursor IDE Mastery", "Claude Tips & Tricks", "Local LLM Setup"],
-        "ratio": 0.15,
+        "description": "Software tool guides, productivity hacks, workflow tutorials",
+        "series": ["Cursor IDE Mastery", "Productivity Tool Stack", "DevOps Essentials"],
+        "ratio": 0.04,
+    },
+    "Paper Breakdowns": {
+        "description": "Academic paper summaries, research analysis",
+        "series": ["Paper of the Week", "Research Deep Dive", "Citation Analysis"],
+        "ratio": 0.03,
     },
     "Career & Learning": {
-        "description": "AI career advice and learning paths",
-        "series": ["AI Learning Roadmap", "Interview Prep Guide", "Portfolio Projects"],
-        "ratio": 0.10,
+        "description": "Career advice, learning paths, skill development",
+        "series": ["Learning Roadmap", "Skill Stack Guide", "Career Pivot Stories"],
+        "ratio": 0.03,
     },
 }
 

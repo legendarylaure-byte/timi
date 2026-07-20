@@ -146,10 +146,7 @@ def _save_repurpose_job(video_id: str, title: str, duration: int, result: dict):
         print(f"[REPURPOSE] Failed to save: {e}")
 
 
-TECH_CATEGORIES = [
-    "AI Explained", "Deep Tech", "Paper Breakdowns", "Tool Tutorials",
-    "Industry Analysis", "Code & Build", "AI News", "Career & Learning",
-]
+from utils.scene_schema import VALID_CATEGORIES as TECH_CATEGORIES
 
 
 def batch_reprocess_all_videos() -> dict:

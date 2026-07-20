@@ -6,7 +6,7 @@ logger = logging.getLogger(__name__)
 
 ARCHITECT_MODE = os.getenv("SCENE_ARCHITECT_MODE", "advisory").lower()
 
-from crew.manim_agent import TEMPLATE_KEYWORDS as MANIM_TEMPLATE_KEYWORDS
+from blender_templates import TEMPLATE_KEYWORDS as BLENDER_TEMPLATE_KEYWORDS
 
 
 class SceneArchitectError(Exception):
@@ -87,26 +87,26 @@ def _check_ltx_prompt(scene: dict, idx: int) -> list[dict]:
 def _check_render_type(scene: dict, idx: int) -> list[dict]:
     narration = scene.get("narration_text", "")
     render_type = scene.get("render_type", "stock")
-    if render_type == "manim":
+    if render_type == "blender":
         return []
     if not narration:
         return []
 
     text_lower = narration.lower()
     matched_templates = []
-    for tmpl_name, keywords in MANIM_TEMPLATE_KEYWORDS.items():
+    for tmpl_name, keywords in BLENDER_TEMPLATE_KEYWORDS.items():
         for kw in keywords:
             if kw in text_lower:
                 matched_templates.append(tmpl_name)
                 break
 
-    if matched_templates and render_type != "manim":
+    if matched_templates and render_type != "blender":
         return [{
             "type": "wrong_render_type",
             "scene": idx,
-            "message": f"Scene {idx}: render_type='{render_type}' but narration matches Manim templates: {', '.join(matched_templates[:3])}. Set render_type='manim' for better visuals.",
+            "message": f"Scene {idx}: render_type='{render_type}' but narration matches Blender templates: {', '.join(matched_templates[:3])}. Set render_type='blender' for better visuals.",
             "severity": "warning",
-            "suggested_render_type": "manim",
+            "suggested_render_type": "blender",
             "matched_templates": matched_templates,
         }]
     return []
