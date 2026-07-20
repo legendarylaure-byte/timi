@@ -1,6 +1,25 @@
 # AGENTS — Critical Context
 
-## Latest Changes
+## Latest Changes (committed)
+
+### C8-C11: Viral Optimization + Pipeline Stability + Publishing Debug (committed `557c46f2`-`8134f37`)
+- **C1**: Shorts subtitle FontSize 12→28 in `composite_video()` (`video_compositor.py:888`)
+- **C2**: Both short+long publish use `best_title = title_variants[0]` (`main.py:1283,1760` instead of raw topic)
+- **C3**: `hqdn3d=3:2:6:3` denoise after each LTX clip in `_process_clip()` (`video_compositor.py:353-367`)
+- **C4**: Section transition silence 1200→500ms (`voice_gen.py:511`)
+- **H2**: Facebook upload sends `thumb` file param (`multi_platform_publisher.py:595-620`)
+- **H3**: `weekly_monetization_job()` fetches real YouTube subs/views (`main.py:2258-2266`)
+- **H4**: CRF 18→17 (`video_compositor.py:44`, `shorts_renderer.py:129`)
+- **H5**: `alimiter=limit=-1.5dB` + `firequalizer` de-essing in audio chain (`video_compositor.py:913-916`)
+- **L4**: `VOICE_ROTATION` cycles 4 voices per segment (Jenny/Aria/Chris/Eric) (`voice_gen.py`)
+- **L5**: `ENERGY_KEYWORDS` + `score_scene_energy()` + per-scene mood arc (`music_gen.py`, `main.py:831-839`)
+- **Pipeline fix**: `firequalizer` fscale=linear unsupported in ffmpeg 8.1 — removed from filter chain (`video_compositor.py:916`)
+- **Pipeline fix**: Shorts subtitle FontSize 12→28 in `composite_video()` (`video_compositor.py:888`)
+- **Pipeline fix**: `gemini_llm.py` — `http_options=HttpOptions(timeout=300000)` on Client (5min API timeout)
+- **Pipeline fix**: `main.py:run_agent_step()` — calls `force_fallback()` on TimeoutError before retry (→ Ollama)
+- **Pipeline fix**: `crew/scriptwriter.py:123` — `max_tokens` 16000→10000
+
+## Latest Changes (pre-existing)
 
 ### Branch Education Pipeline — Blender 3D Photorealistic Render Engine
 - **REPLACED Manim entirely** with Blender 3D for all deep lesson/documentary scenes.
