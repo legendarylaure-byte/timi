@@ -271,9 +271,10 @@ def _upload_youtube(title: str, description: str, video_path: str, thumbnail_pat
             log_activity('publisher', f"YouTube upload FAILED: {result.get('error', 'unknown error')}", 'error')
         return result
     except Exception as e:
-        import traceback
+        import traceback, sys
+        print(f"[PUBLISHER] YouTube upload exception at line 241: type(title)={type(title).__name__}, type(desc)={type(description).__name__}, type(fmt)={type(format_type).__name__}")
         print(f"[PUBLISHER] YouTube upload exception: {e}")
-        traceback.print_exc()
+        traceback.print_exc(file=sys.stdout)
         log_activity('publisher', f"YouTube upload FAILED: {e}", 'error')
         return {
             'success': False,
