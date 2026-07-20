@@ -885,7 +885,7 @@ def composite_video(clips: list[dict], voice_path: str, music_path: Optional[str
             sub_outline = "&H80000000&"
             has_outline = 1
         elif format_type == "shorts":
-            sub_fs = 12
+            sub_fs = 28
             margin_v = 60
             sub_primary = "&H00CCFFCC&"
             sub_outline = "&H80000000&"
@@ -913,7 +913,7 @@ def composite_video(clips: list[dict], voice_path: str, music_path: Optional[str
         "-af", "acompressor=threshold=-18dB:ratio=2:attack=5:release=50,"
                "loudnorm=I=-14:LRA=11:TP=-1,"
                "alimiter=limit=-1.5dB:attack=0.1:release=1,"
-               "firequalizer=gain='if(gt(f,4000), -6, 0)':fscale=linear",
+               "firequalizer=gain='if(gt(f,4000), -6, 0)'",
         "-c:a", "aac", "-b:a", "192k", "-ar", "44100", "-shortest", "-pix_fmt", "yuv420p", final_path,
     ]
     try:
