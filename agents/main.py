@@ -514,7 +514,8 @@ def run_agent_step(agent_id: str, agent_name: str, action: str, crew_factory, in
                 log_event(agent_name, "LLM returned empty response — forcing provider fallback", "warn")
                 force_fallback()
             if "TimeoutError" in type(e).__name__ or "timed out" in err_lower:
-                log_event(agent_name, f"Timed out after {timeout_minutes}min", "error")
+                log_event(agent_name, f"Timed out after {timeout_minutes}min, forcing fallback", "error")
+                force_fallback()
             if is_connection_error:
                 log_event(agent_name, f"Connection error — forcing fallback to Ollama: {err_str[:80]}", "error")
                 force_fallback()

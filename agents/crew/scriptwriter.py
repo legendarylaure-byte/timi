@@ -120,7 +120,7 @@ def create_deep_lesson_crew(topic: str = "", category: str = "", series_title: s
     - Recap + bonus section
     - Series-aware context
     """
-    llm = get_llm(temperature=0.0, max_tokens=16000)
+    llm = get_llm(temperature=0.0, max_tokens=10000)
 
     scriptwriter = Agent(
         role="Educational Tech Content Writer",

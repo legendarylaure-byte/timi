@@ -72,6 +72,7 @@ class GeminiLLM(LLM):
                         temperature=self._temperature,
                         max_output_tokens=self._max_tokens,
                     ),
+                    timeout=300,
                 )
                 with _GEMINI_RATE_LOCK:
                     _GEMINI_RATE_LOG.append(time.monotonic())

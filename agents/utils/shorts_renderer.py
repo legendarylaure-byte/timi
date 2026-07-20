@@ -126,7 +126,7 @@ def reformat_to_shorts(input_path: str, hook_text: str, output_path: str,
         _ffmpeg_cmd(), "-y", "-i", input_path,
         *_sws_flags(),
         "-vf", vf,
-        "-c:v", "libx264", "-preset", "medium", "-crf", "18",
+        "-c:v", "libx264", "-preset", "medium", "-crf", "17",
         "-r", "24",
         "-af", "acompressor=threshold=-18dB:ratio=2:attack=5:release=50,"
                "loudnorm=I=-14:LRA=11:TP=-1",
