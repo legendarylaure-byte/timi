@@ -107,6 +107,16 @@ jobs:
       VIDEO_MODEL: ltx
       KNOWLEDGE_GRAPH_ENABLED: true
       BRAND_ENFORCEMENT: advisory
+      ENABLE_ANNOTATIONS: true
+      ENABLE_ANNOTATIONS_CALLOUT: true
+      ENABLE_ANNOTATIONS_STEP: true
+      ENABLE_ANNOTATIONS_DEFINITION: true
+      ENABLE_ANNOTATIONS_ARROW: false
+      ENABLE_ANNOTATIONS_HIGHLIGHT: true
+      ENABLE_ANNOTATIONS_COUNTER: false
+      ENABLE_MIDROLL_CTA: true
+      ENABLE_SFX: true
+      ENABLE_DIAGRAMS: true
 
     steps:
       - name: Cleanup stale temp files

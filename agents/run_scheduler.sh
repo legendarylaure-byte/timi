@@ -7,7 +7,14 @@
 DIR="$(cd "$(dirname "$0")" && pwd)"
 LOG="$DIR/scheduler.log"
 PIDFILE="$DIR/scheduler.pid"
-PYTHON="$DIR/.venv/bin/python"
+# Prefer venv/ (local), fall back to .venv/ (CI/Docker)
+if [ -x "$DIR/venv/bin/python3" ]; then
+  PYTHON="$DIR/venv/bin/python3"
+elif [ -x "$DIR/.venv/bin/python" ]; then
+  PYTHON="$DIR/.venv/bin/python"
+else
+  PYTHON="python3"
+fi
 
 case "${1:-start}" in
   start)

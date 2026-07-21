@@ -6,7 +6,7 @@
     <string>com.timi.pipeline</string>
     <key>ProgramArguments</key>
     <array>
-        <string>/path/to/timi/agents/run_pipeline.sh</string>
+        <string>/Users/Ai Mark/timi/agents/run_scheduler.sh</string>
     </array>
     <key>RunAtLoad</key>
     <true/>
