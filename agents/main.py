@@ -625,11 +625,14 @@ def _run_stock_footage_pipeline(script_text: str, storyboard_text: str, category
 
 
 def _parse_scenes_for_asset_router(script_text: str, storyboard_text: str, category: str, format_type: str, video_id: str, max_duration: int = None) -> list[dict]:  # noqa: E501
-    from utils.scene_parser import parse_script_to_scenes, normalize_scene_durations
+    from utils.scene_parser import (parse_script_to_scenes, normalize_scene_durations,
+                                     enrich_scenes_with_annotations)
     from utils.series_router import inject_intro_outro
     scenes = parse_script_to_scenes(script_text, title=video_id, category=category, format_type=format_type, storyboard_text=str(storyboard_text), max_duration=max_duration)
     scenes = inject_intro_outro(scenes, category, format_type)
     normalize_scene_durations(scenes)
+    if os.getenv("ENABLE_ANNOTATIONS", "true").lower() == "true":
+        scenes = enrich_scenes_with_annotations(scenes)
     log_event("PIPELINE", f"Asset Router: {len(scenes)} scenes")
     if SCENE_ARCHITECT_MODE != "off":
         try:

@@ -1,5 +1,7 @@
 import os
 import random
+import uuid
+import tempfile
 import logging
 from PIL import Image, ImageDraw
 from datetime import datetime
@@ -124,6 +126,24 @@ def _render_scene_inner(scene: dict, video_id: str, scene_idx: int,
             logger.info(f"[AssetRouter] Scene {scene_idx}: blender OK ({os.path.basename(path)})")
             return {"path": path, "duration": duration, "asset_type": "DIAGRAM_ANIMATION", "source": "blender"}
         logger.warning(f"[AssetRouter] Blender not available for scene {scene_idx}, falling back")
+
+    if scene.get("diagram"):
+        try:
+            from utils.diagram_renderer import render_diagram
+            spec = scene["diagram"] if isinstance(scene["diagram"], dict) else {"type": scene["diagram"], "items": []}
+            diag_path = render_diagram(spec, width=1920, height=1080)
+            if diag_path:
+                diag_clip = str(Path(tempfile.gettempdir()) / f"diag_{uuid.uuid4().hex[:8]}.mp4")
+                cmd = ["ffmpeg", "-y", "-loop", "1", "-i", diag_path, "-c:v", "libx264",
+                       "-t", str(duration), "-pix_fmt", "yuv420p", "-r", "24", "-vf",
+                       "scale=1920:1080:flags=lanczos", diag_clip]
+                from utils.subprocess_helper import safe_run
+                safe_run(cmd, timeout=30)
+                if os.path.exists(diag_clip) and os.path.getsize(diag_clip) > 0:
+                    logger.info(f"[AssetRouter] Scene {scene_idx}: diagram OK")
+                    return {"path": diag_clip, "duration": duration, "asset_type": "DIAGRAM", "source": "diagram"}
+        except Exception as e:
+            logger.warning(f"[AssetRouter] Scene {scene_idx}: diagram render failed: {e}")
 
     if render_type == "code" or asset_type in ("CODE_SNIPPET", "SCREEN_CAPTURE"):
         code = description.split("\n") if description else ["# code example", f"# {kw}"]

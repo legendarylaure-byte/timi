@@ -2,6 +2,17 @@
 
 ## Latest Changes (committed)
 
+### Phase 0-5: Quality Visualization & Viral Optimization Pass (committed — pending)
+- **Phase 0.1+0.4 — xfade transition system**: Replaced `_build_fade_transition()` (concat+fade-to-black) with `_build_xfade_transition()` using ffmpeg xfade filter supporting 17 types: dissolve, fade, fadeslow, wipeleft/right, slideleft/right, smoothleft/right, zoomin, circleopen/close, pixelize, radial, squeezeh, coverright, revealright (`video_compositor.py`)
+- **Phase 0.2 — LTX denoising reduced**: `hqdn3d=3:2:6:3` → `hqdn3d=1:0.5:2:1.5` for less detail loss (`video_compositor.py:357`)
+- **Phase 0.3 — LTX prompt quality upgrade**: Added "sharp focus, 8k texture detail, rich detail, clear edges, crisp" to `QUALITY_SUFFIX`; expanded `NEGATIVE_PROMPT` with "low resolution, smooth plastic texture, oversmoothed, flat, soft, jittery, noise"; both short and long prompt paths now include "sharp focus, rich detail" (`models/ltx_model.py`)
+- **Phase 0.5 — Audio compressor threshold**: -18dB → **-24dB** for wider dynamic range in voice (`video_compositor.py`)
+- **Phase 1 — Visual Annotation System**: New `utils/annotation_renderer.py` — renders animated callout boxes, step counters `[1/3]`, definition popups, arrow pointers, highlight regions, and counting numbers as ffmpeg drawtext/drawbox filters. Wired into `composite_video()` vf chain. Controlled by `ENABLE_ANNOTATIONS` env var.
+- **Phase 2 — Diagram & Data Visualization Engine**: New `utils/diagram_renderer.py` — PIL-based renderer for flow charts, bar charts, comparison tables, timelines, architecture block diagrams → PNG frames looped into video clips. Wired into `asset_router.py:_render_scene_inner()` — scenes with `"diagram"` field auto-render. Controlled by `ENABLE_DIAGRAMS` env var.
+- **Phase 3 — Audio SFX**: `_generate_emphasis_tone()` (880Hz ding at key terms) and `_generate_transition_whoosh()` (200→2000Hz sweep at scene boundaries) in `mix_audio()`. Wired into `sfx_scenes` parameter. Controlled by `ENABLE_SFX` env var.
+- **Phase 4 — Viral Mid-roll CTA**: Subscribe prompt overlay at 60% mark, slides in/out over 4s. Controlled by `ENABLE_MIDROLL_CTA` env var.
+- **Phase 5 — Auto-enrichment**: New `enrich_scenes_with_annotations()` in `scene_parser.py` — auto-generates annotation metadata from scene text/keywords. Called in `_parse_scenes_for_asset_router()` (main.py). Per-annotation-type flags: `ENABLE_ANNOTATIONS_CALLOUT/STEP/DEFINITION/ARROW/HIGHLIGHT/COUNTER`.
+
 ### C8-C11: Viral Optimization + Pipeline Stability + Publishing Debug (committed `557c46f2`-`8134f37`)
 - **C1**: Shorts subtitle FontSize 12→28 in `composite_video()` (`video_compositor.py:888`)
 - **C2**: Both short+long publish use `best_title = title_variants[0]` (`main.py:1283,1760` instead of raw topic)
@@ -410,7 +421,7 @@
 | `QA_BLACK_THRESHOLD` | `0.35` | Max black frame ratio before QA fails |
 | `QA_FREEZE_THRESHOLD` | `0.1` | Max freeze frame ratio before QA fails |
 
-### Documentary Tier (uncommitted) — New `TIER=documentary` env var
+### Documentary Tier (committed `557c46f2`) — New `TIER=documentary` env var
 - **Sprint 1 — Audio, Subs, Color, Voice**:
   - Audio sample rate fix: `-ar 44100` in shorts_renderer.py and video_compositor.py concat paths — prevents "sample rate mismatch for aac codec" on mixed-source clips.
   - Subtitle styling: `composite_video()` accepts `tier` param → documentary gets `FontSize=24`, `MarginV=60`, white primary (`&H00FFFFFF&`), black outline (`&H00FFFFFF&/&H80000000&`), `has_outline=2`. Deep lesson and default each keep their own styling. `burn_subtitles()` accepts `tier` param.
@@ -431,3 +442,13 @@
 |---|---|---|
 | `DOCUMENTARY_MAX_DURATION` | `2400` | Max documentary video duration (40 min) |
 | `TIER` | — | Set to `"documentary"` for documentary-style long videos |
+| `ENABLE_ANNOTATIONS` | `true` | Enable visual annotation overlays (callouts, steps, etc.) |
+| `ENABLE_ANNOTATIONS_CALLOUT` | `true` | Enable callout box annotations |
+| `ENABLE_ANNOTATIONS_STEP` | `true` | Enable step counter annotations |
+| `ENABLE_ANNOTATIONS_DEFINITION` | `true` | Enable definition popup annotations |
+| `ENABLE_ANNOTATIONS_ARROW` | `false` | Enable arrow pointer annotations |
+| `ENABLE_ANNOTATIONS_HIGHLIGHT` | `true` | Enable highlight region annotations |
+| `ENABLE_ANNOTATIONS_COUNTER` | `false` | Enable counting number annotations |
+| `ENABLE_MIDROLL_CTA` | `true` | Enable mid-roll subscribe CTA overlay |
+| `ENABLE_SFX` | `true` | Enable audio sound effects (dings, whooshes) |
+| `ENABLE_DIAGRAMS` | `true` | Enable 2D diagram rendering via PIL |

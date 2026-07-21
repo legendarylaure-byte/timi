@@ -14,9 +14,9 @@ from models.base_video_model import BaseVideoModel
 
 logger = logging.getLogger(__name__)
 
-NEGATIVE_PROMPT = "distorted faces, glitchy motion, flickering lights, inconsistent lighting, warped geometry, artifacts, blurry, low quality, watermark, text"
+NEGATIVE_PROMPT = "distorted faces, glitchy motion, flickering lights, inconsistent lighting, warped geometry, artifacts, blurry, low quality, watermark, text, low resolution, smooth plastic texture, oversmoothed, flat, soft, jittery, noise"
 
-QUALITY_SUFFIX = "cinematic lighting, volumetric god rays, smooth camera motion, consistent color palette, 24fps, high quality"
+QUALITY_SUFFIX = "sharp focus, 8k texture detail, cinematic lighting, volumetric god rays, smooth camera motion, consistent color palette, 24fps, high quality, rich detail, clear edges, crisp"
 
 _LTX_MODULE_AVAILABLE = None
 
@@ -214,8 +214,8 @@ class LtxVideoModel(BaseVideoModel):
     def _build_prompt(self, raw_prompt: str) -> str:
         word_count = raw_prompt.count(" ") + 1
         if word_count < 12:
-            return f"{raw_prompt}, cinematic lighting, smooth camera motion, 24fps, high quality, negative: {NEGATIVE_PROMPT}"
-        return f"{raw_prompt}, 24fps, high quality, negative: {NEGATIVE_PROMPT}"
+            return f"{raw_prompt}, sharp focus, cinematic lighting, smooth camera motion, rich detail, 24fps, high quality, negative: {NEGATIVE_PROMPT}"
+        return f"{raw_prompt}, sharp focus, rich detail, 24fps, high quality, negative: {NEGATIVE_PROMPT}"
 
     def _run_mlx_pipeline(self, ltx_prompt: str, num_frames: int, output_path: str,
                           width: int = 704, height: int = 480, seed: int = -1) -> bool:

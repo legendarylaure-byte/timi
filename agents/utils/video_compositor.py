@@ -12,6 +12,7 @@ from pydub import AudioSegment
 load_dotenv()
 
 from utils.scene_schema import DEEP_LESSON_CATS as _DEEP_LESSON_CATS
+from utils.annotation_renderer import build_annotation_filters
 
 OUTPUT_DIR = Path(__file__).parent.parent / "output"
 OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
@@ -242,6 +243,34 @@ def _generate_ambient_pad(duration_ms: int) -> AudioSegment:
     return AudioSegment(raw, frame_rate=sample_rate, sample_width=2, channels=1)
 
 
+def _generate_emphasis_tone(duration_ms: int = 150, freq: float = 880,
+                             volume_db: float = -12) -> AudioSegment:
+    """Short sine-wave tone for emphasis on key terms."""
+    import array, math
+    n = int(44100 * duration_ms / 1000)
+    samples = array.array("h", [
+        int(32767 * 0.3 * math.sin(2 * math.pi * freq * t / 44100)
+            * min(1.0, t / max(1, n * 0.1)))  # fade in over first 10%
+        for t in range(n)
+    ])
+    seg = AudioSegment(samples.tobytes(), frame_rate=44100, sample_width=2, channels=1) + volume_db
+    return seg.fade_out(min(50, duration_ms))
+
+
+def _generate_transition_whoosh(duration_ms: int = 300,
+                                  volume_db: float = -18) -> AudioSegment:
+    """Sweep tone for scene transitions (200Hz→2000Hz)."""
+    import array, math
+    n = int(44100 * duration_ms / 1000)
+    samples = array.array("h", [
+        int(32767 * 0.2 * math.sin(2 * math.pi * (200 + 1800 * t / n) * t / 44100)
+            * min(1.0, t / max(1, n * 0.15)))
+        for t in range(n)
+    ])
+    seg = AudioSegment(samples.tobytes(), frame_rate=44100, sample_width=2, channels=1) + volume_db
+    return seg.fade_in(min(30, duration_ms)).fade_out(min(80, duration_ms))
+
+
 def mix_audio(voice_path: str, music_path: Optional[str], output_path: str,
               voice_volume_db: float = 2, music_volume_db: float = -24,
               duck_db: float = -8, sfx_scenes: Optional[list] = None,
@@ -264,6 +293,18 @@ def mix_audio(voice_path: str, music_path: Optional[str], output_path: str,
             mixed = voice.overlay(music_raw)
         else:
             mixed = voice
+
+        # SFX: emphasis tones for scenes with key terms
+        if sfx_scenes and os.getenv("ENABLE_SFX", "true").lower() == "true":
+            for s in sfx_scenes:
+                offset_ms = s.get("timing_offset_ms", 0)
+                sfx_type = s.get("sfx_type", "emphasis")
+                if sfx_type == "emphasis":
+                    tone = _generate_emphasis_tone()
+                    mixed = mixed.overlay(tone, position=offset_ms)
+                elif sfx_type == "transition":
+                    whoosh = _generate_transition_whoosh()
+                    mixed = mixed.overlay(whoosh, position=offset_ms)
 
         ambient_pad = _generate_ambient_pad(len(mixed))
         ambient_pad = ambient_pad + _AMBIENT_VOLUME_DB
@@ -350,11 +391,11 @@ def _process_clip(clip: dict, target_w: int, target_h: int, idx: int, format_typ
         if not resize_to_target(src, out, target_w, target_h, duration=dur):
             return None
 
-    # ponytail: hqdn3d denoise on LTX clips (reduces ML noise artifacts)
+    # ponytail: light denoise on LTX clips
     denoised = out.replace(".mp4", "_dn.mp4")
     denoise_cmd = [
         _ffmpeg_cmd(), "-y", "-i", out,
-        "-vf", "hqdn3d=3:2:6:3",
+        "-vf", "hqdn3d=1:0.5:2:1.5",
         "-c:v", "libx264", "-preset", PRESET, "-crf", CRF,
         "-c:a", "copy",
         denoised,
@@ -413,43 +454,63 @@ def _apply_camera_motion(input_path: str, output_path: str, target_w: int, targe
     return safe_run_bool(cmd, timeout=120)
 
 
-def _build_fade_transition(processed: list[str], durations: list[float],
-                           target_w: int = 1920, target_h: int = 1080,
-                           fade_dur: float = 0.3) -> tuple[str, str]:
+XFADE_MAP = {
+    "dissolve": "dissolve",
+    "fade": "fade",
+    "fade_gradual": "fadeslow",
+    "wipe_left": "wipeleft",
+    "wipe_right": "wiperight",
+    "slide_left": "slideleft",
+    "slide_right": "slideright",
+    "smooth_left": "smoothleft",
+    "smooth_right": "smoothright",
+    "zoom": "zoomin",
+    "circle_open": "circleopen",
+    "circle_close": "circleclose",
+    "pixelize": "pixelize",
+    "radial": "radial",
+    "squeeze": "squeezeh",
+    "cover": "coverright",
+    "reveal": "revealright",
+}
+
+
+def _build_xfade_transition(processed: list[str], durations: list[float],
+                            transitions: list[str],
+                            target_w: int = 1920, target_h: int = 1080,
+                            xfade_dur: float = 0.4) -> tuple[str, str]:
     n = len(processed)
     if n == 0:
         return "", ""
     if n == 1:
-        return f"[0:v]format=yuv420p[out]", "out"
+        return (f"[0:v]setpts=PTS-STARTPTS,scale={target_w}:{target_h}:flags=lanczos,"
+                f"format=yuv420p,setparams=color_primaries=bt709:color_trc=bt709:colorspace=bt709"
+                f"[out]"), "out"
 
     filter_parts = []
-    labels = []
     for i in range(n):
-        label = f"f{i}"
-        labels.append(label)
-        dur_sec = durations[i]
-        # Build filter chain: [i:v]fps=24,scale=...,format=...,setparams=...,[fades...],[label]
-        # NOTE: link labels ([i:v], [label]) must NOT have commas adjacent to them
-        chain = f"[{i}:v]fps={OUTPUT_FPS}"
-        chain += f",scale={target_w}:{target_h}:flags=lanczos"
-        chain += f",format=yuv420p"
-        chain += f",setparams=color_primaries=bt709:color_trc=bt709:colorspace=bt709"
-        if i > 0 and dur_sec > fade_dur:
-            chain += f",fade=t=in:start_time=0:d={fade_dur}:color=black"
-        if i < n - 1 and dur_sec > fade_dur:
-            fade_start = max(0, dur_sec - fade_dur)
-            chain += f",fade=t=out:start_time={fade_start}:d={fade_dur}:color=black"
-        chain += f"[{label}]"
-        filter_parts.append(chain)
+        filter_parts.append(
+            f"[{i}:v]setpts=PTS-STARTPTS,scale={target_w}:{target_h}:flags=lanczos,"
+            f"format=yuv420p,setparams=color_primaries=bt709:color_trc=bt709:colorspace=bt709"
+            f"[raw{i}]"
+        )
 
-    # Concat all streams
-    concat_label = "concat_out"
-    filter_parts.append(
-        f"{''.join(f'[{l}]' for l in labels)}concat=n={n}:v=1:a=0[{concat_label}]"
-    )
+    cum_dur = [sum(durations[:i]) for i in range(n + 1)]
+    prev_label = f"raw0"
+    out_label = prev_label
 
-    result = ";".join(filter_parts)
-    return result, concat_label
+    for i in range(1, n):
+        raw_type = transitions[i - 1] if i - 1 < len(transitions) else "dissolve"
+        xf_type = XFADE_MAP.get(raw_type, "dissolve")
+        offset = max(0.0, cum_dur[i] - i * xfade_dur)
+        out_label = f"x{i}"
+        filter_parts.append(
+            f"[{prev_label}][raw{i}]xfade=transition={xf_type}"
+            f":duration={xfade_dur}:offset={offset}[{out_label}]"
+        )
+        prev_label = out_label
+
+    return ";".join(filter_parts), out_label
 
 
 def add_text_overlay(video_path: str, text: str, output_path: str,
@@ -804,7 +865,7 @@ def composite_video(clips: list[dict], voice_path: str, music_path: Optional[str
         if not combined_video:
             return None
     else:
-        filter_str, out_label = _build_fade_transition(processed, durations, tw, th)
+        filter_str, out_label = _build_xfade_transition(processed, durations, transitions, tw, th)
         inputs = []
         for p in processed:
             inputs.extend(["-i", p])
@@ -818,12 +879,12 @@ def composite_video(clips: list[dict], voice_path: str, music_path: Optional[str
         try:
             result = safe_run(cmd, timeout=600)
             if result.returncode != 0 or not os.path.exists(combined_video):
-                print(f"[compositor] Fade transition failed (rc={result.returncode}), full stderr: {result.stderr[-500:]}")
+                print(f"[compositor] xfade transition failed (rc={result.returncode}), full stderr: {result.stderr[-500:]}")
                 combined_video = _concat_only(processed, video_id)
                 if not combined_video:
                     return None
         except Exception as e:
-            print(f"[compositor] Fade transition error: {e}, falling back to concat")
+            print(f"[compositor] xfade transition error: {e}, falling back to concat")
             combined_video = _concat_only(processed, video_id)
             if not combined_video:
                 return None
@@ -838,6 +899,11 @@ def composite_video(clips: list[dict], voice_path: str, music_path: Optional[str
 
     mixed_audio = str(TEMP_DIR / f"audio_{video_id}.wav")
     sfx_scenes = [s for s in (scenes or []) if s.get("sfx")]
+    n_clips = len(clips or [])
+    for i in range(n_clips - 1):
+        ts_ms = int(sum(clips[j].get("duration", 8.0) for j in range(i + 1)) * 1000)
+        if ts_ms > 0:
+            sfx_scenes.append({"timing_offset_ms": ts_ms, "sfx_type": "transition"})
     if not mix_audio(voice_path, music_path, mixed_audio, sfx_scenes=sfx_scenes):
         print("[compositor] Audio mix failed")
         return None
@@ -866,6 +932,28 @@ def composite_video(clips: list[dict], voice_path: str, music_path: Optional[str
 
         # Key-term text overlays — show important terms animated on screen
         vf_parts.extend(_build_keyterm_filters(scenes, clips))
+
+        # Annotations — callouts, steps, definitions, arrows, highlights, counters
+        if os.getenv("ENABLE_ANNOTATIONS", "true").lower() == "true":
+            ann_filters = build_annotation_filters(scenes, clips)
+            if ann_filters:
+                vf_parts.extend(ann_filters)
+
+        # Mid-roll CTA: "Subscribe" prompt at 60% mark
+        if os.getenv("ENABLE_MIDROLL_CTA", "true").lower() == "true":
+            total_dur = sum(c.get("duration", 8.0) for c in clips) if clips else 120
+            cta_time = total_dur * 0.6
+            cta_end = cta_time + 4.0
+            cta_x = (
+                f"if(lt(t\\,{cta_time}+0.4)\\,(w-text_w)/2-20+(w+20)*(t-{cta_time})/0.4\\,"
+                f"if(gte(t\\,{cta_end}-0.4)\\,(w+20)-(w+text_w+20)*(t-({cta_end}-0.4))/0.4\\,"
+                f"(w-text_w)/2))"
+            )
+            vf_parts.append(
+                f"drawtext=text='Subscribe for more':fontsize=28:fontcolor=#00CCCC:"
+                f"box=1:boxcolor=black@0.7:boxborderw=10:"
+                f"x={cta_x}:y=h*0.75:enable='between(t\\,{cta_time}\\,{cta_end})'"
+            )
 
     if subtitle_path and os.path.exists(subtitle_path):
         abs_sub = os.path.abspath(subtitle_path)
@@ -910,7 +998,7 @@ def composite_video(clips: list[dict], voice_path: str, music_path: Optional[str
     cmd += [
         "-c:v", "libx264", "-preset", PRESET, "-crf", CRF,
         "-r", str(OUTPUT_FPS),
-        "-af", "acompressor=threshold=-18dB:ratio=2:attack=5:release=50,"
+        "-af", "acompressor=threshold=-24dB:ratio=2:attack=5:release=50,"
                "loudnorm=I=-14:LRA=11:TP=-1,"
                "alimiter=limit=-1.5dB:attack=0.1:release=1,"
                "firequalizer=gain='if(gt(f,4000), -6, 0)'",
