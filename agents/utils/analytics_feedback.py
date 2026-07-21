@@ -162,6 +162,71 @@ def get_pipeline_tuning() -> dict:
     return tuning
 
 
+def get_top_performing_topics(limit: int = 3) -> list:
+    """Return top N topics by avg views from recent feedback data."""
+    try:
+        analytics_file = os.path.join(
+            os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+            "data", "analytics", "video_analytics.json"
+        )
+        if not os.path.exists(analytics_file):
+            return []
+        with open(analytics_file) as f:
+            data = json.load(f)
+        now = datetime.utcnow()
+        cutoff = (now - timedelta(days=14)).strftime("%Y-%m-%d")
+        by_topic = defaultdict(list)
+        for vid, vdata in data.get("videos", {}).items():
+            created = vdata.get("created_at", "")
+            if created >= cutoff:
+                topic = vdata.get("title", "unknown")
+                views = vdata.get("metrics", {}).get("views", 0)
+                by_topic[topic].append(views)
+        sorted_topics = sorted(
+            by_topic.items(),
+            key=lambda x: sum(x[1]) / max(len(x[1]), 1),
+            reverse=True,
+        )
+        return [
+            {"topic": topic, "avg_views": round(sum(vs) / len(vs), 1)}
+            for topic, vs in sorted_topics[:limit]
+        ]
+    except Exception:
+        return []
+
+
+def get_low_performing_topics(limit: int = 3) -> list:
+    """Return bottom N topics by avg views from recent feedback data."""
+    try:
+        analytics_file = os.path.join(
+            os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+            "data", "analytics", "video_analytics.json"
+        )
+        if not os.path.exists(analytics_file):
+            return []
+        with open(analytics_file) as f:
+            data = json.load(f)
+        now = datetime.utcnow()
+        cutoff = (now - timedelta(days=30)).strftime("%Y-%m-%d")
+        by_topic = defaultdict(list)
+        for vid, vdata in data.get("videos", {}).items():
+            created = vdata.get("created_at", "")
+            if created >= cutoff and vdata.get("metrics", {}).get("views", 0) > 0:
+                topic = vdata.get("title", "unknown")
+                views = vdata.get("metrics", {}).get("views", 0)
+                by_topic[topic].append(views)
+        sorted_topics = sorted(
+            by_topic.items(),
+            key=lambda x: sum(x[1]) / max(len(x[1]), 1),
+        )
+        return [
+            {"topic": topic, "avg_views": round(sum(vs) / len(vs), 1)}
+            for topic, vs in sorted_topics[:limit]
+        ]
+    except Exception:
+        return []
+
+
 def get_optimization_prompt_injection() -> str:
     insights = get_active_insights()
     if not insights:

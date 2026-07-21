@@ -8,6 +8,7 @@ from typing import Optional
 from dotenv import load_dotenv
 
 from utils.subprocess_helper import safe_run, register_temp_dir
+from utils.cost_tracker import log_stock_call
 try:
     from utils.health_monitor import pexels_breaker, pixabay_breaker
 except ImportError:
@@ -344,6 +345,7 @@ def _search_pexels_uncached(query: str, orientation: str = "landscape") -> list[
     params = {"query": query, "per_page": 5, "orientation": orientation}
     try:
         resp = requests.get("https://api.pexels.com/videos/search", headers=headers, params=params, timeout=15)
+        log_stock_call("pexels")
         resp = _handle_rate_limit(resp, "Pexels")
         if resp.status_code == 403:
             print("[stock_video] Pexels API key invalid (403)")
@@ -404,6 +406,7 @@ def _search_pixabay_uncached(query: str) -> list[dict]:
     }
     try:
         resp = requests.get("https://pixabay.com/api/videos/", params=params, timeout=15)
+        log_stock_call("pixabay")
         resp = _handle_rate_limit(resp, "Pixabay")
         if resp.status_code == 403:
             print("[stock_video] Pixabay API key invalid (403)")

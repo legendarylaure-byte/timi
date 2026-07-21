@@ -1048,7 +1048,18 @@ def generate_short_video(topic: str, category: str, video_id: str, publish_at: s
             except Exception:
                 trend_ctx = ""
 
-            extra_parts = [p for p in [knowledge_ctx, series_ctx, trend_ctx, opt_injection] if p]
+            from utils.analytics_feedback import get_top_performing_topics
+            _topics_ctx = ""
+            try:
+                _best_topics = get_top_performing_topics(3)
+                if _best_topics:
+                    _topics_ctx = "Topics that performed well recently:\n" + "\n".join(
+                        f"- {t['topic']}: {t['avg_views']} avg views" for t in _best_topics
+                    )
+            except Exception:
+                pass
+
+            extra_parts = [p for p in [knowledge_ctx, series_ctx, trend_ctx, opt_injection, _topics_ctx] if p]
             extra_context = "\n".join(extra_parts) if extra_parts else ""
 
             script_kwargs = {"topic": topic, "category": category, "fmt": "shorts", "max_duration": SHORTS_MAX_DURATION}
@@ -1355,6 +1366,24 @@ def generate_short_video(topic: str, category: str, video_id: str, publish_at: s
                         if dubs:
                             update_video_record(video_id, {"dubs": {k: {"duration": v["duration"]} for k, v in dubs.items() if v["success"]}})
                             register_dub_cleanup_func(video_id)
+                            output_video_path = (video_result or {}).get("video_path", "")
+                            for lang_code, dub_result in dubs.items():
+                                if dub_result["success"] and output_video_path and os.path.exists(output_video_path):
+                                    dub_video_path = os.path.join(os.path.dirname(output_video_path), f"{video_id}_{lang_code}.mp4")
+                                    from utils.translate import mux_dubbed_video
+                                    if mux_dubbed_video(output_video_path, dub_result["audio_path"], dub_video_path):
+                                        log_event("DUB", f"Muxed {lang_code} version -> {dub_video_path}")
+                                        try:
+                                            from utils.multi_platform_publisher import upload_to_platform
+                                            upload_to_platform(dub_video_path, {
+                                                "title": translations[lang_code].get("title", f"{topic} [{lang_code.upper()}]"),
+                                                "description": translations[lang_code].get("description_snippet", ""),
+                                                "language": lang_code,
+                                                "format": "short",
+                                            })
+                                            log_event("DUB", f"Published {lang_code} version")
+                                        except Exception as ue:
+                                            log_event("DUB", f"Upload {lang_code} failed: {ue}")
                     except Exception as e:
                         log_event("DUB", f"Failed to generate dubs: {e}")
 
@@ -1509,7 +1538,18 @@ def generate_long_video(topic: str, category: str, video_id: str, publish_at: st
             except Exception:
                 trend_ctx = ""
 
-            extra_parts = [p for p in [knowledge_ctx, series_ctx, trend_ctx, opt_injection] if p]
+            from utils.analytics_feedback import get_top_performing_topics
+            _topics_ctx = ""
+            try:
+                _best_topics = get_top_performing_topics(3)
+                if _best_topics:
+                    _topics_ctx = "Topics that performed well recently:\n" + "\n".join(
+                        f"- {t['topic']}: {t['avg_views']} avg views" for t in _best_topics
+                    )
+            except Exception:
+                pass
+
+            extra_parts = [p for p in [knowledge_ctx, series_ctx, trend_ctx, opt_injection, _topics_ctx] if p]
             extra_context = "\n".join(extra_parts) if extra_parts else ""
 
             _tier_long = os.environ.get("TIER", "")
@@ -1871,6 +1911,24 @@ def generate_long_video(topic: str, category: str, video_id: str, publish_at: st
                         if dubs:
                             update_video_record(video_id, {"dubs": {k: {"duration": v["duration"]} for k, v in dubs.items() if v["success"]}})
                             register_dub_cleanup_func(video_id)
+                            output_video_path = (video_result or {}).get("video_path", "")
+                            for lang_code, dub_result in dubs.items():
+                                if dub_result["success"] and output_video_path and os.path.exists(output_video_path):
+                                    dub_video_path = os.path.join(os.path.dirname(output_video_path), f"{video_id}_{lang_code}.mp4")
+                                    from utils.translate import mux_dubbed_video
+                                    if mux_dubbed_video(output_video_path, dub_result["audio_path"], dub_video_path):
+                                        log_event("DUB", f"Muxed {lang_code} version -> {dub_video_path}")
+                                        try:
+                                            from utils.multi_platform_publisher import upload_to_platform
+                                            upload_to_platform(dub_video_path, {
+                                                "title": translations[lang_code].get("title", f"{topic} [{lang_code.upper()}]"),
+                                                "description": translations[lang_code].get("description_snippet", ""),
+                                                "language": lang_code,
+                                                "format": "long",
+                                            })
+                                            log_event("DUB", f"Published {lang_code} version")
+                                        except Exception as ue:
+                                            log_event("DUB", f"Upload {lang_code} failed: {ue}")
                     except Exception as e:
                         log_event("DUB", f"Failed to generate dubs: {e}")
 
@@ -2013,6 +2071,20 @@ def daily_content_job():
     log_event("SCHEDULER", "Generating content plan via scheduler planner")
     try:
         opt_injection = get_optimization_prompt_injection()
+        from utils.analytics_feedback import get_pipeline_tuning, get_top_performing_topics
+        pipeline_tuning = get_pipeline_tuning()
+        if pipeline_tuning and pipeline_tuning.get("preferred_category"):
+            tuning_ctx = (
+                f"Pipeline tuning: preferred category '{pipeline_tuning['preferred_category']}', "
+                f"virality boost {pipeline_tuning['virality_boost']}%, "
+                f"voice rate {pipeline_tuning['voice_rate_adjust']}"
+            )
+            top_topics = get_top_performing_topics(3)
+            if top_topics:
+                tuning_ctx += "\nTop performing topics:\n" + "\n".join(
+                    f"- {t['topic']}: {t['avg_views']} avg views" for t in top_topics
+                )
+            opt_injection = (opt_injection + "\n" + tuning_ctx) if opt_injection else tuning_ctx
         from utils.knowledge_integration import get_coverage_context
         coverage_ctx = get_coverage_context()
         pillar_ctx = ""

@@ -137,6 +137,32 @@ export async function GET(request: Request) {
       }
     }
 
+    let costPerVideo: Record<string, number> = {};
+    const agentsDir = process.env.AGENTS_DIR || '';
+    if (agentsDir) {
+      const costLogPath = `${agentsDir}/data/costs/cost_log.csv`;
+      try {
+        const fs = await import('fs');
+        if (fs.existsSync(costLogPath)) {
+          const content = fs.readFileSync(costLogPath, 'utf-8').trim();
+          const lines = content.split('\n').slice(1);
+          for (const line of lines) {
+            const parts = line.split(',');
+            if (parts.length >= 5) {
+              const caller = parts[1]?.trim() || '';
+              const cost = parseFloat(parts[4]?.trim() || '0');
+              if (caller && !isNaN(cost)) {
+                costPerVideo[caller] = (costPerVideo[caller] || 0) + cost;
+              }
+            }
+          }
+          for (const k of Object.keys(costPerVideo)) {
+            costPerVideo[k] = Math.round(costPerVideo[k] * 10000) / 10000;
+          }
+        }
+      } catch { /* no cost data */ }
+    }
+
     return NextResponse.json({
       successRate,
       totalRuns,
@@ -150,6 +176,7 @@ export async function GET(request: Request) {
       publishErrors: publishErrors.slice(0, 20),
       platformFailCount,
       freshness: minutesAgo(lastUpdate),
+      costPerVideo,
     });
   } catch (error: any) {
     console.error('[PIPELINE HEALTH] Error:', error);

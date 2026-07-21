@@ -465,6 +465,17 @@ def generate_content_plan(force_llm: bool = False, slot: str = "", extra_context
                 v["priority"] = max(30, v.get("priority", 50) - 20)
                 v["reasoning"] += f" (category {cat} had {count_7d} videos in 7 days)"
 
+    try:
+        from utils.analytics_feedback import get_low_performing_topics
+        _low_topics = [t["topic"].lower() for t in get_low_performing_topics(3)]
+        for v in videos:
+            _vt = (v.get("title", "") + " " + v.get("category", "")).lower()
+            if any(lt in _vt for lt in _low_topics):
+                v["priority"] = max(30, v.get("priority", 50) - 15)
+                v["reasoning"] += " (reduced priority: similar topics underperformed)"
+    except Exception:
+        pass
+
     best_cat = analytics_weighting.get("best_category")
     if best_cat:
         for v in videos:

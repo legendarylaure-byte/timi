@@ -13,9 +13,11 @@ import { QualityInsights } from '@/components/reports/QualityInsights';
 import { GoalsPanel } from '@/components/reports/GoalsPanel';
 import { ChatPanel } from '@/components/reports/ChatPanel';
 import { TitleTesting } from '@/components/reports/TitleTesting';
+import { ContentCalendar } from '@/components/reports/ContentCalendar';
 
 const tabs = [
   { id: 'summary', label: 'Executive Summary', icon: BarChart3 },
+  { id: 'calendar', label: 'Content Calendar', icon: Calendar },
   { id: 'trends', label: 'Performance Trends', icon: TrendingUp },
   { id: 'quality', label: 'Quality & Insights', icon: Sparkles },
   { id: 'pipeline', label: 'Pipeline Health', icon: Activity },
@@ -153,6 +155,7 @@ export default function ReportsPage() {
           transition={{ duration: 0.2 }}
         >
           {activeTab === 'summary' && <ExecutiveSummary key={refreshKey} />}
+          {activeTab === 'calendar' && <ContentCalendar key={refreshKey} />}
           {activeTab === 'trends' && <PerformanceTrends key={refreshKey} />}
           {activeTab === 'quality' && <QualityInsights key={refreshKey} />}
           {activeTab === 'pipeline' && <PipelineHealth key={refreshKey} />}

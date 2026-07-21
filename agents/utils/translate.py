@@ -256,6 +256,23 @@ async def dub_all_languages(
     return results
 
 
+def mux_dubbed_video(video_path: str, dub_audio_path: str, output_path: str) -> bool:
+    """Replace audio track in video with dubbed audio via ffmpeg."""
+    from utils.subprocess_helper import safe_run_bool
+    cmd = [
+        "ffmpeg", "-y",
+        "-i", video_path,
+        "-i", dub_audio_path,
+        "-c:v", "copy",
+        "-c:a", "aac",
+        "-map", "0:v:0",
+        "-map", "1:a:0",
+        "-shortest",
+        output_path,
+    ]
+    return safe_run_bool(cmd, timeout=300)
+
+
 def register_dub_cleanup(video_id: str):
     """Register dub temp directory for cleanup on exit."""
     from utils.subprocess_helper import register_temp_dir

@@ -4,6 +4,7 @@ import threading
 from google import genai
 from google.genai import types as genai_types
 from crewai.llm import LLM
+from utils.cost_tracker import log_llm_cost
 
 
 GEMINI_CONTEXT_WINDOW = 1_048_576
@@ -75,6 +76,14 @@ class GeminiLLM(LLM):
                 )
                 with _GEMINI_RATE_LOCK:
                     _GEMINI_RATE_LOG.append(time.monotonic())
+                try:
+                    um = getattr(response, "usage_metadata", None)
+                    if um:
+                        pt = getattr(um, "prompt_token_count", 0) or 0
+                        ct = getattr(um, "candidates_token_count", 0) or 0
+                        log_llm_cost("gemini_call", pt, ct, self._model_name)
+                except Exception:
+                    pass
                 return response.text if response.text else ""
             except Exception as e:
                 last_error = e

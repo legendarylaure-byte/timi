@@ -11,4 +11,12 @@ data/
 *.log
 *.pid
 chroma_db/
-tmp/
+bin/
+tests/
+logs/
+media/
+keys/
+test_*.py
+*.json
+.git/
+.github/

@@ -1,0 +1,6 @@
+[tools]
+python = "3.12.9"
+node = "20.20.0"
+
+[env]
+PYTHON = ".venv/bin/python3"
