@@ -38,14 +38,9 @@ Rules:
 
 Return EXACTLY this JSON format:
 {{
-  "variants": [
-    {{"title": "Title A", "formula": "question", "ctr_prediction": "high|medium|low", "keywords": ["kw1", "kw2"]}},
-    {{"title": "Title B", "formula": "how-to", "ctr_prediction": "high|medium|low", "keywords": ["kw1", "kw2"]}},
-    {{"title": "Title C", "formula": "bold_claim", "ctr_prediction": "high|medium|low", "keywords": ["kw1", "kw2"]}}
-  ],
-  "recommended_order": ["A", "B", "C"]
+  "variants": ["Title A", "Title B", "Title C"]
 }}""",
-        expected_output="JSON object with 3 title variants and recommendation order.",
+        expected_output="JSON object with a variants array of 3 title strings.",
         agent=optimizer,
     )
 

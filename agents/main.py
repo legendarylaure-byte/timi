@@ -1281,6 +1281,8 @@ def generate_short_video(topic: str, category: str, video_id: str, publish_at: s
         with _track_step(video_id, "publishing"):
             platforms_to_publish = ['youtube', 'instagram', 'facebook']
             best_title = title_variants[0] if title_variants else topic
+            if isinstance(best_title, dict):
+                best_title = best_title.get("title", topic)
             publish_result = multi_platform_publish(
                 video_id=video_id,
                 title=best_title,
@@ -1758,6 +1760,8 @@ def generate_long_video(topic: str, category: str, video_id: str, publish_at: st
         with _track_step(video_id, "publishing"):
             platforms_to_publish = ['youtube', 'facebook']
             best_title = title_variants[0] if title_variants else topic
+            if isinstance(best_title, dict):
+                best_title = best_title.get("title", topic)
             publish_result = multi_platform_publish(
                 video_id=video_id,
                 title=best_title,
