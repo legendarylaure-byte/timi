@@ -37,13 +37,15 @@ CRITICAL: This is a LONG-FORM video ({category}). Write enough content for {max_
 - End with a clear takeaway and call-to-action (like, subscribe, comment).
 """
     else:
+        # ponytail: hard cap 150 words ≈ 60s at TTS pace 2.5 words/sec
         format_instructions = f"""
 This is a SHORT video ({category}). Fast-paced and information-dense.
-- Maximum {max_duration} seconds total.
-- 5-8 scenes, each 5-15 seconds.
+- MAXIMUM 60 seconds. Write AT MOST 150 words of NARRATION.
+- 3-5 scenes, each 5-12 seconds.
 - Hook in first 2 seconds.
 - One clear concept per short video.
 - End with a takeaway or curiosity hook for next video.
+CRITICAL: Exceeding 150 words will be truncated. Quality over quantity.
 """
 
     opt_context = f"\nOptimization note: {extra_context}" if extra_context else ""

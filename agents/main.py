@@ -786,6 +786,13 @@ def run_video_pipeline(script_text: str, storyboard_text: str, category: str, fo
     is_deep_lesson = True if format_type == "long" else (category in DEEP_LESSON_CATEGORIES)
     from utils.voice_gen import extract_narration_text
     narration_text = extract_narration_text(script_text, is_long_form=is_long)
+    # ponytail: hard cap narration for shorts — 150 words ≈ 60s at TTS pace
+    if format_type == "shorts":
+        _max_w = int(os.getenv("SHORTS_MAX_WORDS", "150"))
+        _words = narration_text.split()
+        if len(_words) > _max_w:
+            narration_text = " ".join(_words[:_max_w])
+            log_event("VOICE", f"Truncated narration from {len(_words)} to {_max_w} words for shorts")
     voice_result = _run_async(generate_voiceover(script_text, output_filename=f"voiceover_{video_id}.wav", content_type="educational", is_long_form=is_long, is_deep_lesson=is_deep_lesson, is_documentary=is_documentary))
     if not voice_result.get("success"):
         log_pipeline_error(video_id, "Voice-over generation failed", "voice_generation")

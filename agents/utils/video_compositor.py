@@ -1032,6 +1032,18 @@ def composite_video(clips: list[dict], voice_path: str, music_path: Optional[str
         result = safe_run(cmd, timeout=300)
         if result.returncode == 0 and os.path.exists(final_path):
             print(f"[compositor] Final video: {final_path} ({os.path.getsize(final_path)} bytes)")
+            # ponytail: hard trim safety net for shorts — enforce max duration
+            if format_type == "shorts":
+                _max_s = int(os.getenv("SHORTS_MAX_DURATION", "60"))
+                _dur = _get_duration(final_path)
+                if _dur and _dur > _max_s + 1:  # +1s tolerance
+                    _trimmed = final_path.replace(".mp4", "_trimmed.mp4")
+                    _tcmd = [_ffmpeg_cmd(), "-y", "-i", final_path, "-t", str(_max_s),
+                              "-c:v", "copy", "-c:a", "copy", _trimmed]
+                    _tres = safe_run(_tcmd, timeout=30)
+                    if _tres.returncode == 0 and os.path.exists(_trimmed):
+                        os.replace(_trimmed, final_path)
+                        print(f"[compositor] Trimmed from {_dur:.1f}s to {_max_s}s")
             from utils.upscaler import upscale_video, is_available
             upscaled = final_path.replace(".mp4", "_2x.mp4")
             if is_available() and upscale_video(final_path, upscaled, scale=2):
