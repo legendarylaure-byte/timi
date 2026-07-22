@@ -20,11 +20,9 @@ import random
 from pathlib import Path
 from typing import Optional
 
-from utils.shorts_renderer import TEMP_DIR as _TEMP_DIR
-from utils.video_compositor import (
-    _ffmpeg_cmd, _get_video_duration, _apply_camera_motion,
-    _apply_subtitle_track, _generate_silence_file, CRF, FPS,
-)
+from utils.video_compositor import _ffmpeg_cmd, CRF, TEMP_DIR as _TEMP_DIR
+
+FPS = 24  # ponytail: match compositor output framerate
 from utils.hook_engine import get_hook_template, render_hook_overlay, detect_hook_formula
 
 
