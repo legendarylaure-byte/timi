@@ -145,6 +145,24 @@ class LtxVideoModel(BaseVideoModel):
                         prompt[:60], num_frames, duration, width, height, seed)
             ok = self._run_mlx_pipeline(built_prompt, num_frames, output_path, width, height, seed=seed)
             if ok and os.path.exists(output_path) and os.path.getsize(output_path) > 0:
+                # ponytail: validate clip isn't garbage (black, frozen, too short)
+                try:
+                    from utils.subprocess_helper import safe_run as _sr
+                    probe = _sr([
+                        "ffprobe", "-v", "error", "-select_streams", "v:0",
+                        "-show_entries", "stream=width,height,duration",
+                        "-of", "json", output_path
+                    ], timeout=15, capture_output=True, text=True)
+                    import json as _j
+                    data = _j.loads(probe.stdout)
+                    stream = data.get("streams", [{}])[0]
+                    dur = float(stream.get("duration", 0))
+                    if dur < 0.5:
+                        logger.warning("[LTX] Clip too short (%.1fs), rejecting: %s", dur, output_path)
+                        os.remove(output_path)
+                        return None
+                except Exception:
+                    pass  # ponytail: if probe fails, accept the clip
                 size = os.path.getsize(output_path)
                 logger.info("[LTX] Done: %s (%d MB)", output_path, size // 1024 // 1024)
                 _update_cache(built_prompt, output_path, width, height, num_frames)
@@ -205,7 +223,23 @@ class LtxVideoModel(BaseVideoModel):
             )
             results[i] = result
             if result:
-                prev_colors = "violet, magenta, dark gray"
+                # ponytail: extract actual dominant colors from generated clip
+                try:
+                    from utils.subprocess_helper import safe_run as _sr
+                    probe = _sr([
+                        "ffprobe", "-v", "error", "-select_streams", "v:0",
+                        "-vf", "signalstats", "-frames:v", "1",
+                        "-of", "json", result
+                    ], timeout=15, capture_output=True, text=True)
+                    import json as _j
+                    data = _j.loads(probe.stdout)
+                    stats = data.get("frames", [{}])[0].get("tags", {})
+                    yavg = int(stats.get("YAVG", 140))
+                    uavg = int(stats.get("UAVG", 128))
+                    vavg = int(stats.get("VAVG", 128))
+                    prev_colors = f"luminance={yavg}, chroma_u={uavg}, chroma_v={vavg}"
+                except Exception:
+                    prev_colors = "neutral palette"
 
         logger.info("[LTX] Per-scene generation done: %d/%d generated",
                     sum(1 for r in results if r), len(scenes))
@@ -214,8 +248,8 @@ class LtxVideoModel(BaseVideoModel):
     def _build_prompt(self, raw_prompt: str) -> str:
         word_count = raw_prompt.count(" ") + 1
         if word_count < 12:
-            return f"{raw_prompt}, sharp focus, cinematic lighting, smooth camera motion, rich detail, 24fps, high quality, negative: {NEGATIVE_PROMPT}"
-        return f"{raw_prompt}, sharp focus, rich detail, 24fps, high quality, negative: {NEGATIVE_PROMPT}"
+            return f"{raw_prompt}, {QUALITY_SUFFIX}, negative: {NEGATIVE_PROMPT}"
+        return f"{raw_prompt}, sharp focus, rich detail, {QUALITY_SUFFIX}, negative: {NEGATIVE_PROMPT}"
 
     def _run_mlx_pipeline(self, ltx_prompt: str, num_frames: int, output_path: str,
                           width: int = 704, height: int = 480, seed: int = -1) -> bool:

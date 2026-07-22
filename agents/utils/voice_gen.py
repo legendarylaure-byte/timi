@@ -582,7 +582,7 @@ async def generate_voiceover(script: str, voice: str = DEFAULT_VOICE, output_fil
 
     async def _gen_seg(i: int, seg_text: str, seg_rate: str) -> tuple[int, str, bool]:
         seg_path = str(VOICE_DIR / f"seg_{i+1:03d}.wav")
-        seg_voice = VOICE_ROTATION[i % len(VOICE_ROTATION)]
+        seg_voice = voice  # ponytail: one voice per video, not per segment
         async with _tts_sem:
             success = await generate_segment_audio(seg_text, seg_path, voice=seg_voice, rate=seg_rate, pitch=pitch, is_deep_lesson=is_deep_lesson, is_documentary=is_documentary)
         return i, seg_path, success

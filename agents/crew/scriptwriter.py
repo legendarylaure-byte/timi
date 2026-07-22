@@ -6,7 +6,9 @@ def create_scriptwriter_crew(topic: str = "", category: str = "", fmt: str = "sh
     is_long = fmt == "long"
     max_tokens = 12000 if is_long else 4000
 
-    llm = get_llm(temperature=0.0, max_tokens=max_tokens)
+    # ponytail: temperature for creative variety — 0.0 produces identical scripts
+    temp = 0.4 if fmt == "documentary" else (0.6 if is_long else 0.5)
+    llm = get_llm(temperature=temp, max_tokens=max_tokens)
 
     scriptwriter = Agent(
         role="Tech Content Scriptwriter",
@@ -23,10 +25,12 @@ You NEVER fabricate facts, statistics, or claims. If unsure, you state the uncer
     )
 
     if fmt == "long":
+        target_words = max(1200, int(max_duration * 2.5))
         format_instructions = f"""
 CRITICAL: This is a LONG-FORM video ({category}). Write enough content for {max_duration} seconds.
-- Write 600-900 words for the narration.
+- Write {target_words}-{target_words + 500} words for the narration (at 150 words per minute speaking pace).
 - Include 12-18 distinct scenes, each 8-15 seconds.
+- Each NARRATION should be 20-40 words (8-15 seconds at speaking pace).
 - Structure: Hook (0-15s) → Context (15-60s) → Main explanation (8-12 scenes) → Summary → Outro with CTA.
 - Use analogies and real-world examples to explain concepts.
 - Include visual cues in VISUAL lines for: diagrams, code snippets, screen recordings, or stock footage.

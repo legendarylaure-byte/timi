@@ -93,7 +93,7 @@ def reformat_to_shorts(input_path: str, hook_text: str, output_path: str,
     hook_filter = (
         f"drawtext=text='{hook_escaped}':"
         f"fontsize=42:fontcolor=white:box=1:boxcolor=black@0.5:"
-        f"x=(w-text_w)/2:y=h*0.05:"
+        f"x=(w-text_w)/2:y=h*0.15:"
         f"alpha=if(lt(t\\,{hook_duration})\\,t/{hook_duration}\\,1):"
         f"fontfile={os.getenv('FONT_PATH', '/System/Library/Fonts/Helvetica.ttc')}"
     )
@@ -117,7 +117,7 @@ def reformat_to_shorts(input_path: str, hook_text: str, output_path: str,
         abs_sub = os.path.abspath(subtitle_path)
         subtitle_filter = (
             f",subtitles=filename='{abs_sub}':force_style="
-            f"{_subtitle_style_escaped(12, primary='&H000088CC&')}"
+            f"{_subtitle_style_escaped(28, primary='&H000088CC&')}"
         )
 
     vf = f"{scale_filter},{hook_filter},{cta_filter},{quality_filters}{subtitle_filter}"
@@ -128,8 +128,9 @@ def reformat_to_shorts(input_path: str, hook_text: str, output_path: str,
         "-vf", vf,
         "-c:v", "libx264", "-preset", "medium", "-crf", "17",
         "-r", "24",
-        "-af", "acompressor=threshold=-18dB:ratio=2:attack=5:release=50,"
-               "loudnorm=I=-14:LRA=11:TP=-1",
+        "-af", "acompressor=threshold=-24dB:ratio=2:attack=5:release=50,"
+               "loudnorm=I=-14:LRA=11:TP=-1,"
+               "alimiter=limit=-1.5dB:attack=0.1:release=1",
         "-c:a", "aac", "-b:a", "192k", "-ar", "44100",
         "-pix_fmt", "yuv420p", output_path,
     ]

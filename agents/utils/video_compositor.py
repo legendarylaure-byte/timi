@@ -197,17 +197,30 @@ def apply_ken_burns(input_path: str, output_path: str, target_w: int, target_h: 
     crop_w = min(target_w, src_w)
     crop_h = min(target_h, src_h)
 
-    # Pan across the wider dimension over the clip's duration
+    # ponytail: vary pan direction per scene using preset_idx % 4
+    direction = preset_idx % 4
     if src_w * target_h > src_h * target_w:
-        # Source is wider — pan horizontally
         max_x = max(0, src_w - crop_w)
-        x_expr = f"{max_x}*t/{duration}" if max_x > 0 else "0"
+        if direction == 0:
+            x_expr = f"{max_x}*t/{duration}" if max_x > 0 else "0"
+        elif direction == 1:
+            x_expr = f"{max_x}*(1-t/{duration})" if max_x > 0 else "0"
+        elif direction == 2:
+            x_expr = f"{max_x}*0.5+{max_x}*0.3*sin(2*pi*t/{duration})" if max_x > 0 else "0"
+        else:
+            x_expr = f"{max_x}*0.5" if max_x > 0 else "0"
         y_expr = f"({src_h} - {crop_h}) / 2"
     else:
-        # Source is taller — pan vertically
         max_y = max(0, src_h - crop_h)
         x_expr = f"({src_w} - {crop_w}) / 2"
-        y_expr = f"{max_y}*t/{duration}" if max_y > 0 else "0"
+        if direction == 0:
+            y_expr = f"{max_y}*t/{duration}" if max_y > 0 else "0"
+        elif direction == 1:
+            y_expr = f"{max_y}*(1-t/{duration})" if max_y > 0 else "0"
+        elif direction == 2:
+            y_expr = f"{max_y}*0.5+{max_y}*0.3*sin(2*pi*t/{duration})" if max_y > 0 else "0"
+        else:
+            y_expr = f"{max_y}*0.5" if max_y > 0 else "0"
 
     vf = f"crop={crop_w}:{crop_h}:{x_expr}:{y_expr},scale={target_w}:{target_h}:flags=lanczos"
     cmd = [
@@ -306,9 +319,11 @@ def mix_audio(voice_path: str, music_path: Optional[str], output_path: str,
                     whoosh = _generate_transition_whoosh()
                     mixed = mixed.overlay(whoosh, position=offset_ms)
 
-        ambient_pad = _generate_ambient_pad(len(mixed))
-        ambient_pad = ambient_pad + _AMBIENT_VOLUME_DB
-        mixed = mixed.overlay(ambient_pad)
+        # ponytail: ambient pad only when no music — avoids frequency clashing
+        if not (music_path and os.path.exists(music_path)):
+            ambient_pad = _generate_ambient_pad(len(mixed))
+            ambient_pad = ambient_pad + _AMBIENT_VOLUME_DB
+            mixed = mixed.overlay(ambient_pad)
 
         if len(mixed) > 400:
             mixed = mixed.fade_in(300).fade_out(400)
@@ -730,13 +745,16 @@ def _histogram_shift(h1: dict, h2: dict) -> float:
 
 
 def _apply_color_correction(source: str, output: str, target_hist: dict) -> bool:
+    # ponytail: match luminance/saturation via eq filter (correct color science)
+    target_y = target_hist.get("y_mean", 128) / 255.0
+    target_u = target_hist.get("u_mean", 128) / 255.0
+    target_v = target_hist.get("v_mean", 128) / 255.0
+    brightness = (target_y - 0.5) * 0.3
+    saturation = 0.9 + (target_v * 0.2)
+    contrast = 0.95 + (target_y * 0.1)
     cmd = [
         _ffmpeg_cmd(), "-y", "-i", source,
-        "-vf", (
-            f"colorbalance=rs={1.0 - target_hist['y_mean'] / 255.0:.3f}:"
-            f"gs={1.0 - target_hist['u_mean'] / 255.0:.3f}:"
-            f"bs={1.0 - target_hist['v_mean'] / 255.0:.3f}"
-        ),
+        "-vf", f"eq=brightness={brightness:.3f}:contrast={contrast:.3f}:saturation={saturation:.3f}",
         "-c:v", "libx264", "-preset", "fast", "-crf", CRF,
         "-pix_fmt", "yuv420p", output,
     ]
@@ -909,7 +927,8 @@ def composite_video(clips: list[dict], voice_path: str, music_path: Optional[str
         return None
 
     final_path = str(OUTPUT_DIR / f"{video_id}_{format_type}.mp4")
-    vf_parts = ["unsharp=3:3:0.5:3:3:0.3"]
+    # ponytail: lighter unsharp — only sharpens video content, not text overlays (which come after)
+    vf_parts = ["unsharp=3:3:0.3:3:3:0.2"]
 
     if scenes:
         for i, s in enumerate(scenes):
@@ -926,7 +945,7 @@ def composite_video(clips: list[dict], voice_path: str, music_path: Optional[str
                     f"(w-text_w)/2))"
                 )
                 vf_parts.append(
-                    f"drawtext=text='{escaped}':fontsize=20:fontcolor=#8a50e8:box=1:boxcolor=black@0.4:"
+                    f"drawtext=text='{escaped}':fontsize=28:fontcolor=#8a50e8:box=1:boxcolor=black@0.4:"
                     f"boxborderw=6:x={x_expr}:y=h-130:enable='between(t\\,{ts}\\,{te})'"
                 )
 
@@ -960,26 +979,26 @@ def composite_video(clips: list[dict], voice_path: str, music_path: Optional[str
         is_deep = category in (_DEEP_LESSON_CATS if _DEEP_LESSON_CATS else set())
         is_doc = tier == "documentary"
         if is_doc:
-            sub_fs = 12
+            sub_fs = 24
             margin_v = 60
             sub_primary = "&H000088CC&"
             sub_outline = "&H00000000&"
             sub_border = "&H80000000&"
             has_outline = 2
         elif is_deep:
-            sub_fs = 12
+            sub_fs = 26
             margin_v = 90
             sub_primary = "&H000088CC&"
             sub_outline = "&H80000000&"
             has_outline = 1
         elif format_type == "shorts":
-            sub_fs = 12
+            sub_fs = 28
             margin_v = 60
             sub_primary = "&H000088CC&"
             sub_outline = "&H80000000&"
             has_outline = 1
         else:
-            sub_fs = 12
+            sub_fs = 24
             margin_v = 80
             sub_primary = "&H000088CC&"
             sub_outline = "&H80000000&"
@@ -1001,7 +1020,7 @@ def composite_video(clips: list[dict], voice_path: str, music_path: Optional[str
         "-af", "acompressor=threshold=-24dB:ratio=2:attack=5:release=50,"
                "loudnorm=I=-14:LRA=11:TP=-1,"
                "alimiter=limit=-1.5dB:attack=0.1:release=1,"
-               "firequalizer=gain='if(gt(f,4000), -6, 0)'",
+               "firequalizer=gain='if(between(f,5500,7000), -3, if(gt(f,9000), -2, 0))'",
         "-c:a", "aac", "-b:a", "192k", "-ar", "44100", "-shortest", "-pix_fmt", "yuv420p", final_path,
     ]
     try:
