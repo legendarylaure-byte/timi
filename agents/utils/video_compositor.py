@@ -483,16 +483,16 @@ def _build_xfade_transition(processed: list[str], durations: list[float],
     if n == 0:
         return "", ""
     if n == 1:
-        return (f"[0:v]setpts=PTS-STARTPTS,scale={target_w}:{target_h}:flags=lanczos,"
-                f"format=yuv420p,setparams=color_primaries=bt709:color_trc=bt709:colorspace=bt709"
-                f"[out]"), "out"
+        return (f"[0:v]fps=24,setpts=PTS-STARTPTS,scale={target_w}:{target_h}:flags=lanczos,"
+                f"format=yuv420p,setparams=color_primaries=bt709:color_trc=bt709:colorspace=bt709,"
+                f"setsar=1,settb=1/24[out]"), "out"
 
     filter_parts = []
     for i in range(n):
         filter_parts.append(
-            f"[{i}:v]setpts=PTS-STARTPTS,scale={target_w}:{target_h}:flags=lanczos,"
-            f"format=yuv420p,setparams=color_primaries=bt709:color_trc=bt709:colorspace=bt709"
-            f"[raw{i}]"
+            f"[{i}:v]fps=24,setpts=PTS-STARTPTS,scale={target_w}:{target_h}:flags=lanczos,"
+            f"format=yuv420p,setparams=color_primaries=bt709:color_trc=bt709:colorspace=bt709,"
+            f"setsar=1,settb=1/24[raw{i}]"
         )
 
     cum_dur = [sum(durations[:i]) for i in range(n + 1)]

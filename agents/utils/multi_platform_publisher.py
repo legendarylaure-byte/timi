@@ -19,6 +19,14 @@ _FACEBOOK_TEMP_DIR = os.path.join(
 os.makedirs(_FACEBOOK_TEMP_DIR, exist_ok=True)
 register_temp_dir(_FACEBOOK_TEMP_DIR)
 
+_INSTAGRAM_TEMP_DIR = os.path.join(
+    os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "tmp", "instagram"
+)
+os.makedirs(_INSTAGRAM_TEMP_DIR, exist_ok=True)
+register_temp_dir(_INSTAGRAM_TEMP_DIR)
+
+IG_REELS_MAX_SECONDS = 90
+
 
 def _compress_for_facebook(video_path: str) -> str:
     """Compress video for Facebook upload to reduce processing timeouts.
@@ -54,6 +62,42 @@ def _compress_for_facebook(video_path: str) -> str:
         'info',
     )
     return out_path
+
+
+def _get_video_duration_ffprobe(video_path: str) -> float:
+    try:
+        result = safe_run(
+            ["ffprobe", "-v", "error", "-show_entries", "format=duration",
+             "-of", "default=noprint_wrappers=1:nokey=1", video_path],
+            timeout=30, capture_output=True, text=True,
+        )
+        return float(result.stdout.strip())
+    except Exception:
+        return 0.0
+
+
+def _trim_for_instagram(video_path: str, max_seconds: float = IG_REELS_MAX_SECONDS) -> str:
+    duration = _get_video_duration_ffprobe(video_path)
+    if duration <= max_seconds:
+        return video_path
+    base = os.path.splitext(os.path.basename(video_path))[0]
+    out_path = os.path.join(_INSTAGRAM_TEMP_DIR, f"{base}_ig_trim.mp4")
+    cmd = [
+        "ffmpeg", "-y", "-i", video_path,
+        "-t", str(max_seconds),
+        "-c:v", "libx264", "-preset", "fast", "-crf", "23",
+        "-c:a", "aac", "-b:a", "128k",
+        "-movflags", "+faststart",
+        out_path,
+    ]
+    result = safe_run(cmd, timeout=120, capture_output=True, text=True)
+    if result.returncode != 0:
+        log_activity('publisher', f"Instagram trim failed, using original: {result.stderr[-200:]}", 'warn')
+        return video_path
+    trimmed_size = os.path.getsize(out_path)
+    log_activity('publisher', f"Instagram trim: {duration:.1f}s → {max_seconds}s ({trimmed_size // 1024}KB)", 'info')
+    return out_path
+
 
 PLATFORMS = {
     'youtube': {
@@ -420,6 +464,9 @@ def _upload_instagram(title: str, video_path: str, format_type: str) -> dict:
             'error': 'Instagram upload not configured. Set FACEBOOK_ACCESS_TOKEN and INSTAGRAM_ACCOUNT_ID env vars.',
         }
 
+    if format_type == 'shorts' and not video_path.startswith(('http://', 'https://')):
+        video_path = _trim_for_instagram(video_path)
+
     instagram_video_url = os.getenv('INSTAGRAM_VIDEO_URL', '')
     if not instagram_video_url:
         if video_path.startswith(('http://', 'https://')):
@@ -485,7 +532,9 @@ def _upload_instagram(title: str, video_path: str, format_type: str) -> dict:
                 return _do_upload()
 
         if create_resp.status_code != 200:
-            raise RuntimeError(f'Instagram media creation failed: {create_resp.status_code}')
+            resp_body = create_resp.text[:500]
+            log_activity('publisher', f'Instagram media creation error {create_resp.status_code}: {resp_body}', 'error')
+            raise RuntimeError(f'Instagram media creation failed: {create_resp.status_code} — {resp_body}')
 
         creation_id = create_resp.json().get('id')
         if not creation_id:
