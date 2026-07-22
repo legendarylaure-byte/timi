@@ -125,7 +125,7 @@ jobs:
           echo "  ✅ Temp and venv cleaned"
 
       - name: Checkout repository
-        uses: actions/checkout@v5
+        uses: actions/checkout@v7
 
       - name: Install uv
         run: |
