@@ -498,16 +498,18 @@ def _build_xfade_transition(processed: list[str], durations: list[float],
     if n == 0:
         return "", ""
     if n == 1:
-        return (f"[0:v]fps=24,setpts=PTS-STARTPTS,scale={target_w}:{target_h}:flags=lanczos,"
+        return (f"[0:v]setpts=PTS-STARTPTS,scale={target_w}:{target_h}:flags=lanczos,"
                 f"format=yuv420p,setparams=color_primaries=bt709:color_trc=bt709:colorspace=bt709,"
-                f"setsar=1,settb=1/24[out]"), "out"
+                f"setsar=1[out]"), "out"
 
     filter_parts = []
     for i in range(n):
+        # ponytail: no fps=24/settb — clips already 24fps from _process_clip().
+        # Redundant filters add timestamp jitter that breaks xfade offsets.
         filter_parts.append(
-            f"[{i}:v]fps=24,setpts=PTS-STARTPTS,scale={target_w}:{target_h}:flags=lanczos,"
+            f"[{i}:v]setpts=PTS-STARTPTS,scale={target_w}:{target_h}:flags=lanczos,"
             f"format=yuv420p,setparams=color_primaries=bt709:color_trc=bt709:colorspace=bt709,"
-            f"setsar=1,settb=1/24[raw{i}]"
+            f"setsar=1[raw{i}]"
         )
 
     cum_dur = [sum(durations[:i]) for i in range(n + 1)]
@@ -517,7 +519,8 @@ def _build_xfade_transition(processed: list[str], durations: list[float],
     for i in range(1, n):
         raw_type = transitions[i - 1] if i - 1 < len(transitions) else "dissolve"
         xf_type = XFADE_MAP.get(raw_type, "dissolve")
-        offset = max(0.0, cum_dur[i] - i * xfade_dur)
+        # ponytail: 50ms safety margin absorbs frame-level drift from setpts normalization
+        offset = max(0.0, cum_dur[i] - i * xfade_dur - 0.05)
         out_label = f"x{i}"
         filter_parts.append(
             f"[{prev_label}][raw{i}]xfade=transition={xf_type}"
