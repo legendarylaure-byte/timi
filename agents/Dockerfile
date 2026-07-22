@@ -14,7 +14,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     libglib2.0-dev \
     patchelf \
     cmake \
-    libegl1-mesa \
+    libegl1-mesa-dev \
     libgl1-mesa-dri \
     mesa-utils \
     wget \
