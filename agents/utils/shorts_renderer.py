@@ -117,7 +117,7 @@ def reformat_to_shorts(input_path: str, hook_text: str, output_path: str,
         abs_sub = os.path.abspath(subtitle_path)
         subtitle_filter = (
             f",subtitles=filename='{abs_sub}':force_style="
-            f"{_subtitle_style_escaped(28)}"
+            f"{_subtitle_style_escaped(12, primary='&H000088CC&')}"
         )
 
     vf = f"{scale_filter},{hook_filter},{cta_filter},{quality_filters}{subtitle_filter}"

@@ -595,12 +595,12 @@ def _subtitle_style_escaped(fontsize: int, margin_v: int = 60,
 
 
 def burn_subtitles(video_path: str, subtitle_path: str, output_path: str,
-                   fontsize: int = 32, tier: str = "") -> bool:
+                   fontsize: int = 12, tier: str = "") -> bool:
     abs_sub = os.path.abspath(subtitle_path)
     if tier == "documentary":
-        sub_style = _subtitle_style_escaped(fontsize, 40, '&H00FFFFFF&', '&H00000000&', has_outline=2)
+        sub_style = _subtitle_style_escaped(fontsize, 40, '&H000088CC&', '&H00000000&', has_outline=2)
     else:
-        sub_style = _subtitle_style_escaped(fontsize, 40, '&HFF0088CC&', '&H40002B00&', 3, 0, '&H40000000&')
+        sub_style = _subtitle_style_escaped(fontsize, 40, '&H000088CC&', '&H40002B00&', 3, 0, '&H40000000&')
     vf = f"subtitles=filename='{abs_sub}':force_style={sub_style}"
     cmd = [
         _ffmpeg_cmd(), "-y", "-i", video_path, *_sws_flags(),
@@ -960,28 +960,28 @@ def composite_video(clips: list[dict], voice_path: str, music_path: Optional[str
         is_deep = category in (_DEEP_LESSON_CATS if _DEEP_LESSON_CATS else set())
         is_doc = tier == "documentary"
         if is_doc:
-            sub_fs = 24
+            sub_fs = 12
             margin_v = 60
-            sub_primary = "&H00FFFFFF&"
+            sub_primary = "&H000088CC&"
             sub_outline = "&H00000000&"
             sub_border = "&H80000000&"
             has_outline = 2
         elif is_deep:
-            sub_fs = 26
+            sub_fs = 12
             margin_v = 90
-            sub_primary = "&H00CCFFCC&"
+            sub_primary = "&H000088CC&"
             sub_outline = "&H80000000&"
             has_outline = 1
         elif format_type == "shorts":
-            sub_fs = 28
+            sub_fs = 12
             margin_v = 60
-            sub_primary = "&H00CCFFCC&"
+            sub_primary = "&H000088CC&"
             sub_outline = "&H80000000&"
             has_outline = 1
         else:
-            sub_fs = 22
+            sub_fs = 12
             margin_v = 80
-            sub_primary = "&H00CCFFCC&"
+            sub_primary = "&H000088CC&"
             sub_outline = "&H80000000&"
             has_outline = 1
         vf_parts.append(
