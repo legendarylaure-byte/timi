@@ -1,13 +1,43 @@
 VALID_CATEGORIES = [
-    "AI Foundations", "LLM Internals", "Training & Data", "AI Systems",
-    "AI Explained", "AI News", "Science & Technology", "Space & Astronomy",
-    "Nature & Wildlife", "History & Biography", "Health & Medicine",
-    "Business & Finance", "Programming & Software", "Engineering & Innovation",
-    "Mathematics & Logic", "Philosophy & Psychology", "Tool Tutorials",
-    "Paper Breakdowns", "Career & Learning",
+    "AI News",
+    "Science & Technology",
+    "Business & Finance",
+    "Health & Medicine",
+    "Programming & Software",
 ]
 
-DEEP_LESSON_CATS = {"AI Foundations", "LLM Internals", "Training & Data", "AI Systems"}
+DEEP_LESSON_CATS = {"AI News", "Science & Technology"}
+
+CATEGORY_ALIASES = {
+    "AI Explained": "AI News",
+    "AI Foundations": "AI News",
+    "LLM Internals": "AI News",
+    "Training & Data": "AI News",
+    "AI Systems": "AI News",
+    "Deep Tech": "Science & Technology",
+    "Space & Astronomy": "Science & Technology",
+    "Nature & Wildlife": "Science & Technology",
+    "Engineering & Innovation": "Science & Technology",
+    "Mathematics & Logic": "Science & Technology",
+    "Tool Tutorials": "Programming & Software",
+    "Paper Breakdowns": "Science & Technology",
+    "Code & Build": "Programming & Software",
+    "Tech Explained": "AI News",
+    "Build with AI": "Programming & Software",
+    "Industry Analysis": "Business & Finance",
+    "Career & Learning": "Business & Finance",
+    "History & Biography": "Science & Technology",
+    "Philosophy & Psychology": "Science & Technology",
+    "Gaming": "Science & Technology",
+    "Science Explained": "Science & Technology",
+}
+
+
+def normalize_category(cat: str) -> str:
+    """Map old/alias categories to the canonical 5."""
+    if cat in VALID_CATEGORIES:
+        return cat
+    return CATEGORY_ALIASES.get(cat, cat)
 
 VALID_FORMATS = ["shorts", "long"]
 VALID_DIRECTIONS = ["left", "right", "top", "bottom"]

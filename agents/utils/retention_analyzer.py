@@ -130,3 +130,49 @@ def get_insights(category: str) -> dict:
         "common_drop_points": [(f"{t}s", round(m, 3)) for t, m in common_drops[:3]],
         "sample_size": len(entries),
     }
+
+
+def pull_retention_from_youtube(video_id: str, category: str, duration_seconds: float) -> dict:
+    """Pull retention curve from YouTube Analytics API and analyze it.
+
+    Returns the analysis dict from analyze_retention().
+    """
+    try:
+        from utils.youtube_upload import get_youtube_credentials
+        from googleapiclient.discovery import build
+
+        creds = get_youtube_credentials()
+        if not creds:
+            return {"hook_retention": 0, "avg_retention": 0, "error": "no credentials"}
+
+        analytics = build("youtubeAnalytics", "v2", credentials=creds)
+
+        # YouTube Analytics API returns audience retention as absolute percentage
+        response = analytics.reports().query(
+            ids="channel==MINE",
+            startDate=(datetime.now() - timedelta(days=30)).strftime("%Y-%m-%d"),
+            endDate=datetime.now().strftime("%Y-%m-%d"),
+            metrics="audienceWatchRatio",
+            dimensions="elapsedVideoTimeRatio",
+            filters=f"video=={video_id}",
+            maxResults=300,
+        ).execute()
+
+        rows = response.get("rows", [])
+        if not rows:
+            return {"hook_retention": 0, "avg_retention": 0, "error": "no data"}
+
+        # Convert relative time ratios to absolute seconds, build retention curve
+        retention_curve = []
+        for row in rows:
+            ratio = row[1] if len(row) > 1 else 0
+            retention_curve.append(ratio)
+
+        if not retention_curve:
+            return {"hook_retention": 0, "avg_retention": 0, "error": "empty curve"}
+
+        return analyze_retention(video_id, category, retention_curve, duration_seconds)
+
+    except Exception as e:
+        logger.warning(f"[RETENTION] YouTube pull failed for {video_id}: {e}")
+        return {"hook_retention": 0, "avg_retention": 0, "error": str(e)}

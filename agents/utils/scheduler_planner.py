@@ -164,121 +164,51 @@ Avoid topics that appear in the blacklist. Prioritize underrepresented categorie
     return None
 
 
-from utils.scene_schema import VALID_CATEGORIES as _CATEGORIES
+from utils.scene_schema import VALID_CATEGORIES as _CATEGORIES, normalize_category
 
 CONTENT_PILLARS = {
-    "AI Foundations": {
-        "description": "Foundational AI/ML concepts — neural networks, backpropagation, gradient descent",
-        "series": ["Neural Networks Explained", "How Backpropagation Works", "Gradient Descent Visualized"],
-        "ratio": 0.05,
-    },
-    "LLM Internals": {
-        "description": "How LLMs work — tokenization, embeddings, attention, transformers, generation",
-        "series": ["How LLMs Actually Work", "Attention Is All You Need", "From Token to Text"],
-        "ratio": 0.05,
-    },
-    "Training & Data": {
-        "description": "Training pipelines — RLHF, fine-tuning, LoRA, datasets, evaluation",
-        "series": ["How AI Learns", "Data Pipeline Secrets", "Training at Scale"],
-        "ratio": 0.04,
-    },
-    "AI Systems": {
-        "description": "Systems — RAG, agents, multi-modal, deployment, best practices",
-        "series": ["Building RAG Systems", "AI Agent Architecture", "Multi-Modal AI"],
-        "ratio": 0.04,
-    },
-    "AI Explained": {
-        "description": "Quick AI/ML concept explainers for beginners",
-        "series": ["How Diffusion Works", "Transformer Architecture Explained", "Understanding LLMs"],
-        "ratio": 0.08,
+    "AI News": {
+        "description": "Latest AI developments, model releases, industry moves, breaking news",
+        "series": ["This Week in AI", "Model Release Roundup", "Funding & Acquisition News", "AI Industry Moves"],
+        "ratio": 0.25,
     },
     "Science & Technology": {
-        "description": "Science discoveries, tech innovations, research breakthroughs",
-        "series": ["Science Behind the Headlines", "Tech That Changed the World", "Future Technologies"],
-        "ratio": 0.10,
-    },
-    "Space & Astronomy": {
-        "description": "Space exploration, astronomy, cosmology, planetary science",
-        "series": ["Journey Through Space", "The Solar System", "Cosmic Mysteries"],
-        "ratio": 0.08,
-    },
-    "Nature & Wildlife": {
-        "description": "Nature documentaries, wildlife, environmental science, conservation",
-        "series": ["Wild Earth", "Animal Intelligence", "Ecosystems Explained"],
-        "ratio": 0.08,
-    },
-    "History & Biography": {
-        "description": "Historical events, biographies, ancient civilizations, world history",
-        "series": ["History Untold", "Great Minds", "Civilizations Rising"],
-        "ratio": 0.08,
-    },
-    "Health & Medicine": {
-        "description": "Health science, medical breakthroughs, nutrition, wellness",
-        "series": ["Body Science", "Medical Breakthroughs", "The Science of Health"],
-        "ratio": 0.06,
+        "description": "Science discoveries, tech innovations, research breakthroughs, engineering marvels",
+        "series": ["Science Behind the Headlines", "Tech That Changed the World", "Future Technologies", "Breakthrough Science"],
+        "ratio": 0.25,
     },
     "Business & Finance": {
-        "description": "Business strategy, economics, markets, entrepreneurship",
-        "series": ["Market Forces", "Startup Stories", "Economics Made Simple"],
-        "ratio": 0.06,
+        "description": "Business strategy, economics, markets, entrepreneurship, AI in business",
+        "series": ["Market Forces", "Startup Stories", "Economics Made Simple", "AI Business Case Studies"],
+        "ratio": 0.20,
+    },
+    "Health & Medicine": {
+        "description": "Health science, medical breakthroughs, nutrition, AI in healthcare",
+        "series": ["Body Science", "Medical Breakthroughs", "The Science of Health", "AI Diagnostics Explained"],
+        "ratio": 0.15,
     },
     "Programming & Software": {
-        "description": "Code tutorials, software engineering, development tools",
-        "series": ["Build a RAG App", "AI Agent Tutorial", "Fine-Tuning Guide"],
-        "ratio": 0.08,
-    },
-    "Engineering & Innovation": {
-        "description": "Engineering marvels, industrial design, technological breakthroughs",
-        "series": ["How Things Work", "Engineering Marvels", "Innovation That Changed Us"],
-        "ratio": 0.06,
-    },
-    "Mathematics & Logic": {
-        "description": "Math concepts, logic puzzles, number theory, geometry",
-        "series": ["Math in Nature", "Logic Puzzles Decoded", "The Beauty of Numbers"],
-        "ratio": 0.05,
-    },
-    "Philosophy & Psychology": {
-        "description": "Philosophical ideas, cognitive science, human behavior",
-        "series": ["Thinking Deeply", "The Mind Explained", "Philosophy for Life"],
-        "ratio": 0.05,
-    },
-    "AI News": {
-        "description": "Latest AI developments and updates",
-        "series": ["This Week in AI", "Model Release Roundup", "Funding & Acquisition News"],
-        "ratio": 0.06,
-    },
-    "Tool Tutorials": {
-        "description": "Software tool guides, productivity hacks, workflow tutorials",
-        "series": ["Cursor IDE Mastery", "Productivity Tool Stack", "DevOps Essentials"],
-        "ratio": 0.04,
-    },
-    "Paper Breakdowns": {
-        "description": "Academic paper summaries, research analysis",
-        "series": ["Paper of the Week", "Research Deep Dive", "Citation Analysis"],
-        "ratio": 0.03,
-    },
-    "Career & Learning": {
-        "description": "Career advice, learning paths, skill development",
-        "series": ["Learning Roadmap", "Skill Stack Guide", "Career Pivot Stories"],
-        "ratio": 0.03,
+        "description": "Code tutorials, software engineering, development tools, AI tooling",
+        "series": ["Build a RAG App", "AI Agent Tutorial", "DevOps Essentials", "AI Coding Tools Compared"],
+        "ratio": 0.15,
     },
 }
 
 PILLAR_NAMES = list(CONTENT_PILLARS.keys())
 
 _SEASONAL_TOPICS = {
-    1: ["AI Predictions for New Year", "Best Tech of Previous Year", "Getting Started with AI"],
-    2: ["AI Love: Valentine's Tech", "Machine Learning Basics", "Neural Networks Explained"],
-    3: ["Spring Tech Updates", "GTC Conference Highlights", "Open Source AI News"],
-    4: ["Earth Day: AI for Climate", "Tech Conference Season", "AI in Sustainability"],
-    5: ["Google I/O Highlights", "Summer Internship Tips", "AI Tools Roundup"],
-    6: ["Mid-Year AI Review", "Best Coding Practices", "Tech Career Roadmap"],
-    7: ["Open Source Spotlight", "AI in Healthcare", "Build Weekend Projects"],
-    8: ["Back to Tech: Learn AI", "Fall Tech Predictions", "Study Tools Powered by AI"],
-    9: ["Tech Conference Season", "AI Ethics Discussion", "Research Paper Highlights"],
-    10: ["Halloween Tech Special", "AI Security", "Fall Product Releases"],
-    11: ["Thanksgiving: AI Gratitude", "Open Source Contributions", "Year-End Tech Wrap"],
-    12: ["Year in AI Review", "Best Tech of the Year", "Holiday Tech Gift Guide"],
+    1: ["AI Predictions for the Year", "Best Tech of Last Year", "How AI Will Change Business", "New Medical AI Breakthroughs", "Top Programming Trends"],
+    2: ["AI in Healthcare: Valentine's Edition", "Science of Heart Health", "Market Trends After Earnings", "How ChatGPT Changed Coding", "February AI Releases"],
+    3: ["Spring AI Conference Highlights", "Science of Renewal", "Q1 Market Analysis", "Medical Research Updates", "New Developer Tools"],
+    4: ["AI for Earth Day: Climate Solutions", "Space Tech Breakthroughs", "Tax Season: AI in Finance", "Genomics Revolution", "Spring Coding Bootcamps"],
+    5: ["Google I/O AI Announcements", "Space Exploration Update", "Small Business AI Tools", "Mental Health Tech", "Summer Coding Projects"],
+    6: ["Mid-Year AI Review", "Summer Science Discoveries", "Crypto & AI Markets", "Summer Health Tips", "AI Coding Assistants Ranked"],
+    7: ["Open Source AI Spotlight", "Independence Day Tech History", "Q2 Earnings: AI Companies", "Summer Health & Fitness", "Build Weekend AI Projects"],
+    8: ["Back to School: AI Tools for Students", "Mars Mission Updates", "Back to Business: AI Productivity", "Medical School AI Training", "Learn to Code with AI"],
+    9: ["Fall AI Conference Season", "Nobel Prize Science", "Q3 Market Outlook", "Flu Season: AI Predictions", "New Programming Languages"],
+    10: ["AI Security & Safety", "Halloween Special: Sci-Fi vs Reality", "Halloween Tech Horror Stories", "Open Source October", "Cybersecurity in AI Era"],
+    11: ["Thanksgiving: AI We're Grateful For", "Year-End Market Prep", "AI in Clinical Trials", "Open Source Contributions", "Black Friday AI Deals"],
+    12: ["Year in AI Review", "Best Science of the Year", "Year-End Financial AI Tools", "Health Tech Predictions", "Holiday Coding Projects"],
 }
 
 
@@ -484,6 +414,18 @@ def generate_content_plan(force_llm: bool = False, slot: str = "", extra_context
                 v["reasoning"] += f" (analytics-weighted: {best_cat} is best category)"
 
     videos = _apply_pillar_balance(videos)
+
+    # CPM-aware priority boost: high-CPM categories get priority
+    try:
+        from utils.pillar_manager import CPM_RATES
+        for v in videos:
+            cat = v.get("category", "")
+            cpm = CPM_RATES.get(cat, 8)
+            if cpm >= 15:
+                v["priority"] = min(100, v.get("priority", 50) + 10)
+                v["reasoning"] += f" (CPM-aware: {cat} CPM ${cpm})"
+    except Exception:
+        pass
 
     videos.sort(key=lambda x: x.get("priority", 50), reverse=True)
 

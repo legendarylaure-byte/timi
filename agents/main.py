@@ -1010,6 +1010,8 @@ def _apply_pipeline_tuning() -> dict:
 
 
 def generate_short_video(topic: str, category: str, video_id: str, publish_at: str = None):
+    from utils.scene_schema import normalize_category
+    category = normalize_category(category)
     _start_time = time.perf_counter()
     _apply_pipeline_tuning()
     update_pipeline_status(True, topic)
@@ -1067,6 +1069,15 @@ def generate_short_video(topic: str, category: str, video_id: str, publish_at: s
                 pass
 
             extra_parts = [p for p in [knowledge_ctx, series_ctx, trend_ctx, opt_injection, _topics_ctx] if p]
+            try:
+                from utils.hook_tester import suggest_hook_formula, get_hook_stats
+                best_hook = suggest_hook_formula(category)
+                hook_stats = get_hook_stats(category)
+                best_stat = hook_stats.get(best_hook, {})
+                if best_stat.get("count", 0) > 0:
+                    extra_parts.append(f"Hook recommendation: Use '{best_hook}' hook for {category} — avg {best_stat['avg_views']} views, {best_stat['avg_retention']:.0%} retention across {best_stat['count']} videos. Other formulas: " + ", ".join(f"{f}({s['avg_views']}v)" for f, s in hook_stats.items() if s.get("count", 0) > 0 and f != best_hook))
+            except Exception:
+                pass
             extra_context = "\n".join(extra_parts) if extra_parts else ""
 
             script_kwargs = {"topic": topic, "category": category, "fmt": "shorts", "max_duration": SHORTS_MAX_DURATION}
@@ -1455,6 +1466,14 @@ def generate_short_video(topic: str, category: str, video_id: str, publish_at: s
             track_pillar_video(category)
         except Exception:
             pass
+        try:
+            from utils.hook_engine import detect_hook_formula
+            from utils.hook_tester import record_hook_result
+            hook_formula = detect_hook_formula(script_text)
+            record_hook_result(video_id, category, hook_formula)
+            log_event("HOOK", f"Recorded hook formula: {hook_formula} for {category}")
+        except Exception as e:
+            log_event("HOOK", f"Hook recording skipped: {e}", "debug")
 
         failed_step = "finalizing"
         update_video_record(video_id, {
@@ -1500,6 +1519,8 @@ def generate_short_video(topic: str, category: str, video_id: str, publish_at: s
 
 
 def generate_long_video(topic: str, category: str, video_id: str, publish_at: str = None):
+    from utils.scene_schema import normalize_category
+    category = normalize_category(category)
     _start_time = time.perf_counter()
     _apply_pipeline_tuning()
     if sentry_sdk:
@@ -1557,6 +1578,15 @@ def generate_long_video(topic: str, category: str, video_id: str, publish_at: st
                 pass
 
             extra_parts = [p for p in [knowledge_ctx, series_ctx, trend_ctx, opt_injection, _topics_ctx] if p]
+            try:
+                from utils.hook_tester import suggest_hook_formula, get_hook_stats
+                best_hook = suggest_hook_formula(category)
+                hook_stats = get_hook_stats(category)
+                best_stat = hook_stats.get(best_hook, {})
+                if best_stat.get("count", 0) > 0:
+                    extra_parts.append(f"Hook recommendation: Use '{best_hook}' hook for {category} — avg {best_stat['avg_views']} views, {best_stat['avg_retention']:.0%} retention across {best_stat['count']} videos. Other formulas: " + ", ".join(f"{f}({s['avg_views']}v)" for f, s in hook_stats.items() if s.get("count", 0) > 0 and f != best_hook))
+            except Exception:
+                pass
             extra_context = "\n".join(extra_parts) if extra_parts else ""
 
             _tier_long = os.environ.get("TIER", "")
@@ -2000,6 +2030,14 @@ def generate_long_video(topic: str, category: str, video_id: str, publish_at: st
             track_pillar_video(category)
         except Exception:
             pass
+        try:
+            from utils.hook_engine import detect_hook_formula
+            from utils.hook_tester import record_hook_result
+            hook_formula = detect_hook_formula(script_text)
+            record_hook_result(video_id, category, hook_formula)
+            log_event("HOOK", f"Recorded hook formula: {hook_formula} for {category}")
+        except Exception as e:
+            log_event("HOOK", f"Hook recording skipped: {e}", "debug")
 
         failed_step = "finalizing"
         update_video_record(video_id, {
@@ -2104,6 +2142,21 @@ def daily_content_job():
         if next_pillar:
             pillar_ctx += f"\nSuggested next pillar to focus on: {next_pillar['name']}"
         combined_ctx = "\n".join(p for p in [opt_injection, coverage_ctx, pillar_ctx] if p)
+        # Inject trending topics from trend engine
+        try:
+            from utils.trend_engine import get_daily_digest
+            digest = get_daily_digest()
+            if digest:
+                combined_ctx += "\n\nTrending topics right now:\n" + "\n".join(f"- {d['title']} ({d['category']}, {d['source']})" for d in digest[:5])
+        except Exception:
+            pass
+        # Inject topic scorer recommendation
+        try:
+            from utils.topic_scorer import get_smart_category_slot
+            best_cat = get_smart_category_slot()
+            combined_ctx += f"\n\nBest category to produce next: {best_cat} (based on CPM, freshness, balance)"
+        except Exception:
+            pass
         plan = generate_content_plan(extra_context=combined_ctx, slot=os.getenv("SLOT", ""))
         plan = validate_plan_balance(plan)
         if combined_ctx:
@@ -2560,6 +2613,8 @@ def cleanup_stuck_state():
 
 def _handle_pipeline_trigger(topic: str, category: str, format_type: str, trigger_id: str, publish_at: str = None):
     """Handle a pipeline run trigger from the dashboard."""
+    from utils.scene_schema import normalize_category
+    category = normalize_category(category)
     scheduled_note = f" (scheduled: {publish_at})" if publish_at else ""
     log_event("TRIGGER", f"Dashboard trigger: {format_type} - {topic} (id: {trigger_id}){scheduled_note}")
 

@@ -89,6 +89,13 @@ def add_topic(
     topics[topic_id] = topic
     _save_graph(graph)
     logger.info(f"[KG] Added topic: {title} ({difficulty})")
+
+    # Auto-discover edges if this is a new topic with no edges
+    try:
+        auto_discover_edges(topic_id)
+    except Exception as e:
+        logger.debug(f"[KG] Auto edge discovery skipped: {e}")
+
     return topic
 
 
@@ -112,6 +119,87 @@ def add_relationship(from_topic: str, to_topic: str, rel_type: str = "related") 
         _save_graph(graph)
         logger.info(f"[KG] Added edge: {from_topic} --[{rel_type}]--> {to_topic}")
     return True
+
+
+def auto_discover_edges(topic_id: str, max_edges: int = 3):
+    """Auto-infer relationships between a topic and existing topics using LLM.
+
+    If LLM is unavailable, falls back to keyword-based similarity matching.
+    """
+    graph = _load_graph()
+    if topic_id not in graph["topics"]:
+        return
+
+    source = graph["topics"][topic_id]
+    existing_edges = {(e["source"], e["target"], e["type"]) for e in graph["edges"]}
+
+    # Build candidate list (exclude self)
+    candidates = []
+    for tid, t in graph["topics"].items():
+        if tid == topic_id:
+            continue
+        candidates.append({"id": tid, "title": t.get("title", tid), "category": t.get("category", "")})
+        if len(candidates) >= 20:
+            break
+
+    if not candidates:
+        return
+
+    # Try LLM-based edge discovery
+    edges_added = 0
+    try:
+        from utils.llm_client import generate_completion
+        candidate_text = "\n".join(f"- {c['id']}: {c['title']} ({c['category']})" for c in candidates)
+        prompt = f"""Given this topic: "{source['title']}" ({source.get('category', '')})
+
+And these existing topics:
+{candidate_text}
+
+Suggest up to {max_edges} relationships. For each, specify:
+- source: topic_id of the related topic
+- type: one of "related", "builds_on", "prerequisite", "continues", "contrasts_with"
+
+Return ONLY a JSON array of objects with "source" and "type" fields. No explanation."""
+
+        response = generate_completion(prompt=prompt, system_prompt="You are a knowledge graph assistant.", temperature=0.3, max_tokens=500)
+        import json as _json
+        start = response.find("[")
+        end = response.rfind("]") + 1
+        if start >= 0 and end > start:
+            suggested = _json.loads(response[start:end])
+            for s in suggested:
+                src = s.get("source", "")
+                rel = s.get("type", "related")
+                if src in graph["topics"] and rel in RELATION_TYPES:
+                    edge_key = (src, topic_id, rel)
+                    rev_key = (topic_id, src, rel)
+                    if edge_key not in existing_edges and rev_key not in existing_edges:
+                        add_relationship(src, topic_id, rel)
+                        edges_added += 1
+                        if edges_added >= max_edges:
+                            break
+    except Exception as e:
+        logger.debug(f"[KG] LLM edge discovery failed, using keyword fallback: {e}")
+
+    # Fallback: keyword-based similarity if LLM didn't add edges
+    if edges_added == 0:
+        source_words = set(source.get("title", "").lower().split())
+        scored = []
+        for c in candidates:
+            cand_words = set(c["title"].lower().split())
+            overlap = len(source_words & cand_words) / max(1, min(len(source_words), len(cand_words)))
+            if overlap > 0.2:
+                scored.append((c["id"], overlap))
+        scored.sort(key=lambda x: -x[1])
+        for cand_id, _ in scored[:max_edges]:
+            edge_key = (cand_id, topic_id, "related")
+            rev_key = (topic_id, cand_id, "related")
+            if edge_key not in existing_edges and rev_key not in existing_edges:
+                add_relationship(cand_id, topic_id, "related")
+                edges_added += 1
+
+    if edges_added:
+        logger.info(f"[KG] Auto-discovered {edges_added} edges for {topic_id}")
 
 
 def get_related_topics(topic_id: str, max_depth: int = 1) -> list[dict]:

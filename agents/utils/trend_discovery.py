@@ -7,7 +7,8 @@ import json
 import random
 from datetime import datetime
 from utils.llm_client import generate_completion
-from utils.firebase_status import get_firestore_client, log_activity, TECH_CATEGORIES
+from utils.firebase_status import get_firestore_client, log_activity
+from utils.scene_schema import normalize_category
 
 SYSTEM_PROMPT = """You are a trend analyst specializing in YouTube/TikTok tech content.
 Analyze current trends and suggest video topics for tech/AI educational content.
@@ -77,18 +78,18 @@ def fetch_youtube_trending(max_results: int = 20, region_code: str = "US") -> li
 
             category_map = {
                 "1": "Science & Technology", "2": "Science & Technology", "10": "Science & Technology",
-                "15": "Nature & Wildlife", "17": "Programming & Software", "18": "Science & Technology",
-                "19": "History & Biography", "20": "Nature & Wildlife", "22": "Science & Technology",
-                "23": "Science & Technology", "24": "History & Biography", "25": "AI News",
-                "26": "Tool Tutorials", "27": "Science & Technology", "28": "Science & Technology",
-                "29": "History & Biography", "30": "Science & Technology",
+                "15": "Science & Technology", "17": "Programming & Software", "18": "Science & Technology",
+                "19": "Science & Technology", "20": "Science & Technology", "22": "Science & Technology",
+                "23": "Business & Finance", "24": "Science & Technology", "25": "AI News",
+                "26": "Programming & Software", "27": "Health & Medicine", "28": "Business & Finance",
+                "29": "Science & Technology", "30": "Health & Medicine",
             }
-            category = category_map.get(category_id, "AI Explained")
+            category = normalize_category(category_map.get(category_id, "AI News"))
 
             predicted_search_volume = max(view_count // 10, 50000)
 
-            if any(cat in TECH_CATEGORIES for cat in [category]) and _is_non_tech_topic(title):
-                print(f"[TRENDS] Skipping non-tech topic in tech category: {title}")
+            if _is_non_tech_topic(title):
+                print(f"[TRENDS] Skipping non-tech topic: {title}")
                 continue
             trends.append({
                 "title": title,
@@ -202,45 +203,30 @@ Consider seasonal tech events (conferences, product launches, paper releases), e
 
 
 def _fallback_trends() -> list:
-    """Fallback trending topics if Groq fails."""
+    """Fallback trending topics if LLM fails."""
     seasonal = datetime.now().month
     seasonal_tech_events = {
-        1: ["AI Predictions for the New Year", "Tech Resolutions for Developers"],
-        2: ["Groundbreaking AI Research This Month", "Open Source Projects to Watch"],
-        3: ["Spring AI Breakthroughs", "Tech Conference Season Preview"],
-        4: ["Climate Tech and AI for Earth Day", "Spring Tech Releases Roundup"],
-        5: ["Summer AI Learning Paths", "Tech Conference Highlights"],
-        6: ["Mid-Year AI Trends Report", "Frameworks and Tools Update"],
-        7: ["Independence Day Tech History", "Summer Open Source Projects"],
-        8: ["Back to School AI Tools", "Fall Tech Predictions and Roadmaps"],
-        9: ["Autumn AI Research Roundup", "Developer Tools Harvest Season"],
-        10: ["Cybersecurity in the AI Era", "Halloween Tech Horror Stories"],
-        11: ["Thanksgiving AI: What We're Grateful For", "AI Safety and Ethics Check-in"],
-        12: ["Christmas Tech Gift Guide for Devs", "Year in AI Review and Retrospective"],
+        1: ["AI Predictions for the Year", "Best Tech of Last Year"],
+        2: ["AI in Healthcare", "Market Trends After Earnings"],
+        3: ["Spring AI Conference Highlights", "Science of Renewal"],
+        4: ["AI for Earth Day: Climate Solutions", "Tax Season: AI in Finance"],
+        5: ["Google I/O AI Announcements", "New Developer Tools"],
+        6: ["Mid-Year AI Review", "Summer Science Discoveries"],
+        7: ["Open Source AI Spotlight", "Q2 Earnings: AI Companies"],
+        8: ["Back to School: AI Tools", "Mars Mission Updates"],
+        9: ["Fall AI Conference Season", "Nobel Prize Science"],
+        10: ["AI Security and Safety", "Cybersecurity in AI Era"],
+        11: ["Year-End Market Prep", "Open Source Contributions"],
+        12: ["Year in AI Review", "Best Science of the Year"],
     }
     fallback_tech_events = seasonal_tech_events.get(seasonal, ["AI Breakthroughs", "Tech Trends"])
 
     return [
-        {"title": f"{fallback_tech_events[0] if len(fallback_tech_events) > 0 else 'AI Trends'}", "category": "AI Explained", "search_volume": random.randint(100000, 500000), "growth": random.randint(  # noqa: E501
-            15, 70), "competition": random.choice(["low", "medium"]), "suggested_format": "shorts", "score": random.randint(75, 95), "keywords": ["ai", "explained", "tech"]},  # noqa: E501
-        {"title": f"{fallback_tech_events[1] if len(fallback_tech_events) > 1 else 'Deep Tech Insights'}", "category": "Deep Tech", "search_volume": random.randint(80000, 300000), "growth": random.randint(10, 50), "competition": random.choice(  # noqa: E501
-            ["low", "medium", "high"]), "suggested_format": "long", "score": random.randint(70, 90), "keywords": ["deep", "tech", "explained"]},  # noqa: E501
-        {"title": "How Transformers Work", "category": "AI Explained", "search_volume": 410000, "growth": 45,
-            "competition": "medium", "suggested_format": "shorts", "score": 94, "keywords": ["transformer", "attention", "neural"]},  # noqa: E501
-        {"title": f"Top 5 AI Tools {datetime.now().year}", "category": "Tool Tutorials", "search_volume": 245000, "growth": 34,  # noqa: E501
-            "competition": "low", "suggested_format": "shorts", "score": 92, "keywords": ["tools", "ai", "productivity"]},  # noqa: E501
-        {"title": "Python for Machine Learning", "category": "Code & Build", "search_volume": 290000, "growth": 52,
-            "competition": "low", "suggested_format": "shorts", "score": 91, "keywords": ["python", "ml", "tutorial"]},  # noqa: E501
-        {"title": "LangChain vs LlamaIndex Compared", "category": "Code & Build", "search_volume": 320000, "growth": 67,
-            "competition": "low", "suggested_format": "shorts", "score": 89, "keywords": ["langchain", "llamaindex", "llm", "framework"]},  # noqa: E501
-        {"title": "Fine-Tuning LLMs on Your Own Data", "category": "Deep Tech", "search_volume": 380000, "growth": 55,
-            "competition": "medium", "suggested_format": "long", "score": 88, "keywords": ["fine-tuning", "llm", "machine learning"]},  # noqa: E501
-        {"title": "RAG Architecture Explained Simply", "category": "AI Explained", "search_volume": 310000, "growth": 72,
-            "competition": "medium", "suggested_format": "shorts", "score": 90, "keywords": ["rag", "retrieval", "augmented", "generation"]},  # noqa: E501
-        {"title": "AI Safety and Alignment Explained", "category": "AI Explained", "search_volume": 275000, "growth": 41,
-            "competition": "low", "suggested_format": "long", "score": 87, "keywords": ["ai safety", "alignment", "ethics"]},  # noqa: E501
-        {"title": "Building AI Agents with CrewAI", "category": "Code & Build", "search_volume": 260000, "growth": 88,
-            "competition": "low", "suggested_format": "shorts", "score": 93, "keywords": ["crewai", "agents", "ai", "tutorial"]},  # noqa: E501
+        {"title": fallback_tech_events[0], "category": "AI News", "search_volume": random.randint(100000, 500000), "growth": random.randint(15, 70), "competition": "low", "suggested_format": "shorts", "score": random.randint(75, 95), "keywords": ["ai", "news", "trending"]},
+        {"title": fallback_tech_events[1], "category": "Science & Technology", "search_volume": random.randint(80000, 300000), "growth": random.randint(10, 50), "competition": "medium", "suggested_format": "long", "score": random.randint(70, 90), "keywords": ["science", "technology", "breakthrough"]},
+        {"title": "How AI Is Changing Healthcare", "category": "Health & Medicine", "search_volume": 380000, "growth": 55, "competition": "medium", "suggested_format": "long", "score": 88, "keywords": ["ai", "healthcare", "medical"]},
+        {"title": f"Top AI Coding Tools {datetime.now().year}", "category": "Programming & Software", "search_volume": 290000, "growth": 52, "competition": "low", "suggested_format": "shorts", "score": 91, "keywords": ["coding", "tools", "productivity"]},
+        {"title": "AI in Business: ROI Case Studies", "category": "Business & Finance", "search_volume": 320000, "growth": 67, "competition": "low", "suggested_format": "shorts", "score": 89, "keywords": ["business", "ai", "roi"]},
     ]
 
 
@@ -295,27 +281,17 @@ Return ONLY a JSON object with:
 
 def _fallback_category_analysis(category: str) -> dict:
     """Fallback category analysis."""
+    category = normalize_category(category)
     data = {
-        "Self-Learning": {"trending_score": 88, "monthly_searches": 2100000, "saturation": "medium", "growth_trend": "increasing"},  # noqa: E501
-        "AI Explained": {"trending_score": 94, "monthly_searches": 5600000, "saturation": "medium", "growth_trend": "increasing"},  # noqa: E501
-        "Deep Tech": {"trending_score": 82, "monthly_searches": 1200000, "saturation": "low", "growth_trend": "increasing"},  # noqa: E501
-        "Paper Breakdowns": {"trending_score": 78, "monthly_searches": 890000, "saturation": "low", "growth_trend": "increasing"},  # noqa: E501
-        "Tech Tutorials": {"trending_score": 88, "monthly_searches": 3200000, "saturation": "medium", "growth_trend": "increasing"},  # noqa: E501
-        "Code & Build": {"trending_score": 85, "monthly_searches": 2800000, "saturation": "medium", "growth_trend": "increasing"},  # noqa: E501
-        "Industry Analysis": {"trending_score": 80, "monthly_searches": 1500000, "saturation": "medium", "growth_trend": "stable"},  # noqa: E501
-        "Tech & AI": {"trending_score": 95, "monthly_searches": 5600000, "saturation": "medium", "growth_trend": "increasing"},  # noqa: E501
-        "Gaming": {"trending_score": 89, "monthly_searches": 8900000, "saturation": "high", "growth_trend": "stable"},
-        "Cooking & Food": {"trending_score": 84, "monthly_searches": 4200000, "saturation": "medium", "growth_trend": "increasing"},  # noqa: E501
-        "DIY & Crafts": {"trending_score": 81, "monthly_searches": 2800000, "saturation": "low", "growth_trend": "increasing"},  # noqa: E501
-        "Health & Wellness": {"trending_score": 87, "monthly_searches": 6100000, "saturation": "high", "growth_trend": "stable"},  # noqa: E501
-        "Travel & Adventure": {"trending_score": 76, "monthly_searches": 3400000, "saturation": "medium", "growth_trend": "increasing"},  # noqa: E501
-        "Finance & Business": {"trending_score": 83, "monthly_searches": 4800000, "saturation": "high", "growth_trend": "stable"},  # noqa: E501
-        "Comedy & Entertainment": {"trending_score": 92, "monthly_searches": 12000000, "saturation": "high", "growth_trend": "stable"},  # noqa: E501
-        "Music & Dance": {"trending_score": 80, "monthly_searches": 5200000, "saturation": "medium", "growth_trend": "increasing"},  # noqa: E501
+        "AI News": {"trending_score": 94, "monthly_searches": 5600000, "saturation": "medium", "growth_trend": "increasing", "cpm": 8},
+        "Science & Technology": {"trending_score": 88, "monthly_searches": 3200000, "saturation": "medium", "growth_trend": "increasing", "cpm": 12},
+        "Business & Finance": {"trending_score": 83, "monthly_searches": 4800000, "saturation": "high", "growth_trend": "stable", "cpm": 25},
+        "Health & Medicine": {"trending_score": 87, "monthly_searches": 6100000, "saturation": "medium", "growth_trend": "increasing", "cpm": 18},
+        "Programming & Software": {"trending_score": 85, "monthly_searches": 2800000, "saturation": "medium", "growth_trend": "increasing", "cpm": 13},
     }
 
     base = data.get(category, {"trending_score": 70, "monthly_searches": 500000,
-                    "saturation": "medium", "growth_trend": "stable"})
+                    "saturation": "medium", "growth_trend": "stable", "cpm": 8})
 
     return {
         **base,
@@ -334,8 +310,7 @@ def generate_monthly_plan(month: int = None, year: int = None, focus_categories:
     year = year or datetime.now().year
 
     if focus_categories is None:
-        focus_categories = ["AI Explained", "Deep Tech",
-                            "Paper Breakdowns", "Tech Tutorials", "Code & Build", "Industry Analysis"]
+        focus_categories = ["AI News", "Science & Technology", "Business & Finance", "Health & Medicine", "Programming & Software"]
 
     seasonal_events = {
         1: ["New Year", "Winter Activities"],

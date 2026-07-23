@@ -4,33 +4,30 @@ import json
 import logging
 from datetime import datetime, timedelta
 from typing import Optional
-from utils.scene_schema import DEEP_LESSON_CATS
+from utils.scene_schema import DEEP_LESSON_CATS, normalize_category
 
 logger = logging.getLogger(__name__)
+
+# CPM rates for revenue-optimized scheduling (USD per 1000 views)
+CPM_RATES = {
+    "Business & Finance": 25,
+    "Health & Medicine": 18,
+    "Programming & Software": 13,
+    "Science & Technology": 12,
+    "AI News": 8,
+}
+
 
 def _pillar_type(name: str) -> str:
     return "deep_lesson" if name in DEEP_LESSON_CATS else "quick_short"
 
+
 CONTENT_PILLARS = {
-    "AI Foundations": {"ratio": 0.08, "priority": 5, "description": "Foundational AI/ML concepts — neural networks, backpropagation, gradient descent"},
-    "LLM Internals": {"ratio": 0.07, "priority": 5, "description": "How LLMs work — tokenization, embeddings, attention, transformers, generation"},
-    "Training & Data": {"ratio": 0.05, "priority": 4, "description": "Training pipelines — RLHF, fine-tuning, LoRA, datasets, evaluation"},
-    "AI Systems": {"ratio": 0.05, "priority": 4, "description": "Systems — RAG, agents, multi-modal, deployment, best practices"},
-    "AI Explained": {"ratio": 0.08, "priority": 3, "description": "Quick AI/ML concept explainers"},
-    "AI News": {"ratio": 0.06, "priority": 3, "description": "Latest AI developments and updates"},
-    "Science & Technology": {"ratio": 0.08, "priority": 3, "description": "Science discoveries, tech innovations, research breakthroughs"},
-    "Space & Astronomy": {"ratio": 0.06, "priority": 2, "description": "Space exploration, astronomy, cosmology, planetary science"},
-    "Nature & Wildlife": {"ratio": 0.06, "priority": 2, "description": "Nature documentaries, wildlife, environmental science, conservation"},
-    "History & Biography": {"ratio": 0.06, "priority": 2, "description": "Historical events, biographies, ancient civilizations, world history"},
-    "Health & Medicine": {"ratio": 0.05, "priority": 2, "description": "Health science, medical breakthroughs, nutrition, wellness"},
-    "Business & Finance": {"ratio": 0.05, "priority": 2, "description": "Business strategy, economics, markets, entrepreneurship"},
-    "Programming & Software": {"ratio": 0.06, "priority": 2, "description": "Code tutorials, software engineering, development tools"},
-    "Engineering & Innovation": {"ratio": 0.05, "priority": 2, "description": "Engineering marvels, industrial design, technological breakthroughs"},
-    "Mathematics & Logic": {"ratio": 0.04, "priority": 1, "description": "Math concepts, logic puzzles, number theory, geometry"},
-    "Philosophy & Psychology": {"ratio": 0.04, "priority": 1, "description": "Philosophical ideas, cognitive science, human behavior"},
-    "Tool Tutorials": {"ratio": 0.04, "priority": 2, "description": "Software tool guides, productivity hacks, workflow tutorials"},
-    "Paper Breakdowns": {"ratio": 0.03, "priority": 1, "description": "Academic paper summaries, research analysis"},
-    "Career & Learning": {"ratio": 0.03, "priority": 1, "description": "Career advice, learning paths, skill development"},
+    "AI News": {"ratio": 0.25, "priority": 5, "cpm": 8, "description": "Latest AI developments, model releases, industry moves, breaking news"},
+    "Science & Technology": {"ratio": 0.25, "priority": 5, "cpm": 12, "description": "Science discoveries, tech innovations, research breakthroughs, engineering marvels"},
+    "Business & Finance": {"ratio": 0.20, "priority": 4, "cpm": 25, "description": "Business strategy, economics, markets, entrepreneurship, AI in business"},
+    "Health & Medicine": {"ratio": 0.15, "priority": 3, "cpm": 18, "description": "Health science, medical breakthroughs, nutrition, AI in healthcare"},
+    "Programming & Software": {"ratio": 0.15, "priority": 3, "cpm": 13, "description": "Code tutorials, software engineering, development tools, AI tooling"},
 }
 
 # populate category_type from the single source of truth
@@ -53,10 +50,42 @@ def _load_tracker() -> dict:
     if os.path.exists(path):
         try:
             with open(path) as f:
-                return json.load(f)
+                data = json.load(f)
+            # Migrate old categories into new 5
+            _migrate_tracker(data)
+            return data
         except Exception as e:
             logger.warning("[pillar] Failed to load tracker: %s", e)
     return {"pillars": {p: {"video_count": 0, "last_post": None, "total_views": 0} for p in CONTENT_PILLARS}}
+
+
+def _migrate_tracker(data: dict):
+    """Consolidate old category entries into the new 5 canonical categories."""
+    pillars = data.get("pillars", {})
+    migrated = False
+    for old_cat in list(pillars.keys()):
+        if old_cat not in CONTENT_PILLARS:
+            new_cat = normalize_category(old_cat)
+            if new_cat != old_cat and new_cat in CONTENT_PILLARS:
+                old_data = pillars.pop(old_cat)
+                if new_cat in pillars:
+                    pillars[new_cat]["video_count"] += old_data.get("video_count", 0)
+                    if old_data.get("last_post") and (not pillars[new_cat].get("last_post") or old_data["last_post"] > pillars[new_cat]["last_post"]):
+                        pillars[new_cat]["last_post"] = old_data["last_post"]
+                    pillars[new_cat]["total_views"] += old_data.get("total_views", 0)
+                else:
+                    pillars[new_cat] = old_data
+                migrated = True
+            else:
+                # Unknown category, remove
+                pillars.pop(old_cat)
+                migrated = True
+    # Ensure all 5 pillars exist
+    for p in CONTENT_PILLARS:
+        if p not in pillars:
+            pillars[p] = {"video_count": 0, "last_post": None, "total_views": 0}
+    if migrated:
+        _save_tracker(data)
 
 
 def _save_tracker(data: dict):
@@ -69,6 +98,7 @@ def _save_tracker(data: dict):
 
 def track_pillar_video(category: str, views: int = 0):
     """Record a video published in a pillar category."""
+    category = normalize_category(category)
     tracker = _load_tracker()
     if category in tracker["pillars"]:
         tracker["pillars"][category]["video_count"] += 1
@@ -196,3 +226,44 @@ def generate_pillar_context() -> str:
 
     lines.append(f"Suggest focusing on: {underrepresented[0]}")
     return "\n".join(lines)
+
+
+def get_revenue_optimized_category() -> str:
+    """Pick the best category weighted by CPM × freshness × balance.
+
+    High-CPM categories get produced more often, but balance is still respected.
+    Returns the single best category to produce next.
+    """
+    balance = get_pillar_balance()
+    best_cat = "AI News"
+    best_score = -1
+
+    for name in CONTENT_PILLARS:
+        cpm = CONTENT_PILLARS[name].get("cpm", CPM_RATES.get(name, 8))
+        b = balance.get(name, {})
+        gap = b.get("gap", 0)
+
+        # Revenue weight: CPM normalized 0-25
+        revenue_w = min(25, cpm)
+
+        # Freshness: days since last post (more days = higher score)
+        last_post = b.get("last_post")
+        if last_post:
+            try:
+                days_since = (datetime.utcnow() - datetime.fromisoformat(last_post)).days
+            except Exception:
+                days_since = 14
+        else:
+            days_since = 30
+        freshness_w = min(25, days_since * 2)
+
+        # Balance: underrepresented categories get boost (gap < 0 = needs more)
+        balance_w = min(25, max(0, int(-gap * 100 + 12)))
+
+        total = revenue_w + freshness_w + balance_w
+
+        if total > best_score:
+            best_score = total
+            best_cat = name
+
+    return best_cat

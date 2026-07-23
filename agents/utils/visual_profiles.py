@@ -18,60 +18,60 @@ from typing import Optional
 
 # Category → visual profile mapping
 VISUAL_PROFILES = {
-    "AI Explained": {
+    "AI News": {
         "accent_color": "#00CCCC",
         "bg_color": "#1e1e1e",
         "text_color": "#FFFFFF",
-        "music_mood": "upbeat",
-        "camera_style": "smooth_tracking",
-        "transition": "dissolve",
-        "ltx_keywords": ["clean infographic style", "teal accent lighting", "modern tech aesthetic", "sharp lines"],
-        "subtitle_accent": "&H00CCCC00&",  # ASS teal
-        "description": "Clean, educational, modern tech feel with teal accents",
+        "music_mood": "energetic",
+        "camera_style": "lateral_sweep",
+        "transition": "wipeleft",
+        "ltx_keywords": ["news broadcast style", "teal accent lighting", "futuristic", "clean modern", "sharp focus"],
+        "subtitle_accent": "&H00CCCC00&",
+        "description": "Energetic, news-like, teal accents, breaking news feel",
     },
-    "Tech Deep Dives": {
+    "Science & Technology": {
         "accent_color": "#FF6B35",
         "bg_color": "#0d1117",
         "text_color": "#FFFFFF",
         "music_mood": "ambient",
         "camera_style": "slow_zoom",
         "transition": "smoothleft",
-        "ltx_keywords": ["technical diagram style", "orange accent highlights", "dark background", "circuit board aesthetic"],
-        "subtitle_accent": "&H00356BFF&",  # ASS orange
-        "description": "Dark, technical, orange highlights, circuit-board feel",
+        "ltx_keywords": ["technical diagram style", "orange accent highlights", "dark background", "circuit board aesthetic", "sharp focus"],
+        "subtitle_accent": "&H00356BFF&",
+        "description": "Dark, technical, orange highlights, science documentary feel",
     },
-    "AI News & Breakthroughs": {
+    "Business & Finance": {
         "accent_color": "#00FF88",
         "bg_color": "#1a1a2e",
         "text_color": "#FFFFFF",
-        "music_mood": "energetic",
-        "camera_style": "lateral_sweep",
-        "transition": "wipeleft",
-        "ltx_keywords": ["news broadcast style", "green accent lighting", "futuristic", "clean modern"],
-        "subtitle_accent": "&H0088FF00&",  # ASS green
-        "description": "Energetic, news-like, green accents, futuristic",
+        "music_mood": "upbeat",
+        "camera_style": "smooth_tracking",
+        "transition": "dissolve",
+        "ltx_keywords": ["corporate professional style", "green accent data visualization", "clean modern", "financial dashboard aesthetic"],
+        "subtitle_accent": "&H0088FF00&",
+        "description": "Professional, data-driven, green accents, corporate feel",
     },
-    "Hands-on AI Tools": {
+    "Health & Medicine": {
         "accent_color": "#BB86FC",
         "bg_color": "#1e1e1e",
+        "text_color": "#FFFFFF",
+        "music_mood": "focused",
+        "camera_style": "smooth_tracking",
+        "transition": "dissolve",
+        "ltx_keywords": ["medical visualization style", "purple accent lighting", "clean sterile aesthetic", "anatomical precision"],
+        "subtitle_accent": "&H0086BBFF&",
+        "description": "Clean, medical, purple accents, scientific precision",
+    },
+    "Programming & Software": {
+        "accent_color": "#FF4444",
+        "bg_color": "#0d1117",
         "text_color": "#FFFFFF",
         "music_mood": "playful",
         "camera_style": "handheld_glide",
         "transition": "slideleft",
-        "ltx_keywords": ["hands-on tutorial style", "purple accent lighting", "workspace aesthetic", "tool interface"],
-        "subtitle_accent": "&H0086BBFF&",  # ASS purple
-        "description": "Playful, hands-on, purple accents, workspace feel",
-    },
-    "Future of AI": {
-        "accent_color": "#FF4444",
-        "bg_color": "#2d1b69",
-        "text_color": "#FFFFFF",
-        "music_mood": "dramatic",
-        "camera_style": "epic_pullback",
-        "transition": "radial",
-        "ltx_keywords": ["cinematic futuristic", "red accent dramatic lighting", "sci-fi aesthetic", "epic scale"],
-        "subtitle_accent": "&H004444FF&",  # ASS red
-        "description": "Dramatic, cinematic, red accents, sci-fi feel",
+        "ltx_keywords": ["code editor aesthetic", "red accent syntax highlighting", "dark IDE theme", "developer workspace"],
+        "subtitle_accent": "&H004444FF&",
+        "description": "Code-focused, IDE aesthetic, red accents, developer feel",
     },
     # Documentary defaults
     "documentary": {
@@ -82,7 +82,7 @@ VISUAL_PROFILES = {
         "camera_style": "slow_pan",
         "transition": "dissolve",
         "ltx_keywords": ["documentary style", "natural lighting", "cinematic", "film grain"],
-        "subtitle_accent": "&H00CCCCCC&",  # ASS silver
+        "subtitle_accent": "&H00CCCCCC&",
         "description": "Cinematic documentary, natural lighting, film grain",
     },
 }

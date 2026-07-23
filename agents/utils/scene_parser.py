@@ -808,17 +808,14 @@ def _infer_mood(text: str) -> str:
 
 
 def _get_suggested_assets(category: str) -> str:
+    from utils.scene_schema import normalize_category
+    category = normalize_category(category)
     mapping = {
-        "AI Foundations": "DIAGRAM_ANIMATION (neural networks, math, concepts), STOCK_FOOTAGE (tech atmosphere)",
-        "LLM Internals": "DIAGRAM_ANIMATION (transformer, attention, embeddings), STOCK_FOOTAGE (data centers)",
-        "Training & Data": "DIAGRAM_ANIMATION (training curves, pipelines), CODE_SNIPPET (training code)",
-        "AI Systems": "DIAGRAM_ANIMATION (system architecture), CODE_SNIPPET (APIs, integration)",
-        "AI Explained": "STOCK_FOOTAGE (tech concepts, AI visuals), DIAGRAM_ANIMATION (neural networks)",
-        "AI News": "STOCK_FOOTAGE (news style), STATIC_IMAGE (logos, products)",
-        "Tool Tutorials": "SCREEN_CAPTURE (tool walkthrough), CODE_SNIPPET (commands)",
-        "Code & Build": "CODE_SNIPPET (code), SCREEN_CAPTURE (build process)",
-        "Paper Breakdowns": "DIAGRAM_ANIMATION (paper figures), CODE_SNIPPET (implementations)",
-        "Career & Learning": "STOCK_FOOTAGE (learning), SCREEN_CAPTURE (resources)",
+        "AI News": "STOCK_FOOTAGE (news style, AI visuals), STATIC_IMAGE (logos, products, headlines)",
+        "Science & Technology": "DIAGRAM_ANIMATION (technical diagrams, science visuals), STOCK_FOOTAGE (research labs, tech innovations)",
+        "Business & Finance": "DIAGRAM_ANIMATION (charts, graphs, data viz), STOCK_FOOTAGE (corporate, markets, offices)",
+        "Health & Medicine": "DIAGRAM_ANIMATION (anatomy, medical processes), STOCK_FOOTAGE (hospitals, research, wellness)",
+        "Programming & Software": "CODE_SNIPPET (code, terminal), SCREEN_CAPTURE (IDE, tools), STOCK_FOOTAGE (developer workspace)",
     }
     return mapping.get(category, "STOCK_FOOTAGE (tech visuals), DIAGRAM_ANIMATION (explainers)")
 
