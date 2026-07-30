@@ -595,11 +595,22 @@ def _search_providers(keywords: list[str], orientation: str, per_page: int = 5) 
     return all_results
 
 
+def _score_stock_relevance(candidate: dict, keyword: str, narration: str = "") -> float:
+    text = f"{keyword} {narration}".lower()
+    query = candidate.get("query", "").lower()
+    words = {w for w in text.split() if len(w) > 3}
+    query_words = set(query.split())
+    if not words:
+        return 0.0
+    return len(words & query_words) / max(len(words), 1)
+
+
 def search_and_download(
     scene_keyword: str,
     target_duration: float = 5.0,
     orientation: str = "landscape",
     scene_idx: int = 0,
+    narration_text: str = "",
 ) -> Optional[dict]:
     CLIPS_DIR.mkdir(parents=True, exist_ok=True)
     expanded = _keyword_expand(scene_keyword)
@@ -616,6 +627,8 @@ def search_and_download(
         if cid not in seen_ids:
             seen_ids.add(cid)
             unique.append(c)
+
+    unique.sort(key=lambda c: _score_stock_relevance(c, scene_keyword, narration_text), reverse=True)
 
     for candidate in unique:
         filename = f"clip_{scene_idx:03d}_{candidate['source']}_{candidate['id']}.mp4"
@@ -655,7 +668,8 @@ def _search_single_scene(args: tuple) -> dict | None:
     for attempt in range(max_retries):
         if attempt > 0:
             time.sleep(2)
-        clip = search_and_download(keyword, target_duration=target_dur, orientation=orientation, scene_idx=i)
+        clip = search_and_download(keyword, target_duration=target_dur, orientation=orientation, scene_idx=i,
+                                   narration_text=scene.get("narration_text", ""))
         if clip:
             print(f"[stock_video] Scene {i+1}: '{keyword}' -> {clip['path']} ({clip['duration']:.1f}s)")
             return clip

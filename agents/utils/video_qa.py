@@ -286,8 +286,8 @@ def check_visual_narration_match(narration_text: str, scene_keywords: list[str] 
         ratio = match_count / max(len(nar_words), 1)
         if ratio >= 0.1:
             return True, ratio, f"{match_count}/{len(nar_words)} narration words in LTX prompt (ratio={ratio:.2f})"
-        logger.warning(f"LTX prompt may not match narration: {match_count}/{len(nar_words)} words match")
-        return True, ratio, f"Weak LTX prompt match: {match_count}/{len(nar_words)} (ratio={ratio:.2f})"
+        logger.warning(f"LTX prompt fails narration match: {match_count}/{len(nar_words)} words match (need ≥0.1)")
+        return False, ratio, f"Weak LTX prompt match: {match_count}/{len(nar_words)} (ratio={ratio:.2f}, need ≥0.1)"
     return True, 0.0, "No reference text to compare"
 
 

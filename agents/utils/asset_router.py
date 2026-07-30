@@ -152,6 +152,17 @@ def _render_scene_inner(scene: dict, video_id: str, scene_idx: int,
             logger.info(f"[AssetRouter] Scene {scene_idx}: code snippet OK")
             return {"path": path, "duration": duration, "asset_type": "CODE_SNIPPET", "source": "code_snippet"}
 
+    model = get_video_model()
+    if model and model.is_available():
+        prompt = scene.get("ltx_prompt", "") or description or ", ".join(kw_list)
+        narration = scene.get("narration_text", "")
+        if narration and narration not in prompt:
+            prompt = f"{prompt} -- illustrating: {narration[:500]}"
+        clip_path = model.generate_clip(prompt, int(duration), format_type=format_type)
+        if clip_path:
+            logger.info(f"[AssetRouter] Scene {scene_idx}: LTX OK ({os.path.basename(clip_path)})")
+            return {"path": clip_path, "duration": duration, "asset_type": "STOCK_FOOTAGE", "source": "ltx"}
+
     if os.getenv("ENABLE_STOCK_FOOTAGE", "true").lower() == "true":
         search_query = description or ", ".join(kw_list)
         path = _get_stock_clip(search_query, orientation, duration)
@@ -163,14 +174,6 @@ def _render_scene_inner(scene: dict, video_id: str, scene_idx: int,
             if path and os.path.exists(path):
                 logger.info(f"[AssetRouter] Scene {scene_idx}: stock OK (keyword={k})")
                 return {"path": path, "duration": duration, "asset_type": "STOCK_FOOTAGE", "source": "stock"}
-
-    model = get_video_model()
-    if model and model.is_available():
-        prompt = scene.get("ltx_prompt", "") or description or ", ".join(kw_list)
-        clip_path = model.generate_clip(prompt, int(duration), format_type=format_type)
-        if clip_path:
-            logger.info(f"[AssetRouter] Scene {scene_idx}: LTX OK ({os.path.basename(clip_path)})")
-            return {"path": clip_path, "duration": duration, "asset_type": "STOCK_FOOTAGE", "source": "ltx"}
     logger.warning(f"[AssetRouter] Scene {scene_idx}: ALL render methods exhausted "
                    f"(render_type={render_type}, asset_type={asset_type}, keywords={kw_list})")
     return None
@@ -213,12 +216,17 @@ def dispatch_scene(scene: dict, video_id: str, scene_idx: int = 0,
             return result
         logger.warning(
             f"[AssetRouter] Scene {scene_idx} visual-narration mismatch "
-            f"(score={v_score:.2f}, {v_reason}) — forcing stock retry with full description"
+            f"(score={v_score:.2f}, {v_reason})"
         )
         if source is None:
             source = result["source"]
-        scene["render_type"] = "stock"
-        scene.pop("ltx_prompt", None)
+        if source == "ltx":
+            narration = scene.get("narration_text", "")
+            if narration:
+                scene["ltx_prompt"] = f"{scene.get('ltx_prompt', '')} -- illustrating: {narration[:300]}"
+        else:
+            scene["render_type"] = "stock"
+            scene.pop("ltx_prompt", None)
         duration = max(duration * 1.1, duration + 1.0)
 
     if result and os.path.exists(result["path"]):
@@ -269,7 +277,6 @@ def _try_blender_for_scene(scene: dict, category: str = "") -> bool:
 
 
 def dispatch_scenes(scenes: list[dict], video_id: str, format_type: str = "long", category: str = "") -> list[dict]:
-    scenes = _enforce_asset_diversity(scenes)
     clips_map = {}
     blender_scenes = []
     ltx_batch = []

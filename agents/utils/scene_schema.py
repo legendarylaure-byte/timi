@@ -6,7 +6,7 @@ VALID_CATEGORIES = [
     "Programming & Software",
 ]
 
-DEEP_LESSON_CATS = {"AI News", "Science & Technology"}
+DEEP_LESSON_CATS = {"AI News", "Science & Technology", "Business & Finance", "Health & Medicine", "Programming & Software"}
 
 CATEGORY_ALIASES = {
     "AI Explained": "AI News",

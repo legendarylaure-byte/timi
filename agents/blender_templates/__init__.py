@@ -43,67 +43,82 @@ def list_templates():
 
 register_template("chip_cross_section",
     ["chip", "die", "gpu", "cpu", "semiconductor", "transistor", "silicon", "wafer", "cutaway",
-     "cross section", "processor", "core", "tensor", "cuda", "integrated circuit"],
+     "cross section", "processor", "core", "tensor", "cuda", "integrated circuit",
+     "protein", "dna", "molecular", "cell", "organelle"],
     "GPU/CPU die with layered cutaway, highlighted blocks, transistor detail",
     engine="cycles", priority=9)
 
 register_template("architecture_block",
     ["block diagram", "architecture", "hierarchy", "memory", "cache", "layout",
-     "structure", "component", "module", "layer", "stack", "schematic"],
+     "structure", "component", "module", "layer", "stack", "schematic",
+     "system design", "microservice", "api", "dependency", "organizational", "infrastructure"],
     "3D block diagrams with labeled components and connections",
     engine="eevee", priority=8)
 
 register_template("data_flow",
     ["data flow", "particle", "arrow", "movement", "transfer", "traffic", "pipeline",
-     "throughput", "stream", "flow", "path", "routing", "direction"],
+     "throughput", "stream", "flow", "path", "routing", "direction",
+     "circulation", "blood flow", "signal", "propagation", "communication", "transport"],
     "Animated particles and arrows showing data movement through systems",
     engine="eevee", priority=7)
 
 register_template("pcb_layout",
     ["pcb", "circuit board", "motherboard", "trace", "component", "hardware",
-     "electronic", "solder", "connector", "bus", "slot", "socket"],
+     "electronic", "solder", "connector", "bus", "slot", "socket",
+     "circuit", "electrical", "wiring"],
     "Circuit board with traces, labeled components and zoom effects",
     engine="eevee", priority=6)
 
 register_template("cutaway_device",
     ["cutaway", "internal", "inside", "cross-section", "reveal", "peel",
-     "exploded", "layers", "interior", "dissection", "breakdown"],
+     "exploded", "layers", "interior", "dissection", "breakdown",
+     "anatomy", "cell", "organ", "tissue", "protein", "dna",
+     "biological", "vein", "artery", "muscle", "skeleton", "organism"],
     "Device internals with peel-away layers revealing inner structure",
     engine="cycles", priority=8)
 
 register_template("comparison_bars",
     ["comparison", "bar chart", "chart", "graph", "statistics", "data", "metric",
-     "benchmark", "performance", "speed", "size comparison", "rating"],
+     "benchmark", "performance", "speed", "size comparison", "rating",
+     "revenue", "growth", "market", "financial", "profit", "budget", "forecast",
+     "quarterly", "earnings", "cost", "price", "valuation"],
     "3D bar and column charts for data comparison",
     engine="eevee", priority=5)
 
 register_template("processor_pipeline",
     ["pipeline", "stage", "execute", "instruction", "fetch", "decode",
-     "process", "step", "phase", "cycle", "clock"],
+     "process", "step", "phase", "cycle", "clock",
+     "algorithm", "sorting", "search", "iteration", "recursive"],
     "Pipeline stages with animated data tokens flowing through",
     engine="eevee", priority=6)
 
 register_template("network_topology",
     ["network", "topology", "server", "cluster", "datacenter", "node",
-     "connection", "distributed", "cloud", "infrastructure", "rack"],
+     "connection", "distributed", "cloud", "infrastructure", "rack",
+     "mesh", "peer", "client", "decentralized"],
     "Connected nodes representing network topology and server infrastructure",
     engine="eevee", priority=5)
 
 register_template("timeline_3d",
     ["timeline", "history", "evolution", "progress", "milestone", "era",
-     "generation", "version", "past", "future", "roadmap"],
+     "generation", "version", "past", "future", "roadmap",
+     "growth", "development", "chronological", "timeline"],
     "Historical timeline with depth layers and event markers",
     engine="eevee", priority=4)
 
 register_template("process_flow",
     ["process", "workflow", "flowchart", "sequence", "step by step",
-     "procedure", "method", "production", "manufacturing"],
+     "procedure", "method", "production", "manufacturing",
+     "pathway", "metabolic", "signaling", "diagnosis", "treatment",
+     "pathway", "protocol", "algorithm workflow", "cycle"],
     "Process flow diagram with connected stages and animations",
     engine="eevee", priority=6)
 
 register_template("layer_explosion",
     ["exploded view", "layers", "decomposition", "breakdown", "stack",
-     "hierarchy", "nested", "component separation"],
+     "hierarchy", "nested", "component separation",
+     "tissue", "layer", "membrane", "integument", "stratification",
+     "peeling", "cross layer", "depth"],
     "Exploded view of layered systems with spreading animation",
     engine="cycles", priority=7)
 
