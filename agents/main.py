@@ -257,7 +257,11 @@ warnings.filterwarnings("ignore", message=".*Detected filter using positional ar
 
 load_dotenv()
 
-# Reload env vars after dotenv loads (they were set at module level before load_dotenv)
+# Reload env vars after load_dotenv() (module-level reads happen before dotenv)
+for _key in ("SHORTS_MAX_DURATION", "MIN_VIRALITY_SCORE", "MIN_VIRALITY_SCORE_LONG", "HOOK_FORMULA"):
+    _val = os.getenv(_key)
+    if _val:
+        os.environ[_key] = _val
 SHORTS_MAX_DURATION = int(os.getenv("SHORTS_MAX_DURATION", "180"))
 LONG_MAX_DURATION = int(os.getenv("LONG_MAX_DURATION", "600"))
 
