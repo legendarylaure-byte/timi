@@ -111,3 +111,82 @@ def get_hook_stats(category: str) -> dict:
             stats[formula] = {"count": 0, "avg_views": 0, "avg_retention": 0}
 
     return stats
+
+
+def sync_hook_stats_from_youtube(max_videos: int = 50) -> int:
+    """Pull real YouTube stats for each recorded hook test and update local data.
+
+    Returns count of updated entries.
+    """
+    try:
+        from utils.youtube_upload import fetch_video_stats
+    except Exception:
+        return 0
+
+    data = _load_results()
+    updated = 0
+
+    for category in list(data.keys()):
+        for formula in list(data.get(category, {}).keys()):
+            entries = data[category][formula]
+            for entry in entries:
+                vid = entry.get("video_id", "")
+                if not vid:
+                    continue
+                # Skip if already synced recently (< 1 hour ago)
+                last_sync = entry.get("_last_sync", 0)
+                if time.time() - last_sync < 3600:
+                    continue
+                try:
+                    stats = fetch_video_stats(vid)
+                    if stats:
+                        entry["views"] = stats.get("views", entry.get("views", 0))
+                        entry["retention"] = stats.get("average_view_duration_seconds", 0) / max(stats.get("duration_seconds", 1), 1)
+                        entry["likes"] = stats.get("likes", entry.get("likes", 0))
+                        entry["_last_sync"] = time.time()
+                        updated += 1
+                except Exception:
+                    pass
+
+            # Prune old unsynced entries (keep only synced ones)
+            if updated > 0:
+                data[category][formula] = entries
+
+    if updated > 0:
+        _save_results(data)
+
+    return updated
+
+
+def get_best_hook_for_topic(topic: str, category: str = "") -> dict:
+    """Score which hook formula best matches a topic text.
+
+    Combines keyword matching with historical performance data.
+    Returns dict with formula, score, and reasoning.
+    """
+    topic_lower = topic.lower()
+    formulas = {
+        "question": ["what", "how", "why", "did", "do you", "can you", "would you", "is it", "are we", "should"],
+        "bold_claim": ["secret", "truth", "nobody", "everyone", "actually", "the real", "stop", "never", "best"],
+        "statistic": ["percent", "million", "billion", "times", "number", "x ", "ratio", "every"],
+        "curiosity_gap": ["why", "the reason", "what if", "imagine", "discover", "revealed", "behind"],
+        "pain_point": ["struggle", "hard", "difficult", "frustrating", "annoying", "problem", "waste"],
+    }
+
+    scores = {}
+    for formula, keywords in formulas.items():
+        score = sum(2 for kw in keywords if kw in topic_lower)
+        scores[formula] = score
+
+    # Weight by historical performance if available
+    try:
+        stats = get_hook_stats(category) if category else {}
+        for formula in scores:
+            s = stats.get(formula, {})
+            if s.get("count", 0) > 0:
+                scores[formula] += min(10, int(s["avg_views"] / 100))
+    except Exception:
+        pass
+
+    best = max(scores, key=scores.get)
+    return {"formula": best, "score": scores[best], "all_scores": scores}

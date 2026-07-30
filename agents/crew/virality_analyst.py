@@ -70,3 +70,43 @@ def get_virality_threshold(format_type: str = "shorts") -> int:
     if format_type == "long":
         return int(os.getenv("MIN_VIRALITY_SCORE_LONG", str(MIN_VIRALITY_SCORE_LONG)))
     return int(os.getenv("MIN_VIRALITY_SCORE", str(MIN_VIRALITY_SCORE)))
+
+
+def get_prewriting_guidance(topic: str, category: str, format_type: str = "shorts") -> str:
+    """Return short virality guidance for the scriptwriter before writing.
+
+    Uses hook_tester stats + topic scoring to suggest formula, pacing, tone.
+    """
+    parts = []
+    try:
+        from utils.hook_tester import suggest_hook_formula, get_hook_stats
+        formula = suggest_hook_formula(category)
+        stats = get_hook_stats(category)
+        best = stats.get(formula, {})
+        if best.get("count", 0) > 0:
+            parts.append(f"Best hook for {category}: '{formula}' ({best['avg_views']} avg views, {best['avg_retention']:.0%} retention, {best['count']} samples)")
+        else:
+            parts.append(f"Suggested hook for {category}: '{formula}'")
+    except Exception:
+        parts.append("Suggested hook: bold_claim or question")
+
+    if format_type == "shorts":
+        parts.append("Keep script under 45s for max completion rate")
+        parts.append("Open with the most surprising claim in first 3 seconds")
+    else:
+        from utils.pillar_manager import CPM_RATES
+        cpm = CPM_RATES.get(category, 8)
+        if cpm >= 15:
+            parts.append(f"High-CPM category ({category}, ${cpm}/1k) — aim for 5-8 min for max revenue")
+
+    try:
+        from utils.topic_scorer import score_topic
+        s = score_topic(topic, category)
+        if s.viral_potential < 10:
+            parts.append("Low viral potential score — add stronger hook and broader appeal")
+        if s.search_demand < 10:
+            parts.append("Low search demand — consider adding trending keywords or a more searchable angle")
+    except Exception:
+        pass
+
+    return "VIRALITY GUIDANCE:\n" + "\n".join(f"- {p}" for p in parts)

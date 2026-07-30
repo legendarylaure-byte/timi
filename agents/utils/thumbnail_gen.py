@@ -1,6 +1,9 @@
 import os
 import re
 import random
+import time
+import json
+from pathlib import Path
 from PIL import Image, ImageDraw, ImageFont, ImageFilter
 from utils.subprocess_helper import safe_run, safe_run_bool
 
@@ -446,3 +449,39 @@ def pick_best_thumbnail(answer_path: str, video_path: str, title: str, format_ty
         return result["path"]
     print(f"[THUMBNAIL] Video frame failed, using abstract art")
     return answer_path
+
+
+def _get_thumbnail_style_from_path(path: str) -> str:
+    """Extract thumbnail style from file path for analytics tracking."""
+    if not path:
+        return "unknown"
+    if "video_frame" in path:
+        return "video_frame"
+    if "abstract" in path:
+        return "abstract"
+    if "dark" in path:
+        return "dark"
+    if "thumb_" in path:
+        parts = os.path.basename(path).split("_")
+        return parts[1] if len(parts) > 1 else "generated"
+    return "unknown"
+
+
+def record_thumbnail_for_ctr(video_id: str, thumbnail_path: str) -> None:
+    """Record which thumbnail style was used for analytics correlation."""
+    style = _get_thumbnail_style_from_path(thumbnail_path)
+    thumb_dir = Path(__file__).parent.parent / "data" / "thumbnail_ctr"
+    thumb_dir.mkdir(parents=True, exist_ok=True)
+    record_path = thumb_dir / "thumbnail_ctr.json"
+    data = {}
+    rp = str(record_path)
+    if os.path.exists(rp):
+        try:
+            with open(rp) as f:
+                data = json.load(f)
+        except Exception:
+            pass
+    data[video_id] = {"style": style, "path": thumbnail_path, "timestamp": time.time()}
+    os.makedirs(os.path.dirname(rp), exist_ok=True)
+    with open(rp, "w") as f:
+        json.dump(data, f, indent=2)

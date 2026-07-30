@@ -118,3 +118,41 @@ def get_test_status(video_id: str) -> dict:
         return {"status": "no_test"}
     with open(path) as f:
         return json.load(f)
+
+
+def sync_title_ctr_from_youtube() -> int:
+    """Pull real YouTube CTR for all active title tests and update their results.
+    
+    Returns count of tests updated.
+    """
+    try:
+        from utils.youtube_upload import fetch_video_stats
+    except Exception:
+        return 0
+
+    updated = 0
+    for fname in os.listdir(TEST_DATA_DIR):
+        if not fname.endswith(".json"):
+            continue
+        vid = fname[:-5]
+        path = os.path.join(TEST_DATA_DIR, fname)
+        try:
+            with open(path) as f:
+                test = json.load(f)
+        except Exception:
+            continue
+
+        stats = fetch_video_stats(vid)
+        if not stats or not stats.get("impressions"):
+            continue
+
+        ctr = stats.get("ctr", 0)
+        current_title = stats.get("title", "")
+        if ctr > 0 and current_title:
+            test["results"][current_title] = ctr
+            test["_last_ctr_sync"] = datetime.utcnow().isoformat()
+            with open(path, "w") as f:
+                json.dump(test, f, indent=2)
+            updated += 1
+
+    return updated

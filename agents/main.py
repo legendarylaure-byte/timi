@@ -1078,6 +1078,12 @@ def generate_short_video(topic: str, category: str, video_id: str, publish_at: s
                     extra_parts.append(f"Hook recommendation: Use '{best_hook}' hook for {category} — avg {best_stat['avg_views']} views, {best_stat['avg_retention']:.0%} retention across {best_stat['count']} videos. Other formulas: " + ", ".join(f"{f}({s['avg_views']}v)" for f, s in hook_stats.items() if s.get("count", 0) > 0 and f != best_hook))
             except Exception:
                 pass
+            # Pre-writing virality guidance
+            try:
+                from crew.virality_analyst import get_prewriting_guidance
+                extra_parts.append(get_prewriting_guidance(topic, category, "shorts"))
+            except Exception:
+                pass
             extra_context = "\n".join(extra_parts) if extra_parts else ""
 
             script_kwargs = {"topic": topic, "category": category, "fmt": "shorts", "max_duration": SHORTS_MAX_DURATION}
@@ -1585,6 +1591,12 @@ def generate_long_video(topic: str, category: str, video_id: str, publish_at: st
                 best_stat = hook_stats.get(best_hook, {})
                 if best_stat.get("count", 0) > 0:
                     extra_parts.append(f"Hook recommendation: Use '{best_hook}' hook for {category} — avg {best_stat['avg_views']} views, {best_stat['avg_retention']:.0%} retention across {best_stat['count']} videos. Other formulas: " + ", ".join(f"{f}({s['avg_views']}v)" for f, s in hook_stats.items() if s.get("count", 0) > 0 and f != best_hook))
+            except Exception:
+                pass
+            # Pre-writing virality guidance
+            try:
+                from crew.virality_analyst import get_prewriting_guidance
+                extra_parts.append(get_prewriting_guidance(topic, category, "long"))
             except Exception:
                 pass
             extra_context = "\n".join(extra_parts) if extra_parts else ""
@@ -2339,6 +2351,42 @@ def daily_analytics_job():
                 log_event("ANALYST", f"Analysis returned error: {analysis.get('error', 'unknown')}", "error")
         except Exception as e:
             log_event("ANALYST", f"Performance analysis failed: {e}", "error")
+
+        # Sync hook stats with real YouTube data
+        try:
+            from utils.hook_tester import sync_hook_stats_from_youtube
+            updated = sync_hook_stats_from_youtube(max_videos=50)
+            if updated:
+                log_event("HOOK_SYNC", f"Updated {updated} hook entries with real YouTube stats")
+        except Exception as e:
+            log_event("HOOK_SYNC", f"Hook sync failed: {e}", "debug")
+
+        # Sync title CTR with real YouTube data
+        try:
+            from utils.title_tester import sync_title_ctr_from_youtube
+            updated_titles = sync_title_ctr_from_youtube()
+            if updated_titles:
+                log_event("TITLE_SYNC", f"Updated {updated_titles} title tests with real CTR")
+        except Exception as e:
+            log_event("TITLE_SYNC", f"Title CTR sync failed: {e}", "debug")
+
+        # Pull retention curves for recent videos
+        try:
+            from utils.retention_analyzer import pull_retention_from_youtube
+            from utils.firebase_status import get_firestore_client
+            db = get_firestore_client()
+            if db:
+                from datetime import datetime
+                recent = db.collection("videos").order_by("created_at", direction="DESCENDING").limit(5).stream()
+                for doc in recent:
+                    v = doc.to_dict()
+                    vid = v.get("youtube_id", v.get("video_id", ""))
+                    cat = v.get("category", "AI News")
+                    dur = v.get("duration_seconds", 60)
+                    if vid:
+                        pull_retention_from_youtube(vid, cat, dur)
+        except Exception as e:
+            log_event("RETENTION", f"Retention pull failed: {e}", "debug")
 
         try:
             from utils.alert_manager import process_alerts, check_pipeline_health_alert, check_staleness
