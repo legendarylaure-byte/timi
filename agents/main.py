@@ -257,6 +257,10 @@ warnings.filterwarnings("ignore", message=".*Detected filter using positional ar
 
 load_dotenv()
 
+# Reload env vars after dotenv loads (they were set at module level before load_dotenv)
+SHORTS_MAX_DURATION = int(os.getenv("SHORTS_MAX_DURATION", "180"))
+LONG_MAX_DURATION = int(os.getenv("LONG_MAX_DURATION", "600"))
+
 # Override env vars from Firestore env_vars collection (dashboard-managed)
 sync_env_from_firestore()
 
