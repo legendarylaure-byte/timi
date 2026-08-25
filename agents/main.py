@@ -73,7 +73,7 @@ from compliance.content_safety import check_content_safety
 from compliance.platform_policy import check_platform_compliance
 from utils.title_tester import TitleTester
 from utils.analytics_feedback import analyze_recent_performance, get_optimization_prompt_injection, get_pipeline_tuning
-from utils.llm_helper import force_fallback
+from utils.llm_helper import force_fallback, reset_fallback
 from utils.series_builder import register_video_in_series, build_continuity_text, generate_part_title, pick_series_for_category
 from utils.checkpoint import save_checkpoint, load_checkpoint, clear_checkpoint
 from utils.title_optimizer import pick_best_title
@@ -519,14 +519,18 @@ def run_agent_step(agent_id: str, agent_name: str, action: str, crew_factory, in
             if "rate_limit" in err_lower:
                 log_event(agent_name, "Rate-limited, flagging for fallback", "warn")
             if "Invalid response from LLM call" in err_str:
-                log_event(agent_name, "LLM returned empty response — forcing provider fallback", "warn")
-                force_fallback()
+                log_event(agent_name, "LLM returned empty response — resetting provider routing", "warn")
+                reset_fallback()
             if "TimeoutError" in type(e).__name__ or "timed out" in err_lower:
-                log_event(agent_name, f"Timed out after {timeout_minutes}min, forcing fallback", "error")
-                force_fallback()
+                log_event(agent_name, f"Timed out after {timeout_minutes}min — resetting provider routing", "error")
+                reset_fallback()
             if is_connection_error:
-                log_event(agent_name, f"Connection error — forcing fallback to Ollama: {err_str[:80]}", "error")
-                force_fallback()
+                if "connection refused" in err_lower:
+                    log_event(agent_name, "Ollama connection refused → forcing Gemini fallback", "error")
+                    force_fallback(failed_provider="ollama")
+                else:
+                    log_event(agent_name, f"Connection error — resetting provider routing: {err_str[:80]}", "error")
+                    reset_fallback()
             if attempt < max_retries - 1:
                 delay = 2 ** (attempt + 2) if is_connection_error else 2 ** (attempt + 1)
                 log_event(agent_name, f"Failed (attempt {attempt + 1}/{max_retries}), retrying in {delay}s: {err_str[:120]}")
@@ -1101,8 +1105,8 @@ def generate_short_video(topic: str, category: str, video_id: str, publish_at: s
             script_text = str(script)
             save_checkpoint(video_id, "scriptwriting", {"script_preview": script_text[:200]})
 
-            from utils.llm_helper import reset_fallback as _reset_fallback
-            _reset_fallback()
+            from utils.llm_helper import reset_fallback
+            reset_fallback()
 
         failed_step = "hook_scoring"
         hook_score_result = score_hook(script_text, category=category)
@@ -1633,8 +1637,8 @@ def generate_long_video(topic: str, category: str, video_id: str, publish_at: st
             script_text = str(script)
             save_checkpoint(video_id, "scriptwriting", {"script_preview": script_text[:200]})
 
-            from utils.llm_helper import reset_fallback as _reset_fallback
-            _reset_fallback()
+            from utils.llm_helper import reset_fallback
+            reset_fallback()
 
         failed_step = "hook_scoring"
         hook_score_result = score_hook(script_text, category=category)
@@ -2604,12 +2608,13 @@ def daily_community_post_job():
     log_event("COMMUNITY", "Starting community post job")
     try:
         from utils.community_manager import schedule_weekly_poll
-        _run_async(schedule_weekly_poll())
-        log_event("COMMUNITY", "Weekly poll post created")
+        ok = _run_async(schedule_weekly_poll())
+        if ok:
+            log_event("COMMUNITY", "Weekly poll post created")
+        else:
+            log_event("COMMUNITY", "Weekly poll post failed (no success from studio)", "warn")
     except Exception as e:
         log_event("COMMUNITY", f"Community post failed: {e}", "warn")
-
-
 def scheduled_publish_job():
     """Check for videos scheduled to publish now and process them."""
     try:
