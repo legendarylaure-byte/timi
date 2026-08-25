@@ -60,9 +60,11 @@ export default function Home() {
           <Image src="/logo.svg" alt="Vyom Ai Cloud" width={36} height={36} />
           <span className="text-white font-bold text-lg">Vyom Ai Cloud</span>
         </div>
-        <div className="hidden md:flex items-center gap-8 text-sm text-gray-400">
+        <div className="hidden md:flex items-center gap-6 text-sm text-gray-400">
           <a href="#features" className="hover:text-white transition-colors">Features</a>
           <a href="#how-it-works" className="hover:text-white transition-colors">How It Works</a>
+          <Link href="/about" className="hover:text-white transition-colors">About</Link>
+          <Link href="/faq" className="hover:text-white transition-colors">FAQ</Link>
         </div>
         <div className="flex items-center gap-3">
           {user ? (
@@ -106,13 +108,9 @@ export default function Home() {
           animate={{ opacity: 1, y: 0 }}
           transition={{ duration: 0.8, type: 'spring', stiffness: 100 }}
         >
-          <motion.div
-            className="relative w-32 h-24 mx-auto mb-8"
-            animate={{ y: [0, -8, 0], rotate: [0, 2, -1, 0] }}
-            transition={{ duration: 4, repeat: Infinity, ease: 'easeInOut' }}
-          >
-            <Image src="/logo-vyomai.png" alt="Vyom Ai Cloud" fill className="object-contain drop-shadow-2xl" priority />
-          </motion.div>
+          <div className="relative w-40 h-40 mx-auto mb-8">
+            <Image src="/logo.svg" alt="Vyom Ai Cloud" fill className="object-contain drop-shadow-2xl" priority />
+          </div>
 
           <h1 className="text-5xl sm:text-6xl lg:text-7xl font-black mb-6 tracking-tight leading-tight">
             <span className="text-white">AI-Powered</span>{' '}
@@ -335,16 +333,13 @@ export default function Home() {
             <Image src="/logo.svg" alt="Vyom Ai Cloud" width={24} height={24} />
             <span className="text-sm text-gray-500">© {new Date().getFullYear()} Vyom Ai Cloud. All rights reserved.</span>
           </div>
-          <div className="flex items-center gap-6 text-sm">
-            <Link href="/terms" className="text-gray-500 hover:text-gray-300 transition-colors">
-              Terms of Service
-            </Link>
-            <Link href="/privacy" className="text-gray-500 hover:text-gray-300 transition-colors">
-              Privacy Policy
-            </Link>
-            <a href="mailto:support@vyomai.cloud" className="text-gray-500 hover:text-gray-300 transition-colors">
-              Contact
-            </a>
+          <div className="flex items-center gap-6 text-sm flex-wrap justify-center">
+            <Link href="/" className="text-gray-500 hover:text-gray-300 transition-colors">Home</Link>
+            <Link href="/about" className="text-gray-500 hover:text-gray-300 transition-colors">About</Link>
+            <Link href="/faq" className="text-gray-500 hover:text-gray-300 transition-colors">FAQ</Link>
+            <a href="mailto:support@vyomai.cloud" className="text-gray-500 hover:text-gray-300 transition-colors">Contact</a>
+            <Link href="/terms" className="text-gray-500 hover:text-gray-300 transition-colors">Terms</Link>
+            <Link href="/privacy" className="text-gray-500 hover:text-gray-300 transition-colors">Privacy</Link>
           </div>
         </div>
       </footer>

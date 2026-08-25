@@ -19,7 +19,7 @@ export default function SettingsPage() {
   const [theme, setTheme] = useState<'light' | 'dark'>('light');
 
   const [loading, setLoading] = useState(true);
-  const [platformConnections, setPlatformConnections] = useState<Record<string, { connected: boolean; followers: number }>>({});
+  const [platformConnections, setPlatformConnections] = useState<Record<string, { connected: boolean; followers: number; scope?: string }>>({});
   const [notifSuccess, setNotifSuccess] = useState(true);
   const [envOpen, setEnvOpen] = useState(false);
   const [envSearch, setEnvSearch] = useState('');
@@ -127,6 +127,19 @@ export default function SettingsPage() {
   }, []);
 
   useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const err = params.get('error') || '';
+    if (params.get('tiktok_connected') === 'true') {
+      addToast('TikTok connected successfully', 'success');
+    } else if (err.startsWith('tiktok_')) {
+      addToast('TikTok connection failed', 'error');
+    }
+    if (params.has('tiktok_connected') || err.startsWith('tiktok_')) {
+      window.history.replaceState({}, '', window.location.pathname);
+    }
+  }, [addToast]);
+
+  useEffect(() => {
     const loadSettings = async () => {
       try {
         const snap = await getDoc(doc(db, 'settings', 'general'));
@@ -155,12 +168,13 @@ export default function SettingsPage() {
   useEffect(() => {
     const unsub = onSnapshot(collection(db, 'platform_settings'),
       (snap) => {
-        const connections: Record<string, { connected: boolean; followers: number }> = {};
+        const connections: Record<string, { connected: boolean; followers: number; scope?: string }> = {};
         snap.forEach(doc => {
           const d = doc.data();
           connections[doc.id] = {
             connected: d.connected || false,
             followers: d.followers || 0,
+            scope: typeof d.scope === 'string' ? d.scope : '',
           };
         });
         setPlatformConnections(connections);
@@ -420,6 +434,9 @@ export default function SettingsPage() {
                   <span className="text-sm font-medium text-light-text dark:text-dark-text">{platform.name}</span>
                   {isConnected && followers > 0 && (
                     <span className="text-xs text-light-muted dark:text-dark-muted">{followers.toLocaleString()} followers</span>
+                  )}
+                  {isConnected && conn?.scope && (
+                    <span className="text-[10px] text-light-muted dark:text-dark-muted break-all">scopes: {conn.scope}</span>
                   )}
                 </div>
                 <div className="flex items-center gap-2">

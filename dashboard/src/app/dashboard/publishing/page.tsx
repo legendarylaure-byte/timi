@@ -15,6 +15,7 @@ interface PlatformConfig {
   followers: number;
   videosPublished: number;
   lastPublished?: any;
+  scope?: string;
   autoPublish: boolean;
   bestTime: string;
   scheduleEnabled: boolean;
@@ -192,6 +193,9 @@ export default function PublishingPage() {
                   <div>
                     <h3 className="text-lg font-bold text-light-text dark:text-dark-text">{platform.name}</h3>
                     <p className="text-xs text-light-muted dark:text-dark-muted">{formatFollowers(platform.followers)} followers</p>
+                    {platform.connected && platform.scope && (
+                      <p className="text-[10px] text-light-muted dark:text-dark-muted break-all">scopes: {platform.scope}</p>
+                    )}
                   </div>
                 </div>
                 <div className="flex items-center gap-3">

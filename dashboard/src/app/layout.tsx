@@ -3,7 +3,7 @@ import './globals.css';
 import { ToastProvider } from '@/components/ui/Toast';
 
 export const metadata: Metadata = {
-  title: 'Vyom Ai Cloud — Timi',
+  title: 'Vyom Ai Cloud',
   description: 'AI-powered tech educational video automation platform',
   icons: {
     icon: [{ url: '/favicon.svg', type: 'image/svg+xml' }, { url: '/favicon.png', sizes: '32x32' }],
