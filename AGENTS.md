@@ -2,6 +2,14 @@
 
 ## Latest Changes (committed)
 
+### Upload Reliability: Description Sanitization + DNS Retry + Accurate Status (committed `44de0537`, deployed live)
+- **B1 — Description sanitization (fixes YouTube `invalidDescription` 400)**: `sanitize_description()` in `platform_captions.py` strips control chars/null bytes/unpaired surrogates and caps at 5000 chars; applied in `optimize_for_platform()`. Defense-in-depth: `_sanitize_metadata()` in `youtube_upload.py` sanitizes title (100) + description (5000) right before building the API body. Both short+long `full_description` ingest points in `main.py` also sanitize. Fixes intermittent LLM glitches that caused long/short uploads to be rejected and never go live.
+- **B2 — Accurate upload status (main.py)**: Only mark video `status: uploaded`/`scheduled` when a real `youtube_url` exists; otherwise `upload_failed` (was falsely marking rendered-but-upload-failed videos as `uploaded` with blank `youtube_url`).
+- **C1 — Firestore/DNS retry hardening (`firebase_status.py`)**: `get_firestore_client()` retries client creation 3× on transient DNS/conn errors (`gaierror`/`Name or service not known`/`ConnectionRefused`); helper `_is_transient_net_error()`. Fixes intermittent Sentry crashes (`oauth2.googleapis.com` NameResolutionError) when the Docker host sleeps/DNS hiccups.
+- **L1 — Disable duplicate GH Actions schedule (`daily-content.yml`)**: Removed the `schedule:` cron triggers — the Docker container (`timi-pipeline`) is the canonical pipeline with its own APScheduler. Kept `workflow_dispatch` for manual runs. Eliminates redundant duplicate pipeline + daily failure emails from the self-hosted runner.
+- **Redeployed today's failed long video**: "Back to Business: AI Productivity" → https://www.youtube.com/watch?v=OOdf2Xgrpr4 (was previously rejected on `invalidDescription` when first generated).
+- **Image rebuilt** (`timi-pipeline:latest`) with all fixes baked in; container recreated. `llm_helper.verify_ollama_model()` retry (3×/2s) also included.
+
 ### Phase 0-5: Quality Visualization & Viral Optimization Pass (committed — pending)
 - **Phase 0.1+0.4 — xfade transition system**: Replaced `_build_fade_transition()` (concat+fade-to-black) with `_build_xfade_transition()` using ffmpeg xfade filter supporting 17 types: dissolve, fade, fadeslow, wipeleft/right, slideleft/right, smoothleft/right, zoomin, circleopen/close, pixelize, radial, squeezeh, coverright, revealright (`video_compositor.py`)
 - **Phase 0.2 — LTX denoising reduced**: `hqdn3d=3:2:6:3` → `hqdn3d=1:0.5:2:1.5` for less detail loss (`video_compositor.py:357`)
