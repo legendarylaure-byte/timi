@@ -25,7 +25,7 @@ DATA_DIR = Path(__file__).parent.parent / "data" / "topic_scorer"
 DATA_DIR.mkdir(parents=True, exist_ok=True)
 SCORES_FILE = DATA_DIR / "topic_scores.json"
 
-VALID_CATEGORIES = ["AI News", "Science & Technology", "Business & Finance", "Health & Medicine", "Programming & Software"]
+VALID_CATEGORIES = ["AI News", "Science & Technology", "Business & Finance", "Health & Medicine", "Programming & Software", "World News (24hr)", "Nepal News"]
 
 CPM_RATES = {
     "Business & Finance": 25,
@@ -33,6 +33,8 @@ CPM_RATES = {
     "Programming & Software": 13,
     "Science & Technology": 12,
     "AI News": 8,
+    "World News (24hr)": 6,
+    "Nepal News": 4,
 }
 
 

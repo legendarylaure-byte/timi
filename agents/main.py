@@ -1071,7 +1071,7 @@ def _apply_pipeline_tuning() -> dict:
     return tuning
 
 
-def generate_short_video(topic: str, category: str, video_id: str, publish_at: str = None):
+def generate_short_video(topic: str, category: str, video_id: str, publish_at: str = None, news_article: dict = None):
     from utils.scene_schema import normalize_category
     category = normalize_category(category)
     _start_time = time.perf_counter()
@@ -1147,6 +1147,22 @@ def generate_short_video(topic: str, category: str, video_id: str, publish_at: s
                 _retention_ctx = ""
 
             extra_parts = [p for p in [knowledge_ctx, series_ctx, trend_ctx, opt_injection, _topics_ctx, _retention_ctx] if p]
+            # News videos: replace tech knowledge/series/trend context with the actual verified
+            # news article so the script is an accurate, sourced explainer (never invented).
+            if news_article:
+                _na = news_article
+                news_ctx = (
+                    f"VERIFIED NEWS ARTICLE to explain:\n"
+                    f"- Headline: {_na.get('title','')}\n"
+                    f"- Source: {_na.get('source','')} (verified publisher)\n"
+                    f"- Article link: {_na.get('link','')}\n"
+                    f"- Language: {_na.get('lang','en')}\n"
+                    f"- Summary: {_na.get('description','')}\n"
+                    f"Write an educational explainer that reports the news accurately from the "
+                    f"source above, gives context, and explains why it matters. Do NOT invent "
+                    f"facts not in the article. Cite the source in the description at the end."
+                )
+                extra_parts = [news_ctx]
             try:
                 from utils.hook_tester import suggest_hook_formula, get_hook_stats
                 best_hook = suggest_hook_formula(category)
@@ -1608,7 +1624,7 @@ def generate_short_video(topic: str, category: str, video_id: str, publish_at: s
         return False
 
 
-def generate_long_video(topic: str, category: str, video_id: str, publish_at: str = None):
+def generate_long_video(topic: str, category: str, video_id: str, publish_at: str = None, news_article: dict = None):
     from utils.scene_schema import normalize_category
     category = normalize_category(category)
     _start_time = time.perf_counter()
@@ -1684,6 +1700,22 @@ def generate_long_video(topic: str, category: str, video_id: str, publish_at: st
                 _retention_ctx = ""
 
             extra_parts = [p for p in [knowledge_ctx, series_ctx, trend_ctx, opt_injection, _topics_ctx, _retention_ctx] if p]
+            # News videos: replace tech knowledge/series/trend context with the actual verified
+            # news article so the script is an accurate, sourced explainer (never invented).
+            if news_article:
+                _na = news_article
+                news_ctx = (
+                    f"VERIFIED NEWS ARTICLE to explain:\n"
+                    f"- Headline: {_na.get('title','')}\n"
+                    f"- Source: {_na.get('source','')} (verified publisher)\n"
+                    f"- Article link: {_na.get('link','')}\n"
+                    f"- Language: {_na.get('lang','en')}\n"
+                    f"- Summary: {_na.get('description','')}\n"
+                    f"Write an educational explainer that reports the news accurately from the "
+                    f"source above, gives context, and explains why it matters. Do NOT invent "
+                    f"facts not in the article. Cite the source in the description at the end."
+                )
+                extra_parts = [news_ctx]
             try:
                 from utils.hook_tester import suggest_hook_formula, get_hook_stats
                 best_hook = suggest_hook_formula(category)
@@ -2325,6 +2357,66 @@ def daily_content_job():
     short_video_ids = {}
     long_video_ids = {}
 
+    # ── Verified news (mandatory daily slots) ──────────────────────────────
+    news_enabled = os.getenv("ENABLE_NEWS", "true").lower() != "false"
+    news_articles = {"world": None, "nepal": None}
+    if news_enabled:
+        try:
+            from utils.news_scraper import WORLD_CATEGORY, NEPAL_CATEGORY, fetch_news
+            from utils.scheduler_planner import _load_recent_topic_titles
+            _all_news = fetch_news(category=None)
+            _w = [a for a in _all_news if a["category"] == WORLD_CATEGORY]
+            _n = [a for a in _all_news if a["category"] == NEPAL_CATEGORY]
+            # pick top stories, avoiding ones already used recently (30d dedup by title)
+            _recent = set(_load_recent_topic_titles(days=30))
+            for pool, key in ((_w, "world"), (_n, "nepal")):
+                for a in pool:
+                    if a["title"].lower().strip() not in _recent:
+                        news_articles[key] = a
+                        break
+            log_event("SCHEDULER", f"News: {len(_w)} world + {len(_n)} nepal verified stories available")
+        except Exception as e:
+            log_event("SCHEDULER", f"News scraper failed: {e}", "warn")
+            news_articles = {"world": None, "nepal": None}
+
+    # GPU render budget guard (single 16GB box): cap total GPU (long) videos per day
+    # so a heavy day can't crash the container. News long is mandatory and goes first.
+    gpu_budget = int(os.getenv("GPU_VIDEO_BUDGET_PER_DAY", str(long_per_day)))
+
+    def _news_job(category: str, fmt: str, article: dict, slot_hour: int, idx: int):
+        vid = f"{'short' if fmt=='shorts' else 'long'}-{video_date}-n{idx}"
+        func = generate_short_video if fmt == "shorts" else generate_long_video
+        kwargs = {"news_article": article} if article else {}
+        (short_video_ids if fmt == "shorts" else long_video_ids)[vid] = {"title": article["title"] if article else category, "category": category, "format": fmt, "priority": 100}
+        return {"func": func, "args": (article["title"] if article else f"{category} update", category, vid, _next_schedule_time(slot_hour)), "kwargs": kwargs, "name": f"{'short' if fmt=='shorts' else 'long'}-news-{idx}", "gpu": fmt == "long"}
+
+    _news_job_idx = [0]
+    if news_enabled and news_articles.get("world"):
+        pipeline_jobs.append(_news_job("World News (24hr)", "shorts", news_articles["world"], 6, _news_job_idx[0] + 1))
+        _news_job_idx[0] += 1
+    if news_enabled and news_articles.get("nepal"):
+        pipeline_jobs.append(_news_job("Nepal News", "shorts", news_articles["nepal"], 8, _news_job_idx[0] + 1))
+        _news_job_idx[0] += 1
+    # one news long per day, alternating which regime gets the long (gpu budget permitting)
+    if news_enabled and gpu_budget >= 1 and (news_articles.get("world") or news_articles.get("nepal")):
+        # prefer a DIFFERENT verified article than the short already used, for variety
+        _uses_world = bool(news_articles.get("world"))
+        _cat_key = "world" if _uses_world else "nepal"
+        _cat = WORLD_CATEGORY if _uses_world else NEPAL_CATEGORY
+        _article = news_articles[_cat_key]
+        _short_title = _article["title"].lower().strip()
+        _pool = (_w if _uses_world else _n)
+        for _a in _pool:
+            if _a["title"].lower().strip() != _short_title and _a["title"].lower().strip() not in _recent:
+                _article = _a
+                break
+        pipeline_jobs.append(_news_job(_cat, "long", _article, 14, _news_job_idx[0] + 1))
+        _news_job_idx[0] += 1
+
+    # ── Fill remaining pillar slots (regular categories) ──────────────────
+    # shorts: reserve the first 2 slots for news (06/08); pillars go 10/12.
+    _short_count = [0]
+    _short_base = 10
     for i in range(shorts_per_day):
         if i < len(shorts_plan):
             item = shorts_plan[i]
@@ -2338,17 +2430,25 @@ def daily_content_job():
         if is_blacklisted(item['title']):
             log_event("SCHEDULER", f"Skipping blacklisted topic: {item['title']}")
             continue
-        vid = f"short-{video_date}-{i+1}"
+        _short_count[0] += 1
+        vid = f"short-{video_date}-{_short_count[0]}"
         short_video_ids[vid] = item
         pipeline_jobs.append({
             "func": generate_short_video,
-            "args": (item['title'], item['category'], vid, _next_schedule_time(6 + i * 2)),
+            "args": (item['title'], item['category'], vid, _next_schedule_time(_short_base + (_short_count[0] - 1) * 2)),
             "kwargs": {},
-            "name": f"short-{i+1}",
+            "name": f"short-{_short_count[0]}",
             "gpu": False,
         })
 
+    # longs: news long already consumed 1 GPU slot from the budget; pillars fill the rest.
+    _long_count = [0]
+    _long_slot = 10
+    _gpu_used = sum(1 for j in pipeline_jobs if j['gpu'])
     for i in range(long_per_day):
+        if gpu_budget and (_long_count[0] + _gpu_used) >= gpu_budget:
+            log_event("SCHEDULER", f"GPU budget {gpu_budget} reached — skipping remaining long slots")
+            break
         if i < len(longs_plan):
             item = longs_plan[i]
         elif trends:
@@ -2361,15 +2461,18 @@ def daily_content_job():
         if is_blacklisted(item['title']):
             log_event("SCHEDULER", f"Skipping blacklisted topic: {item['title']}")
             continue
-        vid = f"long-{video_date}-{i+1}"
+        _long_count[0] += 1
+        vid = f"long-{video_date}-{_long_count[0]}"
         long_video_ids[vid] = item
         pipeline_jobs.append({
             "func": generate_long_video,
-            "args": (item['title'], item['category'], vid, _next_schedule_time(10 + i * 4)),
+            "args": (item['title'], item['category'], vid, _next_schedule_time(_long_slot + (_long_count[0] - 1) * 4)),
             "kwargs": {},
-            "name": f"long-{i+1}",
+            "name": f"long-{_long_count[0]}",
             "gpu": True,
         })
+
+    log_event("SCHEDULER", f"Planned {len(pipeline_jobs)} pipelines ({sum(1 for j in pipeline_jobs if not j['gpu'])} shorts, {sum(1 for j in pipeline_jobs if j['gpu'])} longs)")
 
     if pipeline_jobs:
         log_event("SCHEDULER", f"Running {len(pipeline_jobs)} pipelines concurrently")

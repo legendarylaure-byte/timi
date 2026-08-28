@@ -28,6 +28,8 @@ CONTENT_PILLARS = {
     "Business & Finance": {"ratio": 0.20, "priority": 4, "cpm": 25, "description": "Business strategy, economics, markets, entrepreneurship, AI in business"},
     "Health & Medicine": {"ratio": 0.15, "priority": 3, "cpm": 18, "description": "Health science, medical breakthroughs, nutrition, AI in healthcare"},
     "Programming & Software": {"ratio": 0.15, "priority": 3, "cpm": 13, "description": "Code tutorials, software engineering, development tools, AI tooling"},
+    "World News (24hr)": {"ratio": 0.0, "priority": 5, "cpm": 6, "description": "Verified global stories from curated reputable publishers within the last 24 hours"},
+    "Nepal News": {"ratio": 0.0, "priority": 5, "cpm": 4, "description": "Verified news from reputable Nepali outlets (English + Nepali)"},
 }
 
 # populate category_type from the single source of truth

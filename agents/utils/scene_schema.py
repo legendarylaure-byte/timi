@@ -4,9 +4,14 @@ VALID_CATEGORIES = [
     "Business & Finance",
     "Health & Medicine",
     "Programming & Software",
+    "World News (24hr)",
+    "Nepal News",
 ]
 
+# News categories are NOT deep lessons — they follow news-paced shorts style, not long form lessons.
 DEEP_LESSON_CATS = {"AI News", "Science & Technology", "Business & Finance", "Health & Medicine", "Programming & Software"}
+
+NEWS_CATS = {"World News (24hr)", "Nepal News"}
 
 CATEGORY_ALIASES = {
     "AI Explained": "AI News",
@@ -30,11 +35,20 @@ CATEGORY_ALIASES = {
     "Philosophy & Psychology": "Science & Technology",
     "Gaming": "Science & Technology",
     "Science Explained": "Science & Technology",
+    # news aliases
+    "World News": "World News (24hr)",
+    "Global News": "World News (24hr)",
+    "Trending World News": "World News (24hr)",
+    "Top Stories": "World News (24hr)",
+    "International News": "World News (24hr)",
+    "Nepal": "Nepal News",
+    "Local News": "Nepal News",
+    "Nepal Today": "Nepal News",
 }
 
 
 def normalize_category(cat: str) -> str:
-    """Map old/alias categories to the canonical 5."""
+    """Map old/alias categories to the canonical list."""
     if cat in VALID_CATEGORIES:
         return cat
     return CATEGORY_ALIASES.get(cat, cat)

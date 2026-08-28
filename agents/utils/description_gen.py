@@ -154,10 +154,13 @@ def get_tech_metadata(category: str, format_type: str = "shorts", title: str = "
         "machine learning",
     ]
     all_tags = list(dict.fromkeys(title_tags + base_tags))
+    # News categories map to YouTube's News & Politics (25); everything else stays Science & Tech (28).
+    news_cats = {"World News (24hr)", "Nepal News"}
+    category_id = "25" if category in news_cats else "28"
     return {
         "madeForKids": False,
         "selfDeclaredMadeForKids": False,
-        "categoryId": "28",
+        "categoryId": category_id,
         "defaultLanguage": "en",
         "defaultAudioLanguage": "en",
         "privacyStatus": "public",

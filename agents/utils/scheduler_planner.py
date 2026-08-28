@@ -192,6 +192,16 @@ CONTENT_PILLARS = {
         "series": ["Build a RAG App", "AI Agent Tutorial", "DevOps Essentials", "AI Coding Tools Compared"],
         "ratio": 0.15,
     },
+    "World News (24hr)": {
+        "description": "Verified global stories from curated reputable publishers within the last 24 hours",
+        "series": ["World News Today", "Global Brief", "World Headlines Explained"],
+        "ratio": 0.0,
+    },
+    "Nepal News": {
+        "description": "Verified news from reputable Nepali outlets (English + Nepali)",
+        "series": ["Nepal News Today", "Nepal Headlines Explained", "Nepal Update"],
+        "ratio": 0.0,
+    },
 }
 
 PILLAR_NAMES = list(CONTENT_PILLARS.keys())
