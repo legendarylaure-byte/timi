@@ -64,6 +64,15 @@ def _ffmpeg_cmd() -> str:
     return "ffmpeg"
 
 
+def _subs_enabled_for(format_type: str) -> bool:
+    """Whether subtitles should be burned into frames for this format."""
+    try:
+        from utils.subtitle_gen import should_burn_subtitles
+        return should_burn_subtitles(format_type)
+    except Exception:
+        return True  # default to burning if the mode helper is unavailable
+
+
 def _ffprobe_cmd() -> str:
     env_path = os.getenv("FFPROBE_PATH", "")
     if env_path and os.path.exists(env_path):
@@ -978,7 +987,7 @@ def composite_video(clips: list[dict], voice_path: str, music_path: Optional[str
                 f"x={cta_x}:y=h*0.75:enable='between(t\\,{cta_time}\\,{cta_end})'"
             )
 
-    if subtitle_path and os.path.exists(subtitle_path):
+    if subtitle_path and os.path.exists(subtitle_path) and _subs_enabled_for(format_type):
         abs_sub = os.path.abspath(subtitle_path)
         is_deep = category in (_DEEP_LESSON_CATS if _DEEP_LESSON_CATS else set())
         is_doc = tier == "documentary"

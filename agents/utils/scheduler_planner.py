@@ -270,6 +270,58 @@ def _load_firestore_video_history() -> dict:
         return {}
 
 
+def _load_recent_topic_titles(days: int = 30) -> list:
+    """Return normalized titles/topics of videos created in the last `days` days
+    for REAL dedup, so the daily plan doesn't re-pick the same topic."""
+    try:
+        from utils.firebase_status import get_firestore_client
+        db = get_firestore_client()
+        if not db:
+            return load_plan_recent_titles()
+        cutoff = (datetime.now() - timedelta(days=days)).isoformat()
+        docs = db.collection("videos").where("created_at", ">=", cutoff).stream()
+        titles = []
+        for doc in docs:
+            d = doc.to_dict()
+            title = d.get("title", "") or ""
+            topic = d.get("topic", "") or ""
+            titles.append(_normalize_topic(title + " " + topic))
+        return [t for t in titles if t]
+    except Exception as e:
+        logger.debug(f"Could not load recent topic titles: {e}")
+        return load_plan_recent_titles()
+
+
+def load_plan_recent_titles() -> list:
+    """Fallback: read recently saved plan titles from disk when Firestore is down."""
+    titles = []
+    try:
+        plan = load_plan()
+        for v in plan.get("videos", []):
+            titles.append(_normalize_topic((v.get("title", "") or "") + " " + (v.get("category", "") or "")))
+    except Exception:
+        pass
+    return [t for t in titles if t]
+
+
+def _normalize_topic(text: str) -> str:
+    """Lowercase, drop stopwords/punctuation so topic strings compare loosely."""
+    import re as _re
+    text = _re.sub(r"[^a-z0-9 ]", " ", (text or "").lower())
+    stop = {"the", "a", "an", "and", "or", "for", "of", "to", "in", "on", "with",
+            "how", "what", "why", "is", "are", "top", "best", "ut", "u"}
+    return " ".join(w for w in text.split() if w not in stop)
+
+
+def _topic_recently_used(candidate_topic: str, recent: list, threshold: int = 1) -> bool:
+    """True if any significant content word in the candidate matches a recent topic."""
+    cand = set(_normalize_topic(candidate_topic).split())
+    for r in recent:
+        if len(cand & set(r.split())) >= threshold:
+            return True
+    return False
+
+
 def save_plan(videos: list, rationale: str = ""):
     plan = {
         "plan_date": datetime.now().strftime("%Y-%m-%d"),
@@ -444,7 +496,26 @@ def generate_content_plan(force_llm: bool = False, slot: str = "", extra_context
     selected = shorts[:max(shorts_per_day, 1)] + longs[:max(long_per_day, 1)]
     selected.sort(key=lambda x: x.get("priority", 50), reverse=True)
 
-    deduped = selected[:]
+    # REAL dedup: drop topics produced within the last 30 days. Keep the plan non-empty
+    # by falling back to the highest-priority repeat only if filtering empties a slot.
+    recent = _load_recent_topic_titles(days=30)
+    if recent:
+        wanted_shorts = max(shorts_per_day, 1)
+        wanted_longs = max(long_per_day, 1)
+        keep_shorts, keep_longs = [], []
+        for v in selected:
+            target = keep_longs if v.get("format") == "long" else keep_shorts
+            if _topic_recently_used(v.get("title", ""), recent):
+                logger.info(f"  [dedup] skipping recently-used topic: {v.get('title')}")
+            else:
+                target.append(v)
+        # if dedup emptied a slot, top up with highest-priority repeats so the day isn't idle
+        shorts_for_slot = keep_shorts[:wanted_shorts] or [v for v in selected if v.get("format") != "long"][:wanted_shorts]
+        longs_for_slot = keep_longs[:wanted_longs] or [v for v in selected if v.get("format") == "long"][:wanted_longs]
+        deduped = shorts_for_slot + longs_for_slot
+        deduped.sort(key=lambda x: x.get("priority", 50), reverse=True)
+    else:
+        deduped = selected[:]
 
     rationale = f"Planned {len(deduped)} videos ({len([v for v in deduped if v['format'] == 'shorts'])} shorts, {len([v for v in deduped if v['format'] == 'long'])} longs)"
     save_plan(deduped, rationale)

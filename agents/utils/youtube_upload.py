@@ -280,33 +280,44 @@ def upload_video_to_youtube(
             result["thumbnail_set"] = False
 
     if subtitle_path and os.path.exists(subtitle_path):
-        caption_success = False
-        for attempt in range(3):
-            try:
-                youtube.captions().insert(
-                    part="snippet",
-                    body={
-                        "snippet": {
-                            "videoId": video_id,
-                            "language": "en",
-                            "name": "English",
-                            "isDraft": False,
+        # ponytail: only upload a soft CC track when SUBTITLE_MODE allows it for this
+        # format (default: soft CC for longs ONLY — shorts burn-in, avoiding double tracks).
+        try:
+            from utils.subtitle_gen import should_upload_cc
+            _upload_cc = should_upload_cc("shorts" if is_shorts else "long")
+        except Exception:
+            _upload_cc = True
+        if _upload_cc:
+            caption_success = False
+            for attempt in range(3):
+                try:
+                    youtube.captions().insert(
+                        part="snippet",
+                        body={
+                            "snippet": {
+                                "videoId": video_id,
+                                "language": "en",
+                                "name": "English",
+                                "isDraft": False,
+                            },
                         },
-                    },
-                    media_body=MediaFileUpload(subtitle_path, mimetype="text/plain"),
-                ).execute()
-                caption_success = True
-                logger.info("[YOUTUBE] Captions uploaded from: %s", subtitle_path)
-                break
-            except HttpError as e:
-                status = e.resp.status if e.resp else 0
-                if status == 403 and attempt < 2:
-                    logger.warning("[YOUTUBE] Caption upload 403 (attempt %d/3), retrying in 30s: %s", attempt + 1, e)
-                    time.sleep(30)
-                else:
-                    logger.warning("[YOUTUBE] Caption upload failed: %s", e)
+                        media_body=MediaFileUpload(subtitle_path, mimetype="text/plain"),
+                    ).execute()
+                    caption_success = True
+                    logger.info("[YOUTUBE] Captions uploaded from: %s", subtitle_path)
                     break
-        result["caption_set"] = caption_success
+                except HttpError as e:
+                    status = e.resp.status if e.resp else 0
+                    if status == 403 and attempt < 2:
+                        logger.warning("[YOUTUBE] Caption upload 403 (attempt %d/3), retrying in 30s: %s", attempt + 1, e)
+                        time.sleep(30)
+                    else:
+                        logger.warning("[YOUTUBE] Caption upload failed: %s", e)
+                        break
+            result["caption_set"] = caption_success
+        else:
+            result["caption_set"] = False
+            logger.info("[YOUTUBE] Skipping soft CC upload for %s (SUBTITLE_MODE=burns for shorts)", "shorts" if is_shorts else "long")
 
     if publish_at:
         try:

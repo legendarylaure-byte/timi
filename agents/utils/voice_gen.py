@@ -642,6 +642,7 @@ async def generate_voiceover(script: str, voice: str = DEFAULT_VOICE, output_fil
         "segments": len(segment_files),
         "timing_file": timing_file if all_phrase_timings else None,
         "phrase_timings": all_phrase_timings,
+        "spoken_text": narration_text,
         "success": concat_success,
     }
 
@@ -652,6 +653,7 @@ async def _generate_multi_voice(dialogue_segments: list[dict], output_filename: 
     all_phrase_timings = []
     cumulative_offset = 0.0
     seg_idx = 0
+    spoken_parts = []
 
     for seg in dialogue_segments:
         character = seg["character"]
@@ -667,6 +669,7 @@ async def _generate_multi_voice(dialogue_segments: list[dict], output_filename: 
         sub_segments = split_script_into_segments(text)
         for sub_text in sub_segments:
             seg_idx += 1
+            spoken_parts.append(sub_text)
             seg_path = str(VOICE_DIR / f"seg_{seg_idx:03d}.wav")
             timing_path = str(VOICE_DIR / f"seg_{seg_idx:03d}_timing.json")
 
@@ -717,6 +720,7 @@ async def _generate_multi_voice(dialogue_segments: list[dict], output_filename: 
         "segments": len(segment_files),
         "timing_file": timing_file if all_phrase_timings else None,
         "phrase_timings": all_phrase_timings,
+        "spoken_text": " ".join(spoken_parts),
         "success": concat_success,
     }
 

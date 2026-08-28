@@ -195,11 +195,17 @@ class LtxVideoModel(BaseVideoModel):
                         mp.get("available_gb", -1))
 
         for i, scene in enumerate(scenes):
-            base_prompt = (
+            visual = (
                 scene.get("ltx_prompt", "")
                 or scene.get("description", "")
                 or ", ".join(scene.get("asset_keywords", ["technology"]))
             )
+            narration = scene.get("narration_text", "")
+            if narration:
+                # narration-led (mirror of asset_router single-clip path)
+                base_prompt = f"{narration[:400].strip()} -- showing: {visual[:400].strip()}"
+            else:
+                base_prompt = visual
             continuity = ""
             if prev_colors:
                 continuity = f", maintaining consistent color palette from previous scene ({prev_colors})"

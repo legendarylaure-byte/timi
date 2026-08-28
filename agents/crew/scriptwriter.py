@@ -2,9 +2,29 @@ from crewai import Agent, Task, Crew
 from utils.llm_helper import get_llm
 
 
-def create_scriptwriter_crew(topic: str = "", category: str = "", fmt: str = "shorts", max_duration: int = 120, extra_context: str = ""):
+def create_scriptwriter_crew(topic: str = "", category: str = "", fmt: str = "shorts", max_duration: int = 120, extra_context: str = "", audience: str = None):
+    import os
     is_long = fmt == "long"
     max_tokens = 12000 if is_long else 4000
+
+    # AUDIENCE_LEVEL: nontechnical(15+) | general | technical
+    default_audience = os.getenv("AUDIENCE_LEVEL", "nontechnical")
+    audience = audience or default_audience
+    _AUDIENCE_DESC = {
+        "nontechnical": (
+            "16+, ZERO tech knowledge. Explain with everyday analogies only. No jargon — when a term is "
+            "unavoidable, define it the instant you use it. Aim for a curious high-schooler who has never "
+            "opened a terminal. Prefer stories and simple examples over definitions."
+        ),
+        "general": (
+            "Mixed audience, some tech familiarity. Use light tech terms but always explain them briefly. "
+            "Avoid heavy math or deep internals."
+        ),
+        "technical": (
+            "Technical audience comfortable with engineering detail. Specific terms and concepts are fine."
+        ),
+    }
+    audience_desc = _AUDIENCE_DESC.get(audience, _AUDIENCE_DESC["nontechnical"])
 
     # ponytail: temperature for creative variety — 0.0 produces identical scripts
     temp = 0.4 if fmt == "documentary" else (0.6 if is_long else 0.5)
@@ -75,14 +95,14 @@ RULES (STRICT):
 6. Every NARRATION line WILL be read by the voice-over — so it must be complete, natural sentences.
 7. Do NOT use character names or dialogue. This is a single-narrator educational format.
 8. FACTS MUST BE ACCURATE. Do not fabricate statistics, dates, or claims. If uncertain, say "it is believed that" or "experts suggest".
-9. Content is for a NON-TECHNICAL beginner audience — assume ZERO prior knowledge. Explain every specialized term from first principles using everyday analogies. Write for someone who has never heard of this topic before. Avoid jargon entirely; when a technical term is necessary, define it immediately in plain language.
+9. AUDIENCE — {audience_desc}
 10. HOOK FORMULA — Use one of these hook styles for the first scene, rotating across videos: (a) Question hook — ask a surprising question, (b) Bold claim — start with a counter-intuitive statement, (c) Statistic — lead with a striking number, (d) Curiosity gap — tease something the viewer doesn't know, (e) Pain point — name a frustration. Do NOT start with "Today we'll learn" or "In this video".
 11. POWER WORDS — Include 2-3 of these naturally: "secretly", "actually", "nobody", "everyone", "the truth", "why most", "what if", "imagine", "stop", "never realized".
 12. VIRAL & TRENDING — Write for maximum shareability. Use hooks that tap into current AI trends, controversies, or breakthroughs (from extra_context if provided). Structure for: surprising insight → simple breakdown → mind-blown moment. Include a curiosity gap that makes viewers NEED to watch until the end. Use the "gap frame" technique: tease the most interesting insight in the hook, then deliver it at the end.
 13. CRITICAL — VISUAL-NARRATION COUPLING: The NARRATION and VISUAL must describe the SAME thing at the SAME time. Every sentence in NARRATION should have a corresponding visual element. If narration says "GPUs process thousands of operations in parallel", the VISUAL must show multiple GPU cores processing operations simultaneously. The visual is NOT b-roll — it IS the explanation. Never write narration about concept A while the visual shows concept B.
 14. SHOW, DON'T TELL: Narrate what the viewer sees. Instead of "the attention mechanism computes similarity scores", write "watch how each word gets a brightness score next to every other word — that's the similarity score being computed". The narration walks the viewer through what's on screen.
 15. TRANSITIONS MUST BE MOTIVATED: Every VISUAL change between scenes needs a narrative reason. "Now let's zoom in on that transformer block" → VISUAL should describe a zoom. "But wait, there's a catch" → VISUAL should show a pause/highlight. Don't just cut between unrelated visuals.
-16. NARRATION ARC: Follow 3Blue1Brown's narrative structure:
+16. NARRATION ARC: Follow a clear narrative structure:
     - Open with a CONCRETE VISUAL PUZZLE the viewer can see — not a definition. "What does this squiggle of code actually DO?" while showing the code.
     - Build intuition with a simple example first, before any formula or technical term.
     - Use "pause and think" moments: "Think about what happens when we change this number..." while the visual pauses.
@@ -115,7 +135,7 @@ VISUAL: [RENDER_TYPE: description]""",
     )
 
 
-def create_deep_lesson_crew(topic: str = "", category: str = "", series_title: str = "", part_number: int = 1, total_parts: int = 1, previous_summary: str = "", max_duration: int = 900, extra_context: str = ""):
+def create_deep_lesson_crew(topic: str = "", category: str = "", series_title: str = "", part_number: int = 1, total_parts: int = 1, previous_summary: str = "", max_duration: int = 900, extra_context: str = "", audience: str = None):
     """3Blue1Brown-style deep lesson script engine.
     
     Produces 10-20 minute educational deep dives with:
@@ -126,7 +146,27 @@ def create_deep_lesson_crew(topic: str = "", category: str = "", series_title: s
     - Recap + bonus section
     - Series-aware context
     """
-    llm = get_llm(temperature=0.0, max_tokens=10000)
+    import os
+    default_audience = os.getenv("AUDIENCE_LEVEL", "nontechnical")
+    audience = audience or default_audience
+    _AUDIENCE_DESC = {
+        "nontechnical": (
+            "16+, ZERO tech knowledge. Explain with everyday analogies only. No jargon — when a term is "
+            "unavoidable, define it the instant you use it. Aim for a curious high-schooler who has never "
+            "opened a terminal. Prefer stories and simple examples over definitions."
+        ),
+        "general": (
+            "Mixed audience, some tech familiarity. Use light tech terms but always explain them briefly. "
+            "Avoid heavy math or deep internals."
+        ),
+        "technical": (
+            "Technical audience comfortable with engineering detail. Specific terms and concepts are fine."
+        ),
+    }
+    audience_desc = _AUDIENCE_DESC.get(audience, _AUDIENCE_DESC["nontechnical"])
+    # ponytail: temperature 0.0 produced near-identical scripts every run -> the daily-repeat
+    # bug. Bump for variety while keeping enough determinism for a solid educational structure.
+    llm = get_llm(temperature=0.7 if audience == "technical" else 0.6, max_tokens=10000)
 
     scriptwriter = Agent(
         role="Educational Tech Content Writer",
@@ -171,6 +211,7 @@ ONE concrete example runs through the ENTIRE script. Never switch examples.
 
 --- SECTION 3: FOUNDATIONS (2:00-6:00) ---
 Introduce the SIMPLEST concept first.
+AUDIENCE — {audience_desc}
 Assume ZERO prior knowledge of THIS specific concept.
 Build intuition visually before introducing any term or formula.
 Explain WHY we need each piece before revealing WHAT it is.

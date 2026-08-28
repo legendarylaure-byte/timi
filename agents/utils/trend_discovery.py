@@ -36,6 +36,10 @@ def _is_non_tech_topic(title: str) -> bool:
         "cooking", "recipe", "food", "baking", "music", "dance", "sport", "game",
         "fashion", "beauty", "makeup", "travel", "vlog", "comedy", "funny", "prank",
         "pet", "animal", "dog", "cat", "workout", "fitness", "yoga", "meditation",
+        # entertainment leaks that plug the tube with non-tech noise
+        "trailer", "kpop", "k-pop", "bts", "blackpink", "movie", "film", "anime",
+        "gaming", "gameplay", "esports", "minecraft", "fortnite", "gta", "roblox",
+        "drama", "reality tv", "tiktok dance", "challenge", "celeb", "celebrity",
     ]
     title_lower = title.lower()
     return any(kw in title_lower for kw in non_tech_keywords)

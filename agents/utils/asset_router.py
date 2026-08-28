@@ -154,10 +154,15 @@ def _render_scene_inner(scene: dict, video_id: str, scene_idx: int,
 
     model = get_video_model()
     if model and model.is_available():
-        prompt = scene.get("ltx_prompt", "") or description or ", ".join(kw_list)
+        visual = scene.get("ltx_prompt", "") or description or ", ".join(kw_list)
         narration = scene.get("narration_text", "")
-        if narration and narration not in prompt:
-            prompt = f"{prompt} -- illustrating: {narration[:500]}"
+        if narration:
+            # narration-led: the on-screen action IS the narration (show, don't tell).
+            # Put what's said first so the renderer visualizes the spoken concept, not a
+            # keyword bag; visual detail is the supporting "showing:" tail.
+            prompt = f"{narration[:400].strip()} -- showing: {visual[:400].strip()}"
+        else:
+            prompt = visual
         clip_path = model.generate_clip(prompt, int(duration), format_type=format_type)
         if clip_path:
             logger.info(f"[AssetRouter] Scene {scene_idx}: LTX OK ({os.path.basename(clip_path)})")

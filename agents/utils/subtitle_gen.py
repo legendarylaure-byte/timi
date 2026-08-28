@@ -11,6 +11,38 @@ SUBTITLE_DIR = Path(__file__).parent.parent / "tmp" / "subtitles"
 SUBTITLE_DIR.mkdir(parents=True, exist_ok=True)
 
 
+def subtitle_mode_for(format_type: str) -> str:
+    """Resolve how captions are delivered for a format.
+
+    SUBTITLE_MODE: auto | burn | cc | both | off
+      - auto:  burn for shorts (max mobile visibility), soft CC for longs
+      - burn:  always burn into frames, never upload CC
+      - cc:    never burn; upload soft CC track only
+      - both:  burn AND upload CC
+      - off:   no subtitles at all
+    Returns one of: burn | cc | both | off
+    """
+    mode = os.getenv("SUBTITLE_MODE", "auto").lower()
+    if mode == "off" or mode == "false" or mode == "none":
+        return "off"
+    if mode in ("burn", "cc", "both"):
+        return mode
+    if mode == "auto":
+        return "burn" if format_type == "shorts" else "cc"
+    # 'auto' default covers shorts/long; any unrecognized value -> same mapping
+    return "burn" if format_type == "shorts" else "cc"
+
+
+def should_burn_subtitles(format_type: str) -> bool:
+    m = subtitle_mode_for(format_type)
+    return m in ("burn", "both")
+
+
+def should_upload_cc(format_type: str) -> bool:
+    m = subtitle_mode_for(format_type)
+    return m in ("cc", "both")
+
+
 def _load_segment_timing_dir(timing_file: str) -> list[dict]:
     base = os.path.dirname(timing_file)
     if not base or not os.path.isdir(base):
@@ -71,35 +103,41 @@ def generate_srt(timing_file: str, full_text: str, output_path: Optional[str] = 
         phrases = _fallback_to_word_timing(timing_file)
 
     if not phrases and full_text:
-        logger.warning("[subtitle_gen] Phrase + word timings both empty, generating fallback SRT from full_text (%d chars)", len(full_text))
-        sentences = re.split(r'(?<=[.!?])\s+', full_text.strip())
-        words_per_sec = 2.5
-        total_words = len(full_text.split())
-        estimated_duration_ms = (total_words / words_per_sec) * 1000
-        chunk_duration = estimated_duration_ms / max(len(sentences), 1)
-        for i, sent in enumerate(sentences):
-            sent = sent.strip()
-            if not sent:
-                continue
-            words = sent.split()
-            if len(words) <= 8:
-                phrases.append({
-                    "text": sent,
-                    "start_ms": int(i * chunk_duration),
-                    "end_ms": int((i + 1) * chunk_duration),
-                })
-            else:
-                num_chunks = (len(words) + 8 - 1) // 8
-                for j in range(num_chunks):
-                    chunk_words = words[j * 8:(j + 1) * 8]
-                    chunk_text = " ".join(chunk_words)
-                    chunk_start = int((i + j / num_chunks) * chunk_duration)
-                    chunk_end = int((i + (j + 1) / num_chunks) * chunk_duration)
+        # ponytail: off-sync estimates look worse than no captions. Only use the
+        # text-estimate fallback when explicitly enabled (default off).
+        allow_estimate = os.getenv("SUBTITLE_ALLOW_ESTIMATE", "false").lower() == "true"
+        if not allow_estimate:
+            logger.warning("[subtitle_gen] Phrase + word timings both empty; skipping captions (SUBTITLE_ALLOW_ESTIMATE=false)")
+        else:
+            logger.warning("[subtitle_gen] Phrase + word timings both empty, generating ESTIMATED SRT from full_text (%d chars)", len(full_text))
+            sentences = re.split(r'(?<=[.!?])\s+', full_text.strip())
+            words_per_sec = 2.5
+            total_words = len(full_text.split())
+            estimated_duration_ms = (total_words / words_per_sec) * 1000
+            chunk_duration = estimated_duration_ms / max(len(sentences), 1)
+            for i, sent in enumerate(sentences):
+                sent = sent.strip()
+                if not sent:
+                    continue
+                words = sent.split()
+                if len(words) <= 8:
                     phrases.append({
-                        "text": chunk_text,
-                        "start_ms": chunk_start,
-                        "end_ms": chunk_end,
+                        "text": sent,
+                        "start_ms": int(i * chunk_duration),
+                        "end_ms": int((i + 1) * chunk_duration),
                     })
+                else:
+                    num_chunks = (len(words) + 8 - 1) // 8
+                    for j in range(num_chunks):
+                        chunk_words = words[j * 8:(j + 1) * 8]
+                        chunk_text = " ".join(chunk_words)
+                        chunk_start = int((i + j / num_chunks) * chunk_duration)
+                        chunk_end = int((i + (j + 1) / num_chunks) * chunk_duration)
+                        phrases.append({
+                            "text": chunk_text,
+                            "start_ms": chunk_start,
+                            "end_ms": chunk_end,
+                        })
 
     if not phrases:
         logger.error("[subtitle_gen] No subtitles could be generated")

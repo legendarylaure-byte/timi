@@ -229,7 +229,10 @@ def verify_video_quality(video_path: str, format_type: str = "shorts") -> tuple[
 
             blur_report = check_frame_quality(video_path, format_type, blur_threshold=QA_BLUR_THRESHOLD)
             if not blur_report.get("passed", True):
-                print(f"[QUALITY] Blur check: {blur_report['summary']}")
+                msg = f"Visual QA blur: {blur_report['summary']}"
+                print(f"[QUALITY] {msg}")
+                return False, msg
+            print(f"[QUALITY] Blur check passed: {blur_report['summary']}")
         except Exception as e:
             print(f"[QUALITY] Visual QA check failed (non-blocking): {e}")
 
@@ -469,6 +472,49 @@ def _gate_check(name, is_flagged, topic, video_id, format_type, category):
 
 def _strip_ansi(text: str) -> str:
     return re.sub(r'\x1b\[[0-9;]*[a-zA-Z]', '', text)
+
+
+def _simplify_script(script_text: str, category: str, fmt: str) -> str:
+    """One-pass plain-language rewrite of NARRATION lines. Never blocks the pipeline."""
+    try:
+        from utils.simplify_audit import audit_simplify, simplify_rewrite
+        if not isinstance(script_text, str) or not script_text.strip():
+            return script_text
+        audit = audit_simplify(script_text)
+        if audit["passed"]:
+            return script_text
+        log_event("SIMPLIFY", f"Script too technical ({len(audit['terms'])} flagged terms) — one-pass rewrite", "warn")
+        res = simplify_rewrite(script_text, format_type=fmt, category=category)
+        if res.get("changed") and res["rewritten"]:
+            log_event("SIMPLIFY", f"Simplified narration for a non-technical audience")
+            return res["rewritten"]
+        log_event("SIMPLIFY", f"Simplify rewrite skipped: {res.get('error', 'no change')}", "warn")
+        return script_text
+    except Exception as e:
+        log_event("SIMPLIFY", f"Simplify step skipped: {e}", "warn")
+        return script_text
+
+
+def _pick_best_title(variants, topic: str, category: str = "") -> str:
+    """Pick the highest-scoring title from CrewAI variants instead of blindly [0].
+    Falls back to the topic when nothing usable exists."""
+    from utils.title_optimizer import score_title
+    if isinstance(topic, dict):
+        topic = topic.get("title", "")
+    vals = []
+    for v in (variants or []):
+        if isinstance(v, dict):
+            v = v.get("title", "")
+        v = (v or "").strip()
+        if v:
+            vals.append(v)
+    if not vals:
+        return topic or "Untitled"
+    scored = [(score_title(t, [category]), t) for t in vals]
+    scored.sort(key=lambda x: x[0]["score"], reverse=True)
+    return scored[0][1]
+
+
 
 
 def run_agent_step(agent_id: str, agent_name: str, action: str, crew_factory, inputs: dict, max_retries: int = None, timeout_minutes: int = 15):
@@ -829,11 +875,15 @@ def run_video_pipeline(script_text: str, storyboard_text: str, category: str, fo
     subtitle_path = None
     if generate_subs and ENABLE_SUBTITLES:
         timing_file = voice_result.get("timing_file", "")
+        # ponytail: subtitles must reflect EXACTLY what the voice said. The voice
+        # speaks the symbol-expanded narration (voice_gen._expand_symbols_for_tts),
+        # so feed that spoken_text (not the raw narration) to the SRT builder.
+        caption_src = voice_result.get("spoken_text") or narration_text
         log_event("PIPELINE", f"Step 2.5: Generating subtitles (timing_file={'yes' if timing_file else 'no — using text fallback'})")
         update_agent_status("voice", "working", "Generating subtitles from voice timing")
         sub_result = generate_subtitles_for_video(
             timing_file=timing_file,
-            full_text=narration_text,
+            full_text=caption_src,
             language=subtitle_lang,
         )
         subtitle_path = sub_result.get("srt")
@@ -1080,7 +1130,23 @@ def generate_short_video(topic: str, category: str, video_id: str, publish_at: s
             except Exception:
                 pass
 
-            extra_parts = [p for p in [knowledge_ctx, series_ctx, trend_ctx, opt_injection, _topics_ctx] if p]
+            _retention_ctx = ""
+            try:
+                from utils.retention_analyzer import get_insights
+                ri = get_insights(category)
+                if ri and ri.get("sample_size", 0) > 0:
+                    drops = ", ".join(f"{t} ({mag})" for t, mag in ri.get("common_drop_points", [])) or "none"
+                    _retention_ctx = (
+                        f"Audience retention feedback for this category (sample {ri.get('sample_size')}): "
+                        f"hook retention avg {ri.get('avg_hook_retention', 0)}, overall avg "
+                        f"{ri.get('avg_overall_retention', 0)}. Viewers drop off around: {drops}. "
+                        "Tighten the hook if low, and avoid padding or re-explaining right before "
+                        "the drop points to hold viewers to the end."
+                    )
+            except Exception:
+                _retention_ctx = ""
+
+            extra_parts = [p for p in [knowledge_ctx, series_ctx, trend_ctx, opt_injection, _topics_ctx, _retention_ctx] if p]
             try:
                 from utils.hook_tester import suggest_hook_formula, get_hook_stats
                 best_hook = suggest_hook_formula(category)
@@ -1130,6 +1196,8 @@ def generate_short_video(topic: str, category: str, video_id: str, publish_at: s
                 log_event("HOOK", f"Rewrite skipped (invalid output)", "warn")
         else:
             log_event("HOOK", f"Hook score: {hook_score_result['score']}/100 — passed")
+
+        script_text = _simplify_script(script_text, category, "shorts")
 
         try:
             from utils.brand_manager import record_hook_usage, HOOK_FORMULAS
@@ -1332,9 +1400,7 @@ def generate_short_video(topic: str, category: str, video_id: str, publish_at: s
         failed_step = "publishing"
         with _track_step(video_id, "publishing"):
             platforms_to_publish = ['youtube', 'instagram', 'facebook']
-            best_title = title_variants[0] if title_variants else topic
-            if isinstance(best_title, dict):
-                best_title = best_title.get("title", topic)
+            best_title = _pick_best_title(title_variants, topic, category)
             publish_result = multi_platform_publish(
                 video_id=video_id,
                 title=best_title,
@@ -1601,7 +1667,23 @@ def generate_long_video(topic: str, category: str, video_id: str, publish_at: st
             except Exception:
                 pass
 
-            extra_parts = [p for p in [knowledge_ctx, series_ctx, trend_ctx, opt_injection, _topics_ctx] if p]
+            _retention_ctx = ""
+            try:
+                from utils.retention_analyzer import get_insights
+                ri = get_insights(category)
+                if ri and ri.get("sample_size", 0) > 0:
+                    drops = ", ".join(f"{t} ({mag})" for t, mag in ri.get("common_drop_points", [])) or "none"
+                    _retention_ctx = (
+                        f"Audience retention feedback for this category (sample {ri.get('sample_size')}): "
+                        f"hook retention avg {ri.get('avg_hook_retention', 0)}, overall avg "
+                        f"{ri.get('avg_overall_retention', 0)}. Viewers drop off around: {drops}. "
+                        "Tighten the hook if low, and avoid padding or re-explaining right before "
+                        "the drop points to hold viewers to the end."
+                    )
+            except Exception:
+                _retention_ctx = ""
+
+            extra_parts = [p for p in [knowledge_ctx, series_ctx, trend_ctx, opt_injection, _topics_ctx, _retention_ctx] if p]
             try:
                 from utils.hook_tester import suggest_hook_formula, get_hook_stats
                 best_hook = suggest_hook_formula(category)
@@ -1668,6 +1750,8 @@ def generate_long_video(topic: str, category: str, video_id: str, publish_at: st
                 log_event("HOOK", f"Rewrite skipped (invalid output)", "warn")
         else:
             log_event("HOOK", f"Hook score: {hook_score_result['score']}/100 — passed")
+
+        script_text = _simplify_script(script_text, category, "long")
 
         try:
             from utils.brand_manager import record_hook_usage
@@ -1871,9 +1955,7 @@ def generate_long_video(topic: str, category: str, video_id: str, publish_at: st
         failed_step = "publishing"
         with _track_step(video_id, "publishing"):
             platforms_to_publish = ['youtube', 'facebook']
-            best_title = title_variants[0] if title_variants else topic
-            if isinstance(best_title, dict):
-                best_title = best_title.get("title", topic)
+            best_title = _pick_best_title(title_variants, topic, category)
             publish_result = multi_platform_publish(
                 video_id=video_id,
                 title=best_title,
