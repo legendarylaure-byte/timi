@@ -43,23 +43,28 @@ def verify_ollama_model() -> bool:
         return _ollama_verified
     model = os.getenv("OLLAMA_MODEL", "qwen2.5:7b")
     base = os.getenv("OLLAMA_BASE_URL", "http://localhost:11434")
-    try:
-        r = httpx.get(f"{base}/api/tags", timeout=5)
-        if r.status_code == 200:
-            names = [m.get("name", "") for m in r.json().get("models", [])]
-            if model in names or any(model in n for n in names):
-                _ollama_verified = True
+    for attempt in range(3):
+        try:
+            r = httpx.get(f"{base}/api/tags", timeout=5)
+            if r.status_code == 200:
+                names = [m.get("name", "") for m in r.json().get("models", [])]
+                if model in names or any(model in n for n in names):
+                    _ollama_verified = True
+                    _ollama_verified_at = now
+                    return True
+                print(f"[LLM] Model '{model}' not found in Ollama. Available: {names[:5]}")
+                _ollama_verified = False
                 _ollama_verified_at = now
-                return True
-            print(f"[LLM] Model '{model}' not found in Ollama. Available: {names[:5]}")
-        _ollama_verified = False
-        _ollama_verified_at = now
-        return False
-    except Exception as e:
-        print(f"[LLM] Ollama not reachable: {e}")
-        _ollama_verified = False
-        _ollama_verified_at = now
-        return False
+                return False
+        except Exception as e:
+            if attempt < 2:
+                print(f"[LLM] Ollama attempt {attempt+1}/3 failed: {e}, retrying in 2s...")
+                time.sleep(2)
+            else:
+                print(f"[LLM] Ollama not reachable after 3 attempts: {e}")
+    _ollama_verified = False
+    _ollama_verified_at = now
+    return False
 
 
 def force_fallback(failed_provider: str = "ollama"):

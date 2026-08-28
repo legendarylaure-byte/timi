@@ -86,9 +86,24 @@ def _get_platform_hashtags(category: str, platform: str, count: int) -> list[str
     return random.sample(pool, count)
 
 
+def sanitize_description(text: str, max_length: int = 5000) -> str:
+    """Strip control characters / null bytes / unpaired surrogates that break
+    platform metadata validation (YouTube rejects these with 'invalidDescription').
+    trims to max_length (YouTube hard limit is 5000 chars)."""
+    if not isinstance(text, str):
+        text = str(text)
+    # Remove non-printable control chars except \n and \t
+    cleaned = "".join(ch for ch in text if ch == "\n" or ch == "\t" or (ord(ch) >= 32 and ord(ch) != 127))
+    # Drop unpaired surrogates
+    cleaned = re.sub(r"[\ud800-\udbff](?![\udc00-\udfff])", "", cleaned)
+    cleaned = re.sub(r"(?<![\ud800-\udbff])[\udc00-\udfff]", "", cleaned)
+    return cleaned[:max_length]
+
+
 def optimize_for_platform(base_title: str, base_description: str, platform: str, category: str = "AI Explained") -> str:
     """Generate a platform-optimized caption from the base description."""
     config = PLATFORM_PROMPTS.get(platform, PLATFORM_PROMPTS["youtube"])
+    base_description = sanitize_description(base_description, config["max_length"])
     selected_tags = _get_platform_hashtags(category, platform, config["hashtag_count"])
     cta = random.choice(PLATFORM_CTAS.get(platform, PLATFORM_CTAS["youtube"]))
     first_sentence = base_description.split(". ")[0] if ". " in base_description else base_description[:200]

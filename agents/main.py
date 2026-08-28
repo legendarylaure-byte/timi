@@ -1283,7 +1283,9 @@ def generate_short_video(topic: str, category: str, video_id: str, publish_at: s
         full_desc = desc_result.get("full_description", "")
         if affiliate_text and affiliate_text not in full_desc:
             full_desc += affiliate_text
-            desc_result["full_description"] = full_desc
+        from utils.platform_captions import sanitize_description
+        full_desc = sanitize_description(full_desc)
+        desc_result["full_description"] = full_desc
         try:
             seo_tags = get_optimized_tags(category, "shorts", topic)
             seo_score = score_description_seo(full_desc)
@@ -1494,12 +1496,16 @@ def generate_short_video(topic: str, category: str, video_id: str, publish_at: s
             log_event("HOOK", f"Hook recording skipped: {e}", "debug")
 
         failed_step = "finalizing"
+        short_status = "scheduled" if publish_at else ("uploaded" if (youtube_url or publish_result.get("success_count", 0) > 0) else "upload_failed")
         update_video_record(video_id, {
-            "status": "scheduled" if publish_at else "uploaded",
+            "status": short_status,
+            "publish_success_count": publish_result.get("success_count", 0),
             "youtube_url": youtube_url,
             "publish_at": publish_at,
         })
-        log_event("PIPELINE", f"SHORT video generation SUCCESS: {topic}")
+        if short_status == "upload_failed":
+            log_event("PUBLISH", f"Short video rendered but ALL platform uploads failed", "error")
+        log_event("PIPELINE", f"SHORT video generation SUCCESS: {topic} ({short_status})")
         update_pipeline_status(False)
         clear_checkpoint(video_id)
         _elapsed = time.perf_counter() - _start_time
@@ -1816,7 +1822,9 @@ def generate_long_video(topic: str, category: str, video_id: str, publish_at: st
         full_desc = desc_result.get("full_description", "")
         if affiliate_text and affiliate_text not in full_desc:
             full_desc += affiliate_text
-            desc_result["full_description"] = full_desc
+        from utils.platform_captions import sanitize_description
+        full_desc = sanitize_description(full_desc)
+        desc_result["full_description"] = full_desc
         try:
             seo_tags = get_optimized_tags(category, "long", topic)
             seo_score = score_description_seo(full_desc)
@@ -2064,18 +2072,24 @@ def generate_long_video(topic: str, category: str, video_id: str, publish_at: st
             log_event("HOOK", f"Hook recording skipped: {e}", "debug")
 
         failed_step = "finalizing"
+        final_status = "uploaded" if (youtube_url or publish_result.get("success_count", 0) > 0) else "upload_failed"
         update_video_record(video_id, {
             "script": script_text,
             "subtitle_path": video_result.get("subtitle_path"),
             "chapters": video_result.get("chapters"),
             "is_above_8min": video_result.get("duration", 0) >= 480,
-            "status": "uploaded",
+            "status": final_status,
+            "publish_success_count": publish_result.get("success_count", 0),
             "youtube_url": youtube_url,
             "publish_at": publish_at,
         })
 
-        add_video_record(video_id, topic, "long", "uploaded", category=category)
-        log_event("PIPELINE", f"LONG video generation SUCCESS: {topic}")
+        if final_status == "uploaded":
+            add_video_record(video_id, topic, "long", "uploaded", category=category)
+        else:
+            add_video_record(video_id, topic, "long", "upload_failed", category=category)
+            log_event("PUBLISH", f"Long video rendered but ALL platform uploads failed — status={final_status}", "error")
+        log_event("PIPELINE", f"LONG video generation SUCCESS: {topic} ({final_status})")
         update_pipeline_status(False)
         clear_checkpoint(video_id)
         _elapsed = time.perf_counter() - _start_time
@@ -2766,6 +2780,14 @@ if __name__ == "__main__":
 
     _setup_logging()
     validate_env()
+
+    from utils.llm_helper import verify_ollama_model
+    ollama_ok = verify_ollama_model()
+    gemini_key = os.getenv("GEMINI_API_KEY", "")
+    gemini_ok = bool(gemini_key)
+    ollama_status = "✅" if ollama_ok else "❌"
+    gemini_status = "✅" if gemini_ok else "❌"
+    log_event("LLM", f"Startup: Ollama={ollama_status} Gemini={gemini_status} (Ollama primary, Gemini fallback)")
 
     scheduler = BlockingScheduler()
     scheduler.add_job(daily_content_job, "cron", hour=6, minute=0, misfire_grace_time=86400)

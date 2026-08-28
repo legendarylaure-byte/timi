@@ -11,7 +11,23 @@ from google_auth_oauthlib.flow import InstalledAppFlow
 from google.auth.transport.requests import Request
 from googleapiclient.errors import HttpError
 
+import re
+
 logger = logging.getLogger(__name__)
+
+YOUTUBE_DESC_MAX = 5000
+YOUTUBE_TITLE_MAX = 100
+
+
+def _sanitize_metadata(text: str, max_length: int) -> str:
+    """Strip chars YouTube rejects in title/description metadata
+    (control chars, null bytes, unpaired surrogates) and trim to limits."""
+    if not isinstance(text, str):
+        text = str(text)
+    cleaned = "".join(ch for ch in text if ch == "\n" or ch == "\t" or (ord(ch) >= 32 and ord(ch) != 127))
+    cleaned = re.sub(r"[\ud800-\udbff](?![\udc00-\udfff])", "", cleaned)
+    cleaned = re.sub(r"(?<![\ud800-\udbff])[\udc00-\udfff]", "", cleaned)
+    return cleaned[:max_length]
 
 CLIENT_ID = os.getenv("YOUTUBE_CLIENT_ID")
 CLIENT_SECRET = os.getenv("YOUTUBE_CLIENT_SECRET")
@@ -204,6 +220,9 @@ def upload_video_to_youtube(
     privacy_status = "public"
     if publish_at:
         privacy_status = "private"
+
+    title = _sanitize_metadata(title, YOUTUBE_TITLE_MAX)
+    description = _sanitize_metadata(description, YOUTUBE_DESC_MAX)
 
     body = {
         "snippet": {

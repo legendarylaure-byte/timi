@@ -45,6 +45,20 @@ def _retry_firestore(op_name, func, max_retries=3):
     return None
 
 
+def _is_transient_net_error(exc: Exception) -> bool:
+    """True for DNS/connect/refresh hiccups Firestore/gRPC hit transiently
+    (e.g. oauth2.googleapis.com Name or service not known when host sleeps)."""
+    name = type(exc).__name__.lower()
+    msg = str(exc).lower()
+    if "gaierror" in name or "nameresolution" in name or "connectionreset" in name:
+        return True
+    return any(t in msg for t in (
+        "name or service not known", "failed to resolve",
+        "getaddrinfo", "connection refused", "temporarily unavailable",
+        "transient", "broken pipe", "connectionreseterror",
+    ))
+
+
 def get_firestore_client():
     global _db
     if _db is not None:
@@ -77,12 +91,19 @@ def get_firestore_client():
     except Exception as e:
         print(f"[FIRESTORE] Firebase init error: {e}")
         return None
-    try:
-        _db = firestore.client()
-        return _db
-    except Exception as e:
-        print(f"[FIRESTORE] Failed to create Firestore client: {e}")
-        return None
+    for attempt in range(3):
+        try:
+            _db = firestore.client()
+            return _db
+        except Exception as e:
+            if attempt < 2 and _is_transient_net_error(e):
+                wait = (2 ** attempt) * 3 + random.uniform(0, 2)
+                print(f"[FIRESTORE] Client create DNS/conn error (attempt {attempt + 1}/3), retrying in {wait:.1f}s: {redact(str(e))}")
+                time.sleep(wait)
+            else:
+                print(f"[FIRESTORE] Failed to create Firestore client: {redact(str(e))}")
+                return None
+    return None
 
 
 AGENT_NAME_MAP = {
