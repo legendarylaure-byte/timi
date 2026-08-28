@@ -37,4 +37,6 @@ RUN python3 -m playwright install chromium --with-deps
 
 COPY . .
 
-CMD ["python", "main.py"]
+RUN chmod +x /app/docker-start.sh
+
+CMD ["/app/docker-start.sh"]

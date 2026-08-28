@@ -43,9 +43,11 @@ def verify_ollama_model() -> bool:
         return _ollama_verified
     model = os.getenv("OLLAMA_MODEL", "qwen2.5:7b")
     base = os.getenv("OLLAMA_BASE_URL", "http://localhost:11434")
-    for attempt in range(3):
+    total = int(os.getenv("OLLAMA_VERIFY_RETRIES", "8"))
+    interval = float(os.getenv("OLLAMA_VERIFY_INTERVAL", "6"))
+    for attempt in range(total):
         try:
-            r = httpx.get(f"{base}/api/tags", timeout=5)
+            r = httpx.get(f"{base}/api/tags", timeout=8)
             if r.status_code == 200:
                 names = [m.get("name", "") for m in r.json().get("models", [])]
                 if model in names or any(model in n for n in names):
@@ -57,11 +59,11 @@ def verify_ollama_model() -> bool:
                 _ollama_verified_at = now
                 return False
         except Exception as e:
-            if attempt < 2:
-                print(f"[LLM] Ollama attempt {attempt+1}/3 failed: {e}, retrying in 2s...")
-                time.sleep(2)
+            if attempt < total - 1:
+                print(f"[LLM] Ollama attempt {attempt+1}/{total} failed: {e}, retrying in {int(interval)}s...")
+                time.sleep(interval)
             else:
-                print(f"[LLM] Ollama not reachable after 3 attempts: {e}")
+                print(f"[LLM] Ollama not reachable after {total} attempts: {e}")
     _ollama_verified = False
     _ollama_verified_at = now
     return False
@@ -79,9 +81,11 @@ def force_fallback(failed_provider: str = "ollama"):
 
 
 def reset_fallback():
-    global _forced_provider, _gemini_cooldown_until
+    global _forced_provider, _gemini_cooldown_until, _ollama_verified, _ollama_verified_at
     _forced_provider = None
     _gemini_cooldown_until = 0.0
+    _ollama_verified = False
+    _ollama_verified_at = 0.0
     print("[LLM] Fallback reset — auto-routing restored")
 
 
