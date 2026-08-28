@@ -1,4 +1,5 @@
 import type { Metadata } from 'next';
+import Image from 'next/image';
 
 export const metadata: Metadata = {
   title: 'Vyom Ai Cloud Terms of Service',
@@ -9,24 +10,23 @@ export default function TermsPage() {
   return (
     <main className="min-h-screen bg-white dark:bg-gray-950 text-gray-900 dark:text-gray-100 py-16 px-4">
       <div className="max-w-3xl mx-auto">
+        <div className="relative w-16 h-16 mx-auto mb-6">
+          <Image src="/logo.svg" alt="Vyom Ai Cloud" fill className="object-contain" />
+        </div>
         <h1 className="text-3xl font-bold mb-8">Vyom Ai Cloud Terms of Service</h1>
-        <p className="text-sm text-gray-500 dark:text-gray-400 mb-8">Last updated: July 4, 2026</p>
+        <p className="text-sm text-gray-500 dark:text-gray-400 mb-8">Last updated: August 4, 2026</p>
 
         <section className="mb-8">
           <h2 className="text-xl font-semibold mb-3">1. Acceptance of Terms</h2>
           <p className="text-gray-700 dark:text-gray-300 leading-relaxed">
-            By accessing or using Vyom Ai Cloud (&ldquo;Timi&rdquo;, &ldquo;the Service&rdquo;, &ldquo;we&rdquo;, &ldquo;us&rdquo;), 
-            you agree to be bound by these Terms of Service. If you do not agree, do not use the Service.
+            By accessing or using the Vyom Ai Cloud service, website, or applications (&ldquo;Vyom Ai Cloud&rdquo;, &ldquo;Timi&rdquo;, &ldquo;the Service&rdquo;, &ldquo;we&rdquo;, &ldquo;us&rdquo;), you agree to be bound by these Terms of Service. If you do not agree, do not use the Service.
           </p>
         </section>
 
         <section className="mb-8">
           <h2 className="text-xl font-semibold mb-3">2. Description of Service</h2>
           <p className="text-gray-700 dark:text-gray-300 leading-relaxed">
-            Timi is an AI-powered video automation platform that generates, edits, and publishes 
-            educational technology content to connected social media platforms including YouTube, TikTok, 
-            Instagram, and Facebook. The Service operates on your behalf only after you explicitly 
-            authorize each connected platform via OAuth.
+            Vyom Ai Cloud (also known as Timi) is an AI-powered video automation platform that generates, edits, and publishes educational technology content to connected social media platforms including YouTube, TikTok, Instagram, and Facebook. The Service operates on your behalf only after you explicitly authorize each connected platform via OAuth.
           </p>
         </section>
 

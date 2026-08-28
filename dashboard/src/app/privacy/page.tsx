@@ -1,4 +1,5 @@
 import type { Metadata } from 'next';
+import Image from 'next/image';
 
 export const metadata: Metadata = {
   title: 'Vyom Ai Cloud Privacy Policy',
@@ -9,13 +10,22 @@ export default function PrivacyPage() {
   return (
     <main className="min-h-screen bg-white dark:bg-gray-950 text-gray-900 dark:text-gray-100 py-16 px-4">
       <div className="max-w-3xl mx-auto">
+        <div className="relative w-16 h-16 mx-auto mb-6">
+          <Image src="/logo.svg" alt="Vyom Ai Cloud" fill className="object-contain" />
+        </div>
         <h1 className="text-3xl font-bold mb-8">Vyom Ai Cloud Privacy Policy</h1>
-        <p className="text-sm text-gray-500 dark:text-gray-400 mb-8">Last updated: July 4, 2026</p>
+        <p className="text-sm text-gray-500 dark:text-gray-400 mb-8">Last updated: August 4, 2026</p>
+
+        <section className="mb-8">
+          <p className="text-gray-700 dark:text-gray-300 leading-relaxed mb-3">
+            This Privacy Policy explains how <strong>Vyom Ai Cloud</strong> (&ldquo;Timi&rdquo;, &ldquo;we&rdquo;, &ldquo;us&rdquo;, &ldquo;our&rdquo;) collects, uses, and protects your information when you use the Vyom Ai Cloud service, website, and applications (collectively, the &ldquo;Service&rdquo;). By accessing or using the Vyom Ai Cloud service, you agree to the collection and use of information in accordance with this policy.
+          </p>
+        </section>
 
         <section className="mb-8">
           <h2 className="text-xl font-semibold mb-3">1. Information We Collect</h2>
           <p className="text-gray-700 dark:text-gray-300 leading-relaxed mb-3">
-            We collect only the information necessary to operate the Service:
+            Vyom Ai Cloud collects only the information necessary to operate the Service:
           </p>
           <ul className="list-disc pl-6 text-gray-700 dark:text-gray-300 leading-relaxed space-y-2">
             <li><strong>OAuth Tokens:</strong> Access and refresh tokens for YouTube, TikTok, Instagram, and Facebook, obtained only after your explicit authorization.</li>
@@ -38,7 +48,7 @@ export default function PrivacyPage() {
         <section className="mb-8">
           <h2 className="text-xl font-semibold mb-3">3. Data Storage & Security</h2>
           <p className="text-gray-700 dark:text-gray-300 leading-relaxed mb-3">
-            Your data is stored securely using:
+            Vyom Ai Cloud stores your data securely using:
           </p>
           <ul className="list-disc pl-6 text-gray-700 dark:text-gray-300 leading-relaxed space-y-2">
             <li><strong>Firebase Firestore:</strong> Encrypted at rest and in transit for operational data.</li>
@@ -50,7 +60,7 @@ export default function PrivacyPage() {
         <section className="mb-8">
           <h2 className="text-xl font-semibold mb-3">4. Data Sharing</h2>
           <p className="text-gray-700 dark:text-gray-300 leading-relaxed">
-            We do not sell, trade, or share your personal data with third parties except:
+            Vyom Ai Cloud does not sell, trade, or share your personal data with third parties except:
           </p>
           <ul className="list-disc pl-6 text-gray-700 dark:text-gray-300 leading-relaxed space-y-2">
             <li>As required by platform APIs (e.g., sending videos to YouTube/TikTok via their APIs).</li>
@@ -82,7 +92,7 @@ export default function PrivacyPage() {
         <section className="mb-8">
           <h2 className="text-xl font-semibold mb-3">7. Contact</h2>
           <p className="text-gray-700 dark:text-gray-300 leading-relaxed">
-            For privacy-related inquiries: privacy@vyomai.cloud
+            For privacy-related inquiries about the Vyom Ai Cloud app, contact us at: privacy@vyomai.cloud
           </p>
         </section>
       </div>

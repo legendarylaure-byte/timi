@@ -19,14 +19,16 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version: 24
           cache: 'npm'
           cache-dependency-path: dashboard/package-lock.json
       - name: Install Vercel CLI
         run: npm install --global vercel
       - name: Pull environment
+        working-directory: dashboard
         run: vercel pull --yes --token=${{ secrets.VERCEL_TOKEN }}
       - name: Build
+        working-directory: dashboard
         env:
           NEXT_PUBLIC_FIREBASE_API_KEY: ${{ secrets.NEXT_PUBLIC_FIREBASE_API_KEY }}
           NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN: ${{ secrets.NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN }}
@@ -36,4 +38,5 @@ jobs:
           NEXT_PUBLIC_FIREBASE_APP_ID: ${{ secrets.NEXT_PUBLIC_FIREBASE_APP_ID }}
         run: vercel build --prod --token=${{ secrets.VERCEL_TOKEN }}
       - name: Deploy
+        working-directory: dashboard
         run: vercel deploy --prebuilt --prod --token=${{ secrets.VERCEL_TOKEN }}

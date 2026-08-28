@@ -14,7 +14,7 @@ export async function GET(request: NextRequest) {
     }
     const authUrl = new URL('https://www.tiktok.com/v2/auth/authorize/');
     authUrl.searchParams.set('client_key', TIKTOK_CLIENT_KEY);
-    authUrl.searchParams.set('scope', 'user.info.basic,video.upload');
+    authUrl.searchParams.set('scope', 'user.info.basic,video.publish,video.upload');
     authUrl.searchParams.set('response_type', 'code');
     authUrl.searchParams.set('redirect_uri', TIKTOK_REDIRECT_URI);
     authUrl.searchParams.set('state', 'sandbox_timi');
