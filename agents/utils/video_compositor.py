@@ -987,6 +987,24 @@ def composite_video(clips: list[dict], voice_path: str, music_path: Optional[str
                 f"x={cta_x}:y=h*0.75:enable='between(t\\,{cta_time}\\,{cta_end})'"
             )
 
+        # End LIKE CTA: "LIKE if this helped" pill in the final seconds before outro.
+        if os.getenv("ENABLE_LIKE_CTA", "true").lower() != "false":
+            total_dur = sum(c.get("duration", 8.0) for c in clips) if clips else 120
+            like_start = max(0.0, total_dur - 4.0)
+            like_end = total_dur - 0.2
+            like_alpha = (
+                f"if(lt(t\\,{like_start}+0.5)\\,(t-{like_start})/0.5\\,"
+                f"if(gte(t\\,{like_end}-0.5)\\,({like_end}-t)/0.5\\,1))"
+            )
+            like_text = "LIKE if this helped!"
+            like_escaped = like_text.replace("'", "\u2019").replace(":", "\\:").replace("-", "\\-")
+            vf_parts.append(
+                f"drawtext=text='{like_escaped}':fontsize=30:fontcolor=white:"
+                f"box=1:boxcolor=#00CCCC@0.8:boxborderw=10:"
+                f"x=(w-text_w)/2:y=h*0.70:alpha={like_alpha}:"
+                f"text_align=C:enable='between(t\\,{like_start}\\,{like_end})'"
+            )
+
     if subtitle_path and os.path.exists(subtitle_path) and _subs_enabled_for(format_type):
         abs_sub = os.path.abspath(subtitle_path)
         is_deep = category in (_DEEP_LESSON_CATS if _DEEP_LESSON_CATS else set())

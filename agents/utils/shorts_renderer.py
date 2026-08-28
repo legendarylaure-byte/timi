@@ -79,14 +79,29 @@ def reformat_to_shorts(input_path: str, hook_text: str, output_path: str,
                        clip_duration: float = 60.0) -> bool:
     target_w, target_h = 1080, 1920
 
-    scale_filter = (
-        f"scale={target_w}:{target_h}:flags=lanczos:force_original_aspect_ratio=decrease,"
-        f"pad={target_w}:{target_h}:(ow-iw)/2:(oh-ih)/2:color=black@0,"
-        f"split[main][bg];"
-        f"[bg]scale={target_w}:{target_h}:flags=lanczos:force_original_aspect_ratio=increase,"
-        f"crop={target_w}:{target_h},boxblur=20:5[bg];"
-        f"[bg][main]overlay=(W-w)/2:(H-h)/2"
-    )
+    # Genuinely-portrait mode (default on): crop the landscape source to a 9:16
+    # slice and upscale to fill the portrait canvas, so the short has NO black
+    # bars / no tiny letterboxed image. A slow horizontal Ken Burns pan keeps the
+    # crop from looking static. Off (legacy) falls back to the blurred-pad full
+    # landscape which left the subject tiny and wasn't really portrait.
+    portrait_mode = os.getenv("ENABLE_PORTRAIT_SHORTS", "true").lower() != "false"
+    if portrait_mode:
+        kb = 1.0 + 0.06  # mild ~6% zoom so the pan has headroom
+        scale_filter = (
+            f"crop=min(iw\\,ih*9/16):ih:(iw-min(iw\\,ih*9/16))/2:0,"
+            f"scale='iw*{kb}':'ih*{kb}':flags=lanczos,"
+            f"crop=min(iw\\,ih*9/16):ih:(iw-min(iw\\,ih*9/16))*t/{clip_duration if clip_duration > 0 else 60}:0,"
+            f"scale={target_w}:{target_h}:flags=lanczos"
+        )
+    else:
+        scale_filter = (
+            f"scale={target_w}:{target_h}:flags=lanczos:force_original_aspect_ratio=decrease,"
+            f"pad={target_w}:{target_h}:(ow-iw)/2:(oh-ih)/2:color=black@0,"
+            f"split[main][bg];"
+            f"[bg]scale={target_w}:{target_h}:flags=lanczos:force_original_aspect_ratio=increase,"
+            f"crop={target_w}:{target_h},boxblur=20:5[bg];"
+            f"[bg][main]overlay=(W-w)/2:(H-h)/2"
+        )
 
     hook_escaped = hook_text.replace("'", "\u2019").replace(":", "\\:").replace("-", "\\-")
     hook_duration = 2.0
@@ -110,6 +125,20 @@ def reformat_to_shorts(input_path: str, hook_text: str, output_path: str,
         f"text_align=C:line_spacing=8"
     )
 
+    like_filter = ""
+    if os.getenv("ENABLE_LIKE_CTA", "true").lower() != "false":
+        like_start = max(0, clip_duration - 3.0)
+        like_text = "LIKE if this helped!"
+        like_escaped = like_text.replace("'", "\u2019").replace(":", "\\:").replace("-", "\\-")
+        like_filter = (
+            f"drawtext=text='{like_escaped}':"
+            f"fontsize=34:fontcolor=white:box=1:boxcolor=#00CCCC@0.75:"
+            f"x=(w-text_w)/2:y=h*0.72:"
+            f"alpha=if(lt(t\\,{like_start + 1})\\,0\\,if(lt(t\\,{like_start + 2.5})\\,(t-{like_start})/1.5\\,1)):"
+            f"fontfile={os.getenv('FONT_PATH', '/System/Library/Fonts/Helvetica.ttc')}:"
+            f"text_align=C"
+        )
+
     quality_filters = "eq=saturation=1.25:contrast=1.1,unsharp=5:5:0.8:3:3:0.4"
 
     subtitle_filter = ""
@@ -120,7 +149,7 @@ def reformat_to_shorts(input_path: str, hook_text: str, output_path: str,
             f"{_subtitle_style_escaped(28, primary='&H000088CC&')}"
         )
 
-    vf = f"{scale_filter},{hook_filter},{cta_filter},{quality_filters}{subtitle_filter}"
+    vf = f"{scale_filter},{hook_filter},{cta_filter},{like_filter},{quality_filters}{subtitle_filter}"
 
     cmd = [
         _ffmpeg_cmd(), "-y", "-i", input_path,
