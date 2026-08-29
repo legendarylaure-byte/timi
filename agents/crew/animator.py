@@ -3,7 +3,7 @@ from utils.llm_helper import get_llm
 
 
 def create_animator_crew(storyboard: str = "", format: str = "shorts"):
-    llm = get_llm(temperature=0.4, max_tokens=4000)
+    llm = get_llm(temperature=0.4, max_tokens=4000, agent_id="animator")
 
     animator = Agent(
         role="Visual Asset Director",

@@ -6,7 +6,7 @@ def create_storyboard_crew(script: str = "", format_type: str = "shorts", is_dee
     is_long = format_type == "long"
     max_tokens = 8000 if is_long else 4000
 
-    llm = get_llm(temperature=0.0, max_tokens=max_tokens)
+    llm = get_llm(temperature=0.0, max_tokens=max_tokens, agent_id="storyboard")
 
     if is_deep:
         scene_instruction = """

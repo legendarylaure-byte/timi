@@ -73,7 +73,7 @@ from compliance.content_safety import check_content_safety
 from compliance.platform_policy import check_platform_compliance
 from utils.title_tester import TitleTester
 from utils.analytics_feedback import analyze_recent_performance, get_optimization_prompt_injection, get_pipeline_tuning
-from utils.llm_helper import force_fallback, reset_fallback
+from utils.llm_helper import force_fallback, reset_fallback, empty_response_fallback
 from utils.series_builder import register_video_in_series, build_continuity_text, generate_part_title, pick_series_for_category
 from utils.checkpoint import save_checkpoint, load_checkpoint, clear_checkpoint
 from utils.title_optimizer import pick_best_title
@@ -236,6 +236,36 @@ def verify_video_quality(video_path: str, format_type: str = "shorts") -> tuple[
         except Exception as e:
             print(f"[QUALITY] Visual QA check failed (non-blocking): {e}")
 
+    return True, ""
+
+
+def _duration_ok(video_path: str, format_type: str) -> tuple[bool, str]:
+    """Hard duration sanity check that FORCE_PUBLISH can NOT bypass.
+
+    ponytail: FORCE_PUBLISH is meant to override *content/QA* subjective gates,
+    NOT structural corruption. A 15s 'long' (or a 0s/absent file) is broken output,
+    not a style choice — publishing it poisons the channel AND feeds the repurpose
+    job (today's 15s long -> 15s repurposed short cascade). Return False = re-queue.
+    """
+    if not video_path or not os.path.exists(video_path):
+        return False, "No video file produced"
+    try:
+        from utils.subprocess_helper import safe_run
+        result = safe_run(
+            ["ffprobe", "-v", "error", "-show_entries", "format=duration,size",
+             "-of", "csv=p=0", video_path],
+            timeout=30, capture_output=True, text=True,
+        )
+        if result.returncode == 0 and result.stdout.strip():
+            parts = result.stdout.strip().split(",")
+            if parts and parts[0].strip():
+                duration = float(parts[0])
+                if format_type == "long" and duration < 30:
+                    return False, f"Duration {duration:.0f}s too short for long-form (hard block)"
+                if format_type == "shorts" and duration < 3:
+                    return False, f"Duration {duration:.0f}s too short for a short (hard block)"
+    except Exception as e:
+        print(f"[QUALITY] duration check failed: {e}")
     return True, ""
 
 
@@ -565,8 +595,8 @@ def run_agent_step(agent_id: str, agent_name: str, action: str, crew_factory, in
             if "rate_limit" in err_lower:
                 log_event(agent_name, "Rate-limited, flagging for fallback", "warn")
             if "Invalid response from LLM call" in err_str:
-                log_event(agent_name, "LLM returned empty response — resetting provider routing", "warn")
-                reset_fallback()
+                log_event(agent_name, "LLM returned empty response — rotating provider routing", "warn")
+                empty_response_fallback()
             if "TimeoutError" in type(e).__name__ or "timed out" in err_lower:
                 log_event(agent_name, f"Timed out after {timeout_minutes}min — resetting provider routing", "error")
                 reset_fallback()
@@ -1319,6 +1349,15 @@ def generate_short_video(topic: str, category: str, video_id: str, publish_at: s
         with _track_step(video_id, "video_pipeline"):
             video_result = run_video_pipeline(script_text, str(storyboard), category, "shorts", video_id, SHORTS_MAX_DURATION)
 
+        failed_step = "duration_check"
+        dur_ok, dur_msg = _duration_ok(video_result.get("video_path", ""), "shorts")
+        if not dur_ok:
+            log_pipeline_error(video_id, f"Hard duration block: {dur_msg}", "duration_check")
+            add_video_record(video_id, topic, "shorts", "failed", category=category)
+            log_event("QUALITY", f"FAILED (hard duration block): {dur_msg}")
+            update_pipeline_status(False)
+            return False
+
         failed_step = "quality_check"
         qc_pass, qc_msg = verify_video_quality(video_result.get("video_path", ""), "shorts")
         if not qc_pass:
@@ -1431,8 +1470,9 @@ def generate_short_video(topic: str, category: str, video_id: str, publish_at: s
                 tags=desc_result.get("tags"),
             )
         publish_status = "scheduled" if publish_at else "Published"
+        _yt = publish_result.get('platforms', {}).get('youtube', {}).get('video_url', '')
         log_event(
-            "PUBLISH", f"{publish_status} to {publish_result['success_count']}/{publish_result['total_count']} platforms")  # noqa: E501
+            "PUBLISH", f"{publish_status} to {publish_result['success_count']}/{publish_result['total_count']} platforms" + (f" | YouTube: {_yt}" if _yt else ""))  # noqa: E501
         save_checkpoint(video_id, "publishing", {"publish_count": publish_result.get("success_count", 0)})
 
         if publish_result.get("success_count", 0) > 0 and ENABLE_COMPANION_PAGES:
@@ -1889,6 +1929,15 @@ def generate_long_video(topic: str, category: str, video_id: str, publish_at: st
         with _track_step(video_id, "video_pipeline"):
             video_result = run_video_pipeline(script_text, str(storyboard), category, "long", video_id, _deep_lesson_dur(category))
 
+        failed_step = "duration_check"
+        dur_ok, dur_msg = _duration_ok(video_result.get("video_path", ""), "long")
+        if not dur_ok:
+            log_pipeline_error(video_id, f"Hard duration block: {dur_msg}", "duration_check")
+            add_video_record(video_id, topic, "long", "failed", category=category)
+            log_event("QUALITY", f"FAILED (hard duration block): {dur_msg}")
+            update_pipeline_status(False)
+            return False
+
         failed_step = "quality_check"
         qc_pass, qc_msg = verify_video_quality(video_result.get("video_path", ""), "long")
         if not qc_pass:
@@ -2003,8 +2052,9 @@ def generate_long_video(topic: str, category: str, video_id: str, publish_at: st
                 tags=desc_result.get("tags"),
             )
         publish_status = "scheduled" if publish_at else "Published"
+        _yt = publish_result.get('platforms', {}).get('youtube', {}).get('video_url', '')
         log_event(
-            "PUBLISH", f"{publish_status} to {publish_result['success_count']}/{publish_result['total_count']} platforms")  # noqa: E501
+            "PUBLISH", f"{publish_status} to {publish_result['success_count']}/{publish_result['total_count']} platforms" + (f" | YouTube: {_yt}" if _yt else ""))  # noqa: E501
         save_checkpoint(video_id, "publishing", {"publish_count": publish_result.get("success_count", 0)})
 
         failed_step = "repurpose_shorts"
@@ -2474,6 +2524,11 @@ def daily_content_job():
 
     log_event("SCHEDULER", f"Planned {len(pipeline_jobs)} pipelines ({sum(1 for j in pipeline_jobs if not j['gpu'])} shorts, {sum(1 for j in pipeline_jobs if j['gpu'])} longs)")
 
+    # ponytail: news jobs are mandatory daily slots AND carry a specific verified article
+    # (which plain schedule_topic() drops). Re-run a failed news job serially with the
+    # article intact so the mandated World/Nepal slot still lands, instead of losing it.
+    failed_news_jobs = []
+
     if pipeline_jobs:
         log_event("SCHEDULER", f"Running {len(pipeline_jobs)} pipelines concurrently")
         job_results = run_concurrent_pipelines(pipeline_jobs)
@@ -2494,11 +2549,35 @@ def daily_content_job():
             else:
                 failed_topics.append(item)
                 fmt = "shorts" if is_short else "long"
+                if job.get("name", "").startswith(("short-news", "long-news")) or job.get("kwargs", {}).get("news_article"):
+                    failed_news_jobs.append({"job": job, "vid": vid, "fmt": fmt})
                 topic_id = schedule_topic(item, fmt, priority="high")
                 mark_topic_failed(topic_id, result.get("error", "Generation failed"))
                 log_event("SCHEDULER", f"{fmt} video '{item}' {'crashed' if result.get('error') else 'failed'}: {result.get('error', 'unknown')}", "error")
     else:
         log_event("SCHEDULER", "No pipeline jobs to run")
+
+    # Serial news retry — retain the specific verified article the concurrent run lost.
+    for njob in failed_news_jobs:
+        job, vid, fmt = njob["job"], njob["vid"], njob["fmt"]
+        item = job["args"][0]
+        log_event("SCHEDULER", f"Retrying failed news {fmt} '{item}' serially with article intact")
+        try:
+            func = job["func"] if "func" in job else (generate_short_video if fmt == "shorts" else generate_long_video)
+            ok = func(*job["args"], **job["kwargs"])
+            if ok:
+                if fmt == "shorts":
+                    successful_shorts += 1
+                    track_video(vid, item, "shorts", "", 0)
+                else:
+                    successful_longs += 1
+                    track_video(vid, item, "long", "", 0)
+                mark_topic_completed(vid)
+                if item in failed_topics:
+                    failed_topics.remove(item)
+                log_event("SCHEDULER", f"News {fmt} '{item}' recovered on serial retry")
+        except Exception as e:
+            log_event("SCHEDULER", f"News {fmt} '{item}' retry failed: {e}", "error")
 
     update_pipeline_status(False)
     total = successful_shorts + successful_longs

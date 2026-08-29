@@ -4,7 +4,7 @@ from utils.thumbnail_renderer import generate_thumbnail_variants
 
 
 def create_thumbnail_crew(topic: str = "", fmt: str = "shorts"):
-    llm = get_llm(temperature=0.7, max_tokens=2000)
+    llm = get_llm(temperature=0.7, max_tokens=2000, agent_id="thumbnail")
 
     thumbnail_creator = Agent(
         role="Tech Thumbnail Designer",

@@ -28,7 +28,7 @@ def create_scriptwriter_crew(topic: str = "", category: str = "", fmt: str = "sh
 
     # ponytail: temperature for creative variety — 0.0 produces identical scripts
     temp = 0.4 if fmt == "documentary" else (0.6 if is_long else 0.5)
-    llm = get_llm(temperature=temp, max_tokens=max_tokens)
+    llm = get_llm(temperature=temp, max_tokens=max_tokens, agent_id="scriptwriter")
 
     scriptwriter = Agent(
         role="Tech Content Scriptwriter",
@@ -166,7 +166,7 @@ def create_deep_lesson_crew(topic: str = "", category: str = "", series_title: s
     audience_desc = _AUDIENCE_DESC.get(audience, _AUDIENCE_DESC["nontechnical"])
     # ponytail: temperature 0.0 produced near-identical scripts every run -> the daily-repeat
     # bug. Bump for variety while keeping enough determinism for a solid educational structure.
-    llm = get_llm(temperature=0.7 if audience == "technical" else 0.6, max_tokens=10000)
+    llm = get_llm(temperature=0.7 if audience == "technical" else 0.6, max_tokens=10000, agent_id="scriptwriter")
 
     scriptwriter = Agent(
         role="Educational Tech Content Writer",

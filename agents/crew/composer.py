@@ -3,7 +3,7 @@ from utils.llm_helper import get_llm
 
 
 def create_composer_crew(category: str = "", duration: int = 60):
-    llm = get_llm(temperature=0.4, max_tokens=1000)
+    llm = get_llm(temperature=0.4, max_tokens=1000, agent_id="composer")
 
     composer = Agent(
         role="Tech Music Composer",
