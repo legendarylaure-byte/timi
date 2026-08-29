@@ -10,8 +10,6 @@ logger = logging.getLogger(__name__)
 
 # CPM rates for revenue-optimized scheduling (USD per 1000 views)
 CPM_RATES = {
-    "Business & Finance": 25,
-    "Health & Medicine": 18,
     "Programming & Software": 13,
     "Science & Technology": 12,
     "AI News": 8,
@@ -23,11 +21,9 @@ def _pillar_type(name: str) -> str:
 
 
 CONTENT_PILLARS = {
-    "AI News": {"ratio": 0.25, "priority": 5, "cpm": 8, "description": "Latest AI developments, model releases, industry moves, breaking news"},
-    "Science & Technology": {"ratio": 0.25, "priority": 5, "cpm": 12, "description": "Science discoveries, tech innovations, research breakthroughs, engineering marvels"},
-    "Business & Finance": {"ratio": 0.20, "priority": 4, "cpm": 25, "description": "Business strategy, economics, markets, entrepreneurship, AI in business"},
-    "Health & Medicine": {"ratio": 0.15, "priority": 3, "cpm": 18, "description": "Health science, medical breakthroughs, nutrition, AI in healthcare"},
-    "Programming & Software": {"ratio": 0.15, "priority": 3, "cpm": 13, "description": "Code tutorials, software engineering, development tools, AI tooling"},
+    "AI News": {"ratio": 0.40, "priority": 5, "cpm": 8, "description": "Latest AI developments, model releases, industry moves, breaking news"},
+    "Science & Technology": {"ratio": 0.30, "priority": 5, "cpm": 12, "description": "Science discoveries, tech innovations, research breakthroughs, engineering marvels"},
+    "Programming & Software": {"ratio": 0.30, "priority": 3, "cpm": 13, "description": "Code tutorials, software engineering, development tools, AI tooling"},
     "World News (24hr)": {"ratio": 0.0, "priority": 5, "cpm": 6, "description": "Verified global stories from curated reputable publishers within the last 24 hours"},
     "Nepal News": {"ratio": 0.0, "priority": 5, "cpm": 4, "description": "Verified news from reputable Nepali outlets (English + Nepali)"},
 }

@@ -1,15 +1,13 @@
 VALID_CATEGORIES = [
     "AI News",
     "Science & Technology",
-    "Business & Finance",
-    "Health & Medicine",
     "Programming & Software",
     "World News (24hr)",
     "Nepal News",
 ]
 
 # News categories are NOT deep lessons — they follow news-paced shorts style, not long form lessons.
-DEEP_LESSON_CATS = {"AI News", "Science & Technology", "Business & Finance", "Health & Medicine", "Programming & Software"}
+DEEP_LESSON_CATS = {"AI News", "Science & Technology", "Programming & Software"}
 
 NEWS_CATS = {"World News (24hr)", "Nepal News"}
 
@@ -29,8 +27,8 @@ CATEGORY_ALIASES = {
     "Code & Build": "Programming & Software",
     "Tech Explained": "AI News",
     "Build with AI": "Programming & Software",
-    "Industry Analysis": "Business & Finance",
-    "Career & Learning": "Business & Finance",
+    "Industry Analysis": "AI News",
+    "Career & Learning": "Programming & Software",
     "History & Biography": "Science & Technology",
     "Philosophy & Psychology": "Science & Technology",
     "Gaming": "Science & Technology",

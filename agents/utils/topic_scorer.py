@@ -25,11 +25,9 @@ DATA_DIR = Path(__file__).parent.parent / "data" / "topic_scorer"
 DATA_DIR.mkdir(parents=True, exist_ok=True)
 SCORES_FILE = DATA_DIR / "topic_scores.json"
 
-VALID_CATEGORIES = ["AI News", "Science & Technology", "Business & Finance", "Health & Medicine", "Programming & Software", "World News (24hr)", "Nepal News"]
+VALID_CATEGORIES = ["AI News", "Science & Technology", "Programming & Software", "World News (24hr)", "Nepal News"]
 
 CPM_RATES = {
-    "Business & Finance": 25,
-    "Health & Medicine": 18,
     "Programming & Software": 13,
     "Science & Technology": 12,
     "AI News": 8,
@@ -123,8 +121,8 @@ def _score_search_demand(title: str, category: str) -> int:
         pass
 
     # Default: estimate based on category popularity
-    base = {"AI News": 15, "Science & Technology": 13, "Health & Medicine": 14,
-            "Business & Finance": 12, "Programming & Software": 13}
+    base = {"AI News": 15, "Science & Technology": 13,
+            "Programming & Software": 13}
     return base.get(category, 10)
 
 

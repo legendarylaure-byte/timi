@@ -2,6 +2,26 @@
 
 ## Latest Changes (committed)
 
+### D24: Exactly-5 Videos/Day + AI/IT-Only Content + Overnight Idle-Window Rendering + No Auto-Repurposed Shorts
+- **Volume fixed at 5 videos/day**: `SCHEDULE_SHORTS_PER_DAY=1` + `SCHEDULE_LONG_PER_DAY=2` + `GPU_VIDEO_BUDGET_PER_DAY=2` + `ENABLE_NEWS=true`. Every day = 2 news shorts (World + Nepal) + 1 pillar short + 1 news long + 1 pillar long = **5**. Pillar longs capped at 1 via GPU budget (news long charges slot #1; pillar loop breaks at `(count+_gpu_used)>=budget`). Updated `.env` + `.env.example` + **Firestore `env_vars.SCHEDULE_SHORTS_PER_DAY=1`** (Firestore overrides `.env` at boot — `sync_env_from_firestore` in `firebase_status.py:479` overwrites os.environ unconditionally, so the Firestore value MUST match `.env` or the old `4` would win).
+- **Generation moved into laptop-idle window**: `daily_content_job` cron 06:00→**15:05 UTC (8:50 PM Nepal)** so heavy LTX renders+uploads never happen during the user's 10:30 AM–8:00 PM Nepal window. Render window 15:05 UTC→~4-5 AM = 8:50 PM→~10 AM Nepal, all idle.
+- **Exact publish slots (UTC → Nepal, all inside idle window, all same Nepal day)**:
+  - World news short `(19,0)` = 12:45 AM Nepal
+  - Nepal news short `(21,0)` = 2:45 AM Nepal
+  - Pillar short `(23,0)` = 4:45 AM Nepal
+  - Pillar long `(21,15)` = 3:00 AM Nepal
+  - News long `(1,0)` next-day = 6:45 AM Nepal
+  - `_next_schedule_time()` refactored to accept `(hour, minute)` tuples (`main.py`) so the 15-min-offset pillar-long slot (3:00 AM Nepal) is expressible; slot constants in `daily_content_job` updated to tuples.
+- **Auto-repurposed shorts REMOVED** (they had no off-switch): deleted the render+upload block in `generate_long_video` (was main.py `:2060-2094`) that made ~3 shorts/long to YT/IG/FB and inflated daily volume + render time. Deleted `daily_repurpose_job` + its 14:00 cron + the now-unused `batch_reprocess_all_videos` import in main. `repurposer.py`/`render_repurposed_shorts` remain for manual use (`scripts/repurpose.py`).
+- **All non-news content restricted to AI/IT** (Business & Finance + Health & Medicine removed as canonical categories):
+  - `scene_schema.py` = source of truth: `VALID_CATEGORIES`, `DEEP_LESSON_CATS` now `{AI News, Science & Technology, Programming & Software}` (news stay `NEWS_CATS`, ratio 0 in pillars). Business/Health aliases re-mapped (`Industry Analysis`→AI News, `Career & Learning`→Programming & Software).
+  - `scheduler_planner.py` + `pillar_manager.py` `CONTENT_PILLARS` dropped Business/Health; rebalanced ratios AI News 0.40 / Science 0.30 / Programming 0.30.
+  - `trend_engine.py` + `topic_scorer.py` `VALID_CATEGORIES`, `CATEGORY_KEYWORDS`, `CPM_MAP`, `CPM_RATES`, category-base scores purged.
+  - `trend_discovery.py` focus_categories, YouTube category-id map (Business/Health ids→AI/IT), mock dataset, fallback analysis purged.
+  - `scene_parser.py` `_get_suggested_assets` + `visual_profiles.py` category entry removed.
+- **Sunday documentary moved into idle window**: `weekly_documentary_job` cron 08:00→**20:00 UTC Sunday (1:45 AM Nepal Monday)** — after Sunday's 15:05 UTC daily run, renders overnight Sunday→Monday, never in the use window.
+- **Deploy (deployed live)**: `timi-pipeline:latest` rebuilt; container recreated, healthy. In-container verified: `SCHEDULE_SHORTS_PER_DAY=1` (Firestore+boot sync — 5 videos/day), scheduler crons (daily 15:05, documentary Sun 20:00, NO repurpose job), categories AI/IT-only.
+
 ### D23: Dual-Model LLM + Empty-Response Fallback + Hard Duration Guard + News Re-Queue (deployed live)
 - **Dual-model routing** (`utils/llm_helper.py` + 9 crew files): new `OLLAMA_MODEL_ROUTES` env (JSON `{agent_id: model_tag}`) selects a per-agent Ollama model. Structured-JSON agents — `storyboard`, `virality_analyst`, `director`, `animator`, `metadata`, `composer` → **`gemma3:4b`** (3.3GB, survives memory pressure alongside LTX-video on the 16GB box); `scriptwriter` (short+long, `crew/scriptwriter.py:31,169`) stays on default **`OLLAMA_MODEL=qwen3.5:9b`**. Crew files now pass `agent_id=` into `get_llm()`. `verify_ollama_model()` accepts an optional `model` arg (cache shortcut only for the default-model check). Added `OLLAMA_MODEL_ROUTES` to `.env` + `.env.example`.
 - **Empty-response fallback (decisive fix)** (`utils/llm_helper.py:empty_response_fallback()`, `main.py:run_agent_step`): previously on `"Invalid response from LLM call"` the pipeline called `reset_fallback()` which kept returning Ollama — but Ollama was memory-starved and returning EMPTY, so it retried the SAME failing provider and died (45 failures on the 2026-08-29 morning run killed all 6 news/pillar shorts + news long). Now empty responses call `empty_response_fallback()` which **rotates provider** (Ollama→Gemini→back) so the next retry actually uses Gemini's cloud capacity.

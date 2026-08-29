@@ -44,7 +44,6 @@ from utils.music_gen import generate_background_music
 from utils.voice_gen import generate_voiceover
 from utils.stock_video import search_videos_for_scenes
 from utils.multi_platform_publisher import multi_platform_publish
-from utils.repurposer import batch_reprocess_all_videos
 from utils.trend_discovery import discover_trends
 from utils.quality_scorer import score_content, predict_performance, check_repetition, evaluate_publish_decision
 from utils.cleanup_service import run_cleanup
@@ -2057,42 +2056,6 @@ def generate_long_video(topic: str, category: str, video_id: str, publish_at: st
             "PUBLISH", f"{publish_status} to {publish_result['success_count']}/{publish_result['total_count']} platforms" + (f" | YouTube: {_yt}" if _yt else ""))  # noqa: E501
         save_checkpoint(video_id, "publishing", {"publish_count": publish_result.get("success_count", 0)})
 
-        failed_step = "repurpose_shorts"
-        if publish_result.get("success_count", 0) > 0 and video_result.get("video_path"):
-            try:
-                from utils.shorts_renderer import render_repurposed_shorts
-                from utils.multi_platform_publisher import multi_platform_publish as _publish_short
-                phrase_timings = video_result.get("phrase_timings", [])
-                shorts = render_repurposed_shorts(
-                    long_video_path=video_result.get("video_path", ""),
-                    scenes=video_result.get("scenes", []),
-                    phrase_timings=phrase_timings,
-                    category=category,
-                    video_id=video_id,
-                    script_text=script_text,
-                )
-                yt_url = publish_result.get('platforms', {}).get('youtube', {}).get('video_url', '')
-                for short in shorts:
-                    try:
-                        short_title = short["title"]
-                        short_id = short["clip_id"]
-                        short_desc = f"Full video: {yt_url}\n\n#shorts #ai #technology"
-                        _publish_short(
-                            video_id=short_id,
-                            title=short_title,
-                            description=short_desc,
-                            video_path=short["video_path"],
-                            thumbnail_path=short.get("thumbnail_path", ""),
-                            format_type="shorts",
-                            platforms=['youtube', 'instagram', 'facebook'],
-                            category=category,
-                        )
-                        log_event("REPURPOSE", f"Short published: {short_title}")
-                    except Exception as short_err:
-                        log_event("REPURPOSE", f"Short upload failed: {short_err}", "warn")
-            except Exception as e:
-                log_event("REPURPOSE", f"Repurpose skipped: {e}", "debug")
-
         if publish_result.get("success_count", 0) > 0 and ENABLE_COMPANION_PAGES:
             try:
                 from utils.companion_page import generate_companion_page, upload_companion_page
@@ -2290,9 +2253,11 @@ def generate_long_video(topic: str, category: str, video_id: str, publish_at: st
         return False
 
 
-def _next_schedule_time(hour: int) -> str:
+def _next_schedule_time(slot) -> str:
+    """Next occurrence of a (hour, minute) UTC slot (int hour allowed for compat)."""
+    hour, minute = (slot, 0) if isinstance(slot, int) else (slot[0], slot[1])
     now = datetime.utcnow()
-    scheduled = now.replace(hour=hour, minute=0, second=0, microsecond=0)
+    scheduled = now.replace(hour=hour, minute=minute, second=0, microsecond=0)
     if scheduled <= now:
         scheduled = scheduled.replace(day=scheduled.day + 1)
     return scheduled.strftime("%Y-%m-%dT%H:%M:%SZ")
@@ -2433,19 +2398,21 @@ def daily_content_job():
     # so a heavy day can't crash the container. News long is mandatory and goes first.
     gpu_budget = int(os.getenv("GPU_VIDEO_BUDGET_PER_DAY", str(long_per_day)))
 
-    def _news_job(category: str, fmt: str, article: dict, slot_hour: int, idx: int):
+    def _news_job(category: str, fmt: str, article: dict, slot: tuple, idx: int):
         vid = f"{'short' if fmt=='shorts' else 'long'}-{video_date}-n{idx}"
         func = generate_short_video if fmt == "shorts" else generate_long_video
         kwargs = {"news_article": article} if article else {}
         (short_video_ids if fmt == "shorts" else long_video_ids)[vid] = {"title": article["title"] if article else category, "category": category, "format": fmt, "priority": 100}
-        return {"func": func, "args": (article["title"] if article else f"{category} update", category, vid, _next_schedule_time(slot_hour)), "kwargs": kwargs, "name": f"{'short' if fmt=='shorts' else 'long'}-news-{idx}", "gpu": fmt == "long"}
+        return {"func": func, "args": (article["title"] if article else f"{category} update", category, vid, _next_schedule_time(slot)), "kwargs": kwargs, "name": f"{'short' if fmt=='shorts' else 'long'}-news-{idx}", "gpu": fmt == "long"}
 
     _news_job_idx = [0]
+    # D24 slot times (UTC): World 19:00 (12:45 AM Nepal), Nepal 21:00 (2:45 AM Nepal),
+    # News long 01:00 next day (6:45 AM Nepal) — all inside the user's idle window.
     if news_enabled and news_articles.get("world"):
-        pipeline_jobs.append(_news_job("World News (24hr)", "shorts", news_articles["world"], 6, _news_job_idx[0] + 1))
+        pipeline_jobs.append(_news_job("World News (24hr)", "shorts", news_articles["world"], (19, 0), _news_job_idx[0] + 1))
         _news_job_idx[0] += 1
     if news_enabled and news_articles.get("nepal"):
-        pipeline_jobs.append(_news_job("Nepal News", "shorts", news_articles["nepal"], 8, _news_job_idx[0] + 1))
+        pipeline_jobs.append(_news_job("Nepal News", "shorts", news_articles["nepal"], (21, 0), _news_job_idx[0] + 1))
         _news_job_idx[0] += 1
     # one news long per day, alternating which regime gets the long (gpu budget permitting)
     if news_enabled and gpu_budget >= 1 and (news_articles.get("world") or news_articles.get("nepal")):
@@ -2460,13 +2427,14 @@ def daily_content_job():
             if _a["title"].lower().strip() != _short_title and _a["title"].lower().strip() not in _recent:
                 _article = _a
                 break
-        pipeline_jobs.append(_news_job(_cat, "long", _article, 14, _news_job_idx[0] + 1))
+        pipeline_jobs.append(_news_job(_cat, "long", _article, (1, 0), _news_job_idx[0] + 1))
         _news_job_idx[0] += 1
 
     # ── Fill remaining pillar slots (regular categories) ──────────────────
-    # shorts: reserve the first 2 slots for news (06/08); pillars go 10/12.
+    # D24: single AI/IT pillar short publishes at (23,0) UTC = 4:45 AM Nepal.
     _short_count = [0]
-    _short_base = 10
+    _short_base = (23, 0)
+    _short_n = 0
     for i in range(shorts_per_day):
         if i < len(shorts_plan):
             item = shorts_plan[i]
@@ -2481,19 +2449,22 @@ def daily_content_job():
             log_event("SCHEDULER", f"Skipping blacklisted topic: {item['title']}")
             continue
         _short_count[0] += 1
+        _short_n = _short_count[0] - 1
         vid = f"short-{video_date}-{_short_count[0]}"
         short_video_ids[vid] = item
+        slot = (_short_base[0] + _short_n * 2, _short_base[1])
         pipeline_jobs.append({
             "func": generate_short_video,
-            "args": (item['title'], item['category'], vid, _next_schedule_time(_short_base + (_short_count[0] - 1) * 2)),
+            "args": (item['title'], item['category'], vid, _next_schedule_time(slot)),
             "kwargs": {},
             "name": f"short-{_short_count[0]}",
             "gpu": False,
         })
 
     # longs: news long already consumed 1 GPU slot from the budget; pillars fill the rest.
+    # D24: single pillar long publishes at (21,15) UTC = 3:00 AM Nepal.
     _long_count = [0]
-    _long_slot = 10
+    _long_slot = (21, 15)
     _gpu_used = sum(1 for j in pipeline_jobs if j['gpu'])
     for i in range(long_per_day):
         if gpu_budget and (_long_count[0] + _gpu_used) >= gpu_budget:
@@ -2512,11 +2483,13 @@ def daily_content_job():
             log_event("SCHEDULER", f"Skipping blacklisted topic: {item['title']}")
             continue
         _long_count[0] += 1
+        _long_n = _long_count[0] - 1
         vid = f"long-{video_date}-{_long_count[0]}"
         long_video_ids[vid] = item
+        slot = (_long_slot[0] + _long_n * 4, _long_slot[1])
         pipeline_jobs.append({
             "func": generate_long_video,
-            "args": (item['title'], item['category'], vid, _next_schedule_time(_long_slot + (_long_count[0] - 1) * 4)),
+            "args": (item['title'], item['category'], vid, _next_schedule_time(slot)),
             "kwargs": {},
             "name": f"long-{_long_count[0]}",
             "gpu": True,
@@ -2603,15 +2576,6 @@ def daily_content_job():
         log_event("SCHEDULER", f"Failed topics (will retry next run): {', '.join(failed_topics)}")
 
     return successful_shorts > 0 or successful_longs > 0
-
-
-def daily_repurpose_job():
-    log_event("REPURPOSE", "Starting content repurposing scan")
-    update_agent_status("repurposer", "working", "Scanning for repurposing opportunities")
-    result = batch_reprocess_all_videos()
-    update_agent_status("repurposer", "completed", f"Processed {result['processed']} videos")
-    log_event(
-        "REPURPOSE", f"Repurposed {result['processed']} videos into {sum(v.get('clips', 0) for v in result.get('videos', []))} clips")  # noqa: E501
 
 
 def daily_analytics_job():
@@ -3054,25 +3018,27 @@ if __name__ == "__main__":
     log_event("LLM", f"Startup: Ollama={ollama_status} Gemini={gemini_status} (Ollama primary, Gemini fallback)")
 
     scheduler = BlockingScheduler()
-    scheduler.add_job(daily_content_job, "cron", hour=6, minute=0, misfire_grace_time=86400)
+    # D24: run content generation overnight (15:05 UTC = 8:50 PM Nepal) so the
+    # heavy LTX renders never happen during the user's 10:30 AM-8:00 PM Nepal laptop window.
+    scheduler.add_job(daily_content_job, "cron", hour=15, minute=5, misfire_grace_time=86400)
     scheduler.add_job(daily_analytics_job, "cron", hour=8, minute=0, misfire_grace_time=86400)
     scheduler.add_job(daily_revenue_job, "cron", hour=8, minute=30, misfire_grace_time=86400)
-    scheduler.add_job(daily_repurpose_job, "cron", hour=14, minute=0, misfire_grace_time=86400)
     scheduler.add_job(daily_cleanup_job, "cron", hour=4, minute=0, misfire_grace_time=86400)
     scheduler.add_job(scheduled_publish_job, "interval", minutes=15)
     scheduler.add_job(weekly_monetization_job, "cron", day_of_week="mon", hour=12, minute=0, misfire_grace_time=86400)
     scheduler.add_job(daily_feedback_job, "cron", hour=10, minute=0, misfire_grace_time=86400)
     scheduler.add_job(daily_title_test_job, "cron", hour=12, minute=0, misfire_grace_time=86400)
     scheduler.add_job(daily_community_post_job, "cron", day_of_week="mon,thu", hour=15, minute=0, misfire_grace_time=86400)
-    scheduler.add_job(weekly_documentary_job, "cron", day_of_week="sun", hour=8, minute=0, misfire_grace_time=86400)
-    log_event("SCHEDULER", "Daily content job scheduled at 06:00 UTC")
+    # D24: weekly documentary long render moved into the idle window (20:00 UTC = 1:45 AM Mon Nepal)
+    # so it never renders during laptop use, and runs after the Sunday 15:05 UTC daily content job.
+    scheduler.add_job(weekly_documentary_job, "cron", day_of_week="sun", hour=20, minute=0, misfire_grace_time=86400)
+    log_event("SCHEDULER", "Daily content job scheduled at 15:05 UTC (overnight)")
     log_event("SCHEDULER", "Daily analytics pull scheduled at 08:00 UTC")
     log_event("SCHEDULER", "Daily revenue computation scheduled at 08:30 UTC")
-    log_event("SCHEDULER", "Daily repurpose job scheduled at 14:00 UTC")
     log_event("SCHEDULER", "Daily cleanup job scheduled at 04:00 UTC")
     log_event("SCHEDULER", "Scheduled publish check every 15 minutes")
     log_event("SCHEDULER", "Weekly monetization review scheduled on Mondays at 12:00 UTC")
-    log_event("SCHEDULER", "Weekly documentary generation scheduled on Sundays at 08:00 UTC")
+    log_event("SCHEDULER", "Weekly documentary generation scheduled on Sundays at 20:00 UTC")
     log_event("SCHEDULER", "Daily analytics feedback loop scheduled at 10:00 UTC")
 
     def _shutdown():

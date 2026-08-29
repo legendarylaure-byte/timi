@@ -24,14 +24,12 @@ DATA_DIR = Path(__file__).parent.parent / "data" / "trends"
 DATA_DIR.mkdir(parents=True, exist_ok=True)
 HISTORY_FILE = DATA_DIR / "trend_history.json"
 
-VALID_CATEGORIES = ["AI News", "Science & Technology", "Business & Finance", "Health & Medicine", "Programming & Software", "World News (24hr)", "Nepal News"]
+VALID_CATEGORIES = ["AI News", "Science & Technology", "Programming & Software", "World News (24hr)", "Nepal News"]
 
 # Category keywords for relevance matching
 CATEGORY_KEYWORDS = {
     "AI News": ["ai", "artificial intelligence", "gpt", "llm", "openai", "google ai", "anthropic", "deepmind", "machine learning", "neural", "transformer", "chatbot", "copilot", "gemini", "claude", "meta ai"],
     "Science & Technology": ["science", "research", "discovery", "physics", "chemistry", "biology", "space", "nasa", "spacex", "quantum", "energy", "climate", "tech", "innovation", "breakthrough", "engineer", "robot"],
-    "Business & Finance": ["business", "finance", "market", "stock", "economy", "startup", "funding", "ipo", "revenue", "profit", "crypto", "bitcoin", "investment", "vc", "acquisition", "merger"],
-    "Health & Medicine": ["health", "medical", "drug", "fda", "clinical", "disease", "treatment", "diagnosis", "hospital", "nutrition", "mental health", "cancer", "vaccine", "genome", "biotech"],
     "Programming & Software": ["programming", "coding", "developer", "software", "github", "open source", "python", "javascript", "rust", "api", "database", "cloud", "docker", "linux", "devops", "framework"],
 }
 
@@ -322,7 +320,7 @@ def score_topic_for_channel(title: str, category: str, description: str = "") ->
     relevance = 80 if category in VALID_CATEGORIES else 20
 
     # CPM potential
-    CPM_MAP = {"Business & Finance": 25, "Health & Medicine": 18, "Programming & Software": 13, "Science & Technology": 12, "AI News": 8, "World News (24hr)": 6, "Nepal News": 4}
+    CPM_MAP = {"Programming & Software": 13, "Science & Technology": 12, "AI News": 8, "World News (24hr)": 6, "Nepal News": 4}
     cpm = CPM_MAP.get(category, 8)
     revenue_potential = min(100, cpm * 4)  # normalize to 0-100
 

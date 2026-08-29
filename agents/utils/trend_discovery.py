@@ -84,9 +84,9 @@ def fetch_youtube_trending(max_results: int = 20, region_code: str = "US") -> li
                 "1": "Science & Technology", "2": "Science & Technology", "10": "Science & Technology",
                 "15": "Science & Technology", "17": "Programming & Software", "18": "Science & Technology",
                 "19": "Science & Technology", "20": "Science & Technology", "22": "Science & Technology",
-                "23": "Business & Finance", "24": "Science & Technology", "25": "AI News",
-                "26": "Programming & Software", "27": "Health & Medicine", "28": "Business & Finance",
-                "29": "Science & Technology", "30": "Health & Medicine",
+                "23": "AI News", "24": "Science & Technology", "25": "AI News",
+                "26": "Programming & Software", "27": "Programming & Software", "28": "AI News",
+                "29": "Science & Technology", "30": "Programming & Software",
             }
             category = normalize_category(category_map.get(category_id, "AI News"))
 
@@ -228,9 +228,9 @@ def _fallback_trends() -> list:
     return [
         {"title": fallback_tech_events[0], "category": "AI News", "search_volume": random.randint(100000, 500000), "growth": random.randint(15, 70), "competition": "low", "suggested_format": "shorts", "score": random.randint(75, 95), "keywords": ["ai", "news", "trending"]},
         {"title": fallback_tech_events[1], "category": "Science & Technology", "search_volume": random.randint(80000, 300000), "growth": random.randint(10, 50), "competition": "medium", "suggested_format": "long", "score": random.randint(70, 90), "keywords": ["science", "technology", "breakthrough"]},
-        {"title": "How AI Is Changing Healthcare", "category": "Health & Medicine", "search_volume": 380000, "growth": 55, "competition": "medium", "suggested_format": "long", "score": 88, "keywords": ["ai", "healthcare", "medical"]},
+        {"title": "How AI Is Changing Software Development", "category": "Programming & Software", "search_volume": 380000, "growth": 55, "competition": "medium", "suggested_format": "long", "score": 88, "keywords": ["ai", "software", "development"]},
         {"title": f"Top AI Coding Tools {datetime.now().year}", "category": "Programming & Software", "search_volume": 290000, "growth": 52, "competition": "low", "suggested_format": "shorts", "score": 91, "keywords": ["coding", "tools", "productivity"]},
-        {"title": "AI in Business: ROI Case Studies", "category": "Business & Finance", "search_volume": 320000, "growth": 67, "competition": "low", "suggested_format": "shorts", "score": 89, "keywords": ["business", "ai", "roi"]},
+        {"title": "AI in Business: ROI Case Studies", "category": "AI News", "search_volume": 320000, "growth": 67, "competition": "low", "suggested_format": "shorts", "score": 89, "keywords": ["business", "ai", "roi"]},
     ]
 
 
@@ -289,8 +289,6 @@ def _fallback_category_analysis(category: str) -> dict:
     data = {
         "AI News": {"trending_score": 94, "monthly_searches": 5600000, "saturation": "medium", "growth_trend": "increasing", "cpm": 8},
         "Science & Technology": {"trending_score": 88, "monthly_searches": 3200000, "saturation": "medium", "growth_trend": "increasing", "cpm": 12},
-        "Business & Finance": {"trending_score": 83, "monthly_searches": 4800000, "saturation": "high", "growth_trend": "stable", "cpm": 25},
-        "Health & Medicine": {"trending_score": 87, "monthly_searches": 6100000, "saturation": "medium", "growth_trend": "increasing", "cpm": 18},
         "Programming & Software": {"trending_score": 85, "monthly_searches": 2800000, "saturation": "medium", "growth_trend": "increasing", "cpm": 13},
     }
 
@@ -314,7 +312,7 @@ def generate_monthly_plan(month: int = None, year: int = None, focus_categories:
     year = year or datetime.now().year
 
     if focus_categories is None:
-        focus_categories = ["AI News", "Science & Technology", "Business & Finance", "Health & Medicine", "Programming & Software"]
+        focus_categories = ["AI News", "Science & Technology", "Programming & Software"]
 
     seasonal_events = {
         1: ["New Year", "Winter Activities"],

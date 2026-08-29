@@ -813,8 +813,6 @@ def _get_suggested_assets(category: str) -> str:
     mapping = {
         "AI News": "STOCK_FOOTAGE (news style, AI visuals), STATIC_IMAGE (logos, products, headlines)",
         "Science & Technology": "DIAGRAM_ANIMATION (technical diagrams, science visuals), STOCK_FOOTAGE (research labs, tech innovations)",
-        "Business & Finance": "DIAGRAM_ANIMATION (charts, graphs, data viz), STOCK_FOOTAGE (corporate, markets, offices)",
-        "Health & Medicine": "DIAGRAM_ANIMATION (anatomy, medical processes), STOCK_FOOTAGE (hospitals, research, wellness)",
         "Programming & Software": "CODE_SNIPPET (code, terminal), SCREEN_CAPTURE (IDE, tools), STOCK_FOOTAGE (developer workspace)",
     }
     return mapping.get(category, "STOCK_FOOTAGE (tech visuals), DIAGRAM_ANIMATION (explainers)")

@@ -170,27 +170,17 @@ CONTENT_PILLARS = {
     "AI News": {
         "description": "Latest AI developments, model releases, industry moves, breaking news",
         "series": ["This Week in AI", "Model Release Roundup", "Funding & Acquisition News", "AI Industry Moves"],
-        "ratio": 0.25,
+        "ratio": 0.40,
     },
     "Science & Technology": {
         "description": "Science discoveries, tech innovations, research breakthroughs, engineering marvels",
         "series": ["Science Behind the Headlines", "Tech That Changed the World", "Future Technologies", "Breakthrough Science"],
-        "ratio": 0.25,
-    },
-    "Business & Finance": {
-        "description": "Business strategy, economics, markets, entrepreneurship, AI in business",
-        "series": ["Market Forces", "Startup Stories", "Economics Made Simple", "AI Business Case Studies"],
-        "ratio": 0.20,
-    },
-    "Health & Medicine": {
-        "description": "Health science, medical breakthroughs, nutrition, AI in healthcare",
-        "series": ["Body Science", "Medical Breakthroughs", "The Science of Health", "AI Diagnostics Explained"],
-        "ratio": 0.15,
+        "ratio": 0.30,
     },
     "Programming & Software": {
         "description": "Code tutorials, software engineering, development tools, AI tooling",
         "series": ["Build a RAG App", "AI Agent Tutorial", "DevOps Essentials", "AI Coding Tools Compared"],
-        "ratio": 0.15,
+        "ratio": 0.30,
     },
     "World News (24hr)": {
         "description": "Verified global stories from curated reputable publishers within the last 24 hours",
