@@ -22,5 +22,7 @@ def test_pick_series_for_category_unknown():
 def test_inject_intro_outro_no_series():
     scenes = [{"dummy": True}]
     result = inject_intro_outro(scenes, "NonExistentCategory")
-    assert len(result) == 1
-    assert result[0]["dummy"] is True
+    assert len(result) == 3
+    assert result[1]["dummy"] is True
+    assert result[0]["asset_type"] == "STATIC_IMAGE"
+    assert result[2]["asset_type"] == "STATIC_IMAGE"

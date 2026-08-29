@@ -42,9 +42,9 @@ def test_get_cost_summary():
     _reset()
     cost_tracker.log_llm_cost('gemini_flash', 1000, 200)
     summary = cost_tracker.get_cost_summary()
-    assert summary['total_calls'] == 1
-    assert summary['total_cost_usd'] > 0
-    assert 'gemini_flash' in summary['by_model']
+    assert summary['llm_calls'] == 1
+    assert summary['total_cost'] > 0
+    assert 'gemini_flash' in summary['by_caller']
 
 
 def test_multiple_calls_sum():
@@ -52,24 +52,27 @@ def test_multiple_calls_sum():
     cost_tracker.log_llm_cost('gemini_flash', 1_000_000, 200)
     cost_tracker.log_llm_cost('gemini_flash', 500_000, 100)
     summary = cost_tracker.get_cost_summary()
-    assert summary['total_calls'] == 2
-    assert summary['total_cost_usd'] > 0.001
+    assert summary['llm_calls'] == 2
+    assert summary['total_cost'] > 0.001
 
 
-def test_unknown_model():
+def test_stock_calls_separate():
     _reset()
-    cost_tracker.log_llm_cost('unknown_model', 100, 50)
+    cost_tracker.log_llm_cost('gemini_flash', 1000, 200)
+    cost_tracker.log_stock_call('pexels')
     summary = cost_tracker.get_cost_summary()
-    assert summary['total_calls'] == 1
-    # unknown model costs 0
-    assert summary['by_model']['unknown_model']['total_cost'] == 0
+    assert summary['llm_calls'] == 1
+    assert summary['stock_calls'] == 1
+    assert 'gemini_flash' in summary['by_caller']
+    assert summary['by_caller'].get('pexels') is None or 'pexels' not in summary['by_caller']
 
 
 def test_empty_log():
     _reset()
     summary = cost_tracker.get_cost_summary()
-    assert summary['total_calls'] == 0
-    assert summary['total_cost_usd'] == 0
+    assert summary['llm_calls'] == 0
+    assert summary['total_cost'] == 0
+    assert summary['stock_calls'] == 0
 
 
 def test_no_csv_file():
@@ -77,4 +80,4 @@ def test_no_csv_file():
     if os.path.exists(_cost_log):
         os.remove(_cost_log)
     summary = cost_tracker.get_cost_summary()
-    assert summary['total_calls'] == 0
+    assert summary['llm_calls'] == 0

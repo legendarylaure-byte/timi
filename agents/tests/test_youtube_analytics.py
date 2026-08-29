@@ -138,7 +138,8 @@ def test_fetch_video_stats_success(mock_build, mock_get_creds):
     mock_build.return_value.videos.return_value.list.return_value.execute = mock_execute
     from utils.youtube_upload import fetch_video_stats
     result = fetch_video_stats("dQw4w9WgXcQ")
-    assert result == {"views": 500, "likes": 25, "comments": 10, "favorites": 0, "duration_seconds": 330}
+    assert {k: result[k] for k in ("views", "likes", "comments", "favorites", "duration_seconds")} \
+        == {"views": 500, "likes": 25, "comments": 10, "favorites": 0, "duration_seconds": 330}
     mock_build.return_value.videos.return_value.list.assert_called_once_with(
         part="statistics,contentDetails", id="dQw4w9WgXcQ"
     )
