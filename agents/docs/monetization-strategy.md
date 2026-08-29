@@ -1,24 +1,24 @@
 # Monetization Strategy — Data-Backed Path to YPP
 
-**Status:** working doc (2026-08-28) · **Channel:** Legendary Laure · **Owner:** pipeline operator
+**Status:** working doc (2026-08-29) · **Channel:** Legendary Laure · **Owner:** pipeline operator
 
 ## Where we stand (honest baseline)
-Real channel analytics as of 2026-08-28:
-- 386 videos published
-- 10 subscribers
-- 4,192 lifetime views
-- ~4,272 views + 704 watch-minutes (~11.7 hours) in the last 365 days
-- ~11 net subs/yr
+Real channel analytics as of 2026-08-29 (live API):
+- 388 videos published
+- 12 subscribers
+- 4,425 lifetime views
+- ~4,341 views + 717 watch-minutes (~11.9 hours) in the last 365 days
+- ~12 net subs/yr
 
 YouTube Partner Program (YPP, monetization) requires **either**:
 - 1,000 subs + 4,000 public watch-hours in 12 months, **or**
 - 1,000 subs + 10M public Shorts views in 90 days.
 
-Watch-time shortfall vs the 4,000-hr target: **~3,988 hrs (~340×)**. Raw output volume has
+Watch-time shortfall vs the 4,000-hr target: **~3,988 hrs (~336×)**. Raw output volume has
 not worked and will not close this gap. Monetizable watch-time is the real constraint.
 
 ## Why volume alone failed
-- 386 videos but ~11 watch-hours/yr → sub-1s average retention per video; no one watches.
+- 388 videos but ~12 watch-hours/yr → sub-1s average retention per video; no one watches.
 - Audience-retention curves are fetched but were never fed back into content (biggest
   missed lever). This is now wired (see Retention item below).
 - Repetition: daily scheduler was returning the same static monthly topic set with a
@@ -56,7 +56,7 @@ Both tracks are driven by two feedback loops that were dead and are now live:
 2. **Correctness > volume.** Fixed: subtitle=voice, single caption track, narration-led
    visuals, non-technical scripts (16+), real topic dedup.
 3. **10M Shorts views is the faster YPP door** (vs the 4,000 watch-hours that would need
-   ~340× the current rate). Shorts should be the primary growth instrument for now;
+   ~336× the current rate). Shorts should be the primary growth instrument for now;
    Longs build the monetizable audience once retention is proven.
 
 ## Guardrails / anti-goals
