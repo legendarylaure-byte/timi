@@ -15,44 +15,46 @@ interface PredictionResult {
 }
 
 const CATEGORY_MULTIPLIERS: Record<string, number> = {
-  'AI Explained': 1.3,
-  'Deep Tech': 1.0,
-  'Paper Breakdowns': 0.9,
-  'Tool Tutorials': 1.2,
-  'Industry Analysis': 1.1,
-  'Code & Build': 1.4,
   'AI News': 1.5,
-  'Career & Learning': 1.0,
+  'Science & Technology': 1.2,
+  'Programming & Software': 1.4,
+  'World News (24hr)': 1.0,
+  'Nepal News': 1.0,
 };
 
 const SUGGESTIONS: Record<string, string[]> = {
-  'AI Explained': [
-    'Use analogies to explain complex concepts',
-    'Include visual diagrams for architecture explanations',
-    'Add comparison tables for model benchmarks',
+  'AI News': [
+    'Lead with the single most surprising development in the first 3 seconds',
+    'Explain why the news matters to a non-technical viewer',
+    'Cite the verified source on screen for credibility',
   ],
-  'Deep Tech': [
-    'Start with a real-world problem the tech solves',
-    'Include code snippets or pseudocode for key algorithms',
-    'Reference original papers for credibility',
+  'Science & Technology': [
+    'Start with a real-world problem the innovation solves',
+    'Use visuals and analogies instead of jargon',
+    'Reference the originating research for credibility',
   ],
-  'Tool Tutorials': [
-    'Show actual screen recordings of the tool in action',
-    'Include installation and setup steps',
-    'Provide example projects viewers can build along',
-  ],
-  'Code & Build': [
+  'Programming & Software': [
     'Show the final project output first as a hook',
-    'Use screen captures for code walkthroughs',
-    'Provide GitHub repo link in description',
+    'Include step-by-step code/build walkthroughs',
+    'Provide a repo link in the description',
+  ],
+  'World News (24hr)': [
+    'Open with the headline as a bold claim',
+    'Stay factual and cite the verified publisher',
+    'Keep it tight — fast, no filler',
+  ],
+  'Nepal News': [
+    'Open with the headline in a bold, clear claim',
+    'Cover the local angle viewers care about',
+    'Cite the verified Nepali source (EN or NP)',
   ],
 };
 
 const DEFAULT_SUGGESTIONS = [
   'Add a hook in the first 3 seconds to boost retention',
   'Use bright, high-contrast thumbnail with large text',
-  'Best posting time: 6:00 PM – 8:00 PM',
-  'Include popular keywords: "AI", "tutorial", "explained"',
+  'Best posting window: overnight 12:45 AM – 6:45 AM NPT (pipeline scheduled)',
+  'Include popular keywords: "AI", "news", "explained"',
 ];
 
 function hashStr(s: string): number {
@@ -105,7 +107,7 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ success: false, error: 'Title is required' }, { status: 400 });
     }
 
-    const prediction = generatePrediction(title, category || 'AI Explained', format || 'shorts');
+    const prediction = generatePrediction(title, category || 'AI News', format || 'shorts');
 
     return NextResponse.json({ success: true, prediction });
   } catch (error) {

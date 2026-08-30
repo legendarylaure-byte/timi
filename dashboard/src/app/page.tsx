@@ -6,6 +6,7 @@ import { onAuthStateChanged } from 'firebase/auth';
 import { useRouter } from 'next/navigation';
 import { motion } from 'framer-motion';
 import { ThemeToggle } from '@/components/ui/ThemeToggle';
+import { AmbientBackground } from '@/components/ui/AmbientBackground';
 import Image from 'next/image';
 import Link from 'next/link';
 import {
@@ -43,11 +44,12 @@ export default function Home() {
   }, []);
 
   return (
-    <div className="min-h-screen relative overflow-hidden" style={{ background: '#050510' }}>
+    <div className="min-h-screen relative overflow-hidden">
+      <AmbientBackground variant="landing" />
       <div className="fixed top-4 right-4 z-50"><ThemeToggle /></div>
 
       {/* Aurora background */}
-      <div className="absolute inset-0 pointer-events-none">
+      <div className="absolute inset-0 pointer-events-none z-0">
         <div className="absolute w-[800px] h-[800px] rounded-full opacity-[0.08] blur-[120px]"
           style={{ background: 'radial-gradient(circle, #FF6B6B, transparent 70%)', left: '10%', top: '-20%' }} />
         <div className="absolute w-[600px] h-[600px] rounded-full opacity-[0.06] blur-[120px]"

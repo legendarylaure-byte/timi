@@ -1618,11 +1618,13 @@ def generate_short_video(topic: str, category: str, video_id: str, publish_at: s
 
         failed_step = "finalizing"
         short_status = "scheduled" if publish_at else ("uploaded" if (youtube_url or publish_result.get("success_count", 0) > 0) else "upload_failed")
+        _news_updates = {"news_source": news_article.get("source")} if news_article and news_article.get("source") else {}
         update_video_record(video_id, {
             "status": short_status,
             "publish_success_count": publish_result.get("success_count", 0),
             "youtube_url": youtube_url,
             "publish_at": publish_at,
+            **_news_updates,
         })
         if short_status == "upload_failed":
             log_event("PUBLISH", f"Short video rendered but ALL platform uploads failed", "error")
@@ -2200,6 +2202,7 @@ def generate_long_video(topic: str, category: str, video_id: str, publish_at: st
 
         failed_step = "finalizing"
         final_status = "uploaded" if (youtube_url or publish_result.get("success_count", 0) > 0) else "upload_failed"
+        _news_updates = {"news_source": news_article.get("source")} if news_article and news_article.get("source") else {}
         update_video_record(video_id, {
             "script": script_text,
             "subtitle_path": video_result.get("subtitle_path"),
@@ -2209,6 +2212,7 @@ def generate_long_video(topic: str, category: str, video_id: str, publish_at: st
             "publish_success_count": publish_result.get("success_count", 0),
             "youtube_url": youtube_url,
             "publish_at": publish_at,
+            **_news_updates,
         })
 
         if final_status == "uploaded":
@@ -2737,6 +2741,15 @@ def weekly_monetization_job():
                 new_task = CrewAITask(description=task.description, expected_output=task.expected_output, agent=agent)
                 review = agent.execute_task(task=new_task, context=None, tools=None) or ""
             log_event("MONETIZATION", "Monetization review complete")
+            try:
+                from utils.firebase_status import get_firestore_client
+                from google.cloud.firestore import SERVER_TIMESTAMP as _ts
+                _db = get_firestore_client()
+                if _db is not None:
+                    _db.collection('monetization').document('revenue').set(
+                        {'last_reviewed_at': _ts}, merge=True)
+            except Exception as _e:
+                log_event("MONETIZATION", f"Could not stamp review time: {_e}", "debug")
         except Exception as e:
             log_event("MONETIZATION", f"Review crew failed: {e}", "warn")
     except Exception as e:

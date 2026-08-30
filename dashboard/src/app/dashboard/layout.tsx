@@ -13,25 +13,44 @@ import Image from 'next/image';
 import {
   LayoutDashboard, Clapperboard, Archive, Flame, Scissors, Palette,
   Upload, TrendingUp, DollarSign, Clapperboard as SeriesIcon, Clock,
-  Settings, Eye, LogOut, Menu, X, BarChart3,
+  Settings, Eye, LogOut, Menu, X, BarChart3, Newspaper, ChevronDown,
 } from 'lucide-react';
 import { GlobalStatusBar } from '@/components/status/GlobalStatusBar';
+import { AmbientBackground } from '@/components/ui/AmbientBackground';
 
-const navItems = [
-  { label: 'Dashboard', icon: LayoutDashboard, path: '/dashboard' },
-  { label: 'Workspace', icon: Clapperboard, path: '/dashboard/workspace' },
-  { label: 'Archive', icon: Archive, path: '/dashboard/archive' },
-  { label: 'Trends', icon: Flame, path: '/dashboard/trends' },
-  { label: 'Repurpose', icon: Scissors, path: '/dashboard/repurpose' },
-  { label: 'Preview', icon: Palette, path: '/dashboard/preview' },
-  { label: 'Publishing', icon: Upload, path: '/dashboard/publishing' },
-  { label: 'Analytics', icon: TrendingUp, path: '/dashboard/analytics' },
-  { label: 'Monetization', icon: DollarSign, path: '/dashboard/monetization' },
-  { label: 'Reports', icon: BarChart3, path: '/dashboard/reports' },
-  { label: 'Series', icon: SeriesIcon, path: '/dashboard/series' },
-  { label: 'Scheduler', icon: Clock, path: '/dashboard/scheduler' },
-  { label: 'Settings', icon: Settings, path: '/dashboard/settings' },
+const navGroups = [
+  {
+    label: 'Workspace',
+    items: [
+      { label: 'Dashboard', icon: LayoutDashboard, path: '/dashboard' },
+      { label: 'Workspace', icon: Clapperboard, path: '/dashboard/workspace' },
+      { label: 'News', icon: Newspaper, path: '/dashboard/news' },
+      { label: 'Archive', icon: Archive, path: '/dashboard/archive' },
+      { label: 'Repurpose', icon: Scissors, path: '/dashboard/repurpose' },
+      { label: 'Trends', icon: Flame, path: '/dashboard/trends' },
+      { label: 'Preview', icon: Palette, path: '/dashboard/preview' },
+    ],
+  },
+  {
+    label: 'Insights',
+    items: [
+      { label: 'Analytics', icon: TrendingUp, path: '/dashboard/analytics' },
+      { label: 'Monetization', icon: DollarSign, path: '/dashboard/monetization' },
+      { label: 'Reports', icon: BarChart3, path: '/dashboard/reports' },
+      { label: 'Series', icon: SeriesIcon, path: '/dashboard/series' },
+      { label: 'Scheduler', icon: Clock, path: '/dashboard/scheduler' },
+    ],
+  },
+  {
+    label: 'System',
+    items: [
+      { label: 'Publishing', icon: Upload, path: '/dashboard/publishing' },
+      { label: 'Settings', icon: Settings, path: '/dashboard/settings' },
+    ],
+  },
 ];
+
+const navItems = navGroups.flatMap((g) => g.items);
 
 export default function DashboardLayout({ children }: { children: React.ReactNode }) {
   const router = useRouter();
@@ -41,6 +60,20 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
   const [sidebarOpen, setSidebarOpen] = useState(true);
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [isMobile, setIsMobile] = useState(false);
+  const [collapsedGroups, setCollapsedGroups] = useState<Record<string, boolean>>({});
+
+  const toggleGroup = (label: string) =>
+    setCollapsedGroups((prev) => ({ ...prev, [label]: !prev[label] }));
+
+  useEffect(() => {
+    setCollapsedGroups((prev) => {
+      const next = { ...prev };
+      navGroups.forEach((g) => {
+        if (g.items.some((i) => pathname === i.path)) next[g.label] = false;
+      });
+      return next;
+    });
+  }, [pathname]);
 
   useEffect(() => {
     const checkMobile = () => setIsMobile(window.innerWidth < 768);
@@ -91,7 +124,8 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
   ];
 
   return (
-    <div className="min-h-screen bg-light-bg dark:bg-dark-bg flex">
+    <div className="min-h-screen bg-light-bg dark:bg-dark-bg flex relative">
+      <AmbientBackground />
       {/* Desktop Sidebar */}
       <motion.aside
         animate={{ width: sidebarOpen ? 260 : 80 }}
@@ -129,35 +163,76 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
           </motion.div>
         )}
 
-        <nav className="flex-1 px-3 py-4 space-y-1">
-          {navItems.map((item) => {
-            const isActive = pathname === item.path;
-            const Icon = item.icon;
+        <nav className="flex-1 px-3 py-4 overflow-y-auto space-y-2">
+          {navGroups.map((group) => {
+            const isCollapsed = collapsedGroups[group.label];
+            const hasActive = group.items.some((i) => pathname === i.path);
             return (
-              <Link
-                key={item.path}
-                href={item.path}
-                className={`relative flex items-center gap-3 px-3 py-2.5 rounded-xl transition-all duration-200 group ${
-                  isActive
-                    ? 'text-white font-medium'
-                    : 'text-light-muted dark:text-dark-muted hover:text-light-text dark:hover:text-dark-text'
-                }`}
-              >
-                {isActive && (
-                  <motion.div
-                    layoutId="activeNav"
-                    className="absolute inset-0 rounded-xl"
-                    style={{
-                      background: 'linear-gradient(135deg, #ec133e, #bd0f32)',
-                    }}
-                    transition={{ type: 'spring', stiffness: 300, damping: 30 }}
-                  />
-                )}
-                <Icon className="relative z-10 w-5 h-5 shrink-0" />
+              <div key={group.label}>
+                <button
+                  onClick={() => toggleGroup(group.label)}
+                  className="w-full flex items-center justify-between px-3 py-1.5 rounded-lg hover:bg-light-primary/5 dark:hover:bg-white/5 transition-colors group/header"
+                  aria-expanded={!isCollapsed}
+                >
+                  {sidebarOpen ? (
+                    <>
+                      <span className={`text-[10px] font-bold uppercase tracking-widest ${hasActive ? 'text-light-primary dark:text-dark-primary' : 'text-light-muted/60 dark:text-dark-muted/60'}`}>
+                        {group.label}
+                      </span>
+                      <ChevronDown
+                        className={`w-3.5 h-3.5 text-light-muted/50 dark:text-dark-muted/50 transition-transform duration-200 ${isCollapsed ? '-rotate-90' : ''}`}
+                      />
+                    </>
+                  ) : (
+                    <span className="mx-auto h-px w-6 bg-light-border/60 dark:bg-dark-border/60" />
+                  )}
+                </button>
                 {sidebarOpen && (
-                  <motion.span className="relative z-10 text-sm">{item.label}</motion.span>
+                  <AnimatePresence initial={false}>
+                    {!isCollapsed && (
+                      <motion.div
+                        key={`${group.label}-items`}
+                        initial={{ height: 0, opacity: 0 }}
+                        animate={{ height: 'auto', opacity: 1 }}
+                        exit={{ height: 0, opacity: 0 }}
+                        transition={{ duration: 0.18, ease: 'easeOut' }}
+                        className="overflow-hidden space-y-1"
+                      >
+                        {group.items.map((item) => {
+                          const isActive = pathname === item.path;
+                          const Icon = item.icon;
+                          return (
+                            <Link
+                              key={item.path}
+                              href={item.path}
+                              title={item.label}
+                              className={`relative flex items-center gap-3 px-3 py-2.5 rounded-xl transition-all duration-200 group ${
+                                isActive
+                                  ? 'text-white font-medium'
+                                  : 'text-light-muted dark:text-dark-muted hover:text-light-text dark:hover:text-dark-text'
+                              }`}
+                            >
+                              {isActive && (
+                                <motion.div
+                                  layoutId="activeNav"
+                                  className="absolute inset-0 rounded-xl"
+                                  style={{
+                                    background: 'linear-gradient(135deg, #ec133e, #bd0f32)',
+                                    boxShadow: '0 6px 18px rgba(236, 19, 62, 0.35), inset 0 1px 0 rgba(255,255,255,0.15)',
+                                  }}
+                                  transition={{ type: 'spring', stiffness: 300, damping: 30 }}
+                                />
+                              )}
+                              <Icon className="relative z-10 w-5 h-5 shrink-0" />
+                              <motion.span className="relative z-10 text-sm">{item.label}</motion.span>
+                            </Link>
+                          );
+                        })}
+                      </motion.div>
+                    )}
+                  </AnimatePresence>
                 )}
-              </Link>
+              </div>
             );
           })}
         </nav>
@@ -253,25 +328,56 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
                 </button>
               </div>
 
-              <nav className="flex-1 space-y-1">
-                {navItems.map((item) => {
-                  const isActive = pathname === item.path;
-                  const Icon = item.icon;
+              <nav className="flex-1 space-y-3 overflow-y-auto">
+                {navGroups.map((group) => {
+                  const isCollapsed = collapsedGroups[group.label];
+                  const hasActive = group.items.some((i) => pathname === i.path);
                   return (
-                    <Link
-                      key={item.path}
-                      href={item.path}
-                      onClick={() => setMobileMenuOpen(false)}
-                      className={`flex items-center gap-3 px-4 py-3 rounded-xl transition-all ${
-                        isActive
-                          ? 'text-white font-medium'
-                          : 'text-light-muted dark:text-dark-muted'
-                      }`}
-                      style={isActive ? { background: 'linear-gradient(135deg, #ec133e, #bd0f32)' } : {}}
-                    >
-                      <Icon className="w-5 h-5" />
-                      <span className="text-sm">{item.label}</span>
-                    </Link>
+                    <div key={group.label}>
+                      <button
+                        onClick={() => toggleGroup(group.label)}
+                        className="w-full flex items-center justify-between px-2 py-1.5 rounded-lg"
+                        aria-expanded={!isCollapsed}
+                      >
+                        <span className={`text-[10px] font-bold uppercase tracking-widest ${hasActive ? 'text-light-primary' : 'text-light-muted/60 dark:text-dark-muted/60'}`}>
+                          {group.label}
+                        </span>
+                        <ChevronDown className={`w-3.5 h-3.5 text-light-muted/50 transition-transform duration-200 ${isCollapsed ? '-rotate-90' : ''}`} />
+                      </button>
+                      <AnimatePresence initial={false}>
+                        {!isCollapsed && (
+                          <motion.div
+                            key={`${group.label}-items`}
+                            initial={{ height: 0, opacity: 0 }}
+                            animate={{ height: 'auto', opacity: 1 }}
+                            exit={{ height: 0, opacity: 0 }}
+                            transition={{ duration: 0.18, ease: 'easeOut' }}
+                            className="overflow-hidden space-y-1"
+                          >
+                            {group.items.map((item) => {
+                              const isActive = pathname === item.path;
+                              const Icon = item.icon;
+                              return (
+                                <Link
+                                  key={item.path}
+                                  href={item.path}
+                                  onClick={() => setMobileMenuOpen(false)}
+                                  className={`flex items-center gap-3 px-4 py-3 rounded-xl transition-all ${
+                                    isActive
+                                      ? 'text-white font-medium'
+                                      : 'text-light-muted dark:text-dark-muted'
+                                  }`}
+                                  style={isActive ? { background: 'linear-gradient(135deg, #ec133e, #bd0f32)' } : {}}
+                                >
+                                  <Icon className="w-5 h-5" />
+                                  <span className="text-sm">{item.label}</span>
+                                </Link>
+                              );
+                            })}
+                          </motion.div>
+                        )}
+                      </AnimatePresence>
+                    </div>
                   );
                 })}
               </nav>
@@ -309,7 +415,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
       >
         {/* Desktop Top Bar */}
         {!isMobile && (
-        <div className="hidden md:flex items-center justify-end p-3 glass-strong sticky top-0 z-30 gap-3">
+        <div className="hidden md:flex items-center justify-end p-3 glass-strong sticky top-0 z-30 gap-3 border-b border-light-border/40 dark:border-white/5 shadow-[0_6px_20px_rgba(0,0,0,0.06)]">
           <span className="text-sm font-medium text-light-muted dark:text-dark-muted tabular-nums">{currentTime}</span>
           <NotificationCenter />
           <ThemeToggle />
@@ -318,7 +424,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
 
         {/* Mobile Header */}
         {isMobile && (
-          <div className="md:hidden flex items-center justify-between p-4 glass-strong sticky top-0 z-30">
+          <div className="md:hidden flex items-center justify-between p-4 glass-strong sticky top-0 z-30 border-b border-light-border/40 dark:border-white/5">
             <button onClick={() => setMobileMenuOpen(true)} className="text-light-text dark:text-dark-text" aria-label="Open mobile menu">
               <Menu className="w-6 h-6" />
             </button>
@@ -335,7 +441,17 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
 
         <div className="p-4 md:p-6 lg:p-8 space-y-4">
           <GlobalStatusBar />
-          {children}
+          <AnimatePresence mode="wait">
+            <motion.div
+              key={pathname}
+              initial={{ opacity: 0, y: 12 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: -8 }}
+              transition={{ duration: 0.25, ease: 'easeOut' }}
+            >
+              {children}
+            </motion.div>
+          </AnimatePresence>
         </div>
       </main>
     </div>

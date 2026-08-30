@@ -100,7 +100,7 @@ export function LiveActivityFeed() {
         {logs.length === 0 ? (
           <div className="flex flex-col items-center justify-center py-10 text-light-muted dark:text-dark-muted">
             <p className="text-sm font-medium">No recent activity</p>
-            <p className="text-xs mt-1 text-center max-w-[280px]">Agents have been quiet — the next scheduled run is at 11:45 AM Nepal time. Activity will appear here once agents start working</p>
+            <p className="text-xs mt-1 text-center max-w-[280px]">Agents have been quiet — the next scheduled run is at 8:50 PM Nepal time. Activity will appear here once agents start working</p>
           </div>
         ) : (
           <AnimatePresence initial={false}>

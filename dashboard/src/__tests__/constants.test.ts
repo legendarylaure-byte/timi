@@ -23,18 +23,31 @@ describe('AGENT_ROLES', () => {
 });
 
 describe('CONTENT_CATEGORIES', () => {
-  it('has name and description for each category', () => {
+  it('has required fields for each category', () => {
     CONTENT_CATEGORIES.forEach((cat) => {
       expect(cat).toHaveProperty('name');
       expect(cat).toHaveProperty('description');
+      expect(cat).toHaveProperty('group');
+      expect(cat).toHaveProperty('isNews');
+      expect(['pillar', 'news']).toContain(cat.group);
       expect(typeof cat.name).toBe('string');
       expect(cat.name.length).toBeGreaterThan(0);
     });
   });
 
-  it('includes AI Explained and Deep Tech', () => {
+  it('matches the backend canonical categories', () => {
     const names = CONTENT_CATEGORIES.map((c) => c.name);
-    expect(names).toContain('AI Explained');
-    expect(names).toContain('Deep Tech');
+    expect(names).toEqual([
+      'AI News',
+      'Science & Technology',
+      'Programming & Software',
+      'World News (24hr)',
+      'Nepal News',
+    ]);
+  });
+
+  it('flags news categories correctly', () => {
+    const news = CONTENT_CATEGORIES.filter((c) => c.isNews);
+    expect(news.map((c) => c.name)).toEqual(['World News (24hr)', 'Nepal News']);
   });
 });

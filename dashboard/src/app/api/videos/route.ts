@@ -41,7 +41,11 @@ export async function GET(request: Request) {
         title: d.title || '',
         format: d.format || 'shorts',
         status: d.status || '',
+        category: d.category || '',
         video_url: d.video_url || '',
+        youtube_url: d.youtube_url || '',
+        publish_at: d.publish_at || '',
+        news_source: d.news_source || '',
         created_at: createdAt,
       };
     });

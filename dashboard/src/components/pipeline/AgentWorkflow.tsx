@@ -108,7 +108,7 @@ export function AgentWorkflow({
             <p className="text-[11px] text-light-muted dark:text-dark-muted">
               {pipeline?.running
                 ? (workingCount > 0 ? `${workingCount} agent${workingCount > 1 ? 's' : ''} working` : 'Pipeline active — waiting for agent dispatch')
-                : 'Waiting for next daily run at 11:45 AM NPT'}
+                : 'Waiting for next daily run at 8:50 PM NPT'}
             </p>
           </div>
         </div>

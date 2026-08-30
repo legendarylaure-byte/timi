@@ -70,7 +70,7 @@ export default function PublishingPage() {
   }, []);
 
   const totalFollowers = platforms.reduce((s, p) => s + p.followers, 0);
-  const totalPublished = platforms.reduce((s, p) => s + p.videosPublished, 0);
+  const totalPublished = platforms.reduce((s, p) => s + (Number(p.videosPublished) || 0), 0);
   const connectedCount = platforms.filter(p => p.connected).length;
   const queuedCount = queue.filter(q => q.status === 'queued').length;
 
@@ -81,7 +81,10 @@ export default function PublishingPage() {
     instagram: '/api/auth/meta?action=connect',
   };
 
-  const formatFollowers = (n: number) => n >= 1000000 ? (n / 1000000).toFixed(1) + 'M' : n >= 1000 ? (n / 1000).toFixed(1) + 'K' : n.toString();
+  const formatFollowers = (n?: number) => {
+    if (typeof n !== 'number' || Number.isNaN(n)) return '0';
+    return n >= 1000000 ? (n / 1000000).toFixed(1) + 'M' : n >= 1000 ? (n / 1000).toFixed(1) + 'K' : n.toString();
+  };
 
   const savePlatformSetting = async (platformId: string, updated: any) => {
     try {
@@ -314,7 +317,7 @@ export default function PublishingPage() {
                   return (
                     <div key={platformId} className="flex-1">
                       <div className="flex items-center justify-between mb-1">
-                        <span className="text-xs text-light-muted dark:text-dark-muted">{platform?.icon} {platform?.name}</span>
+                        <span className="text-xs text-light-muted dark:text-dark-muted">{platform?.icon} {platform?.name || platformId}</span>
                         <span className="text-xs font-bold text-light-text dark:text-dark-text">{progress}%</span>
                       </div>
                       <div className="w-full h-1.5 bg-light-border dark:bg-dark-border rounded-full overflow-hidden">

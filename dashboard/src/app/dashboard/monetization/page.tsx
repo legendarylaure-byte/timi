@@ -16,6 +16,7 @@ interface RevenueData {
   estimatedYearly: number;
   dailyRevenue: DailyEntry[];
   platformBreakdown: PlatformRevenue[];
+  last_reviewed_at?: any;
 }
 
 interface Milestone {
@@ -211,6 +212,29 @@ export default function MonetizationPage() {
               : projectedDate ? `Estimated YPP eligibility: ${projectedDate} at current growth rate` : 'Keep uploading — milestones track your progress below'}
           </p>
         </div>
+      </motion.div>
+
+      {/* Last weekly review */}
+      <motion.div
+        initial={{ opacity: 0, y: 10 }}
+        animate={{ opacity: 1, y: 0 }}
+        className="rounded-2xl p-4 border border-light-border/30 dark:border-white/5 glass-strong flex items-center gap-3"
+      >
+        <span className="w-10 h-10 rounded-xl bg-light-primary/15 flex items-center justify-center shrink-0">
+          <Clock className="w-5 h-5 text-light-primary" />
+        </span>
+        <div className="flex-1">
+          <p className="text-sm font-bold text-light-text dark:text-dark-text">Last Weekly Review</p>
+          <p className="text-xs text-light-muted dark:text-dark-muted mt-0.5">
+            {revenue?.last_reviewed_at
+              ? (() => {
+                  const d = revenue.last_reviewed_at.toDate ? revenue.last_reviewed_at.toDate() : new Date(revenue.last_reviewed_at);
+                  return `Reviewed ${d.toLocaleString([], { month: 'short', day: 'numeric', year: 'numeric', hour: '2-digit', minute: '2-digit' })} — subs / watch-hours pulled live from YouTube.`;
+                })()
+              : 'No weekly review recorded yet. The agent review runs every Monday (12:00 UTC), pulling real channel stats and generating a monetization checkpoint.'}
+          </p>
+        </div>
+        <span className="text-[10px] px-2 py-1 rounded-full bg-light-primary/10 text-light-primary whitespace-nowrap">Every Mon 12:00 UTC</span>
       </motion.div>
 
       {/* Revenue Stats */}

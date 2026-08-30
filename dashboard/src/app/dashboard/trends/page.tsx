@@ -23,9 +23,8 @@ interface TrendItem {
 
 const categoryIcon = (cat: string) => {
   const icons: Record<string, string> = {
-    'AI Explained': '🤖', 'Deep Tech': '⚡', 'Paper Breakdowns': '📄',
-    'Tool Tutorials': '🛠️', 'Industry Analysis': '📊', 'Code & Build': '💻',
-    'AI News': '📰', 'Career & Learning': '🎯',
+    'AI News': '🤖', 'Science & Technology': '🔬', 'Programming & Software': '💻',
+    'World News (24hr)': '🌍', 'Nepal News': '🇳🇵',
   };
   return icons[cat] || '🔥';
 };

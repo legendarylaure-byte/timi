@@ -165,7 +165,7 @@ export function ActivePipeline() {
                   ? `${workingCount} agent${workingCount > 1 ? 's' : ''} on background tasks`
                 : pipeline.paused_by_user
                   ? 'Paused — resume from the controls above'
-                  : 'Idle — next run at 11:45 AM NPT'}
+                  : 'Idle — next run at 8:50 PM NPT'}
             </p>
           </div>
         </div>
@@ -347,7 +347,7 @@ export function ActivePipeline() {
               <p className="text-sm text-light-text/80 dark:text-dark-muted">
                 {pipeline.paused_by_user
                   ? 'Pipeline is paused. Resume from the controls above.'
-                  : <>Pipeline is resting. Next automatic video at <strong className="text-light-text dark:text-dark-text">11:45 AM Nepal time</strong> (06:00 UTC).</>
+                  : <>Pipeline is resting. Next automatic video at <strong className="text-light-text dark:text-dark-text">8:50 PM Nepal time</strong> (15:05 UTC).</>
                 }
               </p>
               {!pipeline.paused_by_user && (

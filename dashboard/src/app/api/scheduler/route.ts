@@ -125,7 +125,7 @@ export async function POST(request: Request) {
 
         await db.collection('content_plan').add({
           title: `${plan.title || 'Series'} — Part ${part.part}`,
-          category: (plan.categories || [])[0] || 'AI Explained',
+          category: (plan.categories || [])[0] || 'AI News',
           format: part.estimated_duration || 'shorts',
           scheduled_at: scheduledDate,
           status: 'planned',

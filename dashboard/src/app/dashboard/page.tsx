@@ -7,7 +7,7 @@ import {
   collection, onSnapshot, doc, query, orderBy, limit,
   where,
 } from 'firebase/firestore';
-import { CONTENT_CATEGORIES } from '@/lib/constants';
+import { CONTENT_CATEGORIES, NEWS_CATEGORIES, DAILY_SCHEDULE } from '@/lib/constants';
 import { useToast } from '@/components/ui/Toast';
 import { ActivePipeline } from '@/components/pipeline/ActivePipeline';
 import { RenderingProgress } from '@/components/pipeline/RenderingProgress';
@@ -15,7 +15,8 @@ import { AgentGrid } from '@/components/agents/AgentGrid';
 import { LiveActivityFeed } from '@/components/activity/LiveActivityFeed';
 import { NextUploadTimer } from '@/components/schedule/NextUploadTimer';
 import { DockerStatus, StorageStatus, FirebaseStatus } from '@/components/status/SystemStatusWidgets';
-import { Rocket, Calendar, Lightbulb, TrendingUp, BarChart3 } from 'lucide-react';
+import { Rocket, Calendar, Lightbulb, TrendingUp, BarChart3, Newspaper } from 'lucide-react';
+import Link from 'next/link';
 import { AgentWorkflow } from '@/components/pipeline/AgentWorkflow';
 import Image from 'next/image';
 
@@ -40,13 +41,13 @@ export default function DashboardPage() {
   const [videosToday, setVideosToday] = useState(0);
   const [totalVideos, setTotalVideos] = useState(0);
   const [totalViews, setTotalViews] = useState(0);
-  const [shortsQuota, setShortsQuota] = useState(2);
-  const [longQuota, setLongQuota] = useState(2);
+  const [shortsQuota, setShortsQuota] = useState(DAILY_SCHEDULE.shorts);
+  const [longQuota, setLongQuota] = useState(DAILY_SCHEDULE.long);
   const [shortsTodayDone, setShortsTodayDone] = useState(0);
   const [longTodayDone, setLongTodayDone] = useState(0);
   const [triggers, setTriggers] = useState<PipelineTrigger[]>([]);
   const [triggerForm, setTriggerForm] = useState({
-    topic: '', category: 'science', format: 'shorts', schedule: 'now' as 'now' | 'schedule', publishAt: '',
+    topic: '', category: 'AI News', format: 'shorts', schedule: 'now' as 'now' | 'schedule', publishAt: '',
   });
   const [triggerSubmitting, setTriggerSubmitting] = useState(false);
   const [insights, setInsights] = useState<{
@@ -81,16 +82,6 @@ export default function DashboardPage() {
       setVideosToday(today.length);
       setShortsTodayDone(today.filter(v => v.format === 'shorts' && v.status === 'uploaded').length);
       setLongTodayDone(today.filter(v => v.format === 'long' && v.status === 'uploaded').length);
-    }, () => {});
-    return () => unsub();
-  }, []);
-
-  useEffect(() => {
-    const unsub = onSnapshot(doc(db, 'settings', 'general'), (snap) => {
-      if (!snap.exists()) return;
-      const d = snap.data();
-      if (d.shortsPerDay !== undefined) setShortsQuota(d.shortsPerDay);
-      if (d.longPerDay !== undefined) setLongQuota(d.longPerDay);
     }, () => {});
     return () => unsub();
   }, []);
@@ -145,7 +136,7 @@ export default function DashboardPage() {
           : `Triggered ${triggerForm.format}: "${triggerForm.topic}"`,
         'success',
       );
-      setTriggerForm({ topic: '', category: 'science', format: 'shorts', schedule: 'now', publishAt: '' });
+      setTriggerForm({ topic: '', category: 'AI News', format: 'shorts', schedule: 'now', publishAt: '' });
     } catch {
       addToast('Failed to trigger pipeline', 'error');
     } finally {
@@ -186,6 +177,32 @@ export default function DashboardPage() {
           </p>
         </div>
       </motion.div>
+
+      {/* News bar */}
+      <Link href="/dashboard/news" className="block">
+        <motion.div
+          initial={{ opacity: 0, y: -10 }}
+          animate={{ opacity: 1, y: 0 }}
+          className="rounded-2xl border border-light-primary/25 dark:border-light-primary/40 p-4 hover:shadow-lg transition-shadow"
+          style={{ background: 'linear-gradient(135deg, rgba(0,204,204,0.10), rgba(26,26,26,0.35))' }}
+        >
+          <div className="flex items-center gap-3">
+            <span className="w-10 h-10 rounded-xl bg-light-primary/15 flex items-center justify-center shrink-0">
+              <Newspaper className="w-5 h-5 text-light-primary" />
+            </span>
+            <div className="flex-1">
+              <p className="text-sm font-semibold text-light-text dark:text-dark-text flex items-center gap-2">
+                News Desk
+                <span className="text-[10px] font-medium px-2 py-0.5 rounded-full bg-light-primary/15 text-light-primary">2 shorts + 1 long daily</span>
+              </p>
+              <p className="text-xs text-light-muted dark:text-dark-muted mt-0.5">
+                Verified {NEWS_CATEGORIES.map((c) => c.name).join(' · ')} — scraped from reputable publishers, published overnight.
+              </p>
+            </div>
+            <span className="text-light-primary text-xs font-medium whitespace-nowrap">View →</span>
+          </div>
+        </motion.div>
+      </Link>
 
       {/* Agent Workflow — live pipeline visualization */}
       <AgentWorkflow

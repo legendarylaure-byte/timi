@@ -2,6 +2,22 @@
 @tailwind components;
 @tailwind utilities;
 
+:root {
+  --radius-sm: 0.625rem;      /* 10px */
+  --radius-md: 0.875rem;      /* 14px */
+  --radius-lg: 1.125rem;      /* 18px */
+  --radius-xl: 1.5rem;        /* 24px */
+  --glass-blur: 20px;
+  --glass-strength: 0.55;
+  --shadow-card: 0 8px 30px rgba(15, 15, 35, 0.10);
+  --shadow-card-lg: 0 16px 40px rgba(15, 15, 35, 0.18);
+}
+
+.dark {
+  --shadow-card: 0 8px 30px rgba(0, 0, 0, 0.35);
+  --shadow-card-lg: 0 18px 46px rgba(0, 0, 0, 0.5);
+}
+
 @layer base {
   * {
     @apply border-light-border/50 dark:border-dark-border/50;
@@ -9,6 +25,18 @@
 
   body {
     @apply bg-light-bg dark:bg-dark-bg text-light-text dark:text-dark-text antialiased;
+    background-attachment: fixed;
+  }
+
+  /* Accessible focus ring shared by frosted interactive elements */
+  :focus-visible {
+    outline: 2px solid rgba(236, 19, 62, 0.6);
+    outline-offset: 2px;
+    border-radius: var(--radius-sm);
+  }
+
+  ::selection {
+    background: rgba(236, 19, 62, 0.25);
   }
 
   @media (prefers-reduced-motion: reduce) {
@@ -17,30 +45,110 @@
       animation-iteration-count: 1 !important;
       transition-duration: 0.01ms !important;
     }
+
+    /* Kill orb drift when reduced motion is requested */
+    .ambient-orb, .ambient-orb-lg, .ambient-orb-sm {
+      animation: none !important;
+    }
   }
 }
 
 @layer components {
+  /* ---- Base glass tokens (frost + saturate + inset lighting) ---- */
+
+  /* thin frosted chip (buttons, small bars) */
   .glass {
-    @apply bg-white/80 dark:bg-dark-card/60 backdrop-blur-xl border border-light-border/30 dark:border-white/10;
+    @apply bg-white/75 dark:bg-dark-card/55 backdrop-blur-[calc(var(--glass-blur)*0.8)] border border-light-border/30 dark:border-white/10;
+    background-image: linear-gradient(to bottom, rgba(255,255,255,0.18), rgba(255,255,255,0) 40%);
+    background-color: color-mix(in srgb, #ffffff calc(var(--glass-strength) * 100%), transparent);
   }
 
+  /* strong frosted panel (sidebar, top bars) */
   .glass-strong {
-    @apply bg-white/90 dark:bg-dark-card/80 backdrop-blur-2xl border border-light-border/40 dark:border-white/15;
+    @apply bg-white/90 dark:bg-dark-card/75 backdrop-blur-2xl border border-light-border/40 dark:border-white/15;
+    box-shadow: inset 0 1px 0 rgba(255,255,255,0.55), inset 0 -1px 0 rgba(255,255,255,0.06);
   }
 
+  .dark .glass-strong {
+    box-shadow: inset 0 1px 0 rgba(255,255,255,0.10), inset 0 -12px 24px rgba(0,0,0,0.10);
+  }
+
+  /* default card */
   .glass-card {
     @apply backdrop-blur-xl bg-white/80 dark:bg-dark-card/70 border border-light-border/50 dark:border-dark-border/50 rounded-2xl;
+    box-shadow: var(--shadow-card), inset 0 1px 0 rgba(255,255,255,0.6);
+  }
+
+  .dark .glass-card {
+    box-shadow: var(--shadow-card), inset 0 1px 0 rgba(255,255,255,0.08);
+  }
+
+  /* primary panel used across cards — consistent + premium frosted look */
+  .glass-panel {
+    position: relative;
+    @apply rounded-2xl backdrop-blur-xl border border-light-border/50 dark:border-dark-border/50;
+    background:
+      linear-gradient(to bottom, rgba(255,255,255,0.5), rgba(255,255,255,0.18)),
+      color-mix(in srgb, #ffffff calc(var(--glass-strength) * 100%), transparent);
+    box-shadow: var(--shadow-card), inset 0 1px 0 rgba(255,255,255,0.6);
+  }
+
+  .dark .glass-panel {
+    background:
+      linear-gradient(to bottom, rgba(255,255,255,0.07), rgba(255,255,255,0) 45%),
+      linear-gradient(160deg, rgba(255,105,105,0.08), rgba(76,205,196,0.05) 60%, rgba(12,24,68,0.25));
+    box-shadow: var(--shadow-card), inset 0 1px 0 rgba(255,255,255,0.08);
+  }
+
+  /* KPI / stat panel with colored accent strip */
+  .glass-kpi {
+    @apply rounded-2xl backdrop-blur-xl border border-light-border/50 dark:border-dark-border/50 overflow-hidden;
+    background:
+      linear-gradient(to bottom, rgba(255,255,255,0.5), rgba(255,255,255,0.16)),
+      color-mix(in srgb, #ffffff calc(var(--glass-strength) * 100%), transparent);
+    box-shadow: var(--shadow-card), inset 0 1px 0 rgba(255,255,255,0.6);
+  }
+
+  .dark .glass-kpi {
+    background:
+      linear-gradient(to bottom, rgba(255,255,255,0.07), rgba(255,255,255,0) 45%),
+      linear-gradient(160deg, rgba(255,105,105,0.10), rgba(76,205,196,0.06) 60%, rgba(12,24,68,0.28));
+    box-shadow: var(--shadow-card), inset 0 1px 0 rgba(255,255,255,0.08);
+  }
+
+  .glass-kpi .kpi-accent {
+    @apply absolute inset-x-0 top-0 h-1;
+  }
+
+  /* warm variant (already used in some places) */
+  .glass-warm {
+    @apply bg-white/90 dark:bg-dark-card/70 backdrop-blur-2xl border border-light-border/40 dark:border-white/15;
   }
 
   .card-hover {
     @apply transition-all duration-300 hover:shadow-xl hover:-translate-y-1;
   }
 
+  .glass-panel.card-hover:hover, .glass-card:hover {
+    box-shadow: var(--shadow-card-lg), inset 0 1px 0 rgba(255,255,255,0.6);
+  }
+
+  /* subtle film-grain noise over glass to hide banding */
+  .glass-noise::after {
+    content: '';
+    position: absolute;
+    inset: 0;
+    border-radius: inherit;
+    pointer-events: none;
+    opacity: 0.04;
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='140' height='140'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='2'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+  }
+
   .btn-primary {
     @apply px-6 py-3 rounded-xl font-semibold text-white transition-all duration-300;
     @apply bg-gradient-to-r from-light-primary to-light-secondary dark:from-dark-primary dark:to-dark-secondary;
     @apply hover:shadow-lg hover:scale-105 active:scale-95;
+    box-shadow: 0 6px 18px rgba(236, 19, 62, 0.28);
   }
 
   .btn-secondary {
@@ -74,6 +182,52 @@
     background-size: 400% 400%;
     animation: aurora 15s ease-in-out infinite;
   }
+
+  /* ---- Ambient background orbs ---- */
+  .ambient-scene {
+    background: transparent;
+  }
+
+  .ambient-scene.light-scene {
+    background:
+      radial-gradient(60% 50% at 12% 18%, rgba(236, 41, 75, 0.16), transparent 62%),
+      radial-gradient(55% 50% at 88% 82%, rgba(78, 205, 196, 0.16), transparent 62%),
+      radial-gradient(45% 45% at 55% 8%, rgba(244, 113, 139, 0.12), transparent 60%);
+  }
+
+  .ambient-scene.dark-scene {
+    background:
+      radial-gradient(60% 50% at 12% 18%, rgba(236, 19, 62, 0.20), transparent 62%),
+      radial-gradient(55% 50% at 88% 82%, rgba(78, 205, 196, 0.14), transparent 62%),
+      radial-gradient(45% 45% at 55% 8%, rgba(212, 184, 150, 0.08), transparent 60%);
+  }
+
+  .ambient-orb {
+    position: absolute;
+    border-radius: 9999px;
+    filter: blur(70px);
+    opacity: 0.5;
+    will-change: transform;
+    animation: orb-drift 22s ease-in-out infinite;
+  }
+
+  .ambient-orb-lg {
+    position: absolute;
+    border-radius: 9999px;
+    filter: blur(110px);
+    opacity: 0.45;
+    will-change: transform;
+    animation: orb-drift-lg 30s ease-in-out infinite;
+  }
+
+  .ambient-orb-sm {
+    position: absolute;
+    border-radius: 9999px;
+    filter: blur(40px);
+    opacity: 0.4;
+    will-change: transform;
+    animation: orb-drift-sm 16s ease-in-out infinite;
+  }
 }
 
 @keyframes aurora {
@@ -94,9 +248,21 @@
   100% { background-position: 0% 50%; }
 }
 
-  .glass-warm {
-    @apply bg-white/90 dark:bg-dark-card/70 backdrop-blur-2xl border border-light-border/40 dark:border-white/15;
-  }
+@keyframes orb-drift {
+  0%, 100% { transform: translate(0, 0) scale(1); }
+  33% { transform: translate(40px, -30px) scale(1.08); }
+  66% { transform: translate(-24px, 28px) scale(0.95); }
+}
+
+@keyframes orb-drift-lg {
+  0%, 100% { transform: translate(0, 0) scale(1); }
+  50% { transform: translate(-50px, 40px) scale(1.1); }
+}
+
+@keyframes orb-drift-sm {
+  0%, 100% { transform: translate(0, 0) scale(1); }
+  50% { transform: translate(30px, 20px) scale(1.15); }
+}
 
 .glow-red {
   box-shadow: 0 0 20px rgba(236, 19, 62, 0.1);
@@ -118,7 +284,7 @@
   inset: 0;
   border-radius: inherit;
   padding: 1px;
-  background: linear-gradient(135deg, #ec133e, #f4718b, #ec133e, #f4718b);
+  background: linear-gradient(135deg, #ec133e, #4ecdc4, #ec133e, #4ecdc4);
   background-size: 300% 300%;
   animation: border-shimmer 4s ease-in-out infinite;
   -webkit-mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0);

@@ -132,6 +132,7 @@ def _get_ollama_llm(temperature: float, max_tokens: int, agent_id: str | None = 
         model=f"ollama/{model}",
         base_url=base,
         temperature=temperature,
+        max_tokens=max_tokens,
     )
 
 

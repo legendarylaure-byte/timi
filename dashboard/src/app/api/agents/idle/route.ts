@@ -5,7 +5,7 @@ const IDLE_BEHAVIORS = [
     id: 'scriptwriter',
     name: 'Scriptwriter',
     idle_action: 'Monitoring content plan queue for new topics',
-    next_trigger: 'Daily 06:00 UTC or manual pipeline trigger',
+    next_trigger: 'Daily 15:05 UTC or manual pipeline trigger',
     idle_detail: 'Scans the content_plan and pipeline_triggers Firestore collections every 60s for pending topics. When idle, it has no queued scripts to write.',
   },
   {
@@ -62,7 +62,7 @@ const IDLE_BEHAVIORS = [
     name: 'Publisher',
     idle_action: 'Checking scheduled publish times and pending uploads',
     next_trigger: 'Every 15 min (scheduled_publish_job) or when a video is ready',
-    idle_detail: 'Uploads to YouTube, TikTok, Instagram, and Facebook with AI disclosure flags. Idle most of the day — only active when a video is fully ready or a scheduled publish time is reached.',
+    idle_detail: 'Uploads to YouTube, Instagram, and Facebook (TikTok ready — will be enabled once the TikTok workflow is production-ready). Idle most of the day — only active when a video is fully ready or a scheduled publish time is reached.',
   },
   {
     id: 'quality_scorer',
@@ -82,8 +82,8 @@ const IDLE_BEHAVIORS = [
     id: 'repurposer',
     name: 'Content Repurposer',
     idle_action: 'Checking for long-form videos to split into shorts',
-    next_trigger: 'Daily at 14:00 UTC',
-    idle_detail: 'Splits long videos into short clips for cross-platform distribution. Runs on schedule, not per-video-trigger.',
+    next_trigger: 'Manual only (daily auto-repurpose disabled)',
+    idle_detail: 'Splits long videos into short clips for cross-platform distribution. The daily auto-repurpose job was removed — run manually via scripts/repurpose.py.',
   },
   {
     id: 'scheduler',

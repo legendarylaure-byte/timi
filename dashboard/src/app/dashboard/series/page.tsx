@@ -55,7 +55,7 @@ export default function SeriesPage() {
   const [promoting, setPromoting] = useState<string | null>(null);
 
   const [form, setForm] = useState({
-    name: '', description: '', category: 'AI Explained', youtube_playlist_link: '', auto_generated: false,
+    name: '', description: '', category: 'AI News', youtube_playlist_link: '', auto_generated: false,
   });
 
   useEffect(() => {
@@ -95,7 +95,7 @@ export default function SeriesPage() {
   };
 
   const openNew = () => {
-    setForm({ name: '', description: '', category: 'AI Explained', youtube_playlist_link: '', auto_generated: false });
+    setForm({ name: '', description: '', category: 'AI News', youtube_playlist_link: '', auto_generated: false });
     setEditing(null);
     setShowForm(true);
   };
@@ -150,7 +150,7 @@ export default function SeriesPage() {
         const seriesData = {
           name: `${plan.title} — Part ${part.part}`,
           description: part.description,
-          category: plan.categories[0] || 'AI Explained',
+          category: plan.categories[0] || 'AI News',
           youtube_playlist_link: '',
           auto_generated: true,
         };

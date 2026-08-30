@@ -31,6 +31,7 @@ interface VideoDoc {
   published_platforms?: string[];
   publish_urls?: Record<string, string>;
   youtube_id?: string;
+  youtube_url?: string;
   error?: string;
   failed_step?: string;
 }
@@ -96,6 +97,8 @@ export default function ArchivePage() {
   const statusColors: Record<string, string> = {
     generating: 'bg-yellow-500/20 text-yellow-400 border-yellow-500/30',
     uploaded: 'bg-emerald-500/20 text-emerald-400 border-emerald-500/30',
+    scheduled: 'bg-sky-500/20 text-sky-400 border-sky-500/30',
+    upload_failed: 'bg-red-500/20 text-red-400 border-red-500/30',
     failed: 'bg-red-500/20 text-red-400 border-red-500/30',
     blocked: 'bg-orange-500/20 text-orange-400 border-orange-500/30',
     blocked_virality: 'bg-orange-500/20 text-orange-400 border-orange-500/30',
@@ -103,9 +106,7 @@ export default function ArchivePage() {
     testing: 'bg-blue-500/20 text-blue-400 border-blue-500/30',
   };
 
-  const baseFiltered = videos.filter((v) => {
-    return !v.category || CONTENT_CATEGORIES.some(c => c.name === v.category);
-  });
+  const baseFiltered = videos;
 
   const filtered = baseFiltered.filter((v) => {
     const matchSearch = search === '' || v.title?.toLowerCase().includes(search.toLowerCase());
@@ -164,9 +165,9 @@ export default function ArchivePage() {
 
   const getYouTubeId = (v: VideoDoc): string | undefined => {
     if (v.youtube_id) return v.youtube_id;
-    const url = v.publish_urls?.youtube || v.publish_urls?.YouTube;
+    const url = v.youtube_url || v.publish_urls?.youtube || v.publish_urls?.YouTube;
     if (url) {
-      const m = url.match(/(?:v=|youtu\.be\/)([\w-]+)/);
+      const m = url.match(/(?:v=|youtu\.be\/|youtube\.com\/shorts\/)([\w-]+)/);
       if (m) return m[1];
     }
     return undefined;
@@ -245,7 +246,9 @@ export default function ArchivePage() {
         >
           <option value="all">All Status</option>
           <option value="uploaded">Uploaded</option>
+          <option value="scheduled">Scheduled</option>
           <option value="generating">Generating</option>
+          <option value="upload_failed">Upload Failed</option>
           <option value="failed">Failed</option>
         </select>
         <select

@@ -7,14 +7,12 @@ import { doc, updateDoc, getDoc, setDoc, collection, onSnapshot } from 'firebase
 import { useToast } from '@/components/ui/Toast';
 import { GradientCard } from '@/components/ui/GradientCard';
 import { toggleTheme as toggleAppTheme } from '@/lib/theme';
-import { DAILY_QUOTA, CONTENT_CATEGORIES, PLATFORMS } from '@/lib/constants';
+import { CONTENT_CATEGORIES, PLATFORMS, DAILY_SCHEDULE, PUBLISH_SLOTS } from '@/lib/constants';
 
 export default function SettingsPage() {
   const { addToast } = useToast();
   const [notifications, setNotifications] = useState(true);
   const [autoUpload, setAutoUpload] = useState(true);
-  const [shortsPerDay, setShortsPerDay] = useState(DAILY_QUOTA.shorts);
-  const [longPerDay, setLongPerDay] = useState(DAILY_QUOTA.long);
   const [selectedCategories, setSelectedCategories] = useState<string[]>(CONTENT_CATEGORIES.map(c => c.name));
   const [theme, setTheme] = useState<'light' | 'dark'>('light');
 
@@ -46,6 +44,14 @@ export default function SettingsPage() {
     TikTok: ['TIKTOK_CLIENT_KEY', 'TIKTOK_CLIENT_SECRET', 'TIKTOK_ACCESS_TOKEN', 'TIKTOK_OPEN_ID', 'TIKTOK_REFRESH_TOKEN'],
     'Google Cloud': ['GOOGLE_APPLICATION_CREDENTIALS'],
     'AI / LLM': ['GEMINI_API_KEY', 'GROQ_API_KEY'],
+    'Pipeline / Scheduling': [
+      'SCHEDULE_SHORTS_PER_DAY',
+      'SCHEDULE_LONG_PER_DAY',
+      'GPU_VIDEO_BUDGET_PER_DAY',
+      'ENABLE_NEWS',
+      'NEWS_FRESHNESS_HOURS',
+      'NEWS_MAX_ITEMS_PER_FEED',
+    ],
     Other: [
       'PEXELS_API_KEY',
       'PIXABAY_API_KEY',
@@ -147,8 +153,6 @@ export default function SettingsPage() {
           const data = snap.data();
           if (data.notifications !== undefined) setNotifications(data.notifications);
           if (data.autoUpload !== undefined) setAutoUpload(data.autoUpload);
-          if (data.shortsPerDay !== undefined) setShortsPerDay(data.shortsPerDay);
-          if (data.longPerDay !== undefined) setLongPerDay(data.longPerDay);
           if (data.selectedCategories !== undefined) setSelectedCategories(data.selectedCategories);
           if (data.notifSuccess !== undefined) setNotifSuccess(data.notifSuccess);
           if (data.notifWarning !== undefined) setNotifWarning(data.notifWarning);
@@ -206,8 +210,6 @@ export default function SettingsPage() {
         body: JSON.stringify({
           notifications,
           autoUpload,
-          shortsPerDay,
-          longPerDay,
           selectedCategories,
           notifSuccess,
           notifWarning,
@@ -263,55 +265,62 @@ export default function SettingsPage() {
 
       {/* Content Schedule */}
       <GradientCard gradient="warm">
-        <h2 className="text-lg font-bold text-light-text dark:text-dark-text mb-4">Content Schedule</h2>
+        <h2 className="text-lg font-bold text-light-text dark:text-dark-text mb-1">Content Schedule</h2>
+        <p className="text-sm text-light-muted dark:text-dark-muted mb-4">
+          Fixed at exactly <span className="font-semibold text-light-primary">{DAILY_SCHEDULE.label}</span> — a locked overnight idle-window routine (8:50 PM Nepal start). Tune volume via the Pipeline / Scheduling env vars below.
+        </p>
 
-        <div className="space-y-6">
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-4">
+          {[
+            { label: 'News Shorts', value: DAILY_SCHEDULE.newsShorts, icon: '🗞️' },
+            { label: 'Pillar Shorts', value: DAILY_SCHEDULE.pillarShorts, icon: '🤖' },
+            { label: 'News Longs', value: DAILY_SCHEDULE.newsLong, icon: '📰' },
+            { label: 'Pillar Longs', value: DAILY_SCHEDULE.pillarLong, icon: '🎥' },
+          ].map((item) => (
+            <div key={item.label} className="p-3 rounded-xl bg-light-bg/60 dark:bg-dark-bg/60 border border-light-border/30 dark:border-white/5">
+              <div className="flex items-center gap-1.5 mb-1">
+                <span className="text-sm">{item.icon}</span>
+                <p className="text-[11px] text-light-muted dark:text-dark-muted">{item.label}</p>
+              </div>
+              <p className="text-xl font-bold gradient-text">{item.value} /day</p>
+            </div>
+          ))}
+        </div>
+
+        <p className="text-xs font-bold text-light-muted dark:text-dark-muted uppercase tracking-wider mb-2">Publish Slots (Nepal time)</p>
+        <div className="space-y-2 mb-5">
+          {PUBLISH_SLOTS.map((slot) => (
+            <div key={slot.id} className="flex items-center justify-between p-2.5 rounded-xl bg-light-bg/50 dark:bg-dark-bg/50">
+              <div className="flex items-center gap-3">
+                <span className="text-lg w-8 h-8 rounded-lg flex items-center justify-center text-sm bg-light-primary/10">{slot.format === 'shorts' ? '📱' : '🎬'}</span>
+                <div>
+                  <p className="text-sm font-medium text-light-text dark:text-dark-text">{slot.label}</p>
+                  <p className="text-[10px] text-light-muted dark:text-dark-muted">{slot.category}</p>
+                </div>
+              </div>
+              <div className="text-right">
+                <p className="text-sm font-bold text-light-text dark:text-dark-text">{slot.npt}</p>
+                <p className="text-[10px] text-light-muted dark:text-dark-muted">{slot.utc}</p>
+              </div>
+            </div>
+          ))}
+        </div>
+
+        <div className="flex items-center justify-between">
           <div>
-            <div className="flex items-center justify-between mb-2">
-              <label className="font-medium text-light-text dark:text-dark-text">Shorts per day</label>
-              <span className="text-sm font-bold gradient-text">{shortsPerDay} videos</span>
-            </div>
-            <input
-              type="range"
-              min="0"
-              max="5"
-              value={shortsPerDay}
-              onChange={(e) => setShortsPerDay(Number(e.target.value))}
-              className="w-full accent-light-primary"
+            <p className="font-medium text-light-text dark:text-dark-text">Auto-upload</p>
+            <p className="text-sm text-light-muted dark:text-dark-muted">Automatically upload videos to channels</p>
+          </div>
+          <button
+            onClick={() => setAutoUpload(!autoUpload)}
+            className={`w-12 h-7 rounded-full transition-colors ${autoUpload ? 'bg-light-success' : 'bg-light-border dark:bg-dark-border'}`}
+          >
+            <motion.div
+              className="w-5 h-5 rounded-full bg-white shadow-sm"
+              animate={{ x: autoUpload ? 20 : 2 }}
+              transition={{ type: 'spring', stiffness: 500, damping: 30 }}
             />
-          </div>
-
-          <div>
-            <div className="flex items-center justify-between mb-2">
-              <label className="font-medium text-light-text dark:text-dark-text">Long form videos per day</label>
-              <span className="text-sm font-bold gradient-text">{longPerDay} videos</span>
-            </div>
-            <input
-              type="range"
-              min="0"
-              max="4"
-              value={longPerDay}
-              onChange={(e) => setLongPerDay(Number(e.target.value))}
-              className="w-full accent-light-secondary"
-            />
-          </div>
-
-          <div className="flex items-center justify-between">
-            <div>
-              <p className="font-medium text-light-text dark:text-dark-text">Auto-upload</p>
-              <p className="text-sm text-light-muted dark:text-dark-muted">Automatically upload videos to channels</p>
-            </div>
-            <button
-              onClick={() => setAutoUpload(!autoUpload)}
-              className={`w-12 h-7 rounded-full transition-colors ${autoUpload ? 'bg-light-success' : 'bg-light-border dark:bg-dark-border'}`}
-            >
-              <motion.div
-                className="w-5 h-5 rounded-full bg-white shadow-sm"
-                animate={{ x: autoUpload ? 20 : 2 }}
-                transition={{ type: 'spring', stiffness: 500, damping: 30 }}
-              />
-            </button>
-          </div>
+          </button>
         </div>
       </GradientCard>
 

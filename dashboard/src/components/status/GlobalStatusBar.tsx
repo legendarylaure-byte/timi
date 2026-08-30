@@ -26,12 +26,12 @@ const STATUS_HELP: Record<string, Partial<Record<'warn' | 'error' | 'cloud', Sta
       title: 'Pipeline Idle — Background Tasks Running',
       description: 'The main video pipeline is currently idle, but some agents are running scheduled background tasks like analysing analytics, repurposing content, or planning the daily content schedule.',
       reasons: [
-        'The daily schedule runs at 11:45 AM Nepal time (06:00 UTC)',
+        'The daily schedule runs at 8:50 PM Nepal time (15:05 UTC)',
         'Agents may be finishing up tasks from the last pipeline run',
         'No video has been manually triggered to run',
       ],
       fixes: [
-        'Wait for the next scheduled daily run at 11:45 AM NPT',
+        'Wait for the next scheduled daily run at 8:50 PM NPT',
         'Or type a topic in "Run Pipeline" above and click "Run Now" to start a video immediately',
         'If agents are stuck, try toggling them off and on in the Agents section',
       ],
@@ -141,11 +141,12 @@ const STATUS_HELP: Record<string, Partial<Record<'warn' | 'error' | 'cloud', Sta
       ],
       fixes: [
         'Add your R2 credentials to the .env.local file:',
-        '   R2_ACCOUNT_ID=your_account_id',
-        '   R2_ACCESS_KEY_ID=your_access_key',
-        '   R2_SECRET_ACCESS_KEY=your_secret_key',
-        '   R2_BUCKET=your_bucket_name',
+        '   CLOUDFLARE_ACCOUNT_ID=your_account_id',
+        '   CLOUDFLARE_R2_ACCESS_KEY_ID=your_access_key',
+        '   CLOUDFLARE_R2_SECRET_ACCESS_KEY=your_secret_key',
+        '   CLOUDFLARE_R2_BUCKET=your_bucket_name',
         'Get these from your Cloudflare dashboard under R2 → API Tokens',
+        'This only affects local development — the deployed dashboard uses its own credentials',
         'After adding, restart the development server',
       ],
     },
@@ -186,12 +187,12 @@ const STATUS_HELP: Record<string, Partial<Record<'warn' | 'error' | 'cloud', Sta
       title: 'Next Upload Due Soon',
       description: 'The daily scheduled upload is coming up within the next hour. Make sure the pipeline is ready or you can trigger a video manually.',
       reasons: [
-        'The daily schedule runs at 11:45 AM Nepal time (06:00 UTC)',
+        'The daily schedule runs at 8:50 PM Nepal time (15:05 UTC)',
         'You\'re within 1 hour of the next scheduled upload time',
         'No manual upload has been triggered today',
       ],
       fixes: [
-        'Wait for the scheduled run at 11:45 AM NPT',
+        'Wait for the scheduled run at 8:50 PM NPT',
         'Or go ahead and trigger a video in "Run Pipeline" above',
         'No action needed — this is just a heads up!',
       ],
@@ -202,7 +203,7 @@ const STATUS_HELP: Record<string, Partial<Record<'warn' | 'error' | 'cloud', Sta
 const OK_MESSAGES: Record<string, { title: string; description: string }> = {
   pipeline: {
     title: 'Pipeline — Idle',
-    description: 'The pipeline is idle and waiting for the next scheduled daily run at 11:45 AM NPT, or you can trigger a video manually anytime from the "Run Pipeline" section.',
+    description: 'The pipeline is idle and waiting for the next scheduled daily run at 8:50 PM NPT, or you can trigger a video manually anytime from the "Run Pipeline" section.',
   },
   docker: {
     title: 'Docker — All Good',
@@ -222,7 +223,7 @@ const OK_MESSAGES: Record<string, { title: string; description: string }> = {
     },
   nextUpload: {
     title: 'Next Upload — On Schedule',
-    description: 'The daily upload schedule is on track. The next automatic run is at 11:45 AM Nepal time (06:00 UTC) as planned.',
+    description: 'The daily upload schedule is on track. The next automatic run is at 8:50 PM Nepal time (15:05 UTC) as planned.',
   },
 };
 
@@ -413,7 +414,7 @@ export function GlobalStatusBar() {
       newPills.push({
         id: 'pipeline', status: 'ok',
         value: 'Idle',
-        tooltip: 'The pipeline is idle and waiting for the next scheduled daily run at 11:45 AM NPT, or you can trigger a video manually.',
+        tooltip: 'The pipeline is idle and waiting for the next scheduled daily run at 8:50 PM NPT, or you can trigger a video manually.',
       });
     }
 
@@ -467,12 +468,17 @@ export function GlobalStatusBar() {
         value: `${storageData.total_size_gb}GB / ${storageData.limit_gb}GB`,
         tooltip: `Cloudflare R2 stores your video files in the cloud. ${storageData.objects} videos saved, ${freePct}% space remaining`,
       });
-    } else {
-      const configured = storageData?.configured;
+    } else if (storageData?.configured === false) {
       newPills.push({
-        id: 'storage', status: configured === false ? 'warn' : 'error',
-        value: 'Not configured',
-        tooltip: 'Cloudflare R2 is not yet connected. Videos are stored locally on your machine. Add R2 credentials to enable cloud storage',
+        id: 'storage', status: 'cloud',
+        value: 'Local only',
+        tooltip: 'R2 not configured in this environment (local dev). The deployed dashboard has its own R2 credentials — videos sync there. Local preview just won\'t show cloud usage.',
+      });
+    } else {
+      newPills.push({
+        id: 'storage', status: 'error',
+        value: 'R2 error',
+        tooltip: 'Cloudflare R2 responded with an error. Check the storage credentials in .env.local and the container logs.',
       });
     }
 
@@ -501,7 +507,7 @@ export function GlobalStatusBar() {
       value: pipelineRunning ? 'Pending' : `${next.nptTime} NPT`,
       tooltip: pipelineRunning
         ? 'A video is currently being generated — the upload will happen once it\'s ready'
-        : `The daily schedule runs every morning at 11:45 AM Nepal time (06:00 UTC). Next upload is in ${next.hours}h ${next.minutes}m`,
+        : `The daily schedule runs every evening at 8:50 PM Nepal time (15:05 UTC). Next upload is in ${next.hours}h ${next.minutes}m`,
     });
 
     setPills(newPills);

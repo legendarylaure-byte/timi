@@ -71,7 +71,7 @@ export const AGENT_ROLES: AgentRole[] = [
     name: 'Publisher',
     emoji: '🚀',
     color: '#7ED6DF',
-    description: 'Uploads your finished video to YouTube, TikTok, Instagram, and Facebook',
+    description: 'Uploads your finished video to YouTube, Instagram, and Facebook (TikTok ready, enabled soon)',
   },
   {
     id: 'quality_scorer',
@@ -115,21 +115,51 @@ export const VIDEO_FORMATS = {
   LONG: { ratio: '16:9', maxDuration: 300, label: 'Long Form' },
 };
 
-export const CONTENT_CATEGORIES = [
-  { name: 'AI Explained', description: 'How AI and ML technologies work, explained simply' },
-  { name: 'Deep Tech', description: 'In-depth technical deep dives and architecture breakdowns' },
-  { name: 'Paper Breakdowns', description: 'Latest research papers summarized and analyzed' },
-  { name: 'Tool Tutorials', description: 'Hands-on tutorials for AI tools and frameworks' },
-  { name: 'Industry Analysis', description: 'Tech industry trends, predictions, and news analysis' },
-  { name: 'Code & Build', description: 'Learn to build with code — projects and examples' },
-  { name: 'AI News', description: 'Weekly AI and technology news roundup' },
-  { name: 'Career & Learning', description: 'Tech career advice, learning paths, and resources' },
+export interface ContentCategory {
+  name: string;
+  description: string;
+  group: 'pillar' | 'news';
+  isNews?: boolean;
+  emoji?: string;
+}
+
+// Mirrors backend agents/utils/scene_schema.py VALID_CATEGORIES.
+export const CONTENT_CATEGORIES: ContentCategory[] = [
+  { name: 'AI News', description: 'Latest AI developments, model releases, industry moves', group: 'pillar', isNews: false, emoji: '🤖' },
+  { name: 'Science & Technology', description: 'Science discoveries, tech innovations, research breakthroughs', group: 'pillar', isNews: false, emoji: '🔬' },
+  { name: 'Programming & Software', description: 'Code tutorials, software engineering, development tools, AI tooling', group: 'pillar', isNews: false, emoji: '💻' },
+  { name: 'World News (24hr)', description: 'Verified global stories from curated reputable publishers', group: 'news', isNews: true, emoji: '🌍' },
+  { name: 'Nepal News', description: 'Verified news from reputable Nepali outlets (English + Nepali)', group: 'news', isNews: true, emoji: '🇳🇵' },
 ];
 
-export const DAILY_QUOTA = {
-  shorts: 2,
+export const PILLAR_CATEGORIES = CONTENT_CATEGORIES.filter((c) => c.group === 'pillar');
+export const NEWS_CATEGORIES = CONTENT_CATEGORIES.filter((c) => c.group === 'news');
+
+// The pipeline is fixed at exactly 5 videos/day: 2 news shorts + 1 pillar short
+// + 1 news long + 1 pillar long. News slots are mandatory; longs are capped by
+// the single-GPU render budget. Mirrors env SHORTS_PER_DAY=1, LONG_PER_DAY=2,
+// GPU_VIDEO_BUDGET_PER_DAY=2, ENABLE_NEWS=true.
+export const DAILY_SCHEDULE = {
+  newsShorts: 2,
+  pillarShorts: 1,
+  newsLong: 1,
+  pillarLong: 1,
+  shorts: 3,
   long: 2,
+  total: 5,
+  gpuBudget: 2,
+  label: '5 videos/day',
 };
+
+// All publish slots fall inside the overnight idle window (8:50 PM Nepal start),
+// on the same Nepal day. Times shown in Nepal local.
+export const PUBLISH_SLOTS = [
+  { id: 'world-short', label: 'World News short', category: 'World News (24hr)', format: 'shorts', npt: '12:45 AM', utc: '19:00 UTC' },
+  { id: 'nepal-short', label: 'Nepal News short', category: 'Nepal News', format: 'shorts', npt: '2:45 AM', utc: '21:00 UTC' },
+  { id: 'pillar-long', label: 'Pillar long', category: 'AI-IT pillar', format: 'long', npt: '3:00 AM', utc: '21:15 UTC' },
+  { id: 'pillar-short', label: 'Pillar short', category: 'AI-IT pillar', format: 'shorts', npt: '4:45 AM', utc: '23:00 UTC' },
+  { id: 'news-long', label: 'News long', category: 'World / Nepal News', format: 'long', npt: '6:45 AM', utc: '01:00 UTC' },
+];
 
 export const PLATFORMS = {
   YOUTUBE: { name: 'YouTube', color: '#FF0000' },
@@ -168,7 +198,8 @@ export const RENDERING_STEPS = [
   'video_pipeline', 'editing', 'thumbnail', 'metadata', 'publishing',
 ];
 
-export const SCHEDULE_HOUR_UTC = 6;
+export const SCHEDULE_HOUR_UTC = 15; // daily content generation fires at 15:05 UTC = 8:50 PM Nepal
+export const SCHEDULE_MINUTE_UTC = 5;
 export const KATHMANDU_TZ = 'Asia/Kathmandu';
 
 export interface TimeRemaining {
@@ -181,11 +212,11 @@ export interface TimeRemaining {
 
 export function calcTimeRemaining(): TimeRemaining {
   const now = new Date();
-  const utcTotalSec = now.getUTCHours() * 3600 + now.getUTCMinutes() * 60 + now.getUTCSeconds();
-  const scheduleTotalSec = SCHEDULE_HOUR_UTC * 3600;
-  let diffSec = utcTotalSec < scheduleTotalSec
-    ? scheduleTotalSec - utcTotalSec
-    : (24 * 3600) - utcTotalSec + scheduleTotalSec;
+  const scheduleTotalSec = SCHEDULE_HOUR_UTC * 3600 + SCHEDULE_MINUTE_UTC * 60;
+  const utcNowTotalSec = now.getUTCHours() * 3600 + now.getUTCMinutes() * 60 + now.getUTCSeconds();
+  let diffSec = utcNowTotalSec < scheduleTotalSec
+    ? scheduleTotalSec - utcNowTotalSec
+    : (24 * 3600) - utcNowTotalSec + scheduleTotalSec;
   diffSec = Math.max(0, diffSec);
   return {
     hours: Math.floor(diffSec / 3600),

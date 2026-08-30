@@ -56,7 +56,7 @@ const categories = CONTENT_CATEGORIES.map(c => c.name);
 
 export default function AnalyticsPage() {
   const [title, setTitle] = useState('');
-  const [selectedCategory, setSelectedCategory] = useState('Self-Learning');
+  const [selectedCategory, setSelectedCategory] = useState('AI News');
   const [format, setFormat] = useState<'shorts' | 'long'>('shorts');
   const [scriptPreview, setScriptPreview] = useState('');
   const [loading, setLoading] = useState(false);
@@ -499,7 +499,7 @@ function generateLocalPrediction(title: string, category: string, format: string
   const seed = hashStr(title + category);
   const rand = (min: number, max: number) => min + (Math.abs(seed * 9301 + 49297) % 233280) / 233280 * (max - min);
   const baseViews = format === 'shorts' ? 8000 : 4000;
-  const categoryBonus: Record<string, number> = { 'AI Explained': 1.5, 'Deep Tech': 1.0, 'Paper Breakdowns': 1.1, 'Tech Tutorials': 1.3, 'Code & Build': 1.2, 'Career & Learning': 1.3, 'Industry Analysis': 0.9, 'AI News': 1.4 };
+  const categoryBonus: Record<string, number> = { 'AI News': 1.4, 'Science & Technology': 1.2, 'Programming & Software': 1.3, 'World News (24hr)': 0.9, 'Nepal News': 0.9 };
   const mult = categoryBonus[category] || 1.0;
   const virality = Math.min(100, Math.max(0, Math.floor(mult * rand(30, 80))));
 
