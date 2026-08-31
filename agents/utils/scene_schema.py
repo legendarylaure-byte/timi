@@ -46,7 +46,15 @@ CATEGORY_ALIASES = {
 
 
 def normalize_category(cat: str) -> str:
-    """Map old/alias categories to the canonical list."""
+    """Map old/alias categories to the canonical list.
+
+    ponytail: LLM planners sometimes emit category as a JSON list
+    (e.g. ["AI News"]). Coerce to a single string so every downstream
+    .lower()/in-set check (detect_mood, description_gen, ...) is safe."""
+    if isinstance(cat, list):
+        cat = cat[0] if cat else "AI News"
+    if not isinstance(cat, str):
+        cat = str(cat)
     if cat in VALID_CATEGORIES:
         return cat
     return CATEGORY_ALIASES.get(cat, cat)

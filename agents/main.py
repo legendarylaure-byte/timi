@@ -335,6 +335,8 @@ USE_ANIMATION_ENGINE = os.getenv("USE_ANIMATION_ENGINE", "true").lower() == "tru
 LONG_MAX_DURATION = int(os.getenv("LONG_MAX_DURATION", 600))
 DEEP_LESSON_MAX_DURATION = int(os.getenv("DEEP_LESSON_MAX_DURATION", 600))
 DOCUMENTARY_MAX_DURATION = int(os.getenv("DOCUMENTARY_MAX_DURATION", 2400))
+LONG_MIN_NARRATION_WORDS = int(os.getenv("LONG_MIN_NARRATION_WORDS", "360"))
+NEWS_LONG_MIN_NARRATION_WORDS = int(os.getenv("NEWS_LONG_MIN_NARRATION_WORDS", "450"))
 
 from utils.scene_schema import DEEP_LESSON_CATS as DEEP_LESSON_CATEGORIES
 
@@ -501,6 +503,10 @@ def _gate_check(name, is_flagged, topic, video_id, format_type, category):
 
 def _strip_ansi(text: str) -> str:
     return re.sub(r'\x1b\[[0-9;]*[a-zA-Z]', '', text)
+
+
+def _count_script_words(script_text) -> int:
+    return len(str(script_text or "").split())
 
 
 def _simplify_script(script_text: str, category: str, fmt: str) -> str:
@@ -1788,7 +1794,13 @@ def generate_long_video(topic: str, category: str, video_id: str, publish_at: st
                 extra_context = (extra_context + "\n\n" + _doc_ctx) if extra_context else _doc_ctx
 
             script_kwargs = {"topic": topic, "category": category, "fmt": "long", "max_duration": _deep_lesson_dur(category)}
-            if extra_context:
+            if news_article:
+                # ponytail: news longs came out ~15s because the LLM wrote a short
+                # explainer. Make the 3+ min floor explicit in the prompt too.
+                script_kwargs["extra_context"] = (
+                    (extra_context + "\n\n") if extra_context else ""
+                ) + "LENGTH REQUIREMENT: LONG-FORM news explainer. Write AT LEAST 450 words of narration (~3+ minutes) across 12-18 scenes. Expand with background, key players, implications."
+            elif extra_context:
                 script_kwargs["extra_context"] = extra_context
             is_deep = True  # ponytail: all long-form gets deep lesson treatment for Sample 6 quality
             crew_fn = create_deep_lesson_crew
@@ -1825,6 +1837,21 @@ def generate_long_video(topic: str, category: str, video_id: str, publish_at: st
             log_event("HOOK", f"Hook score: {hook_score_result['score']}/100 — passed")
 
         script_text = _simplify_script(script_text, category, "long")
+
+        _min_words = NEWS_LONG_MIN_NARRATION_WORDS if news_article else LONG_MIN_NARRATION_WORDS
+        if _count_script_words(script_text) < _min_words:
+            # ponytail: LLM sometimes returns a one-paragraph "explainer" and the
+            # whole pipeline happily renders 15s of it. Retry ONCE with a firmer
+            # floor before trusting it; news longs must be >= NEWS_LONG_MIN_WORDS.
+            log_event("SCRIPT", f"Only {_count_script_words(script_text)} words (need {_min_words}) — rewriting longer")
+            dl_kwargs["extra_context"] = (
+                (dl_kwargs.get("extra_context", "") + "\n\n") if dl_kwargs.get("extra_context") else ""
+            ) + f"The previous draft was too short. Write AT LEAST {_min_words} words of narration with 12-18 scenes. Do not summarize — go deep."
+            _retry = run_agent_step("scriptwriter", "Deep Lesson Scriptwriter (longer)", f"Rewriting longer script for: {topic}", create_deep_lesson_crew, dl_kwargs, timeout_minutes=45)
+            if _retry and _count_script_words(str(_retry)) > _count_script_words(script_text):
+                script_text = _simplify_script(str(_retry), category, "long")
+            if news_article and _count_script_words(script_text) < _min_words:
+                raise RuntimeError(f"news long script too short ({_count_script_words(script_text)} < {_min_words} words) — re-queue")
 
         try:
             from utils.brand_manager import record_hook_usage
