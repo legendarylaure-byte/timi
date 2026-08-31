@@ -77,7 +77,7 @@ from utils.series_builder import register_video_in_series, build_continuity_text
 from utils.checkpoint import save_checkpoint, load_checkpoint, clear_checkpoint
 from utils.title_optimizer import pick_best_title
 from crew.affiliate_manager import build_affiliate_section
-from datetime import datetime
+from datetime import datetime, timedelta
 from apscheduler.schedulers.blocking import BlockingScheduler
 from dotenv import load_dotenv
 from utils.scene_parser import normalize_scene_durations
@@ -1459,7 +1459,7 @@ def generate_short_video(topic: str, category: str, video_id: str, publish_at: s
 
         failed_step = "publishing"
         with _track_step(video_id, "publishing"):
-            platforms_to_publish = ['youtube', 'instagram', 'facebook']
+            platforms_to_publish = _platforms_to_publish()
             best_title = _pick_best_title(title_variants, topic, category)
             publish_result = multi_platform_publish(
                 video_id=video_id,
@@ -2063,7 +2063,7 @@ def generate_long_video(topic: str, category: str, video_id: str, publish_at: st
 
         failed_step = "publishing"
         with _track_step(video_id, "publishing"):
-            platforms_to_publish = ['youtube', 'facebook']
+            platforms_to_publish = _platforms_to_publish()
             best_title = _pick_best_title(title_variants, topic, category)
             publish_result = multi_platform_publish(
                 video_id=video_id,
@@ -2284,13 +2284,28 @@ def generate_long_video(topic: str, category: str, video_id: str, publish_at: st
         return False
 
 
+def _add_days(dt, n: int):
+    """Return dt advanced by n days, safe across month/month-end boundaries
+    (ponytail: replace(day=+1) overflows on 28/29/30/31 -> ValueError)."""
+    return dt + timedelta(days=n)
+
+
+def _platforms_to_publish() -> list:
+    """Target platforms for video publishing.
+
+    ponytail: IG/FB/TikTok are disabled pending a re-plan (Meta app deleted).
+    Read a comma list from PLATFORMS_TO_PUBLISH (default 'youtube')."""
+    raw = os.getenv("PLATFORMS_TO_PUBLISH", "youtube")
+    return [p.strip().lower() for p in raw.split(",") if p.strip()]
+
+
 def _next_schedule_time(slot) -> str:
     """Next occurrence of a (hour, minute) UTC slot (int hour allowed for compat)."""
     hour, minute = (slot, 0) if isinstance(slot, int) else (slot[0], slot[1])
     now = datetime.utcnow()
     scheduled = now.replace(hour=hour, minute=minute, second=0, microsecond=0)
     if scheduled <= now:
-        scheduled = scheduled.replace(day=scheduled.day + 1)
+        scheduled = _add_days(scheduled, 1)
     return scheduled.strftime("%Y-%m-%dT%H:%M:%SZ")
 
 
@@ -2692,7 +2707,6 @@ def daily_analytics_job():
             try:
                 db = get_firestore_client()
                 if db:
-                    from datetime import datetime
                     docs = db.collection("activity_logs").order_by("timestamp", direction="DESCENDING").limit(1).stream()
                     for doc in docs:
                         data = doc.to_dict()
@@ -3009,6 +3023,14 @@ def _handle_pipeline_trigger(topic: str, category: str, format_type: str, trigge
 
 if __name__ == "__main__":
     log_event("SYSTEM", "Vyom Ai Cloud - Agent Orchestrator Starting")
+
+    _run_once = "--run-once" in sys.argv
+    if _run_once:
+        log_event("SYSTEM", "RUN-ONCE mode: executing daily_content_job() then exiting")
+        cleanup_stuck_state()
+        daily_content_job()
+        update_pipeline_status(False)
+        sys.exit(0)
 
     cleanup_stuck_state()
 

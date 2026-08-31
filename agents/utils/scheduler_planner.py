@@ -490,6 +490,18 @@ def generate_content_plan(force_llm: bool = False, slot: str = "", extra_context
         "evening": {"shorts": 0, "longs": 1},
     }
     alloc = slot_allocs.get(slot, {"shorts": 1, "longs": 0})
+    if not slot:
+        # ponytail: daily_content_job runs with SLOT="" and the plan was sizing to
+        # {shorts:1, longs:0}, starving pillar longs. Size to the env-configured daily
+        # counts so each night's plan guarantees a full slate of pillar content.
+        try:
+            import os as _os
+            alloc = {
+                "shorts": int(_os.getenv("SCHEDULE_SHORTS_PER_DAY", "1")),
+                "longs": int(_os.getenv("SCHEDULE_LONG_PER_DAY", "2")),
+            }
+        except Exception:
+            alloc = {"shorts": 1, "longs": 2}
     shorts_per_day = alloc["shorts"]
     long_per_day = alloc["longs"]
 
