@@ -188,6 +188,28 @@ def pad_with_blurred_background(input_path: str, output_path: str, target_w: int
     return safe_run_bool(cmd, timeout=120)
 
 
+def resize_portrait_to_target(input_path: str, output_path: str, target_w: int, target_h: int, duration: float = 0) -> bool:
+    """Genuinely-portrait crop: slice the (typically landscape) source to the 9:16
+    aspect and upscale to fill the portrait frame — no blurred-pad letterbox.
+    A slow horizontal Ken Burns pan keeps the crop from looking static."""
+    kb = 1.0 + 0.06  # mild ~6% zoom so the pan has headroom
+    t_expr = duration if duration > 0 else 60
+    vf = (
+        f"crop=min(iw\\,ih*9/16):ih:(iw-min(iw\\,ih*9/16))/2:0,"
+        f"scale=iw*{kb}:ih*{kb}:flags=lanczos,"
+        f"crop=min(iw\\,ih*9/16):ih:(iw-min(iw\\,ih*9/16))*t/{t_expr}:0,"
+        f"scale={target_w}:{target_h}:flags=lanczos"
+    )
+    cmd = [
+        _ffmpeg_cmd(), "-y",
+        "-i", input_path, *_sws_flags(),
+        "-vf", vf,
+        "-c:v", "libx264", "-preset", PRESET, "-crf", CRF,
+        "-r", str(OUTPUT_FPS), "-an", "-pix_fmt", "yuv420p", output_path,
+    ]
+    return safe_run_bool(cmd, timeout=120)
+
+
 def apply_ken_burns(input_path: str, output_path: str, target_w: int, target_h: int, duration: float, preset_idx: int = 0) -> bool:
     trim_path = str(TEMP_DIR / f"kb_trim_{preset_idx:03d}.mp4")
     if not trim_clip(input_path, trim_path, 0, duration):
@@ -402,7 +424,11 @@ def _process_clip(clip: dict, target_w: int, target_h: int, idx: int, format_typ
         has_camera_effect = zoom != 1.0 or pan_x != 0 or pan_y != 0
 
         if format_type == "shorts" and target_h > target_w:
-            if not pad_with_blurred_background(trimmed, out, target_w, target_h):
+            portrait = os.getenv("ENABLE_PORTRAIT_SHORTS", "true").lower() != "false"
+            if portrait:
+                if not resize_portrait_to_target(trimmed, out, target_w, target_h, duration=dur):
+                    return None
+            elif not pad_with_blurred_background(trimmed, out, target_w, target_h):
                 return None
         elif has_camera_effect:
             if not _apply_camera_motion(trimmed, out, target_w, target_h, dur, zoom, pan_x, pan_y):
