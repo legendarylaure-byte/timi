@@ -56,11 +56,17 @@ def upscale_video(input_path: str, output_path: str, scale: int = 2) -> bool:
             logger.warning("upscale video: frame extraction failed")
             return False
 
-        for f in sorted(os.listdir(frames_dir)):
-            if f.endswith(".png"):
-                inp = os.path.join(frames_dir, f)
-                out = os.path.join(upscaled_dir, f)
-                if not upscale_frame(inp, out, scale):
+        frames = sorted(f for f in os.listdir(frames_dir) if f.endswith(".png"))
+        # ponytail: thread-pool over subprocess-per-frame; CPU-independent so threads scale.
+        from concurrent.futures import ThreadPoolExecutor, as_completed
+        def _upscale_one(f):
+            inp = os.path.join(frames_dir, f)
+            out = os.path.join(upscaled_dir, f)
+            return f, upscale_frame(inp, out, scale)
+        workers = max(1, min(8, os.cpu_count() or 1))
+        with ThreadPoolExecutor(max_workers=workers) as pool:
+            for f, ok in pool.map(_upscale_one, frames):
+                if not ok:
                     logger.warning("upscale video: frame %s failed", f)
                     return False
 

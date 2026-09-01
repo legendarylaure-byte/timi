@@ -9,7 +9,7 @@ import importlib.util
 from pathlib import Path
 from collections import OrderedDict
 
-from utils.subprocess_helper import safe_run, register_temp_dir
+from utils.subprocess_helper import safe_run
 from models.base_video_model import BaseVideoModel
 
 logger = logging.getLogger(__name__)
@@ -21,9 +21,10 @@ QUALITY_SUFFIX = "sharp focus, 8k texture detail, cinematic lighting, volumetric
 _LTX_MODULE_AVAILABLE = None
 
 _MAX_CACHE_ENTRIES = 50
-_CACHE_DIR = Path(tempfile.gettempdir()) / "ltx_cache"
+# ponytail: env-overridable, defaults to a project-local (persistent) path so the
+# render cache survives container recreates instead of dying with /tmp.
+_CACHE_DIR = Path(os.getenv("LTX_CACHE_DIR", str(Path(__file__).parent.parent / "tmp" / "ltx_cache")))
 _CACHE_DIR.mkdir(parents=True, exist_ok=True)
-register_temp_dir(str(_CACHE_DIR))
 
 _prompt_cache = OrderedDict()
 _cache_meta_path = _CACHE_DIR / "cache_meta.json"

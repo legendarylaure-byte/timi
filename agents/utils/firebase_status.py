@@ -493,3 +493,32 @@ def sync_env_from_firestore():
             count += 1
     if count:
         print(f"[FIRESTORE] Synced {count} env vars from Firestore to os.environ")
+
+
+def get_pipeline_metrics(limit: int = 50) -> list:
+    """Read recent pipeline_metrics records from Firestore.
+
+    Args:
+        limit: Max number of recent records to return (newest first).
+
+    Returns:
+        List of metric dicts ordered newest-first. Each doc has keys:
+        video_id, format, topic, duration_sec, success, created_at.
+        Returns empty list on failure or if collection is empty.
+    """
+    db = get_firestore_client()
+    if db is None:
+        return []
+    try:
+        metrics = []
+        snapshot = db.collection("pipeline_metrics").order_by(
+            "created_at", direction="DESCENDING"
+        ).limit(limit).stream()
+        for doc in snapshot:
+            data = doc.to_dict() or {}
+            data["_id"] = doc.id
+            metrics.append(data)
+        return metrics
+    except Exception as e:
+        print(f"[FIRESTORE] Failed to read pipeline_metrics: {e}")
+        return []

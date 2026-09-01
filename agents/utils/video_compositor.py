@@ -1061,7 +1061,7 @@ def composite_video(clips: list[dict], voice_path: str, music_path: Optional[str
             print(f"[compositor] Final video: {final_path} ({os.path.getsize(final_path)} bytes)")
             # ponytail: hard trim safety net for shorts — enforce max duration
             if format_type == "shorts":
-                _max_s = int(os.getenv("SHORTS_MAX_DURATION", "60"))
+                _max_s = int(os.getenv("SHORTS_MAX_DURATION", "180"))
                 _dur = _get_duration(final_path)
                 if _dur and _dur > _max_s + 1:  # +1s tolerance
                     _trimmed = final_path.replace(".mp4", "_trimmed.mp4")

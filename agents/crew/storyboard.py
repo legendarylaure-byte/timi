@@ -15,7 +15,7 @@ Do NOT create separate scenes for transitions — describe them within each scen
 For each scene, specify the RENDER_TYPE and VISUAL ASSET TYPE to use."""
     elif is_long:
         scene_instruction = """
-CRITICAL: Create 6-10 distinct scenes. Each scene should be 30-90 seconds long.
+CRITICAL: Match the script's scene count (typically 12-18 scenes). Each scene should be 8-15 seconds.
 Do NOT create separate scenes for transitions — describe them within each scene.
 For each scene, specify the RENDER_TYPE and VISUAL ASSET TYPE to use."""
     else:

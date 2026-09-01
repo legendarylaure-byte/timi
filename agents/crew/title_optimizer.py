@@ -3,7 +3,7 @@ from utils.llm_helper import get_llm
 
 
 def create_title_optimizer_crew(topic: str = "", category: str = "", format_type: str = "shorts"):
-    llm = get_llm(temperature=0.8, max_tokens=2000)
+    llm = get_llm(temperature=0.8, max_tokens=2000, agent_id="title_optimizer")
 
     optimizer = Agent(
         role="Title Optimization Specialist",

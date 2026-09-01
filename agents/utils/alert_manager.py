@@ -19,7 +19,10 @@ def send_alert(message: str, severity: str = "info", channels: Optional[list] = 
         True if at least one channel delivered
     """
     if channels is None:
-        channels = ["telegram"]
+        # Slack is the only reliably-working channel (telegram needs bot/notifications.py).
+        channels = []
+        if os.getenv("SLACK_WEBHOOK_URL"):
+            channels.append("slack")
 
     if os.getenv("SLACK_WEBHOOK_URL"):
         if "slack" not in channels:

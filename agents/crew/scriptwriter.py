@@ -45,10 +45,10 @@ You NEVER fabricate facts, statistics, or claims. If unsure, you state the uncer
     )
 
     if fmt == "long":
-        target_words = max(1200, int(max_duration * 2.5))
+        target_words = max(360, int(max_duration * 2.5))
         format_instructions = f"""
 CRITICAL: This is a LONG-FORM video ({category}). Write enough content for {max_duration} seconds.
-- Write {target_words}-{target_words + 500} words for the narration (at 150 words per minute speaking pace).
+- Write {target_words}-{target_words + 400} words for the narration (at 150 words per minute speaking pace).
 - Include 12-18 distinct scenes, each 8-15 seconds.
 - Each NARRATION should be 20-40 words (8-15 seconds at speaking pace).
 - Structure: Hook (0-15s) → Context (15-60s) → Main explanation (8-12 scenes) → Summary → Outro with CTA.
@@ -57,15 +57,18 @@ CRITICAL: This is a LONG-FORM video ({category}). Write enough content for {max_
 - End with a clear takeaway and call-to-action (like, subscribe, comment).
 """
     else:
-        # ponytail: hard cap 150 words ≈ 60s at TTS pace 2.5 words/sec
+        # Scale narration to the configured short cap so scenes fill the target duration.
+        short_cap = max(60, int(max_duration))
+        short_words = max(150, int(short_cap * 2.2))  # ~2.2 words/sec denser short pace
+        short_scenes = max(5, int(short_cap / 25))  # one scene per ~25s
         format_instructions = f"""
 This is a SHORT video ({category}). Fast-paced and information-dense.
-- MAXIMUM 60 seconds. Write AT MOST 150 words of NARRATION.
-- 3-5 scenes, each 5-12 seconds.
+- Target {short_cap} seconds. Write about {short_words} words of NARRATION.
+- {short_scenes}-{short_scenes + 2} scenes, each 5-12 seconds.
 - Hook in first 2 seconds.
 - One clear concept per short video.
 - End with a takeaway or curiosity hook for next video.
-CRITICAL: Exceeding 150 words will be truncated. Quality over quantity.
+CRITICAL: Match the narration length to the {short_cap} second target; do not under-write.
 """
 
     opt_context = f"\nOptimization note: {extra_context}" if extra_context else ""

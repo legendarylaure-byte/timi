@@ -360,6 +360,12 @@ def _get_log_file():
         log_dir = Path(__file__).parent / "logs"
         log_dir.mkdir(parents=True, exist_ok=True)
         _LOG_FILE = str(log_dir / "pipeline.log")
+    try:
+        # lightweight size-based rotation (10MB cap, keep 1 backup)
+        if os.path.getsize(_LOG_FILE) > 10 * 1024 * 1024:
+            os.replace(_LOG_FILE, _LOG_FILE + ".1")
+    except OSError:
+        pass
     return _LOG_FILE
 
 
@@ -530,6 +536,37 @@ def _simplify_script(script_text: str, category: str, fmt: str) -> str:
         return script_text
 
 
+def _rewrite_on_director_fix(review: dict, topic: str, category: str, fmt: str, script_text: str,
+                             extra_ctx: str = "") -> str:
+    """If director grades the script as needing fixes (not a hard block), do ONE
+    scriptwriter re-author pass injecting the issues, then simplify. Safe: any
+    failure falls back to the original script."""
+    if not review or review.get("decision") not in ("fix", "needs_edit", "review"):
+        return script_text
+    issues = review.get("issues") or []
+    if not issues:
+        return script_text
+    try:
+        issues_txt = "; ".join([f"[{i.get('severity','info')}] {i.get('description','')}" for i in issues[:3]])
+        ctx = (extra_ctx + "\n\n" if extra_ctx else "") + \
+              f"DIRECTOR FEEDBACK to fix in the rewrite:\n{issues_txt}\nAddress each concretely."
+        kw = {"topic": topic, "category": category, "fmt": fmt,
+              "max_duration": SHORTS_MAX_DURATION if fmt == "shorts" else _deep_lesson_dur(category),
+              "extra_context": ctx}
+        crew_fn = create_scriptwriter_crew if fmt == "shorts" else create_deep_lesson_crew
+        rewritten = run_agent_step("scriptwriter", "Scriptwriter (director-fix)",
+                                   f"Rewriting per director feedback for: {topic}", crew_fn, kw,
+                                   timeout_minutes=20)
+        if rewritten and isinstance(rewritten, str) and rewritten.strip():
+            log_event("DIRECTOR", f"Re-authored script per director feedback (decision={review.get('decision')})")
+            return _simplify_script(rewritten, category, "shorts" if fmt == "shorts" else "long")
+        log_event("DIRECTOR", "Director-fix rewrite returned empty; keeping original", "warn")
+        return script_text
+    except Exception as e:
+        log_event("DIRECTOR", f"Director-fix rewrite skipped: {e}", "warn")
+        return script_text
+
+
 def _pick_best_title(variants, topic: str, category: str = "") -> str:
     """Pick the highest-scoring title from CrewAI variants instead of blindly [0].
     Falls back to the topic when nothing usable exists."""
@@ -547,7 +584,12 @@ def _pick_best_title(variants, topic: str, category: str = "") -> str:
         return topic or "Untitled"
     scored = [(score_title(t, [category]), t) for t in vals]
     scored.sort(key=lambda x: x[0]["score"], reverse=True)
-    return scored[0][1]
+    best = scored[0][1]
+    # YouTube API hard-caps titles at 100 chars; LLMs can't count, so enforce at the choke point.
+    if len(best) > 100:
+        cut = best[:100].rsplit(" ", 1)[0].rstrip()
+        best = (cut or best[:100]).rstrip()
+    return best
 
 
 
@@ -1340,6 +1382,7 @@ def generate_short_video(topic: str, category: str, video_id: str, publish_at: s
         script_review = run_director_review("script", topic, category, "shorts", script_text)
         if not _gate_check("Director script review", script_review.get("decision") == "block", topic, video_id, "shorts", category):
             return False
+        script_text = _rewrite_on_director_fix(script_review, topic, category, "shorts", script_text)
 
         failed_step = "storyboarding"
         storyboard = run_agent_step("storyboard", "Storyboard", "Generating storyboard",
@@ -1943,6 +1986,7 @@ def generate_long_video(topic: str, category: str, video_id: str, publish_at: st
         script_review = run_director_review("script", topic, category, "long", script_text)
         if not _gate_check("Director script review", script_review.get("decision") == "block", topic, video_id, "long", category):
             return False
+        script_text = _rewrite_on_director_fix(script_review, topic, category, "long", script_text)
 
         failed_step = "storyboarding"
         storyboard = run_agent_step("storyboard", "Storyboard", "Generating storyboard",
@@ -2724,6 +2768,54 @@ def daily_analytics_job():
             if staleness_alert:
                 send_alert(staleness_alert["message"], staleness_alert["severity"])
                 log_event("ALERT", staleness_alert["message"], "warn")
+
+            # System-health drift (disk/memory) from heartbeat record — alert before it kills a pipeline
+            try:
+                hb = db.collection("system").document("heartbeat").get() if db else None
+                if hb and hb.exists:
+                    hdata = hb.to_dict() or {}
+                    disk_pct = hdata.get("disk_percent") or 0
+                    mem_pct = hdata.get("memory_percent") or 0
+                    overrides = []
+                    if float(disk_pct) >= 85:
+                        overrides.append(f"disk {disk_pct:.0f}%")
+                    if float(mem_pct) >= 90:
+                        overrides.append(f"memory {mem_pct:.0f}%")
+                    if overrides:
+                        msg = f"System resource warning: {' / '.join(overrides)}"
+                        send_alert(msg, "warning")
+                        log_event("ALERT", msg, "warn")
+            except Exception:
+                pass
+
+            # Missed-slot / daily-volume guard — verifies the scheduled 5/day landed
+            try:
+                target_short = int(os.getenv("SCHEDULE_SHORTS_PER_DAY", "1"))
+                target_long = int(os.getenv("SCHEDULE_LONG_PER_DAY", "2"))
+                target_total = target_short + target_long
+                if db:
+                    cutoff = datetime.utcnow() - timedelta(hours=26)
+                    published = 0
+                    short_count, long_count = 0, 0
+                    _snap = db.collection("videos").where(
+                        "created_at", ">=", cutoff
+                    ).stream()
+                    for _doc in _snap:
+                        _v = _doc.to_dict() or {}
+                        if _v.get("status") in ("uploaded", "scheduled", "published", "completed"):
+                            published += 1
+                            if _v.get("format") == "short":
+                                short_count += 1
+                            elif _v.get("format") == "long":
+                                long_count += 1
+                    if published < target_total:
+                        msg = (f"Missed-slot warning: only {published} video(s) in last 26h "
+                               f"(target {target_total}; shorts {short_count}/{target_short}, "
+                               f"longs {long_count}/{target_long})")
+                        send_alert(msg, "warning")
+                        log_event("ALERT", msg, "warn")
+            except Exception:
+                pass
         except Exception as alert_err:
             log_event("ALERT", f"Alert checks failed: {alert_err}", "debug")
     except Exception as e:
