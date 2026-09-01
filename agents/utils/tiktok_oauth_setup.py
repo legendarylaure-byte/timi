@@ -83,7 +83,7 @@ def main():
         '&scope=user.info.basic,video.upload'
         '&response_type=code'
         f'&redirect_uri={redirect_uri}'
-        '&state=timi_sandbox'
+        '&state=timi_prod'
     )
 
     if not redirect_url:

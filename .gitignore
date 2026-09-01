@@ -63,3 +63,4 @@ com.timi.docker.plist
 # One-off Playwright/landing snapshot + TikTok sandbox demo artifacts
 landing-check.yml
 agents/scripts/tiktok_demo_publish.py
+agents/scripts/set_tiktok_prod.py

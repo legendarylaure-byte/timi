@@ -68,6 +68,15 @@ export async function GET(request: NextRequest) {
     try {
       const db = getAdminFirestore();
       await db.collection('platform_settings').doc('tiktok').set(payload, { merge: true });
+
+      // Also persist tokens to env_vars so the pipeline (sync_env_from_firestore)
+      // picks up TIKTOK_ACCESS_TOKEN / TIKTOK_OPEN_ID at boot.
+      const refreshToken = tokens.refresh_token || '';
+      await db.collection('env_vars').doc('TIKTOK_ACCESS_TOKEN').set({ value: tokens.access_token, updated_at: new Date().toISOString() }, { merge: true });
+      await db.collection('env_vars').doc('TIKTOK_OPEN_ID').set({ value: tokens.open_id, updated_at: new Date().toISOString() }, { merge: true });
+      if (refreshToken) {
+        await db.collection('env_vars').doc('TIKTOK_REFRESH_TOKEN').set({ value: refreshToken, updated_at: new Date().toISOString() }, { merge: true });
+      }
     } catch (firestoreError) {
       console.error('[TIKTOK CALLBACK] Failed to persist tokens:', firestoreError);
     }

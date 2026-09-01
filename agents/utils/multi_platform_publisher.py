@@ -4,6 +4,7 @@ Handles uploads to YouTube, TikTok, Instagram, and Facebook with retry, idempote
 Run: python -m agents.scripts.publisher --title "..." --video_path "..." --platforms youtube,tiktok
 """
 import os
+import time
 import uuid
 from datetime import datetime
 from utils.firebase_status import get_firestore_client, log_activity, update_video_record
@@ -349,6 +350,8 @@ def _upload_tiktok(title: str, video_path: str, format_type: str) -> dict:
     idem_key = _idempotency_key()
     _tiktok_refresh_attempted = False
 
+    privacy_level = os.getenv('TIKTOK_PRIVACY_LEVEL', 'PUBLIC_TO_EVERYONE')
+
     def _do_upload():
         nonlocal access_token, _tiktok_refresh_attempted
         import requests
@@ -364,7 +367,8 @@ def _upload_tiktok(title: str, video_path: str, format_type: str) -> dict:
                     'video_size': file_size,
                     'chunk_size': file_size,
                     'total_chunk_count': 1,
-                }
+                },
+                'post_info': {'privacy_level': privacy_level},
             },
             timeout=30,
         )
@@ -377,35 +381,32 @@ def _upload_tiktok(title: str, video_path: str, format_type: str) -> dict:
                 return _do_upload()
 
         if init_resp.status_code != 200:
-            raise RuntimeError(f'TikTok init failed: {init_resp.status_code}')
+            raise RuntimeError(f'TikTok init failed: {init_resp.status_code} {init_resp.text[:200]}')
 
         init_data = init_resp.json()
         upload_url = init_data.get('data', {}).get('upload_url')
         publish_id = init_data.get('data', {}).get('publish_id')
 
-        if not upload_url:
-            raise RuntimeError('No upload URL in TikTok init response')
+        if not upload_url or not publish_id:
+            raise RuntimeError('No upload URL / publish id in TikTok init response')
 
         with open(video_path, 'rb') as f:
-            upload_resp = requests.put(upload_url, data=f, timeout=300)
+            upload_resp = requests.put(
+                upload_url, data=f, timeout=300,
+                headers={'Content-Range': f'bytes 0-{file_size - 1}/{file_size}',
+                         'Content-Type': 'video/mp4'},
+            )
 
         if upload_resp.status_code not in (200, 201):
             raise RuntimeError(f'TikTok file upload failed: {upload_resp.status_code}')
 
         ai_flags = get_ai_disclosure("tiktok")
-        publish_payload = {
-            'publish_id': publish_id,
-            'post_info': {
-                'title': title,
-                'privacy_level': 'PUBLIC_TO_EVERYONE',
-                'disable_duet': False,
-                'disable_comment': False,
-                'disable_stitch': False,
-            },
-        }
+        post_info = {'title': title, 'privacy_level': privacy_level}
         if ai_flags.get("is_aigc"):
-            publish_payload["post_info"]["is_aigc"] = True
+            post_info["is_aigc"] = True
 
+        # Publish via status polling (init -> upload -> poll status/fetch until PUBLISH_COMPLETE)
+        publish_payload = {'publish_id': publish_id, 'post_info': post_info}
         publish_resp = requests.post(
             'https://open.tiktokapis.com/v2/post/publish/video/publish/',
             headers={
@@ -417,19 +418,45 @@ def _upload_tiktok(title: str, video_path: str, format_type: str) -> dict:
             timeout=30,
         )
 
-        if publish_resp.status_code == 200:
-            if not publish_id:
-                raise RuntimeError('TikTok publish succeeded but no video ID returned')
-            return {
-                'success': True,
-                'platform': 'tiktok',
-                'video_id': publish_id,
-                'url': f'https://www.tiktok.com/@{open_id}/video/{publish_id}',
-                'title': title,
-                'status': 'published',
-            }
-        else:
-            raise RuntimeError(f'TikTok publish failed: {publish_resp.status_code}')
+        # Some clients return a routing/404 on the publish POST; fall back to status polling.
+        # poll status/fetch until PUBLISH_COMPLETE.
+        video_id = None
+        status = 'processing'
+        deadline = time.time() + 180
+        while time.time() < deadline:
+            try:
+                status_resp = requests.post(
+                    'https://open.tiktokapis.com/v2/post/publish/status/fetch/',
+                    headers={'Authorization': f'Bearer {access_token}', 'Content-Type': 'application/json'},
+                    json={'publish_id': publish_id},
+                    timeout=30,
+                )
+                if status_resp.status_code == 200:
+                    data = status_resp.json().get('data', {})
+                    status = data.get('status', status)
+                    video_id = data.get('publicaly_available_post_id') or data.get('video_id') or video_id
+                    if status == 'PUBLISH_COMPLETE':
+                        break
+                    if status == 'PUBLISH_FAILED':
+                        raise RuntimeError('TikTok publish failed (status PUBLISH_FAILED)')
+            except Exception as e:
+                if 'PUBLISH_FAILED' in str(e):
+                    raise
+            time.sleep(8)
+
+        if status not in ('PUBLISH_COMPLETE', 'SEND_TO_USER_INBOX'):
+            raise RuntimeError(f'TikTok publish did not complete (status={status})')
+
+        # For private (SELF_ONLY) posts TikTok returns no public post id — fall back to publish_id.
+        final_id = video_id or publish_id
+        return {
+            'success': True,
+            'platform': 'tiktok',
+            'video_id': final_id,
+            'url': f'https://www.tiktok.com/@{open_id}/video/{final_id}',
+            'title': title,
+            'status': 'published',
+        }
 
     try:
         ok, result = retry_with_backoff(_do_upload, max_retries=3, base_delay=5, max_delay=60)
