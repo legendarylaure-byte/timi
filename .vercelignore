@@ -26,3 +26,8 @@ firebase-debug.log
 youtube_token.json
 venv/
 .venv/
+/keys/
+/tmp/
+*.mpg
+*.mov
+*.m4v
