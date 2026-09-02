@@ -239,6 +239,33 @@ export default function PublishingPage() {
         ))}
       </div>
 
+      {/* TikTok Review Access */}
+      <div className="rounded-2xl glass-strong border border-purple-500/30 p-6">
+        <h2 className="text-lg font-bold text-light-text dark:text-dark-text mb-1">TikTok Review Access</h2>
+        <p className="text-xs text-light-muted dark:text-dark-muted mb-4">
+          Provided for TikTok Direct Post audit reviewers. Log in below to test the live posting flow end-to-end.
+        </p>
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          <div className="rounded-xl bg-purple-500/5 border border-purple-500/20 p-4">
+            <p className="text-xs font-semibold text-light-muted dark:text-dark-muted mb-2">Reviewer credentials</p>
+            <div className="space-y-1 text-sm text-light-text dark:text-dark-text">
+              <p><span className="text-light-muted dark:text-dark-muted">Email:</span> <code className="text-purple-400">reviewer@vyomai.cloud</code></p>
+              <p><span className="text-light-muted dark:text-dark-muted">Sign in:</span> use the <strong>&ldquo;Sign in with Email&rdquo;</strong> field on the login page</p>
+            </div>
+          </div>
+          <div className="rounded-xl bg-light-bg/50 dark:bg-dark-bg/50 border border-light-border/30 dark:border-white/5 p-4">
+            <p className="text-xs font-semibold text-light-muted dark:text-dark-muted mb-2">How to test posting to TikTok</p>
+            <ol className="list-decimal pl-4 space-y-1 text-xs text-light-text dark:text-dark-text">
+              <li>Sign in as reviewer, then connect a TikTok account below (Connect → TikTok).</li>
+              <li>Open the <strong>Compose TikTok Post</strong> card on this page.</li>
+              <li>Pick a video, enter a title, click <strong>Load options</strong>, and select a privacy level (no default).</li>
+              <li>Toggle comments/duet/stitch, then <strong>Queue TikTok Post</strong>.</li>
+              <li>The post publishes to the connected TikTok account within ~5 minutes.</li>
+            </ol>
+          </div>
+        </div>
+      </div>
+
       {/* Platform Cards */}
       {platforms.length === 0 ? (
         <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="rounded-2xl glass-strong border border-light-border/30 dark:border-white/5 p-12 text-center">

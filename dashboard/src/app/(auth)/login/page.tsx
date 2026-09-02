@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { auth } from '@/lib/firebase';
-import { signInWithPopup, GoogleAuthProvider } from 'firebase/auth';
+import { signInWithPopup, signInWithEmailAndPassword, GoogleAuthProvider } from 'firebase/auth';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { motion, AnimatePresence } from 'framer-motion';
@@ -100,6 +100,31 @@ export default function LoginPage() {
       }
     } finally {
       setLoading(false);
+    }
+  };
+
+  const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
+  const [emailLoading, setEmailLoading] = useState(false);
+
+  const handleEmailLogin = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setEmailLoading(true);
+    setError('');
+    try {
+      const result = await signInWithEmailAndPassword(auth, email.trim(), password);
+      if (result.user) {
+        router.replace('/dashboard');
+      }
+    } catch (err: any) {
+      setError(err.code === 'auth/user-not-found' || err.code === 'auth/wrong-password'
+        ? 'Incorrect email or password.'
+        : err.code === 'auth/invalid-credential'
+        ? 'Invalid login credentials.'
+        : err.message || 'Login failed. Please try again.'
+      );
+    } finally {
+      setEmailLoading(false);
     }
   };
 
@@ -312,6 +337,40 @@ export default function LoginPage() {
                   </motion.div>
                 )}
               </AnimatePresence>
+
+              {/* Email/password login */}
+              <form onSubmit={handleEmailLogin} className="mb-4 space-y-3">
+                <input
+                  type="email"
+                  value={email}
+                  onChange={(e) => setEmail(e.target.value)}
+                  placeholder="Email"
+                  required
+                  className="w-full px-4 py-3 rounded-xl bg-white/10 border border-white/15 text-white placeholder-white/40 focus:outline-none focus:border-red-400/50"
+                />
+                <input
+                  type="password"
+                  value={password}
+                  onChange={(e) => setPassword(e.target.value)}
+                  placeholder="Password"
+                  required
+                  className="w-full px-4 py-3 rounded-xl bg-white/10 border border-white/15 text-white placeholder-white/40 focus:outline-none focus:border-red-400/50"
+                />
+                <button
+                  type="submit"
+                  disabled={emailLoading}
+                  className="w-full py-3 rounded-xl font-semibold text-white bg-white/10 border border-white/20 hover:bg-white/15 transition-all disabled:opacity-50"
+                >
+                  {emailLoading ? 'Signing in…' : 'Sign in with Email'}
+                </button>
+              </form>
+
+              {/* Divider */}
+              <div className="flex items-center gap-4 my-4">
+                <div className="flex-1 h-px bg-gradient-to-r from-transparent via-red-400/20 to-transparent" />
+                <span className="text-xs text-red-200/40 font-medium">OR</span>
+                <div className="flex-1 h-px bg-gradient-to-r from-transparent via-red-400/20 to-transparent" />
+              </div>
 
               {/* Google login button */}
               <motion.button

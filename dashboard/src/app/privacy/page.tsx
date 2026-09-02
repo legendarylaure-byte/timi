@@ -14,7 +14,7 @@ export default function PrivacyPage() {
           <Image src="/logo.svg" alt="Vyom Ai Cloud" fill className="object-contain" />
         </div>
         <h1 className="text-3xl font-bold mb-8">Vyom Ai Cloud Privacy Policy</h1>
-        <p className="text-sm text-gray-500 dark:text-gray-400 mb-8">Last updated: August 4, 2026</p>
+        <p className="text-sm text-gray-500 dark:text-gray-400 mb-8">Last updated: September 2, 2026</p>
 
         <section className="mb-8">
           <p className="text-gray-700 dark:text-gray-300 leading-relaxed mb-3">
@@ -74,6 +74,47 @@ export default function PrivacyPage() {
             The Service integrates with: Google (YouTube), TikTok, Meta (Instagram/Facebook), 
             Groq, Ollama, Google Gemini, Cloudflare R2, Firebase (Google), and Sentry. 
             Each service has its own privacy policy governing data handling.
+          </p>
+        </section>
+
+        <section className="mb-8">
+          <h2 className="text-xl font-semibold mb-3">5a. Posting to TikTok</h2>
+          <p className="text-gray-700 dark:text-gray-300 leading-relaxed mb-3">
+            Vyom Ai Cloud uses TikTok&apos;s Content Posting API (Login Kit and Content Posting API, scopes
+            <code className="text-teal-600 dark:text-teal-400"> user.info.basic</code>, <code className="text-teal-600 dark:text-teal-400">video.upload</code>, and <code className="text-teal-600 dark:text-teal-400">video.publish</code>) to publish
+            videos to a TikTok account only after you explicitly authorize that account via TikTok&apos;s OAuth
+            consent screen. The Service posts <strong>only to the TikTok account you connect and authorize</strong>,
+            and it never posts to third-party accounts.
+          </p>
+          <p className="text-gray-700 dark:text-gray-300 leading-relaxed mb-3">
+            <strong>Privacy selection is made by you for each post:</strong> when composing a post, the Service
+            retrieves the available privacy options directly from TikTok (<code className="text-teal-600 dark:text-teal-400">privacy_level_options</code>)
+            and presents them to you to choose from. There is <strong>no default privacy level preselected</strong>;
+            you must actively choose the visibility of every post. The Service honors and sends exactly the privacy
+            level you select to TikTok and does not override your choice.
+          </p>
+          <p className="text-gray-700 dark:text-gray-300 leading-relaxed mb-3">
+            <strong>What data is sent to TikTok:</strong> when you publish, the Service transmits the video file and
+            the metadata you provide (title/caption, your selected privacy level, and your chosen comment, duet, and
+            stitch settings) to TikTok via its API for posting. This transmission occurs only after you explicitly
+            confirm the post. Your TikTok access token is used solely to authenticate these posting requests and is
+            stored securely; it can be revoked at any time from your TikTok account settings.
+          </p>
+          <p className="text-gray-700 dark:text-gray-300 leading-relaxed mb-3">
+            <strong>AI-generated content disclosure:</strong> where a video published through the Service contains
+            AI-generated or synthetic content, we disclose this in accordance with TikTok&apos;s AI-generated content
+            guidelines. You are responsible for ensuring the content you publish complies with TikTok&apos;s Terms of
+            Service and Community Guidelines.
+          </p>
+          <p className="text-gray-700 dark:text-gray-300 leading-relaxed mb-3">
+            <strong>Consent declaration:</strong> before publishing to TikTok, the Service displays the consent
+            declaration required by TikTok, including <em>&ldquo;By posting, you agree to TikTok&apos;s Music Usage
+            Confirmation&rdquo;</em>. You confirm the post only after reviewing this declaration.
+          </p>
+          <p className="text-gray-700 dark:text-gray-300 leading-relaxed">
+            <strong>Limited retention:</strong> SSID access and posting metadata are used only to operate the
+            Service and are not retained longer than necessary. You can disconnect your TikTok account from the
+            dashboard at any time, which revokes the Service&apos;s ability to post on your behalf.
           </p>
         </section>
 
