@@ -1,0 +1,6 @@
+# Thin overlay: copy only the changed pipeline files on top of the existing timi-pipeline image.
+# Avoids re-downloading the 3GB torch/CUDA stack (floating python:3.11-slim base tag invalidation).
+FROM timi-pipeline:latest
+
+COPY main.py /app/main.py
+COPY utils/multi_platform_publisher.py /app/utils/multi_platform_publisher.py
