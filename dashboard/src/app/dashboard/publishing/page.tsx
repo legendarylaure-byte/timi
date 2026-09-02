@@ -39,6 +39,18 @@ export default function PublishingPage() {
   const [loading, setLoading] = useState(true);
   const [selectedPlatform, setSelectedPlatform] = useState<string | null>(null);
 
+  // TikTok composer state
+  const [availableVideos, setAvailableVideos] = useState<any[]>([]);
+  const [privacyOptions, setPrivacyOptions] = useState<any[]>([]);
+  const [compTitle, setCompTitle] = useState('');
+  const [compVideo, setCompVideo] = useState('');
+  const [compPrivacy, setCompPrivacy] = useState('');
+  const [compComment, setCompComment] = useState(false);
+  const [compDuet, setCompDuet] = useState(false);
+  const [compStitch, setCompStitch] = useState(false);
+  const [compSubmitting, setCompSubmitting] = useState(false);
+  const [compOptionsLoading, setCompOptionsLoading] = useState(false);
+
   useEffect(() => {
     const unsub = onSnapshot(collection(db, 'platform_settings'),
       (snap) => {
@@ -68,6 +80,70 @@ export default function PublishingPage() {
     );
     return () => unsub();
   }, []);
+
+  // Load videos eligible for a manual TikTok compose (recent, not yet published) via client SDK.
+  useEffect(() => {
+    const unsub = onSnapshot(
+      query(collection(db, 'videos'), orderBy('created_at', 'desc'), limit(50)),
+      (snap) => {
+        const list = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+        setAvailableVideos(list.filter((v: any) => v?.status !== 'published'));
+      },
+      (error) => console.error('[Publishing] load videos:', error)
+    );
+    return () => unsub();
+  }, []);
+
+  const loadComposerOptions = async () => {
+    setCompOptionsLoading(true);
+    try {
+      const res = await fetch('/api/tiktok/composer/options');
+      const data = await res.json();
+      if (data.success) {
+        setPrivacyOptions(Array.isArray(data.privacy_level_options) ? data.privacy_level_options : []);
+        alert(`Composer options loaded (${data.privacy_level_options?.length || 0} privacy levels). Select one.`);
+      } else {
+        alert(`Failed to load TikTok publish options: ${data.error}`);
+      }
+    } catch (e: any) {
+      alert(`Failed to load TikTok publish options: ${e.message}`);
+    } finally {
+      setCompOptionsLoading(false);
+    }
+  };
+
+  const submitCompose = async () => {
+    if (!compVideo) return alert('Select a video to publish.');
+    if (!compTitle.trim()) return alert('Enter a title.');
+    if (!compPrivacy) return alert('Select a privacy level (required — no default).');
+    setCompSubmitting(true);
+    try {
+      const res = await fetch('/api/tiktok/composer/publish', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          video_id: compVideo,
+          title: compTitle.trim(),
+          format: 'shorts',
+          privacy_level: compPrivacy,
+          comment_disabled: !compComment,
+          duet_disabled: !compDuet,
+          stitch_disabled: !compStitch,
+        }),
+      });
+      const data = await res.json();
+      if (data.success) {
+        alert(`TikTok compose queued (${data.intent_id}). The pipeline will publish it shortly.`);
+        setCompTitle(''); setCompVideo(''); setCompPrivacy(''); setCompComment(false); setCompDuet(false); setCompStitch(false);
+      } else {
+        alert(`Failed to queue TikTok post: ${data.error}`);
+      }
+    } catch (e: any) {
+      alert(`Failed to queue TikTok post: ${e.message}`);
+    } finally {
+      setCompSubmitting(false);
+    }
+  };
 
   const totalFollowers = platforms.reduce((s, p) => s + p.followers, 0);
   const totalPublished = platforms.reduce((s, p) => s + (Number(p.videosPublished) || 0), 0);
@@ -333,11 +409,104 @@ export default function PublishingPage() {
                   );
                 })}
               </div>
-            </motion.div>
+             </motion.div>
+               ))}
+             </div>
+           )}
+         </div>
+
+      {/* TikTok Composer */}
+      <div className="rounded-2xl glass-strong border border-light-border/30 dark:border-white/5 p-6">
+        <h2 className="text-lg font-bold text-light-text dark:text-dark-text mb-1">Compose TikTok Post</h2>
+        <p className="text-xs text-light-muted dark:text-dark-muted mb-4">
+          Manually publish a recently rendered video to TikTok. A privacy level is <span className="font-semibold text-light-primary">required</span> — no default is preselected. Comments/Duet/Stitch default to off.
+        </p>
+
+        <div className="space-y-3">
+          <div>
+            <label className="text-xs font-medium text-light-muted dark:text-dark-muted block mb-1">Video (unpublished renders)</label>
+            <select
+              value={compVideo}
+              onChange={(e) => setCompVideo(e.target.value)}
+              className="w-full px-3 py-2 rounded-xl bg-light-bg dark:bg-dark-bg border border-light-border/30 dark:border-white/5 text-sm text-light-text dark:text-dark-text outline-none focus:border-light-primary/50"
+            >
+              <option value="">Select a video…</option>
+              {availableVideos.map((v: any) => (
+                <option key={v.video_id || v.id} value={v.video_id || v.id}>
+                  {v.title || v.video_id || v.id} ({v.format || 'shorts'}){v.status ? ` — ${v.status}` : ''}
+                </option>
               ))}
+            </select>
+          </div>
+
+          <div>
+            <label className="text-xs font-medium text-light-muted dark:text-dark-muted block mb-1">Title</label>
+            <input
+              type="text"
+              value={compTitle}
+              onChange={(e) => setCompTitle(e.target.value)}
+              maxLength={100}
+              placeholder="Enter post title…"
+              className="w-full px-3 py-2 rounded-xl bg-light-bg dark:bg-dark-bg border border-light-border/30 dark:border-white/5 text-sm text-light-text dark:text-dark-text placeholder-light-muted dark:placeholder-dark-muted outline-none focus:border-light-primary/50"
+            />
+          </div>
+
+          <div>
+            <label className="text-xs font-medium text-light-muted dark:text-dark-muted block mb-1">Privacy level</label>
+            <div className="flex gap-2">
+              <select
+                value={compPrivacy}
+                onChange={(e) => setCompPrivacy(e.target.value)}
+                className="flex-1 px-3 py-2 rounded-xl bg-light-bg dark:bg-dark-bg border border-light-border/30 dark:border-white/5 text-sm text-light-text dark:text-dark-text outline-none focus:border-light-primary/50"
+              >
+                <option value="">Select privacy…</option>
+                {privacyOptions.map((opt: any) => {
+                  const val = typeof opt === 'string' ? opt : (opt?.level || opt?.privacy_level || opt?.value || '');
+                  const label = typeof opt === 'string' ? opt : (opt?.display_name || opt?.label || opt?.level || opt?.privacy_level || opt?.value || opt?.id || '');
+                  return val ? <option key={val} value={val}>{label}</option> : null;
+                })}
+              </select>
+              <button
+                onClick={loadComposerOptions}
+                disabled={compOptionsLoading}
+                className="px-3 py-2 rounded-xl text-xs font-medium bg-purple-500/20 text-purple-400 border border-purple-500/30 hover:bg-purple-500/30 disabled:opacity-50"
+              >
+                {compOptionsLoading ? 'Loading…' : 'Load options'}
+              </button>
             </div>
-          )}
+          </div>
+
+          <div className="space-y-2 pt-1">
+            {[
+              { label: 'Allow comments', state: compComment, setter: setCompComment },
+              { label: 'Allow duet', state: compDuet, setter: setCompDuet },
+              { label: 'Allow stitch', state: compStitch, setter: setCompStitch },
+            ].map((t) => (
+              <div key={t.label} className="flex items-center justify-between">
+                <span className="text-sm text-light-text dark:text-dark-text">{t.label}</span>
+                <button
+                  onClick={() => t.setter(!t.state)}
+                  className={`w-10 h-6 rounded-full transition-colors ${t.state ? 'bg-light-success' : 'bg-light-border dark:bg-dark-border'}`}
+                >
+                  <motion.div
+                    className="w-5 h-5 rounded-full bg-white shadow-sm"
+                    animate={{ x: t.state ? 18 : 2 }}
+                    transition={{ type: 'spring', stiffness: 500, damping: 30 }}
+                  />
+                </button>
+              </div>
+            ))}
+          </div>
+
+          <button
+            onClick={submitCompose}
+            disabled={compSubmitting}
+            className="w-full py-3 rounded-2xl text-white font-semibold text-sm bg-gradient-to-r from-light-primary to-purple-600 hover:shadow-lg transition-shadow disabled:opacity-50"
+          >
+            {compSubmitting ? 'Queuing…' : 'Queue TikTok Post'}
+          </button>
         </div>
+      </div>
     </div>
   );
 }

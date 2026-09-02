@@ -254,7 +254,7 @@ def _is_graph_permission_error(err: dict) -> bool:
     return False
 
 
-def upload_to_platform(platform: str, title: str, description: str, video_path: str, thumbnail_path: str, format_type: str = 'shorts', publish_at: str = None, subtitle_path: str = None, tags: list = None) -> dict:  # noqa: E501
+def upload_to_platform(platform: str, title: str, description: str, video_path: str, thumbnail_path: str, format_type: str = 'shorts', publish_at: str = None, subtitle_path: str = None, tags: list = None, tiktok_privacy_level: str = None, tiktok_comment_disabled: bool = False, tiktok_duet_disabled: bool = False, tiktok_stitch_disabled: bool = False) -> dict:  # noqa: E501
     """Upload a video to a specific platform."""
     platform_info = PLATFORMS.get(platform)
     if not platform_info:
@@ -266,7 +266,10 @@ def upload_to_platform(platform: str, title: str, description: str, video_path: 
         if platform == 'youtube':
             return _upload_youtube(title, description, video_path, thumbnail_path, format_type, publish_at, subtitle_path, tags=tags)
         elif platform == 'tiktok':
-            return _upload_tiktok(title, video_path, format_type)
+            return _upload_tiktok(title, video_path, format_type, privacy_level=tiktok_privacy_level,
+                                  comment_disabled=tiktok_comment_disabled,
+                                  duet_disabled=tiktok_duet_disabled,
+                                  stitch_disabled=tiktok_stitch_disabled)
         elif platform == 'instagram':
             return _upload_instagram(title, video_path, format_type)
         elif platform == 'facebook':
@@ -329,7 +332,9 @@ def _upload_youtube(title: str, description: str, video_path: str, thumbnail_pat
         }
 
 
-def _upload_tiktok(title: str, video_path: str, format_type: str) -> dict:
+def _upload_tiktok(title: str, video_path: str, format_type: str, privacy_level: str = None,
+                   comment_disabled: bool = False, duet_disabled: bool = False,
+                   stitch_disabled: bool = False) -> dict:
     """Upload to TikTok via Content Posting API v2 with retry, rate limit, idempotency."""
     if not rate_limiter("tiktok_upload", max_per_hour=5):
         security_audit("RATE_LIMIT", "TikTok upload rate limit hit", "warning")
@@ -344,13 +349,19 @@ def _upload_tiktok(title: str, video_path: str, format_type: str) -> dict:
             'error': 'TikTok upload not configured. Set TIKTOK_ACCESS_TOKEN and TIKTOK_OPEN_ID env vars.',
         }
 
+    if not privacy_level:
+        privacy_level = os.getenv('TIKTOK_PRIVACY_LEVEL', '')
+    if not privacy_level:
+        msg = 'TikTok privacy_level not set. Provide a per-post override or set TIKTOK_PRIVACY_LEVEL env (no implicit default).'
+        log_activity('publisher', msg, 'error')
+        security_audit("PRIVACY_MISSING", 'TikTok publish blocked: no privacy_level', "error")
+        return {'success': False, 'platform': 'tiktok', 'error': msg}
+
     if not os.path.exists(video_path):
         return {'success': False, 'platform': 'tiktok', 'error': f'Video file not found: {video_path}'}
 
     idem_key = _idempotency_key()
     _tiktok_refresh_attempted = False
-
-    privacy_level = os.getenv('TIKTOK_PRIVACY_LEVEL', 'PUBLIC_TO_EVERYONE')
 
     def _do_upload():
         nonlocal access_token, _tiktok_refresh_attempted
@@ -422,6 +433,12 @@ def _upload_tiktok(title: str, video_path: str, format_type: str) -> dict:
         post_info = {'title': title, 'privacy_level': privacy_level}
         if ai_flags.get("is_aigc"):
             post_info["is_aigc"] = True
+        if comment_disabled:
+            post_info["comment_disabled"] = True
+        if duet_disabled:
+            post_info["duet_disabled"] = True
+        if stitch_disabled:
+            post_info["stitch_disabled"] = True
 
         # Publish via status polling (init -> upload -> poll status/fetch until PUBLISH_COMPLETE)
         publish_payload = {'publish_id': publish_id, 'post_info': post_info}
@@ -829,7 +846,11 @@ def multi_platform_publish(video_id: str, title: str, description: str, video_pa
                            thumbnail_path: str, format_type: str = 'shorts',
                            platforms: list = None, publish_at: str = None,
                            category: str = "", cleanup: bool = True,
-                           subtitle_path: str = None, tags: list = None) -> dict:
+                           subtitle_path: str = None, tags: list = None,
+                           tiktok_privacy_level: str = None,
+                           tiktok_comment_disabled: bool = False,
+                           tiktok_duet_disabled: bool = False,
+                           tiktok_stitch_disabled: bool = False) -> dict:
     """Publish to multiple platforms with progress tracking."""
     if platforms is None:
         platforms = ['youtube']
@@ -859,7 +880,11 @@ def multi_platform_publish(video_id: str, title: str, description: str, video_pa
             platform_desc = optimize_for_platform(title, description, platform)
             log_activity('publisher', f"Uploading to {PLATFORMS[platform]['name']}...", 'info')
             result = upload_to_platform(platform, platform_title, platform_desc, video_path,
-                                        thumbnail_path, format_type, publish_at, subtitle_path, tags=tags)
+                                        thumbnail_path, format_type, publish_at, subtitle_path, tags=tags,
+                                        tiktok_privacy_level=tiktok_privacy_level,
+                                        tiktok_comment_disabled=tiktok_comment_disabled,
+                                        tiktok_duet_disabled=tiktok_duet_disabled,
+                                        tiktok_stitch_disabled=tiktok_stitch_disabled)
             results['platforms'][platform] = result
 
             # Update queue in Firestore

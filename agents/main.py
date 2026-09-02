@@ -3113,6 +3113,122 @@ def _handle_pipeline_trigger(topic: str, category: str, format_type: str, trigge
             log_event("TRIGGER", f"Failed to update trigger status in Firestore: {firebase_err}", "error")
 
 
+def tiktok_composer_job():
+    """Publish queued dashboard TikTok composer intents (audit-compliant: explicit privacy, no default)."""
+    try:
+        from utils.firebase_status import get_firestore_client
+        db = get_firestore_client()
+        if not db:
+            return
+        docs = list(db.collection('tiktok_composer').where('status', '==', 'queued').stream(timeout=30))
+        if not docs:
+            return
+
+        docs.sort(key=lambda d: d.to_dict().get('created_at', None) or 0)
+        intent = docs[0]
+        data = intent.to_dict()
+        intent_id = intent.id
+
+        title = data.get('title', '')
+        video_id = data.get('video_id', '')
+        privacy = data.get('privacy_level', '')
+        comment_disabled = bool(data.get('comment_disabled', False))
+        duet_disabled = bool(data.get('duet_disabled', True))
+        stitch_disabled = bool(data.get('stitch_disabled', True))
+
+        if not video_id:
+            _fail_intent(db, intent_id, 'Missing video_id')
+            return
+        if not privacy:
+            _fail_intent(db, intent_id, 'Missing privacy_level (no default)')
+            return
+
+        intent_ref = db.collection('tiktok_composer').document(intent_id)
+        intent_ref.update({'status': 'processing', 'started_at': time.time()})
+
+        video_path = ''
+        cp = load_checkpoint(video_id)
+        if cp:
+            video_path = (cp.get('state') or {}).get('video_path', '') or ''
+        if not video_path or not os.path.exists(video_path):
+            video_path = _resolve_video_for_publish(db, video_id, video_path)
+
+        if not video_path:
+            _fail_intent(db, intent_id, f'Video file unavailable for video_id={video_id}')
+            return
+
+        def _do():
+            result = multi_platform_publish(
+                video_id=video_id,
+                title=title,
+                description=data.get('description', '') or title,
+                video_path=video_path,
+                thumbnail_path='',
+                format_type=data.get('format', 'shorts'),
+                platforms=['tiktok'],
+                category=data.get('category', ''),
+                cleanup=False,
+                tiktok_privacy_level=privacy,
+                tiktok_comment_disabled=comment_disabled,
+                tiktok_duet_disabled=duet_disabled,
+                tiktok_stitch_disabled=stitch_disabled,
+            )
+            t = result.get('platforms', {}).get('tiktok', {})
+            if t.get('success'):
+                db.collection('tiktok_composer').document(intent_id).update({
+                    'status': 'published',
+                    'publish_id': t.get('video_id'),
+                    'url': t.get('url', ''),
+                    'completed_at': time.time(),
+                })
+                log_event("TIKTOK_COMPOSER", f"Published: {title} -> {t.get('url', '')}")
+            else:
+                raise RuntimeError(t.get('error', 'TikTok publish failed'))
+
+        from utils.subprocess_helper import retry_with_backoff
+        ok, result = retry_with_backoff(_do, max_retries=2, base_delay=5, max_delay=30)
+        if not ok:
+            _fail_intent(db, intent_id, result if isinstance(result, str) else str(result))
+    except Exception as e:
+        log_event("TIKTOK_COMPOSER", f"Composer job failed: {e}", "error")
+
+
+def _fail_intent(db, intent_id: str, reason: str):
+    try:
+        db.collection('tiktok_composer').document(intent_id).update({
+            'status': 'failed',
+            'error': str(reason)[:500],
+            'completed_at': time.time(),
+        })
+    except Exception as e:
+        log_event("TIKTOK_COMPOSER", f"Failed to mark intent failed: {e}", "error")
+
+
+def _resolve_video_for_publish(db, video_id: str, local_path: str = '') -> str:
+    """Resolve a publishable video file: local path, else download from R2 by key."""
+    if local_path and os.path.exists(local_path):
+        return local_path
+    try:
+        doc = db.collection('videos').document(video_id).get()
+        if not doc.exists:
+            return ''
+        vdata = doc.to_dict()
+        r2_key = vdata.get('r2_key') or ''
+        if not r2_key:
+            r2_key = f"videos/{video_id}_{vdata.get('format', 'long')}.mp4"
+        from utils.r2_storage import generate_presigned_url
+        import urllib.request
+        tmp = f"tmp/composer_{video_id}.mp4"
+        os.makedirs("tmp", exist_ok=True)
+        url = generate_presigned_url(r2_key, expires_in=300)
+        urllib.request.urlretrieve(url, tmp)
+        if os.path.exists(tmp) and os.path.getsize(tmp) > 1000:
+            return tmp
+    except Exception as e:
+        log_event("TIKTOK_COMPOSER", f"R2 resolve failed for {video_id}: {e}", "warn")
+    return ''
+
+
 if __name__ == "__main__":
     log_event("SYSTEM", "Vyom Ai Cloud - Agent Orchestrator Starting")
 
@@ -3179,6 +3295,7 @@ if __name__ == "__main__":
     scheduler.add_job(daily_revenue_job, "cron", hour=8, minute=30, misfire_grace_time=86400)
     scheduler.add_job(daily_cleanup_job, "cron", hour=4, minute=0, misfire_grace_time=86400)
     scheduler.add_job(scheduled_publish_job, "interval", minutes=15)
+    scheduler.add_job(tiktok_composer_job, "interval", minutes=5)
     scheduler.add_job(weekly_monetization_job, "cron", day_of_week="mon", hour=12, minute=0, misfire_grace_time=86400)
     scheduler.add_job(daily_feedback_job, "cron", hour=10, minute=0, misfire_grace_time=86400)
     scheduler.add_job(daily_title_test_job, "cron", hour=12, minute=0, misfire_grace_time=86400)
@@ -3191,6 +3308,7 @@ if __name__ == "__main__":
     log_event("SCHEDULER", "Daily revenue computation scheduled at 08:30 UTC")
     log_event("SCHEDULER", "Daily cleanup job scheduled at 04:00 UTC")
     log_event("SCHEDULER", "Scheduled publish check every 15 minutes")
+    log_event("SCHEDULER", "TikTok composer check every 5 minutes")
     log_event("SCHEDULER", "Weekly monetization review scheduled on Mondays at 12:00 UTC")
     log_event("SCHEDULER", "Weekly documentary generation scheduled on Sundays at 20:00 UTC")
     log_event("SCHEDULER", "Daily analytics feedback loop scheduled at 10:00 UTC")
