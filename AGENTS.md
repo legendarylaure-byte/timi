@@ -2,6 +2,11 @@
 
 ## Latest Changes (committed)
 
+### D28-4: Dashboard deploy = local Vercel CLI (GHA auto-deploy removed permanently)
+- **Broken GHA auto-deploy removed**: `.github/workflows/deploy.yml` ("Deploy to Vercel") deleted — it always failed on an invalid/expired `VERCEL_TOKEN` repo secret. The dashboard is now deployed **only via the local Vercel CLI** (logged in as `aayuphuyal-jpg`). No future dashboard push auto-deploys; deploy manually.
+- **Deploy command (from `dashboard/`)**: `VERCEL_SKIP_UPGRADE=1 vercel deploy --prod --yes`. Reminder: macOS zsh has no `timeout`, and `vercel whoami`/invocation triggers a CLI self-upgrade that hangs → always set `VERCEL_SKIP_UPGRADE=1`. First attempt may transiently fail on `npm install fetch failed`; retry succeeds.
+- **Never rely on GHA for Vercel**: the only GHA workflows are `ci.yml`, `daily-content.yml`, `firebase-deploy.yml`, `healthcheck.yml`. Backend (Docker) deploys are thin overlay builds (`agents/Dockerfile.overlay` → `timi-pipeline:latest` → recreate container), also done manually.
+
 ### D28-3: Audit-Compliant TikTok Composer (dashboard) + Backend No-Default-Override (deployed live)
 - **Backend: no implicit default (audit-compliant)**: `_upload_tiktok` (`multi_platform_publisher.py`) removed the `os.getenv('TIKTOK_PRIVACY_LEVEL', 'PUBLIC_TO_EVERYONE')` fallback. Now if neither a per-post override nor the `TIKTOK_PRIVACY_LEVEL` env is set, the TikTok upload **hard-fails** (logs `PRIVACY_MISSING` security audit + error result) — the headless equivalent of TikTok's "no default privacy preselected" audit rule. Normal scheduled path unaffected (`TIKTOK_PRIVACY_LEVEL=SELF_ONLY` is set).
 - **Backend: per-post privacy/comment/duet/stitch override**: `upload_to_platform` → `multi_platform_publish` → `_upload_tiktok` now accept `tiktok_privacy_level` + `tiktok_comment_disabled`/`tiktok_duet_disabled`/`tiktok_stitch_disabled`. Defaults keep existing headless behavior (toggles only disabled when an explicit override asks). Override > env. Toggles written into `post_info` (top of status-poll publish).
