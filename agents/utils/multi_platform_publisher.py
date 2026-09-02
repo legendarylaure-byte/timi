@@ -358,6 +358,17 @@ def _upload_tiktok(title: str, video_path: str, format_type: str) -> dict:
 
         file_size = os.path.getsize(video_path)
 
+        # TikTok Media Transfer: chunk_size 5-64MB, total_chunk_count = floor(size/chunk_size).
+        # Files >64MB MUST be multi-chunk; last chunk absorbs trailing bytes (up to 128MB).
+        chunk_size = min(file_size, 64 * 1024 * 1024)
+        total_chunk_count = file_size // chunk_size if chunk_size else 1
+        while total_chunk_count < 2 and chunk_size > 5 * 1024 * 1024:
+            chunk_size //= 2
+            total_chunk_count = file_size // chunk_size
+        if total_chunk_count < 1:
+            total_chunk_count = 1
+            chunk_size = file_size
+
         init_resp = requests.post(
             'https://open.tiktokapis.com/v2/post/publish/video/init/',
             headers={'Authorization': f'Bearer {access_token}', 'Content-Type': 'application/json'},
@@ -365,8 +376,8 @@ def _upload_tiktok(title: str, video_path: str, format_type: str) -> dict:
                 'source_info': {
                     'source': 'FILE_UPLOAD',
                     'video_size': file_size,
-                    'chunk_size': file_size,
-                    'total_chunk_count': 1,
+                    'chunk_size': chunk_size,
+                    'total_chunk_count': total_chunk_count,
                 },
                 'post_info': {'privacy_level': privacy_level},
             },
@@ -390,15 +401,22 @@ def _upload_tiktok(title: str, video_path: str, format_type: str) -> dict:
         if not upload_url or not publish_id:
             raise RuntimeError('No upload URL / publish id in TikTok init response')
 
+        # Upload chunks sequentially with per-chunk Content-Range; 201 = done, 206 = more pending.
+        # Non-final chunks = exactly chunk_size; the FINAL chunk absorbs ALL trailing bytes
+        # (up to 128MB, per Media Transfer guide) so cumulative bytes reach file_size.
         with open(video_path, 'rb') as f:
-            upload_resp = requests.put(
-                upload_url, data=f, timeout=300,
-                headers={'Content-Range': f'bytes 0-{file_size - 1}/{file_size}',
-                         'Content-Type': 'video/mp4'},
-            )
-
-        if upload_resp.status_code not in (200, 201):
-            raise RuntimeError(f'TikTok file upload failed: {upload_resp.status_code}')
+            for i in range(total_chunk_count):
+                start = i * chunk_size
+                end = (file_size - 1) if i == total_chunk_count - 1 else (start + chunk_size - 1)
+                f.seek(start)
+                data = f.read(end - start + 1)
+                upload_resp = requests.put(
+                    upload_url, data=data, timeout=300,
+                    headers={'Content-Range': f'bytes {start}-{end}/{file_size}',
+                             'Content-Type': 'video/mp4'},
+                )
+                if upload_resp.status_code not in (200, 201, 206):
+                    raise RuntimeError(f'TikTok chunk {i + 1}/{total_chunk_count} upload failed: {upload_resp.status_code}')
 
         ai_flags = get_ai_disclosure("tiktok")
         post_info = {'title': title, 'privacy_level': privacy_level}
