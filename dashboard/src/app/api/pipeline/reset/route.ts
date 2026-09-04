@@ -1,13 +1,29 @@
 import { NextResponse } from 'next/server';
-import { getAdminFirestore } from '@/lib/firebase-admin';
+import { getAdminFirestore, getAdminAuth } from '@/lib/firebase-admin';
 import { FieldValue } from 'firebase-admin/firestore';
 import { rateLimitMiddleware } from '@/lib/rate-limit';
+
+async function verifyAuth(request: Request): Promise<{ uid: string } | null> {
+  const authHeader = request.headers.get('authorization');
+  if (!authHeader?.startsWith('Bearer ')) return null;
+  try {
+    const token = authHeader.slice(7);
+    const decoded = await getAdminAuth().verifyIdToken(token);
+    return { uid: decoded.uid };
+  } catch {
+    return null;
+  }
+}
 
 export async function POST(request: Request) {
   const rateLimitResponse = rateLimitMiddleware(request, 30);
   if (rateLimitResponse) return rateLimitResponse;
 
   try {
+    const user = await verifyAuth(request);
+    if (!user) {
+      return NextResponse.json({ success: false, error: 'Unauthorized' }, { status: 401 });
+    }
     const db = getAdminFirestore();
 
     const agentSnap = await db.collection('agent_status').get();

@@ -2,7 +2,7 @@
 
 import { useEffect, useState, useCallback } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { db } from '@/lib/firebase';
+import { db, auth } from '@/lib/firebase';
 import {
   collection, onSnapshot, doc, query, orderBy, limit,
   where,
@@ -118,9 +118,12 @@ export default function DashboardPage() {
     try {
       const publishAt = triggerForm.schedule === 'schedule' && triggerForm.publishAt
         ? new Date(triggerForm.publishAt).toISOString() : null;
+      const token = auth.currentUser ? await auth.currentUser.getIdToken() : '';
+      const h: Record<string, string> = { 'Content-Type': 'application/json' };
+      if (token) h['Authorization'] = `Bearer ${token}`;
       const res = await fetch('/api/pipeline-triggers', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: h,
         body: JSON.stringify({
           topic: triggerForm.topic.trim(),
           category: triggerForm.category,

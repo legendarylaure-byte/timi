@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from 'react';
 import { motion } from 'framer-motion';
-import { db } from '@/lib/firebase';
+import { db, auth } from '@/lib/firebase';
 import { doc, updateDoc, getDoc, setDoc, collection, onSnapshot } from 'firebase/firestore';
 import { useToast } from '@/components/ui/Toast';
 import { GradientCard } from '@/components/ui/GradientCard';
@@ -75,7 +75,10 @@ export default function SettingsPage() {
   const loadEnvVars = async () => {
     setEnvLoading(true);
     try {
-      const res = await fetch('/api/env-vars');
+      const token = auth.currentUser ? await auth.currentUser.getIdToken() : '';
+      const h: Record<string, string> = {};
+      if (token) h['Authorization'] = `Bearer ${token}`;
+      const res = await fetch('/api/env-vars', { headers: h });
       const data = await res.json();
       if (data.success) {
         setEnvVars(data.vars);
@@ -102,9 +105,12 @@ export default function SettingsPage() {
       }
       // Fallback: platforms without OAuth (connect directly)
       try {
+        const token = auth.currentUser ? await auth.currentUser.getIdToken() : '';
+        const h: Record<string, string> = { 'Content-Type': 'application/json' };
+        if (token) h['Authorization'] = `Bearer ${token}`;
         await fetch(`/api/platform-settings/${platformId}`, {
           method: 'PUT',
-          headers: { 'Content-Type': 'application/json' },
+          headers: h,
           body: JSON.stringify({ connected: true }),
         });
         addToast(`${platformName} connected`, 'success');
@@ -140,7 +146,17 @@ export default function SettingsPage() {
     } else if (err.startsWith('tiktok_')) {
       addToast('TikTok connection failed', 'error');
     }
-    if (params.has('tiktok_connected') || err.startsWith('tiktok_')) {
+    if (params.get('meta_connected') === 'true') {
+      addToast('Facebook & Instagram connected successfully', 'success');
+    } else if (err.startsWith('meta_')) {
+      addToast('Facebook / Instagram connection failed', 'error');
+    }
+    if (
+      params.has('tiktok_connected') ||
+      params.has('meta_connected') ||
+      err.startsWith('tiktok_') ||
+      err.startsWith('meta_')
+    ) {
       window.history.replaceState({}, '', window.location.pathname);
     }
   }, [addToast]);
@@ -204,9 +220,12 @@ export default function SettingsPage() {
 
   const handleSave = async (section: string) => {
     try {
+      const token = auth.currentUser ? await auth.currentUser.getIdToken() : '';
+      const h: Record<string, string> = { 'Content-Type': 'application/json' };
+      if (token) h['Authorization'] = `Bearer ${token}`;
       const res = await fetch('/api/settings', {
         method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
+        headers: h,
         body: JSON.stringify({
           notifications,
           autoUpload,
@@ -561,9 +580,12 @@ export default function SettingsPage() {
                                     onClick={async () => {
                                       if (!editVal.trim()) return;
                                       try {
+                                        const token = auth.currentUser ? await auth.currentUser.getIdToken() : '';
+                                        const h: Record<string, string> = { 'Content-Type': 'application/json' };
+                                        if (token) h['Authorization'] = `Bearer ${token}`;
                                         const res = await fetch(`/api/env-vars/${key}`, {
                                           method: 'PUT',
-                                          headers: { 'Content-Type': 'application/json' },
+                                          headers: h,
                                           body: JSON.stringify({ value: editVal.trim() }),
                                         });
                                         const data = await res.json();

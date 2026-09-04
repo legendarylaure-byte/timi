@@ -13,7 +13,7 @@ import Image from 'next/image';
 import {
   LayoutDashboard, Clapperboard, Archive, Flame, Scissors, Palette,
   Upload, TrendingUp, DollarSign, Clapperboard as SeriesIcon, Clock,
-  Settings, Eye, LogOut, Menu, X, BarChart3, Newspaper, ChevronDown,
+  Settings, Eye, LogOut, Menu, X, BarChart3, Newspaper, ChevronDown, Radar,
 } from 'lucide-react';
 import { GlobalStatusBar } from '@/components/status/GlobalStatusBar';
 import { AmbientBackground } from '@/components/ui/AmbientBackground';
@@ -44,6 +44,7 @@ const navGroups = [
   {
     label: 'System',
     items: [
+      { label: 'Mission Control', icon: Radar, path: '/dashboard/monitor' },
       { label: 'Publishing', icon: Upload, path: '/dashboard/publishing' },
       { label: 'Settings', icon: Settings, path: '/dashboard/settings' },
     ],

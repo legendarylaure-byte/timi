@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { db } from '@/lib/firebase';
+import { db, auth } from '@/lib/firebase';
 import { collection, doc, onSnapshot, query, orderBy, limit, Timestamp } from 'firebase/firestore';
 import { PIPELINE_STEPS, AGENT_ROLES } from '@/lib/constants';
 import { useToast } from '@/components/ui/Toast';
@@ -55,7 +55,10 @@ export function ActivePipeline() {
     if (!window.confirm('Reset all agent statuses to idle and clear the pipeline flag? This will NOT affect any running processes.')) return;
     setResetting(true);
     try {
-      const res = await fetch('/api/pipeline/reset', { method: 'POST' });
+      const token = auth.currentUser ? await auth.currentUser.getIdToken() : '';
+      const h: Record<string, string> = {};
+      if (token) h['Authorization'] = `Bearer ${token}`;
+      const res = await fetch('/api/pipeline/reset', { method: 'POST', headers: h });
       const data = await res.json();
       if (data.success) {
         addToast(`Reset ${data.resetCount || 0} agent statuses`, 'success');

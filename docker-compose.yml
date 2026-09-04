@@ -26,6 +26,7 @@ services:
       - ./keys/:/app/keys/:ro
       - ./agents/tmp/community_cookies/:/app/tmp/community_cookies/
       - ./agents/tmp/ltx_cache/:/app/tmp/ltx_cache/
+      - /Users/saykar/ltx-models:/root/ltx-models:ro
     logging:
       driver: "json-file"
       options:
