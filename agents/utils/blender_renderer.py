@@ -143,6 +143,16 @@ def _build_params(scene: dict, template_name: str, duration: float) -> dict:
         "duration": duration,
         "narration": narration[:200],
     }
+    # Forward structured diagram data so templates render REAL content,
+    # not default geometry (e.g. neural_network.py reads layer_sizes).
+    diagram = scene.get("diagram")
+    if isinstance(diagram, dict):
+        for k in ("layer_sizes", "items", "blocks", "labels", "type"):
+            if diagram.get(k) is not None:
+                params[k] = diagram[k]
+    for k in ("layer_sizes", "items", "blocks", "labels"):
+        if scene.get(k) is not None and k not in params:
+            params[k] = scene[k]
     return params
 
 

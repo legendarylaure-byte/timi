@@ -2,5 +2,27 @@
 # Avoids re-downloading the 3GB torch/CUDA stack (floating python:3.11-slim base tag invalidation).
 FROM timi-pipeline:latest
 
+# manim 0.21.0 verified working inside the container (spike: valid mp4 rendered).
+RUN pip install --no-cache-dir "manim>=0.20.0,<0.22.0"
+
+# manim's BarChart/MathTex render TeX via latex + dvisvgm — the base image has no TeX.
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    texlive-latex-base \
+    texlive-latex-recommended \
+    texlive-fonts-recommended \
+    lmodern \
+    dvisvgm \
+    ghostscript \
+    && rm -rf /var/lib/apt/lists/*
+
+COPY requirements.txt /app/requirements.txt
 COPY main.py /app/main.py
+COPY crew/manim_agent.py /app/crew/manim_agent.py
+COPY crew/scriptwriter.py /app/crew/scriptwriter.py
 COPY utils/multi_platform_publisher.py /app/utils/multi_platform_publisher.py
+COPY utils/scene_schema.py /app/utils/scene_schema.py
+COPY utils/scene_parser.py /app/utils/scene_parser.py
+COPY utils/blender_renderer.py /app/utils/blender_renderer.py
+COPY utils/asset_router.py /app/utils/asset_router.py
+COPY utils/diagram_renderer.py /app/utils/diagram_renderer.py
+COPY utils/manim_renderer.py /app/utils/manim_renderer.py

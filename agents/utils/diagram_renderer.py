@@ -15,8 +15,8 @@ try:
 except ImportError:
     Image = None  # ponytail: PIL required, render returns None if missing
 
-FONT_PATH = "/System/Library/Fonts/Helvetica.ttc"
-FONT_BOLD = "/System/Library/Fonts/Helvetica.ttc"
+FONT_PATH = os.getenv("FONT_PATH") or "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf"
+FONT_BOLD = os.getenv("FONT_PATH_BOLD", FONT_PATH)
 FONT_SIZE = 18
 
 TEAL = (0, 204, 204)
@@ -27,11 +27,27 @@ WHITE = (255, 255, 255)
 LIGHT_GRAY = (200, 200, 200)
 
 
+_FONT_CANDIDATES = [
+    "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf",
+    "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
+    "/usr/share/fonts/truetype/liberation/LiberationSans-Bold.ttf",
+    "/System/Library/Fonts/Helvetica.ttc",
+]
+
+
+def _resolve_font(size: int) -> ImageFont.FreeTypeFont:
+    """Find the first available TrueType font (env → candidates → default)."""
+    for path in [FONT_PATH] + _FONT_CANDIDATES:
+        if os.path.exists(path):
+            try:
+                return ImageFont.truetype(path, size)
+            except Exception:
+                continue
+    return ImageFont.load_default()
+
+
 def _font(size: int = FONT_SIZE, bold: bool = False) -> ImageFont.FreeTypeFont:
-    path = FONT_BOLD if bold else FONT_PATH
-    if not os.path.exists(path):
-        return ImageFont.load_default()
-    return ImageFont.truetype(path, size)
+    return _resolve_font(size)
 
 
 def render_diagram(spec: dict, width: int = 1920, height: int = 1080) -> Optional[str]:
@@ -243,3 +259,64 @@ def _draw_arrowhead(draw: ImageDraw.Draw, x: float, y: float,
     elif direction == "up":
         pts = [(x, y), (x - size // 2, y + size), (x + size // 2, y + size)]
     draw.polygon(pts, fill=color)
+
+
+def render_diagram_animation(spec: dict, width: int = 1920, height: int = 1080,
+                              duration: float = 8.0, fps: int = 24) -> Optional[str]:
+    """Render a progressively-revealed diagram animation as an mp4.
+    Returns path or None.
+    """
+    if Image is None:
+        return None
+    from utils.subprocess_helper import safe_run
+
+    items = spec.get("items", [])
+    n = max(len(items), 1)
+    # Stages: one per item (appear one-by-one), capped at ~6fps reveal
+    reveal_frames = max(min(n, 8), 3)
+    frame_interval = max(fps, int(fps * duration / (reveal_frames + 1)))
+    frame_paths = []
+
+    tmpdir = tempfile.mkdtemp(prefix="diag_anim_")
+    try:
+        for k in range(reveal_frames + 1):
+            frac = min(1.0, k / reveal_frames) if reveal_frames else 1.0
+            sub = dict(spec)
+            if items:
+                keep = max(1, int(n * frac))
+                sub["items"] = items[:keep]
+            png = render_diagram(sub, width, height)
+            if not png:
+                continue
+            # Hold each stage for a chunk of frames
+            stage_frames = max(1, frame_interval)
+            out_path = os.path.join(tmpdir, f"frame_{k:03d}.png")
+            shutil.copy(png, out_path)
+            frame_paths.append((out_path, stage_frames))
+
+        if not frame_paths:
+            return None
+
+        # ffmpeg concat demuxer with durations per frame
+        concat_txt = os.path.join(tmpdir, "concat.txt")
+        with open(concat_txt, "w") as f:
+            for fp, nf in frame_paths:
+                f.write(f"file '{fp}'\n")
+                f.write(f"duration {nf / fps}\n")
+            # Final image repeat (ffmpeg concat quirk)
+            f.write(f"file '{frame_paths[-1][0]}'\n")
+
+        out_mp4 = os.path.join(tmpdir, "out.mp4")
+        cmd = [
+            "ffmpeg", "-y", "-f", "concat", "-safe", "0", "-i", concat_txt,
+            "-c:v", "libx264", "-preset", "ultrafast", "-crf", "23",
+            "-pix_fmt", "yuv420p", "-r", str(fps),
+            "-t", str(duration),
+            out_mp4,
+        ]
+        r = safe_run(cmd, timeout=30)
+        if r.returncode == 0 and os.path.exists(out_mp4) and os.path.getsize(out_mp4) > 1000:
+            return out_mp4
+    except Exception:
+        pass
+    return None

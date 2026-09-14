@@ -11,6 +11,7 @@ from utils.screen_capture import render_terminal, render_ide, render_browser, re
 from utils.stock_video import search_videos_for_scenes as _search_stock
 from models import get_video_model
 from utils.scene_schema import DEEP_LESSON_CATS as _DEEP_LESSON_CATS
+from utils.manim_renderer import render_manim_scene, render_manim_code_snippet
 
 logger = logging.getLogger(__name__)
 
@@ -20,6 +21,9 @@ os.makedirs(OUTPUT_DIR, exist_ok=True)
 CACHE = {}
 
 MAX_STOCK_FOOTAGE_RATIO = 0.6
+
+_manim_used: dict[str, int] = {}
+_manim_cap = int(os.getenv("MANIM_MAX_SCENES_PER_VIDEO", "6"))
 
 
 def _generate_static_image(description: str, keyword: str = "", width: int = 1920, height: int = 1080, video_id: str = "", scene_idx: int = 0) -> str:
@@ -33,9 +37,12 @@ def _generate_static_image(description: str, keyword: str = "", width: int = 192
         title_text = title_text[:57] + "..."
     font_size = 64
     try:
-        font = ImageFont.truetype("/System/Library/Fonts/Helvetica.ttc", font_size)
+        font = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf", font_size)
     except (OSError, IOError):
-        font = ImageFont.load_default()
+        try:
+            font = ImageFont.truetype("/System/Library/Fonts/Helvetica.ttc", font_size)
+        except (OSError, IOError):
+            font = ImageFont.load_default()
     bbox = draw.textbbox((0, 0), title_text, font=font)
     tw = bbox[2] - bbox[0]
     th = bbox[3] - bbox[1]
@@ -120,6 +127,22 @@ def _render_scene_inner(scene: dict, video_id: str, scene_idx: int,
     else:
         kw_list = [kw_list]
 
+    if render_type == "manim" and os.getenv("ENABLE_MANIM", "true").lower() == "true":
+        cap_key = f"{video_id}|{format_type}"
+        if _manim_used.get(cap_key, 0) < _manim_cap:
+            path = render_manim_scene(
+                scene, video_id, scene_idx, format_type,
+                narration=scene.get("narration_text", ""),
+                topic=scene.get("keyword", ""),
+            )
+            if path:
+                _manim_used[cap_key] = _manim_used.get(cap_key, 0) + 1
+                logger.info(f"[AssetRouter] Scene {scene_idx}: manim OK ({os.path.basename(path)})")
+                return {"path": path, "duration": duration, "asset_type": "DIAGRAM_ANIMATION", "source": "manim"}
+            logger.warning(f"[AssetRouter] Manim failed for scene {scene_idx}, falling back")
+        else:
+            logger.info(f"[AssetRouter] Manim cap ({_manim_cap}) hit for {video_id}, skipping scene {scene_idx}")
+
     if render_type == "blender":
         path = render_blender_scene(scene, video_id, scene_idx, format_type)
         if path:
@@ -146,6 +169,15 @@ def _render_scene_inner(scene: dict, video_id: str, scene_idx: int,
             logger.warning(f"[AssetRouter] Scene {scene_idx}: diagram render failed: {e}")
 
     if render_type == "code" or asset_type in ("CODE_SNIPPET", "SCREEN_CAPTURE"):
+        if os.getenv("ENABLE_MANIM", "true").lower() == "true":
+            code_text = description.split("\n") if description else ["# code example", f"# {kw}"]
+            path = render_manim_code_snippet(
+                code_text, video_id, scene_idx, format_type,
+                title=scene.get("text", [{}])[0].get("text", "") if scene.get("text") else "",
+            )
+            if path:
+                logger.info(f"[AssetRouter] Scene {scene_idx}: manim code OK")
+                return {"path": path, "duration": duration, "asset_type": "CODE_SNIPPET", "source": "manim_code"}
         code = description.split("\n") if description else ["# code example", f"# {kw}"]
         path = render_code_snippet(code, width=1920, height=1080)
         if path:
@@ -269,6 +301,8 @@ def _try_blender_for_scene(scene: dict, category: str = "") -> bool:
     rt = scene.get("render_type", "stock")
     if rt == "blender":
         return True
+    if rt == "manim":
+        return False
     from blender_templates import TEMPLATE_KEYWORDS
     desc = (scene.get("description") or "") + " " + " ".join(scene.get("asset_keywords", []))
     desc_lower = desc.lower()
@@ -284,14 +318,35 @@ def _try_blender_for_scene(scene: dict, category: str = "") -> bool:
 def dispatch_scenes(scenes: list[dict], video_id: str, format_type: str = "long", category: str = "") -> list[dict]:
     clips_map = {}
     blender_scenes = []
+    manim_scenes = []
     ltx_batch = []
 
+    _enforce_asset_diversity(scenes)
     model = get_video_model()
     use_ltx = model and model.is_available()
+    manim_enabled = os.getenv("ENABLE_MANIM", "true").lower() == "true"
 
     for idx, scene in enumerate(scenes):
         rt = scene.get("render_type", "stock")
-        if rt == "blender" or scene.get("asset_type") == "DIAGRAM_ANIMATION":
+        at = scene.get("asset_type", "STOCK_FOOTAGE")
+
+        # Manim route: explicit tag, or diagram-heuristic from scene parser.
+        # Allow any category — MANIM_MAX_SCENES_PER_VIDEO enforces volume.
+        if manim_enabled and (
+            rt == "manim"
+            or (at == "DIAGRAM_ANIMATION" and scene.get("diagram"))
+        ):
+            if len(manim_scenes) < _manim_cap:
+                manim_scenes.append((idx, scene))
+            else:
+                logger.info(f"[AssetRouter] Manim cap hit, scene {idx} → fallback")
+                scene["render_type"] = "stock"
+                scene.pop("diagram", None)
+                scene.pop("asset_type", None)
+                result = dispatch_scene(scene, video_id, idx, format_type, category)
+                if result:
+                    clips_map[idx] = result
+        elif rt == "blender" or at == "DIAGRAM_ANIMATION":
             if category not in _DEEP_LESSON_CATS:
                 scene["render_type"] = "stock"
                 scene.pop("asset_type", None)
@@ -313,6 +368,13 @@ def dispatch_scenes(scenes: list[dict], video_id: str, format_type: str = "long"
                 if result:
                     clips_map[idx] = result
 
+    # --- Manim scenes (individual dispatch, graceful fallback) ---
+    for m_idx, m_scene in manim_scenes:
+        result = dispatch_scene(m_scene, video_id, m_idx, format_type, category)
+        if result:
+            clips_map[m_idx] = result
+
+    # --- LTX batch ---
     if ltx_batch and use_ltx:
         ltx_scenes = [s for _, s in ltx_batch]
         paths = model.generate_clips(ltx_scenes, video_id, format_type)

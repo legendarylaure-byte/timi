@@ -92,7 +92,7 @@ VISUAL: [RENDER_TYPE: description]
 RULES (STRICT):
 1. NARRATION lines contain ONLY text to be spoken aloud. No scene numbers, no timings, no descriptions.
 2. VISUAL lines contain ONLY visual directions. Never spoken aloud. Start with the render type tag in brackets.
-3. RENDER_TYPE must be: [BLENDER] for 3D photorealistic renders, chip cross-sections, data flow animations, architectural diagrams; [LTX] for cinematic/scene footage; [CODE] for code snippets.
+3. RENDER_TYPE must be: [BLENDER] for 3D photorealistic renders, chip cross-sections, data flow animations, architectural diagrams; [MANIM] for animated diagrams, code animations, flow charts, bar charts, comparisons, timelines; [LTX] for cinematic/scene footage; [CODE] for static code snippets on screen.
 4. CRITICAL — Every VISUAL line MUST include ALL of: camera angle (close-up/wide/dolly/tracking/top-down/over-the-shoulder), lighting (neon glow/soft diffused/dramatic side/volumetric/rim), colors, specific objects visible, and motion. Example good: "[LTX] Close-up dolly shot of glowing processor chip with neon circuit pathways, dramatic side lighting casting long shadows, deep violet and magenta color palette, particles flowing along circuits" Example bad (NEVER write): "[LTX] Animated visualization of AI processing data" or "[LTX] Technology concept" — these are too vague to generate anything specific.
 5. NEVER include text like "Scene 1:" or "(0-30 seconds)" or "###" inside NARRATION.
 6. Every NARRATION line WILL be read by the voice-over — so it must be complete, natural sentences.
@@ -269,7 +269,7 @@ VISUAL: [RENDER_TYPE: description]
 
 DEEP LESSON RULES:
 1. NARRATION lines contain ONLY text to be spoken aloud. Write complete, natural sentences.
-2. VISUAL lines start with RENDER_TYPE in brackets: [BLENDER] for all 3D renders, chip cross-sections, data flow animations, architectural diagrams → this is PREFERRED. [LTX] only for atmospheric establishing shots between major sections. [CODE] for code snippets.
+2. VISUAL lines start with RENDER_TYPE in brackets: [BLENDER] for all 3D renders, chip cross-sections, data flow animations, architectural diagrams → this is PREFERRED. [MANIM] for animated diagrams, code animations, flow charts, bar charts, comparisons, timelines. [LTX] only for atmospheric establishing shots between major sections. [CODE] for static code snippets.
 3. [BLENDER] is your PRIMARY visual tool. Every explanation should have a corresponding Blender 3D visualization. Describe the scene in 3D detail: camera angle, components, materials, lighting, depth, motion. Be specific about the 3D structure — what the viewer sees from what angle.
 4. ONE RUNNING EXAMPLE: Choose ONE concrete scenario at the start and use it throughout. Every concept should be explained in terms of this example.
 5. WHY BEFORE WHAT: Before introducing any concept, first explain WHY it's needed. "But why do we need layers? Let's look at edge detection..."

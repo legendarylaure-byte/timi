@@ -919,6 +919,19 @@ def run_video_pipeline(script_text: str, storyboard_text: str, category: str, fo
     update_agent_status("voice", "working", "Generating narration audio")
     is_long = format_type == "long"
     is_deep_lesson = True if format_type == "long" else (category in DEEP_LESSON_CATEGORIES)
+
+    # Hook-scene guarantee: deep-lesson pillar videos force scene[0] → manim diagram attempt.
+    # Runs before _align_scenes_to_audio (which fixes durations) so the manim cap + dispatch see the tag.
+    if scenes and len(scenes) > 0 and is_deep_lesson and os.getenv("ENABLE_MANIM", "true").lower() == "true":
+        hook = scenes[0]
+        if hook.get("render_type") == "manim":
+            hook.setdefault("asset_type", "DIAGRAM_ANIMATION")
+            if not hook.get("diagram"):
+                from utils.scene_parser import _infer_diagram
+                hook["diagram"] = _infer_diagram(hook.get("narration_text", "") + " " + hook.get("keyword", ""))
+            hook.setdefault("text", [{"text": hook.get("keyword", "")[:60]}])
+            log_event("SCENE", f"Hook scene #0 forced → manim attempt (topic={hook.get('keyword', '')[:40]})")
+
     from utils.voice_gen import extract_narration_text
     narration_text = extract_narration_text(script_text, is_long_form=is_long)
     # ponytail: hard cap narration for shorts — 150 words ≈ 60s at TTS pace
