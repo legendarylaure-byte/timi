@@ -589,4 +589,3 @@
 | `ENABLE_MANIM` | `true` | ManimCE animated diagrams/code snippets (D29; false = legacy Blender/LTX/stock chain) |
 | `MANIM_RENDER_QUALITY` | `qh` | Manim render quality flag (`-ql`/`-qm`/`-qh`) for final renders |
 | `MANIM_MAX_SCENES_PER_VIDEO` | `6` | Max manim scenes per video (CPU-heavy; cap before graceful fallback) |
-| `MANIM_CODE_MAX_SCENES` | `4` | Max manim Code-snippet scenes per video (reserved; not yet read in code) |
