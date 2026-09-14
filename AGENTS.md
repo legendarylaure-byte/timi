@@ -2,6 +2,17 @@
 
 ## Latest Changes (committed)
 
+### D29: ManimCE Reintroduced — Deterministic Data-Viz Explain Scenes + LLM Codegen Fallback (deployed live)
+- **ManimCE is BACK as a first-class `render_type`** (`scene_schema.py` RENDER_TYPES = stock/blender/**manim**/code). NOTE: older AGENTS sections below claiming "REPLACED Manim entirely" are **stale** — that refers to the pre-D29 era. Current reality: Manim handles animated diagrams/code/hook frames; Blender handles 3D/photoreal; LTX handles cinematic; diagram_renderer handles static-2D fallback. All four coexist.
+- **Deterministic data-viz beats LLM codegen**: `utils/manim_renderer.py:_data_viz_scene()` builds manim source for 10 diagram types (bar_chart/comparison/architecture/layers/stack/layer_explosion/flow/pipeline/process/timeline) with **no LLM** — avoids manim 0.21 internal edge cases that the codegen LLM reliably trips (`ZeroDivisionError` from zero-height `BarChart.bars`, unknown/legacy kwargs). `render_manim_scene()` prefers deterministic; falls back to LLM via `crew/manim_agent.py` (preview render → traceback-fed `fix_manim_code` → final, ≤2 retries). `_apply_manim_compat()` strips invalid BarChart kwargs (`height`→`y_length`, `width`→`x_length`) from any LLM output.
+- **Deterministic code-panel renderer**: `render_manim_code_snippet()` renders static syntax-highlighted Python via the manim `Code` object (from `manim import Code`, `formatter_style=` not `style=`, no `font_size`/`line_spacing` on Code) — no LLM, ~0.5s., used by `render_type="code"` scenes.
+- **Aspect-aware + one-at-a-time**: shorts 1080×1920, long 1920×1080. CPU-heavy so all renders serialize through `_preview_lock` (shares the 16GB box with LTX/Blender), cache-keyed on `{source}{narration}{diagram}` to `tmp/manim_gen/` (registered temp dir, cleaned by daily cleanup).
+- **Diagram spec plumbing**: `scene_parser._infer_diagram()` heuristic emits `{type,title,items}` from narration for rule-based scenes; LLM parse prompt requires exact `diagram` labels/values for manim/blender scenes (backfilled if missing). `blender_renderer._build_params()` forwards `layer_sizes/items/blocks/labels/type` so Blender templates render real content. `diagram_renderer.py` FONT_PATH now defaults to DejaVu (`/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf`) — `Helvetica.ttc` is macOS-only.
+- **Wiring**: `asset_router` manim branch first in `_render_scene_inner` (cap `MANIM_MAX_SCENES_PER_VIDEO=6`, graceful fallback to stock/diagram), manim group in `dispatch_scenes`, `render_type="code"` → manim Code snippet. `main.py` deep-lesson hook-scene guarantee forces `scenes[0]` to a manim diagram attempt before duration alignment. `scriptwriter` crews told to emit `[MANIM]` for diagrams/flow/bars/comparisons/timelines.
+- **Codegen LLM**: `OLLAMA_MODEL_ROUTES["manim_codegen"]="qwen2.5-coder:7b"` (falls back to deepseek-coder:6.7b → qwen2.5:7b → Gemini free tier). MUST call `get_llm(agent_id="manim_codegen")` directly — `llm_client.generate_completion` does not forward `agent_id`. Firestore `env_vars` has NO `OLLAMA_MODEL_ROUTES` override (verified) so `.env` route wins at boot.
+- **Image**: `Dockerfile.overlay` adds `pip install "manim>=0.20,<0.22"` + TeX stack (`texlive-latex-{base,recommended}`, `texlive-fonts-recommended`, `lmodern`, `dvisvgm`, `ghostscript` — MathTex needs latex+dvisvgm). `docker-compose.yml` now uses `image: timi-pipeline:latest` (thin-overlay deploy documented in D28-4).
+- **Test**: `docker build --no-cache -f Dockerfile.overlay` first if a new container seems to run stale manim code — a previous build used a Docker-cached COPY layer (the "layers key missing" symptom). Verified live: all 10 deterministic types + code snippet + LLM fallback render correct res/duration.
+
 ### D28-4: Dashboard deploy = local Vercel CLI (GHA auto-deploy removed permanently)
 - **Broken GHA auto-deploy removed**: `.github/workflows/deploy.yml` ("Deploy to Vercel") deleted — it always failed on an invalid/expired `VERCEL_TOKEN` repo secret. The dashboard is now deployed **only via the local Vercel CLI** (logged in as `aayuphuyal-jpg`). No future dashboard push auto-deploys; deploy manually.
 - **Deploy command (from `dashboard/`)**: `VERCEL_SKIP_UPGRADE=1 vercel deploy --prod --yes`. Reminder: macOS zsh has no `timeout`, and `vercel whoami`/invocation triggers a CLI self-upgrade that hangs → always set `VERCEL_SKIP_UPGRADE=1`. First attempt may transiently fail on `npm install fetch failed`; retry succeeds.
@@ -157,13 +168,13 @@
 ## Latest Changes (pre-existing)
 
 ### Branch Education Pipeline — Blender 3D Photorealistic Render Engine
-- **REPLACED Manim entirely** with Blender 3D for all deep lesson/documentary scenes.
+- **STALE (pre-D29)**: this section documents the era when Blender replaced Manim entirely. Since D29, Manim is BACK for animated diagrams/code/hook frames alongside Blender (3D/photoreal) — see the D29 entry at the top of this file. Historical details below.
 - **14 Blender templates** in `blender_templates/`: `chip_cross_section`, `architecture_block`, `data_flow`, `pcb_layout`, `cutaway_device`, `comparison_bars`, `processor_pipeline`, `network_topology`, `timeline_3d`, `process_flow`, `layer_explosion`, `neural_network`, plus `__init__.py` (registry) and `common.py` (materials/lighting/camera).
 - **Eevee-first rendering**: 60% of scenes use Eevee (real-time, ~0.3s/frame), 40% use Cycles at 64-256 samples with denoising.
 - **Format-adaptive samples**: Shorts=64smp, Longs=128smp, Documentary=256smp. Config via `BLENDER_RENDER_SAMPLES_SHORT/LONG/DOC` env vars.
 - **Render caching**: SHA-256 keyed (template+params), file-backed at `tmp/blender_cache/`.
 - **New files**: `utils/blender_renderer.py` (orchestrator), `utils/blender_asset_router.py` (scene→template mapper).
-- **Removed**: `manim_renderer.py`, `manim_templates.py`, `manim_validator.py`, `manim_agent.py`, `manim_code_gen.py`, `manim.cfg`.
+- **Removed (pre-D29, since restored)**: `manim_renderer.py`, `manim_templates.py`, `manim_validator.py`, `manim_agent.py`, `manim_code_gen.py`, `manim.cfg` — all recreated/last two replaced by new D29 `utils/manim_renderer.py` + `crew/manim_agent.py`.
 - **All pipeline paths** (`asset_router._render_scene_inner()`, `dispatch_scene()`, `dispatch_scenes()`) route `render_type="blender"` to the new renderer.
 
 ### Quality Improvement Pass — Video Review Fixes: URL TTS, Subtitles, End Scene, Scriptwriter Viral Rule, Voiceover Race (uncommitted)
@@ -223,8 +234,7 @@
 
 ### Blender Render Engine — Setup & Storage
 - **Blender 4.x LTS** required. Install via `brew install blender` or download from blender.org.
-- **No LaTeX deps needed** — removed `texlive*`, `dvipng`, `cm-super` from Dockerfile (were Manim-only).
-- **requirements.txt**: Removed `manim>=0.20.0,<0.21.0`. Blender uses its own bundled Python, no pip package needed.
+- **STALE (pre-D29)**: LaTeX/TeX note below was true before Manim returned. Since D29, the Debian image (`Dockerfile.overlay`) installs `texlive-*`, `lmodern`, `dvisvgm`, `ghostscript` again (MathTex needs latex + dvisvgm), and `requirements.txt` restores `manim>=0.20.0,<0.22.0`. Blender still uses its own bundled Python.
 - **Render dirs**: `tmp/blender_cache/` (cached renders), `tmp/blender_render/` (active renders). Both registered for cleanup.
 - **chroma_db/**: At `agents/chroma_db/` — unchanged, still used by other pipeline components.
 
@@ -558,7 +568,7 @@
   - Documentary context injected into deep lesson crew's `extra_context` in `generate_long_video()`: narrative storytelling, historical progression, case studies, [STOCK] for b-roll, [BLENDER] for 3D diagrams, 20-40 scenes.
   - `.env` + `.env.example` updated: `DOCUMENTARY_MAX_DURATION=2400`, `TIER=`.
 - **Sprint 2b — Stock keyword map 70→200 entries**: `PEXELS_KEYWORD_MAP` expanded from ~70 to 200 entries with documentary-relevant categories (history, nature, science, space, culture, psychology, etc.). Fixed duplicate `engineering` key. Added public-domain archive fallback sources: `_search_archive_org()` (Internet Archive) and `_search_wikimedia()` (Wikimedia Commons) — wired into `_search_providers()` as fallback after Pexels/Pixabay (`stock_video.py`).
-- **Sprint 3 — Blender path**: Now implemented — Blender replaces Manim entirely. LTX + Stock + Blender covers all scene types.
+- **Sprint 3 — Blender path**: Pre-D29 this meant "Blender replaces Manim entirely". Since D29 the render engines coexist: Blender (3D/photoreal), Manim (animated diagrams/code/hook frames), LTX (cinematic), stock (b-roll). LTX + Stock + Blender + Manim cover all scene types.
 - **Sprint 4 — Scheduler + Ambient Music**: `weekly_documentary_job()` runs Sunday 08:00 UTC (`main.py`). Sets `TIER=documentary`, calls `generate_content_plan(slot="documentary")`, generates long videos as documentaries. With global dedup guard (`EVERYONE_DOCUMENTARY_JOB`). Music: added `"documentary"` mood to `music_gen.py` (55 BPM, low sine notes → sustained chord pads). `detect_mood()` and `generate_background_music()` accept `tier` param. Procedural pad generator for ambient/documentary (sustained overlays instead of note-by-note).
 
 ## New Env Vars
@@ -576,3 +586,7 @@
 | `ENABLE_MIDROLL_CTA` | `true` | Enable mid-roll subscribe CTA overlay |
 | `ENABLE_SFX` | `true` | Enable audio sound effects (dings, whooshes) |
 | `ENABLE_DIAGRAMS` | `true` | Enable 2D diagram rendering via PIL |
+| `ENABLE_MANIM` | `true` | ManimCE animated diagrams/code snippets (D29; false = legacy Blender/LTX/stock chain) |
+| `MANIM_RENDER_QUALITY` | `qh` | Manim render quality flag (`-ql`/`-qm`/`-qh`) for final renders |
+| `MANIM_MAX_SCENES_PER_VIDEO` | `6` | Max manim scenes per video (CPU-heavy; cap before graceful fallback) |
+| `MANIM_CODE_MAX_SCENES` | `4` | Max manim Code-snippet scenes per video (reserved; not yet read in code) |
