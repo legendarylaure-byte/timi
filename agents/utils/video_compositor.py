@@ -210,8 +210,8 @@ def resize_portrait_to_target(input_path: str, output_path: str, target_w: int, 
     return safe_run_bool(cmd, timeout=120)
 
 
-def apply_ken_burns(input_path: str, output_path: str, target_w: int, target_h: int, duration: float, preset_idx: int = 0) -> bool:
-    trim_path = str(TEMP_DIR / f"kb_trim_{preset_idx:03d}.mp4")
+def apply_ken_burns(input_path: str, output_path: str, target_w: int, target_h: int, duration: float, preset_idx: int = 0, vid: str = "") -> bool:
+    trim_path = str(TEMP_DIR / f"kb_trim_{vid}_{preset_idx:03d}.mp4")
     if not trim_clip(input_path, trim_path, 0, duration):
         return resize_to_target(input_path, output_path, target_w, target_h)
 
@@ -395,10 +395,10 @@ def _apply_ducking(music: AudioSegment, voice: AudioSegment, duck_db: float = -6
         return music
 
 
-def _process_clip(clip: dict, target_w: int, target_h: int, idx: int, format_type: str = "shorts") -> str | None:
+def _process_clip(clip: dict, target_w: int, target_h: int, idx: int, format_type: str = "shorts", vid: str = "") -> str | None:
     src = clip["path"]
     dur = clip.get("duration", 8.0)
-    out = str(TEMP_DIR / f"clip_{idx:03d}.mp4")
+    out = str(TEMP_DIR / f"clip_{vid}_{idx:03d}.mp4")
     camera = clip.get("camera", {}) or {}
 
     try:
@@ -411,7 +411,7 @@ def _process_clip(clip: dict, target_w: int, target_h: int, idx: int, format_typ
         return None
 
     if src.endswith(".mp4") and clip_size > 10000:
-        trimmed = str(TEMP_DIR / f"kb_trim_{idx:03d}.mp4")
+        trimmed = str(TEMP_DIR / f"kb_trim_{vid}_{idx:03d}.mp4")
         # Skip leading dark frames (diffusion models produce near-black at boundaries)
         lead = 0.5 if not clip.get("is_static", False) else 0
         if not trim_clip(src, trimmed, lead, max(dur - lead, 1.0)):
@@ -432,10 +432,10 @@ def _process_clip(clip: dict, target_w: int, target_h: int, idx: int, format_typ
                 return None
         elif has_camera_effect:
             if not _apply_camera_motion(trimmed, out, target_w, target_h, dur, zoom, pan_x, pan_y):
-                if not apply_ken_burns(trimmed, out, target_w, target_h, dur, idx):
+                if not apply_ken_burns(trimmed, out, target_w, target_h, dur, idx, vid):
                     return None
         else:
-            if not apply_ken_burns(trimmed, out, target_w, target_h, dur, idx):
+            if not apply_ken_burns(trimmed, out, target_w, target_h, dur, idx, vid):
                 return None
     else:
         if not resize_to_target(src, out, target_w, target_h, duration=dur):
@@ -675,7 +675,7 @@ def burn_subtitles(video_path: str, subtitle_path: str, output_path: str,
 
 
 def add_chapter_markers(video_path: str, chapters: list[dict], output_path: str) -> bool:
-    md_path = str(TEMP_DIR / "chapters_metadata.txt")
+    md_path = str(TEMP_DIR / f"chapters_metadata_{os.path.basename(output_path)}.txt")
     with open(md_path, "w") as f:
         f.write(";FFMETADATA1\n")
         for ch in chapters:
@@ -888,14 +888,14 @@ def composite_video(clips: list[dict], voice_path: str, music_path: Optional[str
     transitions = []
     durations = []
     for i, clip in enumerate(clips):
-        out = _process_clip(clip, tw, th, i, format_type)
+        out = _process_clip(clip, tw, th, i, format_type, video_id)
         if out is None:
             continue
         processed.append(out)
         requested_dur = clip.get("duration", 8.0)
         actual_dur = _get_duration(out) or requested_dur
         if actual_dur < requested_dur - 0.5:
-            extended = str(TEMP_DIR / f"extended_{i:03d}.mp4")
+            extended = str(TEMP_DIR / f"extended_{video_id}_{i:03d}.mp4")
             if _extend_clip(out, extended, requested_dur):
                 processed[-1] = extended
                 actual_dur = requested_dur
@@ -936,12 +936,12 @@ def composite_video(clips: list[dict], voice_path: str, music_path: Optional[str
         try:
             result = safe_run(cmd, timeout=600)
             if result.returncode != 0 or not os.path.exists(combined_video):
-                print(f"[compositor] xfade transition failed (rc={result.returncode}), full stderr: {result.stderr[-500:]}")
+                logger.error(f"xfade transition failed (rc={result.returncode}), full stderr: {result.stderr[-500:]}")
                 combined_video = _concat_only(processed, video_id)
                 if not combined_video:
                     return None
         except Exception as e:
-            print(f"[compositor] xfade transition error: {e}, falling back to concat")
+            logger.error(f"xfade transition error: {e}, falling back to concat")
             combined_video = _concat_only(processed, video_id)
             if not combined_video:
                 return None
@@ -1081,10 +1081,10 @@ def composite_video(clips: list[dict], voice_path: str, music_path: Optional[str
         "-c:a", "aac", "-b:a", "192k", "-ar", "44100", "-shortest", "-pix_fmt", "yuv420p", final_path,
     ]
     try:
-        print(f"[compositor] Final mux cmd: {' '.join(str(a) for a in cmd)}")
+        logger.info(f"Final mux cmd: {' '.join(str(a) for a in cmd)}")
         result = safe_run(cmd, timeout=300)
         if result.returncode == 0 and os.path.exists(final_path):
-            print(f"[compositor] Final video: {final_path} ({os.path.getsize(final_path)} bytes)")
+            logger.info(f"Final video: {final_path} ({os.path.getsize(final_path)} bytes)")
             # ponytail: hard trim safety net for shorts — enforce max duration
             if format_type == "shorts":
                 _max_s = int(os.getenv("SHORTS_MAX_DURATION", "180"))
@@ -1104,7 +1104,7 @@ def composite_video(clips: list[dict], voice_path: str, music_path: Optional[str
                 os.replace(upscaled, final_path)
                 print(f"[compositor] Replaced original with upscaled: {final_path}")
             return final_path
-        print(f"[compositor] Final mux rc={result.returncode}, stderr: {result.stderr[-500:]}")
+        logger.error(f"Final mux rc={result.returncode}, stderr: {result.stderr[-500:]}")
     except Exception as e:
-        print(f"[compositor] Final mux error: {e}")
+        logger.error(f"Final mux error: {e}")
     return None
