@@ -672,7 +672,7 @@ def _can_post_now() -> tuple:
         cooldown_hours = live["viral_cooldown_hours"]
         today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
         docs = db.collection("viral_news_posts").where(
-            "date", ">=", today
+            "date", "==", today
         ).stream()
         today_posts = [d for d in docs if d.to_dict().get("date", "").startswith(today)]
 
@@ -688,8 +688,8 @@ def _can_post_now() -> tuple:
 
         return True, "OK"
     except Exception as e:
-        logger.warning("[viral] Cooldown check failed, allowing post: %s", e)
-        return True, "Firestore check failed, allowing"
+        logger.warning("[viral] Cooldown check failed, BLOCKING post: %s", e)
+        return False, f"Firestore check failed, blocking ({e})"
 
 
 # ═══════════════════════════════════════════════════════════════════════════
@@ -760,6 +760,10 @@ def run_viral_check(forced: bool = False) -> dict:
                         article_score, score["breakdown"])
 
             if score["is_viral"]:
+                can_post, reason = _can_post_now()
+                if not can_post:
+                    logger.info("[viral] Stopping scan mid-batch: %s", reason)
+                    break
                 posted = _publish_viral_post(article, score)
                 if posted:
                     result["viral_posted"] += 1
@@ -818,6 +822,10 @@ def test_now():
 
 def _publish_viral_post(article: dict, score: dict) -> bool:
     """Generate content and publish a viral post to Facebook + Instagram."""
+    can_post, reason = _can_post_now()
+    if not can_post:
+        logger.info("[viral] Blocked by guard, not posting: %s", reason)
+        return False
     logger.info("[viral] Publishing VIRAL post: %s", article.get("title", "?")[:60])
 
     # Generate caption
@@ -946,7 +954,7 @@ def run_scheduled_post(scheduled_time: str = None) -> dict:
         db = _get_firestore()
         today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
         existing = [d.to_dict() for d in db.collection("viral_news_posts")
-                     if d.to_dict().get("date", "").startswith(today)]
+                     .where("date", "==", today).stream()]
         existing_titles = {e.get("title", "").lower() for e in existing}
     except Exception:
         existing_titles = set()
