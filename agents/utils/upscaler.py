@@ -40,11 +40,10 @@ def upscale_frame(input_path: str, output_path: str, scale: int = 4) -> bool:
 def upscale_video(input_path: str, output_path: str, scale: int = 2) -> bool:
     if not is_available():
         return False
+    import tempfile
     TEMP_DIR.mkdir(parents=True, exist_ok=True)
-    frames_dir = str(TEMP_DIR / "frames_in")
-    upscaled_dir = str(TEMP_DIR / "frames_out")
-    os.makedirs(frames_dir, exist_ok=True)
-    os.makedirs(upscaled_dir, exist_ok=True)
+    frames_dir = tempfile.mkdtemp(prefix="frames_in_", dir=str(TEMP_DIR))
+    upscaled_dir = tempfile.mkdtemp(prefix="frames_out_", dir=str(TEMP_DIR))
 
     try:
         extract = [

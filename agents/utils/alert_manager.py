@@ -1,7 +1,7 @@
 """Centralized alert management — anomaly detection, notification dispatch."""
 import os
 import logging
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import Optional
 
 logger = logging.getLogger(__name__)
@@ -136,7 +136,8 @@ def check_staleness(last_activity: Optional[datetime], max_hours: int = 24) -> O
     if last_activity is None:
         return None
 
-    hours_since = (datetime.utcnow() - last_activity).total_seconds() / 3600
+    now = datetime.now(timezone.utc)
+    hours_since = (now - last_activity).total_seconds() / 3600
     if hours_since > max_hours:
         return {
             "type": "staleness",

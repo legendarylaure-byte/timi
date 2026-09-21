@@ -47,6 +47,14 @@ VERIFIED_HOSTS = {
     "nepalitimes.com",
     "onlinekhabar.com", "english.onlinekhabar.com",
     "khabarhub.com", "english.khabarhub.com",
+    # Global sources (added for broader coverage)
+    "aljazeera.com",
+    "reuters.com",
+    "news.cn",
+    "nytimes.com",
+    # Nepal government sources
+    "opmcm.gov.np",
+    "moha.gov.np",
 }
 
 # Short (non-www) host -> canonical domain used for the allowlist check.
@@ -61,6 +69,10 @@ FEED_REGISTRY = [
     # World News (English, reputable global publishers)
     {"name": "BBC World", "url": "https://feeds.bbci.co.uk/news/world/rss.xml", "category": WORLD_CATEGORY, "lang": "en"},
     {"name": "The Guardian World", "url": "https://www.theguardian.com/world/rss", "category": WORLD_CATEGORY, "lang": "en"},
+    {"name": "Al Jazeera", "url": "https://www.aljazeera.com/rss", "category": WORLD_CATEGORY, "lang": "en"},
+    {"name": "Reuters World", "url": "https://www.reuters.com/world/rss", "category": WORLD_CATEGORY, "lang": "en"},
+    {"name": "Xinhua English", "url": "http://www.news.cn/world/rss", "category": WORLD_CATEGORY, "lang": "en"},
+    {"name": "NYT International", "url": "https://www.nytimes.com/international/section/world.rss", "category": WORLD_CATEGORY, "lang": "en"},
     # Nepal News — English
     {"name": "The Kathmandu Post", "url": "https://kathmandupost.com/rss", "category": NEPAL_CATEGORY, "lang": "en"},
     {"name": "NepaliTimes", "url": "https://nepalitimes.com/feed", "category": NEPAL_CATEGORY, "lang": "en"},
@@ -68,6 +80,9 @@ FEED_REGISTRY = [
     {"name": "Khabarhub", "url": "https://english.khabarhub.com/feed", "category": NEPAL_CATEGORY, "lang": "en"},
     # Nepal News — Devanagari (bilingual)
     {"name": "OnlineKhabar NP", "url": "https://www.onlinekhabar.com/feed", "category": NEPAL_CATEGORY, "lang": "ne"},
+    # Nepal News — Government sources
+    {"name": "Office of PM Nepal", "url": "https://opmcm.gov.np/rss", "category": NEPAL_CATEGORY, "lang": "en"},
+    {"name": "MoHA Nepal", "url": "https://www.moha.gov.np/rss", "category": NEPAL_CATEGORY, "lang": "en"},
 ]
 
 FRESHNESS_HOURS = int(os.getenv("NEWS_FRESHNESS_HOURS", "36"))

@@ -39,6 +39,10 @@ from utils.comment_analyzer import analyze_sentiment, flag_negative_comments
 from utils.pillar_manager import track_pillar_video, suggest_next_pillar, validate_plan_balance
 from utils.seo_optimizer import get_optimized_tags, score_description_seo
 from utils.alert_manager import process_alerts, send_alert
+from utils.viral_news_agent import run_viral_check, run_scheduled_post
+from utils.viral_news_agent import VIRAL_CHECK_INTERVAL, VIRAL_SCHEDULE_TIMES
+from utils.viral_news_agent import VIRAL_THRESHOLD, VIRAL_HOLD_THRESHOLD, VIRAL_COOLDOWN_HOURS, VIRAL_MAX_PER_DAY
+from utils.news_scraper import fetch_news
 
 from utils.music_gen import generate_background_music
 from utils.voice_gen import generate_voiceover
@@ -941,7 +945,7 @@ def run_video_pipeline(script_text: str, storyboard_text: str, category: str, fo
         if len(_words) > _max_w:
             narration_text = " ".join(_words[:_max_w])
             log_event("VOICE", f"Truncated narration from {len(_words)} to {_max_w} words for shorts")
-    voice_result = _run_async(generate_voiceover(script_text, output_filename=f"voiceover_{video_id}.wav", content_type="educational", is_long_form=is_long, is_deep_lesson=is_deep_lesson, is_documentary=is_documentary))
+    voice_result = _run_async(generate_voiceover(script_text, output_filename=f"voiceover_{video_id}.wav", content_type="educational", is_long_form=is_long, is_deep_lesson=is_deep_lesson, is_documentary=is_documentary, video_id=video_id))
     if not voice_result.get("success"):
         log_pipeline_error(video_id, "Voice-over generation failed", "voice_generation")
         raise Exception("Voice-over generation failed.")
@@ -975,6 +979,7 @@ def run_video_pipeline(script_text: str, storyboard_text: str, category: str, fo
             timing_file=timing_file,
             full_text=caption_src,
             language=subtitle_lang,
+            video_id=video_id,
         )
         subtitle_path = sub_result.get("srt")
         if subtitle_path:
@@ -1002,7 +1007,7 @@ def run_video_pipeline(script_text: str, storyboard_text: str, category: str, fo
                 text = s.get("narration_text") or s.get("text") or s.get("keyword", "")
                 energy = score_scene_energy(text)
                 scene_moods.append(ENERGY_TO_MOOD.get(energy, "focused"))
-    music_result = generate_background_music(category, duration=total_video_duration, scene_moods=scene_moods if scene_moods else None, tier=_tier_param)
+    music_result = generate_background_music(category, duration=total_video_duration, scene_moods=scene_moods if scene_moods else None, tier=_tier_param, video_id=video_id)
     music_path = music_result.get("path")
     if not music_path:
         log_event("COMPOSER", "Music generation failed — continuing without background music", "warn")
@@ -1681,11 +1686,14 @@ def generate_short_video(topic: str, category: str, video_id: str, publish_at: s
         failed_step = "finalizing"
         short_status = "scheduled" if publish_at else ("uploaded" if (youtube_url or publish_result.get("success_count", 0) > 0) else "upload_failed")
         _news_updates = {"news_source": news_article.get("source")} if news_article and news_article.get("source") else {}
+        _tiktok = publish_result.get('platforms', {}).get('tiktok', {})
         update_video_record(video_id, {
             "status": short_status,
             "publish_success_count": publish_result.get("success_count", 0),
             "youtube_url": youtube_url,
             "publish_at": publish_at,
+            "tiktok_url": _tiktok.get('url', '') if _tiktok.get('success') else '',
+            "tiktok_status": 'published' if _tiktok.get('success') else ('upload_failed' if _tiktok else ''),
             **_news_updates,
         })
         if short_status == "upload_failed":
@@ -2287,6 +2295,7 @@ def generate_long_video(topic: str, category: str, video_id: str, publish_at: st
         failed_step = "finalizing"
         final_status = "uploaded" if (youtube_url or publish_result.get("success_count", 0) > 0) else "upload_failed"
         _news_updates = {"news_source": news_article.get("source")} if news_article and news_article.get("source") else {}
+        _tiktok = publish_result.get('platforms', {}).get('tiktok', {})
         update_video_record(video_id, {
             "script": script_text,
             "subtitle_path": video_result.get("subtitle_path"),
@@ -2296,6 +2305,8 @@ def generate_long_video(topic: str, category: str, video_id: str, publish_at: st
             "publish_success_count": publish_result.get("success_count", 0),
             "youtube_url": youtube_url,
             "publish_at": publish_at,
+            "tiktok_url": _tiktok.get('url', '') if _tiktok.get('success') else '',
+            "tiktok_status": 'published' if _tiktok.get('success') else ('upload_failed' if _tiktok else ''),
             **_news_updates,
         })
 
@@ -2350,8 +2361,10 @@ def _add_days(dt, n: int):
 def _platforms_to_publish() -> list:
     """Target platforms for video publishing.
 
-    ponytail: IG/FB/TikTok are disabled pending a re-plan (Meta app deleted).
-    Read a comma list from PLATFORMS_TO_PUBLISH (default 'youtube')."""
+    Read a comma list from PLATFORMS_TO_PUBLISH (default 'youtube').
+    All four platforms (youtube,tiktok,facebook,instagram) are configured
+    in Firestore env_vars — that collection overrides .env at boot.
+    """
     raw = os.getenv("PLATFORMS_TO_PUBLISH", "youtube")
     return [p.strip().lower() for p in raw.split(",") if p.strip()]
 
@@ -2364,6 +2377,74 @@ def _next_schedule_time(slot) -> str:
     if scheduled <= now:
         scheduled = _add_days(scheduled, 1)
     return scheduled.strftime("%Y-%m-%dT%H:%M:%SZ")
+
+
+def viral_check_job():
+    """Real-time viral news monitor — runs every VIRAL_CHECK_INTERVAL.
+
+    Independent of daily_content_job: does NOT trigger video rendering.
+    Only posts image+caption to Facebook/Instagram when VIRAL_THRESHOLD met.
+    Also drains dashboard 'Run Now' triggers (viral_news_triggers).
+    """
+    try:
+        # Dashboard "Run Now": drain queued triggers -> forced test_now().
+        try:
+            from utils.firebase_status import get_firestore_client
+            _db = get_firestore_client()
+            if _db is not None:
+                _pending = [d for d in _db.collection("viral_news_triggers")
+                            .where("status", "==", "queued").stream()]
+                for _doc in _pending:
+                    _tid = _doc.id
+                    log_event("VIRAL", f"Run Now trigger {_tid} — forced run")
+                    _db.collection("viral_news_triggers").document(_tid).update({
+                        "status": "running", "started_at": datetime.utcnow().isoformat(),
+                    })
+                    try:
+                        from utils.viral_news_agent import test_now
+                        _result = test_now()
+                        _db.collection("viral_news_triggers").document(_tid).set({
+                            "status": "done", "result": _result,
+                            "finished_at": datetime.utcnow().isoformat(),
+                        }, merge=True)
+                        log_event("VIRAL", f"Run Now trigger {_tid} done: {_result}")
+                    except Exception as _he:
+                        _db.collection("viral_news_triggers").document(_tid).set({
+                            "status": "failed", "error": str(_he)[:300],
+                            "finished_at": datetime.utcnow().isoformat(),
+                        }, merge=True)
+                        log_event("VIRAL", f"Run Now trigger {_tid} failed: {_he}", "error")
+        except Exception as _te:
+            log_event("VIRAL", f"Trigger drain error: {_te}", "error")
+
+        update_agent_status("viral_news", "working", "Scanning for viral stories")
+        r = run_viral_check()
+        if r.get("viral_posted", 0) > 0:
+            log_event("VIRAL", f"Posted {r['viral_posted']} viral story(ies)")
+            update_agent_status("viral_news", "posted",
+                                f"{r['viral_posted']} viral post(s) today")
+        else:
+            update_agent_status("viral_news", "idle", "No viral stories")
+    except Exception as e:
+        log_event("VIRAL", f"Viral check error: {e}", "error")
+        update_agent_status("viral_news", "error", str(e)[:100])
+
+
+def scheduled_viral_post_job():
+    """Scheduled viral post at VIRAL_SCHEDULE_TIMES (Nepal morning/evening).
+
+    Picks best article from today's feed and posts to FB/IG.
+    Does NOT affect video pipeline at all.
+    """
+    try:
+        update_agent_status("viral_news", "working", "Generating scheduled post")
+        r = run_scheduled_post()
+        if r.get("scheduled"):
+            log_event("VIRAL", f"Scheduled post: {r.get('title', '')[:60]}")
+        else:
+            log_event("VIRAL", f"Scheduled post skipped: {r.get('error', 'unknown')}")
+    except Exception as e:
+        log_event("VIRAL", f"Scheduled post error: {e}", "error")
 
 
 def daily_content_job():
@@ -3288,6 +3369,16 @@ if __name__ == "__main__":
     log_event("SYSTEM", f"LTX prompt cache: {os.getenv('ENABLE_LTX_CACHE', 'true')}")
     log_event("SYSTEM", f"Max retries per topic: {MAX_RETRIES_PER_TOPIC}")
     log_event("SYSTEM", f"Gate enforcement: {GATE_ENFORCEMENT_MODE}")
+    log_event("SYSTEM", f"Viral news agent active — monitoring {len(VIRAL_SCHEDULE_TIMES)} times daily")
+    log_event("SYSTEM", f"Viral check interval: {VIRAL_CHECK_INTERVAL} minutes")
+    log_event("SYSTEM", f"Viral schedule times: {VIRAL_SCHEDULE_TIMES}")
+
+    # --- Viral News Agent Logs ---
+    log_event("SYSTEM", "Viral news agent loaded — monitoring for breaking news")
+    log_event("SYSTEM", f"Viral threshold: {VIRAL_THRESHOLD}%")
+    log_event("SYSTEM", f"Viral hold threshold: {VIRAL_HOLD_THRESHOLD}%")
+    log_event("SYSTEM", f"Viral cooldown: {VIRAL_COOLDOWN_HOURS} hours")
+    log_event("SYSTEM", f"Viral max posts per day: {VIRAL_MAX_PER_DAY}")
 
     _setup_logging()
     validate_env()
@@ -3309,6 +3400,11 @@ if __name__ == "__main__":
     scheduler.add_job(daily_cleanup_job, "cron", hour=4, minute=0, misfire_grace_time=86400)
     scheduler.add_job(scheduled_publish_job, "interval", minutes=15)
     scheduler.add_job(tiktok_composer_job, "interval", minutes=5)
+    scheduler.add_job(viral_check_job, "interval", minutes=VIRAL_CHECK_INTERVAL)
+    for t in VIRAL_SCHEDULE_TIMES:
+        h, m = (int(x) for x in t.split(":"))
+        scheduler.add_job(scheduled_viral_post_job, "cron", hour=h, minute=m,
+                          id=f"viral_scheduled_{t}", misfire_grace_time=3600)
     scheduler.add_job(weekly_monetization_job, "cron", day_of_week="mon", hour=12, minute=0, misfire_grace_time=86400)
     scheduler.add_job(daily_feedback_job, "cron", hour=10, minute=0, misfire_grace_time=86400)
     scheduler.add_job(daily_title_test_job, "cron", hour=12, minute=0, misfire_grace_time=86400)
@@ -3322,6 +3418,9 @@ if __name__ == "__main__":
     log_event("SCHEDULER", "Daily cleanup job scheduled at 04:00 UTC")
     log_event("SCHEDULER", "Scheduled publish check every 15 minutes")
     log_event("SCHEDULER", "TikTok composer check every 5 minutes")
+    log_event("SCHEDULER", "Viral news check every " + str(VIRAL_CHECK_INTERVAL) + " minutes")
+    for t in VIRAL_SCHEDULE_TIMES:
+        log_event("SCHEDULER", "Viral scheduled post at " + t + " UTC")
     log_event("SCHEDULER", "Weekly monetization review scheduled on Mondays at 12:00 UTC")
     log_event("SCHEDULER", "Weekly documentary generation scheduled on Sundays at 20:00 UTC")
     log_event("SCHEDULER", "Daily analytics feedback loop scheduled at 10:00 UTC")

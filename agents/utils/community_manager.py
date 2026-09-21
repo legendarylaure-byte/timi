@@ -225,3 +225,32 @@ async def schedule_weekly_poll(force_topic: str | None = None, page=None) -> boo
         except Exception:
             pass
         return False
+
+
+def post_community_text(text: str, headless: bool = True) -> bool:
+    """Post a text community post to YouTube (synchronous wrapper).
+
+    Gated by ENABLE_COMMUNITY_POSTS. Returns True on success. Reuses the
+    cookie-authenticated Studio session (community_cookies/).
+    """
+    if not ENABLE_COMMUNITY_POSTS:
+        logger.info("YouTube community posts disabled (ENABLE_COMMUNITY_POSTS=false)")
+        return False
+    if not _playwright_available():
+        return False
+    try:
+        import asyncio
+
+        async def _run():
+            page = await login_to_youtube_studio(headless=headless, timeout_ms=45000)
+            if page is None:
+                return False
+            try:
+                return await create_text_post(text, page)
+            finally:
+                await page.close()
+
+        return asyncio.run(_run())
+    except Exception as e:
+        logger.error("Failed to post YouTube community post: %s", e)
+        return False

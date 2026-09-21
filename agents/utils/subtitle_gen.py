@@ -28,9 +28,9 @@ def subtitle_mode_for(format_type: str) -> str:
     if mode in ("burn", "cc", "both"):
         return mode
     if mode == "auto":
-        return "burn" if format_type == "shorts" else "cc"
-    # 'auto' default covers shorts/long; any unrecognized value -> same mapping
-    return "burn" if format_type == "shorts" else "cc"
+        return "burn" if format_type == "shorts" else "both"
+    # ponytail: fallback maps to the same auto heuristic (shorts=burn, long=burn+CC)
+    return "burn" if format_type == "shorts" else "both"
 
 
 def should_burn_subtitles(format_type: str) -> bool:
@@ -248,16 +248,18 @@ def generate_subtitles_for_video(
     full_text: str,
     language: str = "en",
     formats: list = None,
+    video_id: str = "",
 ) -> dict:
     if formats is None:
         formats = ["srt", "vtt"]
 
     results = {"language": language, "srt": None, "vtt": None}
+    suffix = f"_{video_id}" if video_id else ""
 
     if "srt" in formats:
-        results["srt"] = generate_srt(timing_file, full_text, language=language)
+        results["srt"] = generate_srt(timing_file, full_text, output_path=str(SUBTITLE_DIR / f"subtitles{suffix}.srt") if video_id else None, language=language)
 
     if "vtt" in formats:
-        results["vtt"] = generate_vtt(timing_file, full_text, language=language)
+        results["vtt"] = generate_vtt(timing_file, full_text, output_path=str(SUBTITLE_DIR / f"subtitles{suffix}.vtt") if video_id else None, language=language)
 
     return results

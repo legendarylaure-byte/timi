@@ -158,17 +158,21 @@ def animate_highlight_box(appear: float, duration: float,
                            position: str = "center",
                            color: str = BRAND_TEAL,
                            width_pct: float = 0.3,
-                           height_pct: float = 0.2) -> list[str]:
-    """Pulsing highlight box around a region of the frame."""
+                           height_pct: float = 0.2,
+                           vid_width: int = 1080,
+                           vid_height: int = 1920) -> list[str]:
+    """Pulsing highlight box around a region of the frame.
+
+    Pixel values computed at build time because ffmpeg drawbox can't evaluate
+    expressions like ``w*0.35`` (ffmpeg 7.1.5 drawbox only supports
+    ``(w-constant)/2`` style).
+    """
     disappear = appear + duration
     enable = f"between(t\\,{appear}\\,{disappear})"
-    bx = f"(w-w*{width_pct})/2"
-    by = f"(h-h*{height_pct})/2"
-    bw = f"w*{width_pct}"
-    bh = f"h*{height_pct}"
-
+    pw = int(vid_width * width_pct)   # pixel width of the box
+    ph = int(vid_height * height_pct) # pixel height of the box
     return [
-        f"drawbox=x={bx}:y={by}:w={bw}:h={bh}:color={color}@0.15:t=fill:"
+        f"drawbox=x=(w-{pw})/2:y=(h-{ph})/2:w={pw}:h={ph}:color={color}@0.15:t=fill:"
         f"enable='{enable}'"
     ]
 
@@ -205,7 +209,8 @@ def animate_counter(label: str, start_val: float = 0, end_val: float = 100,
     return filters
 
 
-def render_scene_annotations(scene: dict, timeline_start: float) -> list[str]:
+def render_scene_annotations(scene: dict, timeline_start: float,
+                             vid_width: int = 1080, vid_height: int = 1920) -> list[str]:
     """Render all annotations for a single scene, returning ffmpeg vf strings."""
     filters = []
     annotations = scene.get("annotations", [])
@@ -234,17 +239,19 @@ def render_scene_annotations(scene: dict, timeline_start: float) -> list[str]:
         elif ann_type == "highlight":
             filters.extend(animate_highlight_box(appear, dur, pos, color,
                                                   ann.get("width_pct", 0.3),
-                                                  ann.get("height_pct", 0.2)))
+                                                  ann.get("height_pct", 0.2),
+                                                  vid_width, vid_height))
         elif ann_type == "counter":
             filters.extend(animate_counter(text, ann.get("start", 0), ann.get("end", 100),
                                            appear, dur, pos, color))
     return filters
 
 
-def build_annotation_filters(scenes: list[dict], clips: list[dict]) -> list[str]:
+def build_annotation_filters(scenes: list[dict], clips: list[dict],
+                             vid_width: int = 1080, vid_height: int = 1920) -> list[str]:
     """Build all annotation vf strings for a complete video."""
     filters = []
     for i, scene in enumerate(scenes):
         ts = sum(c.get("duration", 8.0) for c in clips[:i]) if i < len(clips) else 0
-        filters.extend(render_scene_annotations(scene, ts))
+        filters.extend(render_scene_annotations(scene, ts, vid_width, vid_height))
     return filters

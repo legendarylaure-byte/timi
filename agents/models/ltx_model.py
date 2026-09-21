@@ -51,12 +51,14 @@ def _save_cache_meta():
         logger.warning("[LTX-cache] Failed to save cache meta: %s", e)
 
 
-def _cache_key(prompt: str, width: int = 704, height: int = 480, num_frames: int = 65) -> str:
-    return hashlib.sha256(f"{prompt}|{width}x{height}|{num_frames}".encode()).hexdigest()[:16]
+def _cache_key(prompt: str, width: int = 704, height: int = 480, num_frames: int = 65, seed: int = -1) -> str:
+    # seed in the key so identical prompts across DIFFERENT videos don't reuse the
+    # same rendered clip (the per-video seed already differs: shared_seed=hash(video_id))
+    return hashlib.sha256(f"{prompt}|{width}x{height}|{num_frames}|{seed}".encode()).hexdigest()[:16]
 
 
-def _check_cache(prompt: str, width: int = 704, height: int = 480, num_frames: int = 65) -> str | None:
-    key = _cache_key(prompt, width, height, num_frames)
+def _check_cache(prompt: str, width: int = 704, height: int = 480, num_frames: int = 65, seed: int = -1) -> str | None:
+    key = _cache_key(prompt, width, height, num_frames, seed)
     if key in _prompt_cache:
         cached_path = _prompt_cache[key]
         if os.path.exists(cached_path) and os.path.getsize(cached_path) > 1000:
@@ -68,8 +70,8 @@ def _check_cache(prompt: str, width: int = 704, height: int = 480, num_frames: i
     return None
 
 
-def _update_cache(prompt: str, path: str, width: int = 704, height: int = 480, num_frames: int = 65):
-    key = _cache_key(prompt, width, height, num_frames)
+def _update_cache(prompt: str, path: str, width: int = 704, height: int = 480, num_frames: int = 65, seed: int = -1):
+    key = _cache_key(prompt, width, height, num_frames, seed)
     _prompt_cache[key] = path
     _prompt_cache.move_to_end(key)
     while len(_prompt_cache) > _MAX_CACHE_ENTRIES:
@@ -133,7 +135,7 @@ class LtxVideoModel(BaseVideoModel):
         else:
             width, height = 960, 544
 
-        cached = _check_cache(built_prompt, width, height, num_frames)
+        cached = _check_cache(built_prompt, width, height, num_frames, seed)
         if cached:
             return cached
 
@@ -166,7 +168,7 @@ class LtxVideoModel(BaseVideoModel):
                     pass  # ponytail: if probe fails, accept the clip
                 size = os.path.getsize(output_path)
                 logger.info("[LTX] Done: %s (%d MB)", output_path, size // 1024 // 1024)
-                _update_cache(built_prompt, output_path, width, height, num_frames)
+                _update_cache(built_prompt, output_path, width, height, num_frames, seed)
                 return output_path
         except Exception as e:
             logger.error("[LTX] Generation failed: %s", e)
@@ -203,8 +205,8 @@ class LtxVideoModel(BaseVideoModel):
             )
             narration = scene.get("narration_text", "")
             if narration:
-                # narration-led (mirror of asset_router single-clip path)
-                base_prompt = f"{narration[:400].strip()} -- showing: {visual[:400].strip()}"
+                # visual-led (mirror of asset_router single-clip path)
+                base_prompt = f"{visual[:500].strip()} -- narration context: {narration[:150].strip()}"
             else:
                 base_prompt = visual
             continuity = ""

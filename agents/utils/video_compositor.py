@@ -602,7 +602,7 @@ def add_animated_lower_third(video_path: str, text: str, output_path: str,
         f"drawtext=text='{escaped}':fontsize={fontsize}:fontcolor={color}:"
         f"box=1:boxcolor=black@0.5:boxborderw=8:"
         f"x={x_expr}:y=h-100:enable='between(t\\,{ts}\\,{te})',"
-        f"drawbox=x=(w-text_w)/2-12:y=h-116:w=4:h=22:color={color}:enable='between(t\\,{ts}+0.3\\,{te}-0.3)'",
+        f"drawbox=x=(w-24)/2:y=h-116:w=4:h=22:color={color}:enable='between(t\\,{ts}+0.3\\,{te}-0.3)'",
         "-c:v", "libx264", "-preset", PRESET, "-crf", CRF,
         "-c:a", "copy", "-pix_fmt", "yuv420p", output_path,
     ]
@@ -993,7 +993,7 @@ def composite_video(clips: list[dict], voice_path: str, music_path: Optional[str
 
         # Annotations — callouts, steps, definitions, arrows, highlights, counters
         if os.getenv("ENABLE_ANNOTATIONS", "true").lower() == "true":
-            ann_filters = build_annotation_filters(scenes, clips)
+            ann_filters = build_annotation_filters(scenes, clips, tw, th)
             if ann_filters:
                 vf_parts.extend(ann_filters)
 

@@ -7,7 +7,7 @@ import { Timestamp } from 'firebase-admin/firestore';
 export async function POST(request: Request) {
   try {
     const body = await request.json();
-    const { video_id, title, description, format, category, privacy_level, comment_disabled, duet_disabled, stitch_disabled } = body;
+    const { video_id, title, description, format, category, privacy_level, comment_disabled, duet_disabled, stitch_disabled, brand_organic, brand_content, express_consent, music_usage_confirmed } = body;
 
     if (!video_id || !title) {
       return NextResponse.json(
@@ -18,6 +18,18 @@ export async function POST(request: Request) {
     if (!privacy_level || !privacy_level.trim()) {
       return NextResponse.json(
         { success: false, error: 'privacy_level is required (no default is preselected)' },
+        { status: 400 },
+      );
+    }
+    if (!express_consent) {
+      return NextResponse.json(
+        { success: false, error: 'express_consent is required before publishing' },
+        { status: 400 },
+      );
+    }
+    if (!music_usage_confirmed) {
+      return NextResponse.json(
+        { success: false, error: 'music_usage_confirmed is required (Music Usage Confirmation)' },
         { status: 400 },
       );
     }
@@ -33,6 +45,10 @@ export async function POST(request: Request) {
       comment_disabled: !!comment_disabled,
       duet_disabled: duet_disabled === undefined ? true : !!duet_disabled,
       stitch_disabled: stitch_disabled === undefined ? true : !!stitch_disabled,
+      brand_organic: !!brand_organic,
+      brand_content: !!brand_content,
+      express_consent: !!express_consent,
+      music_usage_confirmed: !!music_usage_confirmed,
       status: 'queued',
       created_at: Timestamp.now(),
     });

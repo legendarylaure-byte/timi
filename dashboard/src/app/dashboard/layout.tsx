@@ -14,6 +14,7 @@ import {
   LayoutDashboard, Clapperboard, Archive, Flame, Scissors, Palette,
   Upload, TrendingUp, DollarSign, Clapperboard as SeriesIcon, Clock,
   Settings, Eye, LogOut, Menu, X, BarChart3, Newspaper, ChevronDown, Radar,
+  Share2,
 } from 'lucide-react';
 import { GlobalStatusBar } from '@/components/status/GlobalStatusBar';
 import { AmbientBackground } from '@/components/ui/AmbientBackground';
@@ -25,6 +26,7 @@ const navGroups = [
       { label: 'Dashboard', icon: LayoutDashboard, path: '/dashboard' },
       { label: 'Workspace', icon: Clapperboard, path: '/dashboard/workspace' },
       { label: 'News', icon: Newspaper, path: '/dashboard/news' },
+      { label: 'Social Media Post', icon: Share2, path: '/dashboard/viral' },
       { label: 'Archive', icon: Archive, path: '/dashboard/archive' },
       { label: 'Repurpose', icon: Scissors, path: '/dashboard/repurpose' },
       { label: 'Trends', icon: Flame, path: '/dashboard/trends' },
@@ -416,10 +418,17 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
       >
         {/* Desktop Top Bar */}
         {!isMobile && (
-        <div className="hidden md:flex items-center justify-end p-3 glass-strong sticky top-0 z-30 gap-3 border-b border-light-border/40 dark:border-white/5 shadow-[0_6px_20px_rgba(0,0,0,0.06)]">
-          <span className="text-sm font-medium text-light-muted dark:text-dark-muted tabular-nums">{currentTime}</span>
-          <NotificationCenter />
-          <ThemeToggle />
+        <div className="hidden md:flex items-center justify-between p-3 glass-strong sticky top-0 z-30 border-b border-light-border/40 dark:border-white/5 shadow-[0_6px_20px_rgba(0,0,0,0.06)]">
+          <a href="https://timi.vyomai.cloud" target="_blank" rel="noreferrer"
+             className="flex items-center gap-2 px-3 py-1.5 rounded-lg border border-purple-500/30 bg-purple-500/10 text-xs font-semibold text-light-primary dark:text-dark-primary hover:bg-purple-500/20 transition-colors">
+            <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
+            https://timi.vyomai.cloud
+          </a>
+          <div className="flex items-center gap-3">
+            <span className="text-sm font-medium text-light-muted dark:text-dark-muted tabular-nums">{currentTime}</span>
+            <NotificationCenter />
+            <ThemeToggle />
+          </div>
         </div>
         )}
 
@@ -429,6 +438,11 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
             <button onClick={() => setMobileMenuOpen(true)} className="text-light-text dark:text-dark-text" aria-label="Open mobile menu">
               <Menu className="w-6 h-6" />
             </button>
+            <a href="https://timi.vyomai.cloud" target="_blank" rel="noreferrer"
+               className="flex items-center gap-2 px-3 py-1.5 rounded-lg border border-purple-500/30 bg-purple-500/10 text-xs font-semibold text-light-primary dark:text-dark-primary">
+              <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
+              timi.vyomai.cloud
+            </a>
             <div className="flex items-center gap-3">
               <span className="text-sm font-medium text-light-muted dark:text-dark-muted tabular-nums">{currentTime}</span>
               <NotificationCenter />

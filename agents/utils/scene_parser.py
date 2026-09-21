@@ -33,6 +33,50 @@ STOPWORDS = {
     "this", "that", "these", "those", "it", "its", "they", "them", "their",
 }
 
+# Per-category visual identity so different categories don't all render the same
+# abstract tech footage. Appended as a style suffix to stock/LTX scene prompts.
+CATEGORY_VISUAL_STYLE = {
+    "AI News": "modern newsroom with AI data-center servers, holographic analytics dashboards and data streaming across monitors in the background",
+    "Science & Technology": "research laboratory setting with oscilloscopes, exposed circuit boards, quantum processors and precision scientific instruments",
+    "Programming & Software": "developer workstation close-up with code editor screens, terminals, glow of an open-source stack on a mechanical keyboard",
+    "World News (24hr)": "broadcast news studio with world map displays, live data feeds and anchor-station foreground",
+    "Nepal News": "regional newsroom with Kathmandu cityscape backdrop, local event coverage panels and monitor edges",
+}
+
+# Pexels/Pixabay-friendly keywords injected into asset_keywords so the container's
+# stock-footage path (which searches asset_keywords, not ltx_prompt) also gets
+# per-category visual identity.
+CATEGORY_VISUAL_KEYWORDS = {
+    "AI News": ["data center", "server room", "holographic dashboard", "data streaming"],
+    "Science & Technology": ["circuit board", "oscilloscope", "laboratory", "microchip"],
+    "Programming & Software": ["programming code", "computer screen", "mechanical keyboard", "developer workspace"],
+    "World News (24hr)": ["news studio", "world map", "television studio", "live newsroom"],
+    "Nepal News": ["kathmandu", "city skyline", "newsroom", "nepal"],
+}
+
+
+def _apply_category_style(scenes: list[dict], category: str) -> list[dict]:
+    hint = CATEGORY_VISUAL_STYLE.get(category)
+    kw_extra = CATEGORY_VISUAL_KEYWORDS.get(category, [])
+    if not hint and not kw_extra:
+        return scenes
+    for s in scenes:
+        if s.get("render_type", "stock") == "stock" and s.get("asset_type", "STOCK_FOOTAGE") == "STOCK_FOOTAGE":
+            prompt = s.get("ltx_prompt", "") or s.get("description", "")
+            if prompt:
+                s["ltx_prompt"] = f"{prompt.rstrip('. ')} focused on {hint}"
+            elif not s.get("ltx_prompt") and hint:
+                s["ltx_prompt"] = hint
+            if kw_extra:
+                existing = s.setdefault("asset_keywords", s.get("asset_keywords") or [s.get("keyword", "technology")])
+                if isinstance(existing, str):
+                    existing = [existing]
+                for kw in kw_extra:
+                    if kw not in existing:
+                        existing.append(kw)
+                s["asset_keywords"] = existing
+    return scenes
+
 
 @dataclass
 class SceneState:
@@ -52,7 +96,7 @@ Return ONLY a valid JSON array of scene objects. Each scene object has this exac
   "asset_type": "STOCK_FOOTAGE|SCREEN_CAPTURE|DIAGRAM_ANIMATION|CODE_SNIPPET|STATIC_IMAGE",
   "asset_keywords": ["keyword1", "keyword2"],
   "narration_text": "The EXACT spoken narration text that will be read during this scene. Copy it verbatim from the script's NARRATION lines.",
-  "ltx_prompt": "Describe the scene in 2-3 vivid sentences optimized for AI video generation. Include camera angle, lighting, composition, colors, and motion. Be specific.",
+  "ltx_prompt": "Describe the scene in 2-3 vivid sentences optimized for AI video generation. FIRST sentence must name the exact concrete objects from the narration (GPU chip, vector index structure, terminal window, circuit board) - not abstractions like 'technology'. Then camera angle, lighting, composition, colors, and motion.",
   "text": [
     {
       "text": "Spoken narration text shown on screen",
@@ -141,16 +185,16 @@ def parse_script_to_scenes(
 
     scenes = _llm_scene_parse(script_text, title, category, format_type, storyboard_text, max_duration)
     if scenes:
-        return _ensure_visual_variety(scenes)
+        return _ensure_visual_variety(_apply_category_style(scenes, category))
 
     scenes = _rule_based_parse(script_text, storyboard_text, format_type, title, max_duration)
     if scenes:
         print(f"[SCENE_PARSER] Rule-based parse produced {len(scenes)} scenes")
-        return _ensure_visual_variety(scenes)
+        return _ensure_visual_variety(_apply_category_style(scenes, category))
 
     scenes = _minimal_fallback(title, category, format_type, max_duration)
     print(f"[SCENE_PARSER] Using minimal fallback ({len(scenes)} scenes)")
-    return _ensure_visual_variety(scenes)
+    return _ensure_visual_variety(_apply_category_style(scenes, category))
 
 
 def _llm_scene_parse(
@@ -200,7 +244,7 @@ CRITICAL for visual continuity: Each scene's ltx_prompt MUST reference the PREVI
 
 The narration_text and ltx_prompt are the most important fields. ltx_prompt is sent to the video generation AI — make it specific, directly based on the VISUAL/CAMERA/LIGHTING fields in the storyboard. The storyboard's visual directions are your PRIMARY source; preserve them verbatim in ltx_prompt. The narration_text provides context but should NOT override specific visual directions from the storyboard.
 
-The ltx_prompt MUST include: camera angle (close-up/wide/dolly/tracking/top-down/over-the-shoulder), lighting (neon/soft diffused/dramatic side/volumetric/rim), specific concrete objects visible, colors, and camera motion. NEVER write generic descriptions like "technology visualization" or "animated concept". Every ltx_prompt must feel like a real cinematography direction.
+The ltx_prompt MUST open with the concrete nouns/objects from that scene's narration (e.g. "GPU processor die with exposed transistors" not "AI technology advancement"). Then include: camera angle (close-up/wide/dolly/tracking/top-down/over-the-shoulder), lighting (neon/soft diffused/dramatic side/volumetric/rim), the specific concrete objects visible, colors, and camera motion. NEVER write generic descriptions like "technology visualization" or "animated concept". Every ltx_prompt must feel like a real cinematography direction.
 
 Return ONLY valid JSON array of scene objects."""
 
@@ -662,7 +706,8 @@ def _infer_ltx_prompt(text: str, title: str = "", scene_index: int = 0, scene: d
                     narration_hint = f"visualizing {', '.join(key_terms[:4])}, "
 
     if scene_narration and len(scene_narration) > 20:
-        prompt = f"Cinematic shot, {continuity_hint}{narration_hint}{bg_hint}{asset_hint}{transition_hint}{cam}, {lighting}, rich colors, professional educational style, 24fps, high quality"
+        # visual-led: cinematography first, narration as a short illustrating tail
+        prompt = f"Cinematic shot, {continuity_hint}{bg_hint}{asset_hint}{transition_hint}{cam}, {lighting}, rich colors, professional educational style, 24fps, high quality, illustrating: {scene_narration[:200]}"
     else:
         prompt = f"Cinematic shot of {', '.join(keywords[:2])}, {keywords[-1] if len(keywords) > 2 else 'technology'} visualization, {continuity_hint}{visual_desc_hint}{narration_hint}{bg_hint}{asset_hint}{text_hint}{transition_hint}{cam}, {lighting}, rich colors, professional educational style, 24fps, high quality"  # noqa: E501
 

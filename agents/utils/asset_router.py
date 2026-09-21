@@ -9,6 +9,7 @@ from datetime import datetime
 from utils.blender_renderer import render_blender_scene, render_blender_block
 from utils.screen_capture import render_terminal, render_ide, render_browser, render_code_snippet
 from utils.stock_video import search_videos_for_scenes as _search_stock
+from utils.concurrent_pipeline import run_with_gpu_lock
 from models import get_video_model
 from utils.scene_schema import DEEP_LESSON_CATS as _DEEP_LESSON_CATS
 from utils.manim_renderer import render_manim_scene, render_manim_code_snippet
@@ -189,19 +190,22 @@ def _render_scene_inner(scene: dict, video_id: str, scene_idx: int,
         visual = scene.get("ltx_prompt", "") or description or ", ".join(kw_list)
         narration = scene.get("narration_text", "")
         if narration:
-            # narration-led: the on-screen action IS the narration (show, don't tell).
-            # Put what's said first so the renderer visualizes the spoken concept, not a
-            # keyword bag; visual detail is the supporting "showing:" tail.
-            prompt = f"{narration[:400].strip()} -- showing: {visual[:400].strip()}"
+            # visual-led: the concrete scene description drives the shot. Leading with
+            # 400 chars of spoken narration makes every category look like the same
+            # abstract tech footage; the visual tail was being ignored. Narration is
+            # demoted to a short context tail.
+            prompt = f"{visual[:500].strip()} -- narration context: {narration[:150].strip()}"
         else:
             prompt = visual
-        clip_path = model.generate_clip(prompt, int(duration), format_type=format_type)
+        clip_path = run_with_gpu_lock(model.generate_clip, prompt, int(duration),
+                                      format_type=format_type, timeout=3600,
+                                      seed=abs(hash(f"{video_id}_{scene_idx}")) % (2**31 - 1))
         if clip_path:
             logger.info(f"[AssetRouter] Scene {scene_idx}: LTX OK ({os.path.basename(clip_path)})")
             return {"path": clip_path, "duration": duration, "asset_type": "STOCK_FOOTAGE", "source": "ltx"}
 
     if os.getenv("ENABLE_STOCK_FOOTAGE", "true").lower() == "true":
-        search_query = description or ", ".join(kw_list)
+        search_query = ", ".join(kw_list) or description
         path = _get_stock_clip(search_query, orientation, duration)
         if path and os.path.exists(path):
             logger.info(f"[AssetRouter] Scene {scene_idx}: stock OK (query={search_query[:60]})")
@@ -223,7 +227,18 @@ def dispatch_scene(scene: dict, video_id: str, scene_idx: int = 0,
     scene.setdefault("asset_keywords", [scene.get("keyword", "technology")])
     _try_blender_for_scene(scene, category)
     duration = scene.get("target_duration", scene.get("duration", 8.0))
+    orientation = "portrait" if format_type == "shorts" else "landscape"
     source = None
+
+    # Build the exact prompt _render_scene_inner will use so the narration-match
+    # gate checks the real prompt (visual-first, narration as tail) — otherwise a
+    # visual-first prompt fails the gate and wastes one full LTX render on retry.
+    _visual = scene.get("ltx_prompt", "") or scene.get("description", "") or ", ".join(scene.get("asset_keywords", []))
+    _narration = scene.get("narration_text", "")
+    if _narration:
+        _built_prompt = f"{_visual[:500].strip()} -- narration context: {_narration[:150].strip()}"
+    else:
+        _built_prompt = _visual
 
     for attempt in range(2):
         result = _render_scene_inner(scene, video_id, scene_idx, format_type, duration)
@@ -247,7 +262,7 @@ def dispatch_scene(scene: dict, video_id: str, scene_idx: int = 0,
             scene.get("narration_text", ""),
             scene_keywords=scene.get("asset_keywords"),
             asset_type=result.get("asset_type", "STOCK_FOOTAGE"),
-            ltx_prompt=scene.get("ltx_prompt", ""),
+            ltx_prompt=_built_prompt,
         )
         if visual_match:
             return result
@@ -260,7 +275,7 @@ def dispatch_scene(scene: dict, video_id: str, scene_idx: int = 0,
         if source == "ltx":
             narration = scene.get("narration_text", "")
             if narration:
-                scene["ltx_prompt"] = f"{scene.get('ltx_prompt', '')} -- illustrating: {narration[:300]}"
+                scene["narration_text"] = narration  # narration tail is already in _built_prompt
         else:
             scene["render_type"] = "stock"
             scene.pop("ltx_prompt", None)
@@ -377,7 +392,7 @@ def dispatch_scenes(scenes: list[dict], video_id: str, format_type: str = "long"
     # --- LTX batch ---
     if ltx_batch and use_ltx:
         ltx_scenes = [s for _, s in ltx_batch]
-        paths = model.generate_clips(ltx_scenes, video_id, format_type)
+        paths = run_with_gpu_lock(model.generate_clips, ltx_scenes, video_id, format_type, timeout=3600)
         for (idx, scene), path in zip(ltx_batch, paths):
             if path and os.path.exists(path):
                 dur = scene.get("target_duration", scene.get("duration", 8.0))

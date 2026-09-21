@@ -165,7 +165,7 @@ def _refresh_tiktok_token() -> str | None:
 
 
 def _save_env(updates: dict):
-    """Persist env vars to both .env files."""
+    """Persist env vars to both .env files (and Firestore env_vars)."""
     _script_dir = os.path.dirname(os.path.abspath(__file__))
     _agents_dir = os.path.dirname(_script_dir)
     _root_dir = os.path.dirname(_agents_dir)
@@ -192,6 +192,16 @@ def _save_env(updates: dict):
                     _new_lines.append(f'{_key}={_val}\n')
             with open(_p, 'w') as _f:
                 _f.writelines(_new_lines)
+    # Firestore env_vars overrides .env at boot (sync_env_from_firestore),
+    # so a refreshed token written only to .env would be lost on restart.
+    try:
+        from utils.firebase_status import get_firestore_client
+        _db = get_firestore_client()
+        if _db is not None:
+            for _key, _val in updates.items():
+                _db.collection('env_vars').document(_key).set({'value': _val}, merge=True)
+    except Exception:
+        pass
 
 
 def _refresh_facebook_token() -> str | None:

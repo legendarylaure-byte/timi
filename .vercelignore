@@ -13,7 +13,7 @@ __pycache__/
 Thumbs.db
 .vscode/
 .idea/
-firebase/
+/firebase/
 /agents/
 /bot/
 /pipeline/

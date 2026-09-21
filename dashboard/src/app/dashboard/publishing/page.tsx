@@ -34,6 +34,24 @@ interface UploadQueueItem {
 }
 
 export default function PublishingPage() {
+  const PRIVACY_LABELS: Record<string, string> = {
+    PUBLIC_TO_EVERYONE: 'Public',
+    MUTUAL_FOLLOW_FRIENDS: 'Mutual follow / friends',
+    FOLLOWER_OF_CREATOR: 'Followers only',
+    SELF_ONLY: 'Only me',
+  };
+  const compPrivacyLabel = (opt: any) => {
+    if (typeof opt === 'string') return PRIVACY_LABELS[opt] || opt;
+    const raw = opt?.level || opt?.privacy_level || opt?.value || opt?.id || '';
+    return PRIVACY_LABELS[raw] || opt?.display_name || opt?.label || raw || '';
+  };
+  const compComplianceText = () => {
+    const branded = compBrandToggle && compBrandContent;
+    const base = 'By posting, you agree to TikTok\'s';
+    return branded
+      ? `${base} Branded Content Policy and Music Usage Confirmation.`
+      : `${base} Music Usage Confirmation.`;
+  };
   const [platforms, setPlatforms] = useState<PlatformConfig[]>([]);
   const [queue, setQueue] = useState<UploadQueueItem[]>([]);
   const [loading, setLoading] = useState(true);
@@ -50,6 +68,16 @@ export default function PublishingPage() {
   const [compStitch, setCompStitch] = useState(false);
   const [compSubmitting, setCompSubmitting] = useState(false);
   const [compOptionsLoading, setCompOptionsLoading] = useState(false);
+  const [compCreator, setCompCreator] = useState<any>(null);
+  const [compPreviewUrl, setCompPreviewUrl] = useState('');
+  const [compDuration, setCompDuration] = useState(0);
+  const [compBrandToggle, setCompBrandToggle] = useState(false);
+  const [compBrandOrganic, setCompBrandOrganic] = useState(false);
+  const [compBrandContent, setCompBrandContent] = useState(false);
+  const [compConsent, setCompConsent] = useState(false);
+  const [compIntentId, setCompIntentId] = useState('');
+  const [compIntent, setCompIntent] = useState<any>(null);
+  const [compMsgs, setCompMsgs] = useState<string[]>([]);
 
   useEffect(() => {
     const unsub = onSnapshot(collection(db, 'platform_settings'),
@@ -94,6 +122,14 @@ export default function PublishingPage() {
     return () => unsub();
   }, []);
 
+  // Load TikTok creator info on mount (guideline 1: latest creator info when rendering Post page).
+  useEffect(() => {
+    loadComposerOptions();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  const compPushMsg = (m: string) => setCompMsgs((p) => [...p.slice(-2), m]);
+
   const loadComposerOptions = async () => {
     setCompOptionsLoading(true);
     try {
@@ -101,21 +137,61 @@ export default function PublishingPage() {
       const data = await res.json();
       if (data.success) {
         setPrivacyOptions(Array.isArray(data.privacy_level_options) ? data.privacy_level_options : []);
-        alert(`Composer options loaded (${data.privacy_level_options?.length || 0} privacy levels). Select one.`);
+        setCompCreator({
+          nickname: data.creator_nickname || '',
+          username: data.creator_username || '',
+          avatar_url: data.creator_avatar_url || '',
+          max_duration: Number(data.max_video_post_duration_sec) || 0,
+          comment_disabled: !!data.comment_disabled,
+          duet_disabled: !!data.duet_disabled,
+          stitch_disabled: !!data.stitch_disabled,
+        });
       } else {
-        alert(`Failed to load TikTok publish options: ${data.error}`);
+        setCompCreator(null);
+        compPushMsg(`TikTok options unavailable: ${data.error}`);
       }
     } catch (e: any) {
-      alert(`Failed to load TikTok publish options: ${e.message}`);
+      setCompCreator(null);
+      compPushMsg(`TikTok options unavailable: ${e.message}`);
     } finally {
       setCompOptionsLoading(false);
     }
+  };
+
+  // Resolve + preview the selected video; read its duration (guideline 1c + 5a).
+  const selectComposeVideo = async (videoId: string) => {
+    setCompVideo(videoId);
+    setCompPreviewUrl('');
+    setCompDuration(0);
+    if (!videoId) return;
+    const v = availableVideos.find((x: any) => (x.video_id || x.id) === videoId);
+    let src = v?.video_url || v?.youtube_url || '';
+    const r2Key = v?.r2_key || '';
+    if (!src && r2Key) {
+      const res = await fetch(`/api/storage/sign?key=${encodeURIComponent(r2Key)}`);
+      const data = await res.json();
+      if (!data.success) {
+        compPushMsg(`Preview unavailable: ${data.error}`);
+        return;
+      }
+      src = data.url;
+    }
+    if (!src) {
+      compPushMsg('No preview media found for this video (render not in R2). You can still queue it — the pipeline publishes the local file.');
+      return;
+    }
+    setCompPreviewUrl(src);
   };
 
   const submitCompose = async () => {
     if (!compVideo) return alert('Select a video to publish.');
     if (!compTitle.trim()) return alert('Enter a title.');
     if (!compPrivacy) return alert('Select a privacy level (required — no default).');
+    if (compCreator?.max_duration && compDuration > compCreator.max_duration)
+      return alert(`This video (${Math.round(compDuration)}s) exceeds the TikTok max post duration (${compCreator.max_duration}s).`);
+    if (compBrandToggle && !compBrandOrganic && !compBrandContent)
+      return alert('You need to indicate if your content promotes yourself, a third party, or both.');
+    if (!compConsent) return alert('Confirm the consent declaration to continue.');
     setCompSubmitting(true);
     try {
       const res = await fetch('/api/tiktok/composer/publish', {
@@ -129,21 +205,52 @@ export default function PublishingPage() {
           comment_disabled: !compComment,
           duet_disabled: !compDuet,
           stitch_disabled: !compStitch,
+          brand_organic: compBrandToggle && compBrandOrganic,
+          brand_content: compBrandToggle && compBrandContent,
+          express_consent: compConsent,
+          music_usage_confirmed: compConsent,
         }),
       });
       const data = await res.json();
       if (data.success) {
-        alert(`TikTok compose queued (${data.intent_id}). The pipeline will publish it shortly.`);
+        setCompIntentId(data.intent_id);
+        setCompIntent({ status: 'queued' });
+        compPushMsg(`Queued (${data.intent_id}). Posting may take a few minutes to be visible on TikTok.`);
         setCompTitle(''); setCompVideo(''); setCompPrivacy(''); setCompComment(false); setCompDuet(false); setCompStitch(false);
+        setCompBrandToggle(false); setCompBrandOrganic(false); setCompBrandContent(false); setCompConsent(false);
+        setCompPreviewUrl(''); setCompDuration(0);
       } else {
-        alert(`Failed to queue TikTok post: ${data.error}`);
+        compPushMsg(`Failed to queue TikTok post: ${data.error}`);
       }
     } catch (e: any) {
-      alert(`Failed to queue TikTok post: ${e.message}`);
+      compPushMsg(`Failed to queue TikTok post: ${e.message}`);
     } finally {
       setCompSubmitting(false);
     }
   };
+
+  // Poll intent status after queuing (guideline 5e: users understand post status).
+  useEffect(() => {
+    if (!compIntentId) return;
+    const timer = setInterval(async () => {
+      try {
+        const res = await fetch(`/api/tiktok/composer/status/${compIntentId}`);
+        const data = await res.json();
+        if (data.success) {
+          const st = data.status || 'unknown';
+          setCompIntent(data);
+          if (st === 'published' || st === 'failed') {
+            clearInterval(timer);
+            compPushMsg(st === 'published' ? `Published: ${data.url || data.publish_id || 'TikTok'}` : `Failed: ${data.error || st}`);
+          }
+        }
+      } catch (e: any) {
+        compPushMsg(`Status poll error: ${e.message}`);
+      }
+    }, 10000);
+    return () => clearInterval(timer);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [compIntentId]);
 
   const totalFollowers = platforms.reduce((s, p) => s + p.followers, 0);
   const totalPublished = platforms.reduce((s, p) => s + (Number(p.videosPublished) || 0), 0);
@@ -258,8 +365,9 @@ export default function PublishingPage() {
             <ol className="list-decimal pl-4 space-y-1 text-xs text-light-text dark:text-dark-text">
               <li>Sign in as reviewer, then connect a TikTok account below (Connect → TikTok).</li>
               <li>Open the <strong>Compose TikTok Post</strong> card on this page.</li>
-              <li>Pick a video, enter a title, click <strong>Load options</strong>, and select a privacy level (no default).</li>
-              <li>Toggle comments/duet/stitch, then <strong>Queue TikTok Post</strong>.</li>
+              <li>Pick a video (preview + duration shown), enter a title, then select a privacy level (no default).</li>
+              <li>Review interaction toggles, commercial content disclosure, and the consent declaration.</li>
+              <li>Confirm consent and hit <strong>Queue TikTok Post</strong> — the status panel tracks publishing.</li>
               <li>The post publishes to the connected TikTok account within ~5 minutes.</li>
             </ol>
           </div>
@@ -449,12 +557,42 @@ export default function PublishingPage() {
           Manually publish a recently rendered video to TikTok. A privacy level is <span className="font-semibold text-light-primary">required</span> — no default is preselected. Comments/Duet/Stitch default to off.
         </p>
 
+        {/* Creator banner (guideline 1a) */}
+        {compOptionsLoading && (
+          <div className="text-xs text-light-muted dark:text-dark-muted mb-3">Loading TikTok creator info…</div>
+        )}
+        {!compOptionsLoading && compCreator && (
+          <div className="flex items-center gap-3 mb-4 p-3 rounded-xl bg-light-bg dark:bg-dark-bg border border-light-border/30 dark:border-white/5">
+            {compCreator.avatar_url ? (
+              // eslint-disable-next-line @next/next/no-img-element
+              <img src={compCreator.avatar_url} alt={compCreator.nickname} className="w-10 h-10 rounded-full object-cover" />
+            ) : (
+              <div className="w-10 h-10 rounded-full bg-purple-500/20 flex items-center justify-center text-purple-400 font-bold">
+                {(compCreator.nickname || 'T')[0]}
+              </div>
+            )}
+            <div>
+              <p className="text-sm font-semibold text-light-text dark:text-dark-text">{compCreator.nickname}</p>
+              <p className="text-xs text-light-muted dark:text-dark-muted">
+                Posting to @{compCreator.username || compCreator.nickname}.{' '}
+                {compCreator.max_duration ? `Max video: ${compCreator.max_duration}s.` : ''}
+              </p>
+            </div>
+          </div>
+        )}
+        {!compOptionsLoading && !compCreator && (
+          <div className="text-xs text-amber-500 mb-3">
+            TikTok creator info unavailable — connect a TikTok account first.
+            <button onClick={loadComposerOptions} className="ml-2 underline">Retry</button>
+          </div>
+        )}
+
         <div className="space-y-3">
           <div>
             <label className="text-xs font-medium text-light-muted dark:text-dark-muted block mb-1">Video (unpublished renders)</label>
             <select
               value={compVideo}
-              onChange={(e) => setCompVideo(e.target.value)}
+              onChange={(e) => selectComposeVideo(e.target.value)}
               className="w-full px-3 py-2 rounded-xl bg-light-bg dark:bg-dark-bg border border-light-border/30 dark:border-white/5 text-sm text-light-text dark:text-dark-text outline-none focus:border-light-primary/50"
             >
               <option value="">Select a video…</option>
@@ -464,7 +602,52 @@ export default function PublishingPage() {
                 </option>
               ))}
             </select>
+            <div className="flex flex-wrap gap-2 mt-2">
+              {availableVideos.map((v: any) => (
+                <button
+                  key={v.video_id || v.id}
+                  onClick={() => selectComposeVideo(v.video_id || v.id)}
+                  className={`px-2 py-1 rounded-lg text-xs font-medium border ${
+                    compVideo === (v.video_id || v.id)
+                      ? 'bg-purple-500/20 text-purple-400 border-purple-500/30'
+                      : 'bg-light-bg dark:bg-dark-bg border-light-border/30 dark:border-white/5 text-light-muted dark:text-dark-muted'
+                  }`}
+                >
+                  {(v.title || v.video_id || v.id).slice(0, 24)}
+                </button>
+              ))}
+            </div>
           </div>
+
+          {/* Content preview (guideline 5a) */}
+          {compPreviewUrl && (
+            <div className="rounded-xl overflow-hidden bg-black">
+              {/* eslint-disable-next-line jsx-a11y/media-has-caption */}
+              <video
+                src={compPreviewUrl}
+                controls
+                className="w-full max-h-56 object-contain"
+                onLoadedMetadata={(e) => {
+                  const d = (e.target as HTMLVideoElement).duration || 0;
+                  setCompDuration(d);
+                  if (compCreator?.max_duration && d > compCreator.max_duration) {
+                    compPushMsg(`Duration ${Math.round(d)}s exceeds TikTok max ${compCreator.max_duration}s — publishing blocked.`);
+                  }
+                }}
+              />
+              {compDuration > 0 && (
+                <div className="px-3 py-1 text-[11px] text-light-muted dark:text-dark-muted">
+                  Duration: {Math.round(compDuration)}s
+                  {compCreator?.max_duration > 0 && ` / max ${compCreator.max_duration}s`} —
+                  {compCreator?.max_duration > 0 && compDuration > compCreator.max_duration ? (
+                    <span className="text-red-500 font-semibold"> too long, publishing blocked</span>
+                  ) : (
+                    <span className="text-light-success font-semibold"> OK</span>
+                  )}
+                </div>
+              )}
+            </div>
+          )}
 
           <div>
             <label className="text-xs font-medium text-light-muted dark:text-dark-muted block mb-1">Title</label>
@@ -479,18 +662,25 @@ export default function PublishingPage() {
           </div>
 
           <div>
-            <label className="text-xs font-medium text-light-muted dark:text-dark-muted block mb-1">Privacy level</label>
+            <label className="text-xs font-medium text-light-muted dark:text-dark-muted block mb-1">Privacy level (no default — select one)</label>
             <div className="flex gap-2">
               <select
                 value={compPrivacy}
-                onChange={(e) => setCompPrivacy(e.target.value)}
+                onChange={(e) => {
+                  const val = e.target.value;
+                  setCompPrivacy(val);
+                  if (compBrandToggle && compBrandContent && val === 'SELF_ONLY') {
+                    compPushMsg('Branded content visibility cannot be set to private. Choose Public or followers.');
+                  }
+                }}
                 className="flex-1 px-3 py-2 rounded-xl bg-light-bg dark:bg-dark-bg border border-light-border/30 dark:border-white/5 text-sm text-light-text dark:text-dark-text outline-none focus:border-light-primary/50"
               >
                 <option value="">Select privacy…</option>
                 {privacyOptions.map((opt: any) => {
                   const val = typeof opt === 'string' ? opt : (opt?.level || opt?.privacy_level || opt?.value || '');
-                  const label = typeof opt === 'string' ? opt : (opt?.display_name || opt?.label || opt?.level || opt?.privacy_level || opt?.value || opt?.id || '');
-                  return val ? <option key={val} value={val}>{label}</option> : null;
+                  const label = compPrivacyLabel(opt);
+                  const blocked = compBrandToggle && compBrandContent && val === 'SELF_ONLY';
+                  return val ? <option key={val} value={val} disabled={!!blocked}>{label}{blocked ? ' (blocked for branded content)' : ''}</option> : null;
                 })}
               </select>
               <button
@@ -498,22 +688,25 @@ export default function PublishingPage() {
                 disabled={compOptionsLoading}
                 className="px-3 py-2 rounded-xl text-xs font-medium bg-purple-500/20 text-purple-400 border border-purple-500/30 hover:bg-purple-500/30 disabled:opacity-50"
               >
-                {compOptionsLoading ? 'Loading…' : 'Load options'}
+                {compOptionsLoading ? 'Loading…' : 'Reload options'}
               </button>
             </div>
           </div>
 
           <div className="space-y-2 pt-1">
             {[
-              { label: 'Allow comments', state: compComment, setter: setCompComment },
-              { label: 'Allow duet', state: compDuet, setter: setCompDuet },
-              { label: 'Allow stitch', state: compStitch, setter: setCompStitch },
+              { label: 'Allow comments', state: compComment, setter: setCompComment, locked: !!compCreator?.comment_disabled },
+              { label: 'Allow duet', state: compDuet, setter: setCompDuet, locked: !!compCreator?.duet_disabled },
+              { label: 'Allow stitch', state: compStitch, setter: setCompStitch, locked: !!compCreator?.stitch_disabled },
             ].map((t) => (
               <div key={t.label} className="flex items-center justify-between">
-                <span className="text-sm text-light-text dark:text-dark-text">{t.label}</span>
+                <span className={`text-sm ${t.locked ? 'text-light-muted/60 dark:text-dark-muted/60' : 'text-light-text dark:text-dark-text'}`}>
+                  {t.label}{t.locked ? ' (disabled in TikTok settings)' : ''}
+                </span>
                 <button
-                  onClick={() => t.setter(!t.state)}
-                  className={`w-10 h-6 rounded-full transition-colors ${t.state ? 'bg-light-success' : 'bg-light-border dark:bg-dark-border'}`}
+                  onClick={() => { if (!t.locked) t.setter(!t.state); }}
+                  disabled={t.locked}
+                  className={`w-10 h-6 rounded-full transition-colors ${t.state ? 'bg-light-success' : 'bg-light-border dark:bg-dark-border'} ${t.locked ? 'opacity-40 cursor-not-allowed' : ''}`}
                 >
                   <motion.div
                     className="w-5 h-5 rounded-full bg-white shadow-sm"
@@ -525,9 +718,80 @@ export default function PublishingPage() {
             ))}
           </div>
 
+          {/* Commercial content disclosure (guideline 3) */}
+          <div className="rounded-xl bg-light-bg dark:bg-dark-bg border border-light-border/30 dark:border-white/5 p-3">
+            <div className="flex items-center justify-between">
+              <span className="text-sm text-light-text dark:text-dark-text">Commercial content disclosure</span>
+              <button
+                onClick={() => { setCompBrandToggle(!compBrandToggle); if (!compBrandToggle) { setCompBrandOrganic(false); setCompBrandContent(false); } }}
+                className={`w-10 h-6 rounded-full transition-colors ${compBrandToggle ? 'bg-light-success' : 'bg-light-border dark:bg-dark-border'}`}
+              >
+                <motion.div
+                  className="w-5 h-5 rounded-full bg-white shadow-sm"
+                  animate={{ x: compBrandToggle ? 18 : 2 }}
+                  transition={{ type: 'spring', stiffness: 500, damping: 30 }}
+                />
+              </button>
+            </div>
+            {compBrandToggle && (
+              <div className="mt-3 space-y-2">
+                <label className="flex items-start gap-2 cursor-pointer">
+                  <input type="checkbox" checked={compBrandOrganic} onChange={(e) => setCompBrandOrganic(e.target.checked)} className="mt-0.5 accent-teal-500" />
+                  <span className="text-sm text-light-text dark:text-dark-text">
+                    Your brand — <span className="text-xs text-light-muted dark:text-dark-muted">&quot;Your photo/video will be labeled as &apos;Promotional content&apos;&quot;.</span>
+                  </span>
+                </label>
+                <label className="flex items-start gap-2 cursor-pointer">
+                  <input type="checkbox" checked={compBrandContent} onChange={(e) => setCompBrandContent(e.target.checked)} className="mt-0.5 accent-teal-500" />
+                  <span className="text-sm text-light-text dark:text-dark-text">
+                    Branded content — <span className="text-xs text-light-muted dark:text-dark-muted">&quot;Your photo/video will be labeled as &apos;Paid partnership&apos;&quot;.</span>
+                  </span>
+                </label>
+                {compBrandToggle && !compBrandOrganic && !compBrandContent && (
+                  <p className="text-xs text-amber-500">You need to indicate if your content promotes yourself, a third party, or both.</p>
+                )}
+              </div>
+            )}
+          </div>
+
+          {/* Compliance + consent (guideline 4 + 5c) */}
+          <div className="rounded-xl bg-light-bg dark:bg-dark-bg border border-light-border/30 dark:border-white/5 p-3">
+            <label className="flex items-start gap-2 cursor-pointer">
+              <input type="checkbox" checked={compConsent} onChange={(e) => setCompConsent(e.target.checked)} className="mt-0.5 accent-teal-500" />
+              <span className="text-sm text-light-text dark:text-dark-text">
+                I understand this video will be published to my TikTok account. {compComplianceText()} Posting may take a few minutes to be visible.
+              </span>
+            </label>
+          </div>
+
+          {compMsgs.map((m, i) => (
+            <p key={i} className="text-xs text-light-muted dark:text-dark-muted">{m}</p>
+          ))}
+
+          {/* Status panel (guideline 5e) */}
+          {compIntent && (
+            <div className="rounded-xl p-3 border border-light-border/30 dark:border-white/5 bg-light-bg dark:bg-dark-bg">
+              <div className="flex items-center justify-between">
+                <span className="text-sm font-semibold text-light-text dark:text-dark-text">Publish status</span>
+                <span className={`text-xs font-bold ${compIntent.status === 'published' ? 'text-light-success' : compIntent.status === 'failed' ? 'text-red-500' : 'text-purple-400'}`}>
+                  {compIntent.status}
+                </span>
+              </div>
+              {compIntent.status !== 'published' && compIntent.status !== 'failed' && (
+                <p className="text-xs text-light-muted dark:text-dark-muted mt-1">Processing — this may take a few minutes to appear on TikTok.</p>
+              )}
+              {compIntent.status === 'published' && compIntent.url && (
+                <a href={compIntent.url} target="_blank" rel="noreferrer" className="text-xs text-light-primary underline mt-1 block break-all">
+                  {compIntent.url}
+                </a>
+              )}
+              {compIntent.error && <p className="text-xs text-red-500 mt-1 break-all">{compIntent.error}</p>}
+            </div>
+          )}
+
           <button
             onClick={submitCompose}
-            disabled={compSubmitting}
+            disabled={compSubmitting || (!!compCreator?.max_duration && compDuration > compCreator.max_duration)}
             className="w-full py-3 rounded-2xl text-white font-semibold text-sm bg-gradient-to-r from-light-primary to-purple-600 hover:shadow-lg transition-shadow disabled:opacity-50"
           >
             {compSubmitting ? 'Queuing…' : 'Queue TikTok Post'}

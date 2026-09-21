@@ -20,24 +20,21 @@ os.environ.setdefault("LTX2_DIT_EVAL_EVERY", _MLX_EVAL_EVERY)
 
 
 def _run_in_worker(func: Callable, args: tuple, kwargs: dict) -> dict:
-    """Run a pipeline function in a worker thread with GPU semaphore."""
+    """Run a pipeline function in a worker thread.
+
+    The GPU semaphore is NOT held here for the whole pipeline; LTX generation
+    acquires it per-call inside asset_router (run_with_gpu_lock). This lets
+    scriptwriting/voice/compositing/publishing run in parallel across pipelines
+    while serializing only the shared GPU LTX renders.
+    """
     result = {"success": False, "error": None, "video_id": None, "topic": None}
     pipeline_runtime_id = kwargs.pop("_pipeline_runtime_id", None)
-    gpu_needed = kwargs.pop("_gpu", True)
+    kwargs.pop("_gpu", None)
     try:
         if pipeline_runtime_id:
             os.environ["PIPELINE_RUNTIME_ID"] = pipeline_runtime_id
-        if gpu_needed:
-            acquired = GPU_SEMAPHORE.acquire(timeout=600)
-            if not acquired:
-                result["error"] = "GPU semaphore timeout (10m wait exhausted)"
-                return result
-        try:
-            func(*args, **kwargs)
-            result["success"] = True
-        finally:
-            if gpu_needed:
-                GPU_SEMAPHORE.release()
+        func(*args, **kwargs)
+        result["success"] = True
     except Exception as e:
         result["error"] = f"{type(e).__name__}: {e}"
         logger.error("[concurrent] Worker failed: %s\n%s", e, traceback.format_exc())

@@ -550,7 +550,7 @@ def concatenate_audio(segment_files: list[str], output_path: str, gap_ms: list[i
         return False
 
 
-async def generate_voiceover(script: str, voice: str = DEFAULT_VOICE, output_filename: str = "voiceover.wav", content_type: str = "general", is_long_form: bool = False, is_deep_lesson: bool = False, is_documentary: bool = False) -> dict:  # noqa: E501
+async def generate_voiceover(script: str, voice: str = DEFAULT_VOICE, output_filename: str = "voiceover.wav", content_type: str = "general", is_long_form: bool = False, is_deep_lesson: bool = False, is_documentary: bool = False, video_id: str = "") -> dict:  # noqa: E501
     VOICE_DIR.mkdir(parents=True, exist_ok=True)
 
     dialogue_segments = parse_dialogue_segments(script)
@@ -559,7 +559,7 @@ async def generate_voiceover(script: str, voice: str = DEFAULT_VOICE, output_fil
 
     if has_multi_character:
         print(f"[voice_gen] Multi-voice: {len(dialogue_segments)} segments, characters: {set(s['character'] for s in dialogue_segments)}")
-        return await _generate_multi_voice(dialogue_segments, output_filename)
+        return await _generate_multi_voice(dialogue_segments, output_filename, video_id=video_id)
 
     narration_text = extract_narration_text(script, is_long_form=is_long_form)
     print(f"[voice_gen] Single voice: {len(script)} chars -> {len(narration_text)} chars")
@@ -622,7 +622,7 @@ async def generate_voiceover(script: str, voice: str = DEFAULT_VOICE, output_fil
     output_path = str(VOICE_DIR / output_filename)
     concat_success = concatenate_audio(segment_files, output_path, gap_ms=gap_ms)
 
-    timing_file = str(VOICE_DIR / "phrase_timing.json")
+    timing_file = str(VOICE_DIR / f"phrase_timing_{video_id}.json") if video_id else str(VOICE_DIR / "phrase_timing.json")
     if all_phrase_timings:
         with open(timing_file, "w") as f:
             json.dump(all_phrase_timings, f)
@@ -647,7 +647,7 @@ async def generate_voiceover(script: str, voice: str = DEFAULT_VOICE, output_fil
     }
 
 
-async def _generate_multi_voice(dialogue_segments: list[dict], output_filename: str) -> dict:
+async def _generate_multi_voice(dialogue_segments: list[dict], output_filename: str, video_id: str = "") -> dict:
     """Generate voiceover with multiple character-specific voices."""
     segment_files = []
     all_phrase_timings = []
@@ -700,7 +700,7 @@ async def _generate_multi_voice(dialogue_segments: list[dict], output_filename: 
     output_path = str(VOICE_DIR / output_filename)
     concat_success = concatenate_audio(segment_files, output_path)
 
-    timing_file = str(VOICE_DIR / "phrase_timing.json")
+    timing_file = str(VOICE_DIR / f"phrase_timing_{video_id}.json") if video_id else str(VOICE_DIR / "phrase_timing.json")
     if all_phrase_timings:
         with open(timing_file, "w") as f:
             json.dump(all_phrase_timings, f)

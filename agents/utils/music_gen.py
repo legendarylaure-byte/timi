@@ -351,11 +351,11 @@ def _generate_mood_arc_melody(duration_seconds: float, scene_moods: list[str], o
 # Main entry point
 # ---------------------------------------------------------------------------
 
-def generate_background_music(category: str, duration: float = 60, output_filename: Optional[str] = None, scene_moods: Optional[list[str]] = None, tier: str = "") -> dict:
+def generate_background_music(category: str, duration: float = 60, output_filename: Optional[str] = None, scene_moods: Optional[list[str]] = None, tier: str = "", video_id: str = "") -> dict:
     MUSIC_DIR.mkdir(parents=True, exist_ok=True)
     mood = detect_mood(category, tier=tier)
     if output_filename is None:
-        output_filename = f"bg_{mood}.wav"
+        output_filename = f"bg_{mood}_{video_id}.wav" if video_id else f"bg_{mood}.wav"
     output_path = str(MUSIC_DIR / output_filename)
 
     source = None
