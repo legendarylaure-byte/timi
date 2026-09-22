@@ -36,10 +36,10 @@ _WHITE = "#FFFFFF"
 _FONT_PATH = os.getenv("FONT_PATH", "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf")
 
 # ── Virality thresholds ────────────────────────────────────────────────────
-VIRAL_THRESHOLD = float(os.getenv("VIRAL_THRESHOLD", "60"))
-VIRAL_HOLD_THRESHOLD = float(os.getenv("VIRAL_HOLD_THRESHOLD", "45"))
-VIRAL_COOLDOWN_HOURS = int(os.getenv("VIRAL_COOLDOWN_HOURS", "6"))
-VIRAL_MAX_PER_DAY = int(os.getenv("VIRAL_MAX_PER_DAY", "2"))
+VIRAL_THRESHOLD = float(os.getenv("VIRAL_THRESHOLD", "55"))
+VIRAL_HOLD_THRESHOLD = float(os.getenv("VIRAL_HOLD_THRESHOLD", "40"))
+VIRAL_COOLDOWN_HOURS = int(os.getenv("VIRAL_COOLDOWN_HOURS", "3"))
+VIRAL_MAX_PER_DAY = int(os.getenv("VIRAL_MAX_PER_DAY", "5"))
 HOLD_REVIEW_MINUTES = int(os.getenv("VIRAL_HOLD_REVIEW_MINUTES", "15"))
 
 _config_cache = {"ts": 0.0, "data": None}
@@ -69,7 +69,7 @@ def _live_config() -> dict:
     }
 
 # ── Scheduling ──────────────────────────────────────────────────────────────
-VIRAL_SCHEDULE_TIMES = os.getenv("VIRAL_SCHEDULE_TIMES", "10:30,20:30").split(",")
+VIRAL_SCHEDULE_TIMES = os.getenv("VIRAL_SCHEDULE_TIMES", "06:00,18:00").split(",")
 # Real-time viral news monitor — runs every VIRAL_CHECK_INTERVAL minutes.
 # Ponytail: polling interval — adjust via env var (default 5 minutes).
 VIRAL_CHECK_INTERVAL = int(os.getenv("VIRAL_CHECK_INTERVAL", "5"))
@@ -694,6 +694,112 @@ def _ig_post_photo(image_path: str, caption: str) -> dict:
         return {"success": False, "platform": "instagram", "error": str(e)}
 
 
+def _tt_post_photo(image_path: str, caption: str) -> dict:
+    """Post a photo to TikTok via the Content Posting API (PHOTO / DIRECT_POST).
+
+    TikTok pulls the image from a public URL (PULL_FROM_URL). Per TikTok docs
+    that URL must sit on a domain/URL-prefix that is VERIFIED in the app's
+    developer portal — R2 hosts (pub-*.r2.dev / *.r2.cloudflarestorage.com)
+    are not verified, so if init fails with a domain error you must: (1) serve
+    the R2 bucket on a custom domain you control, (2) verify that domain in
+    the TikTok portal, (3) set VIRAL_IMAGE_URL_BASE=https://<your-domain> and
+    the key suffix is appended. Falls back to an R2 presigned URL otherwise.
+    Privacy comes from TIKTOK_PRIVACY_LEVEL (SELF_ONLY until the Direct Post
+    audit grants public posting). Non-fatal: caller still posts FB/IG.
+    """
+    access_token = os.getenv("TIKTOK_ACCESS_TOKEN")
+    if not access_token:
+        return {"success": False, "platform": "tiktok", "error": "TikTok token not configured"}
+
+    if not os.path.exists(image_path):
+        return {"success": False, "platform": "tiktok", "error": f"Image not found: {image_path}"}
+
+    _tt_refresh_attempted = [False]
+
+    def _do_init(_token: str) -> requests.Response:
+        import uuid as _uuid
+        from utils.r2_storage import get_r2_client, generate_presigned_url
+
+        client = get_r2_client()
+        key = f"viral/{_uuid.uuid4().hex}.jpg"
+        with open(image_path, "rb") as inf:
+            client.upload_fileobj(
+                inf, os.getenv("CLOUDFLARE_R2_BUCKET", "vyom-ai-videos"), key,
+                ExtraArgs={"ContentType": "image/jpeg"},
+            )
+        base = os.getenv("VIRAL_IMAGE_URL_BASE", "").rstrip("/")
+        image_url = f"{base}/{key}" if base else generate_presigned_url(key, expires_in=3600)
+
+        privacy_level = os.getenv("TIKTOK_PRIVACY_LEVEL", "SELF_ONLY")
+        return requests.post(
+            "https://open.tiktokapis.com/v2/post/publish/content/init/",
+            headers={
+                "Authorization": f"Bearer {_token}",
+                "Content-Type": "application/json; charset=UTF-8",
+            },
+            json={
+                "source_info": {"source": "PULL_FROM_URL",
+                                "photo_images": [{"url": image_url, "index": 1}]},
+                "post_mode": "DIRECT_POST",
+                "media_type": "PHOTO",
+                "post_info": {
+                    "title": caption.strip()[:90],
+                    "description": caption[:4000],
+                    "privacy_level": privacy_level,
+                    "is_aigc": os.getenv("TIKTOK_IS_AIGC", "false").lower() == "true",
+                    "disable_comment": False,
+                    "disable_duet": True,
+                    "disable_stitch": True,
+                },
+            },
+            timeout=30,
+        )
+
+    init_resp = _do_init(access_token)
+    if init_resp.status_code == 401 and not _tt_refresh_attempted[0]:
+        _tt_refresh_attempted[0] = True
+        try:
+            from utils.multi_platform_publisher import _refresh_tiktok_token
+            refreshed = _refresh_tiktok_token()
+        except Exception as refresh_err:
+            logger.warning("[viral] TikTok token refresh failed: %s", refresh_err)
+            refreshed = None
+        if refreshed:
+            access_token = refreshed
+            init_resp = _do_init(access_token)
+
+    if init_resp.status_code != 200:
+        return {"success": False, "platform": "tiktok",
+                "error": f"TikTok photo init failed: {init_resp.status_code} {init_resp.text[:400]}"}
+
+    publish_id = init_resp.json().get("data", {}).get("publish_id")
+    if not publish_id:
+        return {"success": False, "platform": "tiktok",
+                "error": f"TikTok init returned no publish_id: {init_resp.text[:400]}"}
+
+    # Poll publish status (DIRECT_POST completes asynchronously).
+    for _ in range(120):
+        time.sleep(5)
+        status_resp = requests.post(
+            "https://open.tiktokapis.com/v2/post/publish/status/fetch/",
+            headers={"Authorization": f"Bearer {access_token}",
+                     "Content-Type": "application/json; charset=UTF-8"},
+            json={"publish_id": publish_id},
+            timeout=30,
+        )
+        data = status_resp.json().get("data", {}) if status_resp.status_code == 200 else {}
+        status = data.get("status")
+        if status == "PUBLISH_COMPLETE":
+            logger.info("[viral] TikTok photo posted: publish_id=%s", publish_id)
+            return {"success": True, "platform": "tiktok", "publish_id": publish_id,
+                    "url": f"https://www.tiktok.com/@{os.getenv('TIKTOK_USERNAME', '')}"}
+        if status == "PUBLISH_FAILED":
+            return {"success": False, "platform": "tiktok",
+                    "error": f"TikTok publish failed: {data.get('fail_reason', '') or status_resp.text[:300]}"}
+
+    return {"success": False, "platform": "tiktok", "error": "TikTok publish status timed out"}
+
+
 # ═══════════════════════════════════════════════════════════════════════════
 # Over-triggering guards
 # ═══════════════════════════════════════════════════════════════════════════
@@ -910,6 +1016,9 @@ def _publish_viral_post(article: dict, score: dict) -> bool:
         fb_result = _fb_post_photo(image_path, caption)
         platform_results["instagram"] = ig_result
         platform_results["facebook"] = fb_result
+
+        tt_result = _tt_post_photo(image_path, caption)
+        platform_results["tiktok"] = tt_result
 
         # Clean up temp image
         try:
