@@ -576,7 +576,10 @@ def _upload_instagram(title: str, video_path: str, format_type: str) -> dict:
         nonlocal access_token, _instagram_refresh_attempted
         import requests
 
-        media_type = 'REELS' if format_type == 'shorts' else 'VIDEO'
+        # Meta deprecated media_type=VIDEO (400 code 100 subcode 2207067).
+        # REELS works for both formats; longs keep share_to_feed=true (below)
+        # so they still publish to the Instagram feed.
+        media_type = 'REELS'
 
         ai_flags = get_ai_disclosure("instagram")
         media_params = {

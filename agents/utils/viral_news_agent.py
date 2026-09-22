@@ -695,6 +695,20 @@ def _ig_post_photo(image_path: str, caption: str) -> dict:
 
 
 def _tt_post_photo(image_path: str, caption: str) -> dict:
+    """Exception-safe wrapper: TikTok must never abort a viral post.
+
+    IG/FB helpers swallow their own exceptions; this one does too so a
+    transient R2/network error can't skip the Firestore save + image cleanup
+    after FB/IG already landed (and can't break dedup for the next scan).
+    """
+    try:
+        return _tt_post_photo_impl(image_path, caption)
+    except Exception as e:
+        logger.error("[viral] TikTok photo post failed: %s", e)
+        return {"success": False, "platform": "tiktok", "error": str(e)}
+
+
+def _tt_post_photo_impl(image_path: str, caption: str) -> dict:
     """Post a photo to TikTok via the Content Posting API (PHOTO / DIRECT_POST).
 
     TikTok pulls the image from a public URL (PULL_FROM_URL). Per TikTok docs
