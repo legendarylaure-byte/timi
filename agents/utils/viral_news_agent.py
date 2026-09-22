@@ -375,6 +375,8 @@ def generate_image(article: dict, index: int = 0) -> str:
         logger.warning("[viral] PIL not available, skipping image generation")
         return ""
 
+    _TEMP_DIR.mkdir(parents=True, exist_ok=True)
+
     title = (article.get("title") or "Breaking News")[:100]
     source = article.get("source", "Verified Source")
     category = article.get("category", "News")
@@ -518,7 +520,12 @@ def _page_access_token() -> str:
     """Resolve a Page-scoped token from the user token via /me/accounts.
 
     Photo posts to a Page require a Page token; the stored user token only
-    carries publish_video. Cache in-process since it is stable.
+    carries publish_video. Resolved token is cached in-process AND persisted
+    to Firestore platform_settings/facebook.access_token so it survives
+    restarts without a live /me/accounts round-trip.
+
+    A Graph error/empty body is logged loudly (was silently returning "" and
+    failing every FB post) and retried once before giving up.
     """
     user_token = os.getenv("FACEBOOK_ACCESS_TOKEN")
     page_id = str(os.getenv("FACEBOOK_PAGE_ID", ""))
@@ -527,19 +534,49 @@ def _page_access_token() -> str:
     cached = _PAGE_TOKEN_CACHE.get((user_token, page_id))
     if cached:
         return cached
+
+    # Warm-from-Firestore: reuse last resolved page token before querying Graph.
     try:
-        resp = requests.get(
-            "https://graph.facebook.com/v25.0/me/accounts",
-            params={"access_token": user_token},
-            timeout=15,
-        )
-        for page in resp.json().get("data", []):
-            if str(page.get("id")) == page_id:
-                token = page.get("access_token", "")
-                _PAGE_TOKEN_CACHE[(user_token, page_id)] = token
-                return token
+        settings = _get_firestore().collection("platform_settings").document("facebook").get()
+        stored = (settings.get("access_token") or "") if settings.exists else ""
+        if stored:
+            _PAGE_TOKEN_CACHE[(user_token, page_id)] = stored
+            return stored
     except Exception as e:
-        logger.warning("[viral] Failed to resolve FB page token: %s", e)
+        logger.warning("[viral] FB token Firestore read failed (continuing): %s", e)
+
+    for attempt in (1, 2):
+        try:
+            resp = requests.get(
+                "https://graph.facebook.com/v25.0/me/accounts",
+                params={"access_token": user_token},
+                timeout=15,
+            )
+            body = resp.json()
+            if resp.status_code != 200 or "data" not in body:
+                logger.warning(
+                    "[viral] FB /me/accounts failed (attempt %d): status=%s body=%s",
+                    attempt, resp.status_code, str(body)[:300],
+                )
+                continue
+            for page in body.get("data", []):
+                if str(page.get("id")) == page_id:
+                    token = page.get("access_token", "")
+                    if token:
+                        _PAGE_TOKEN_CACHE[(user_token, page_id)] = token
+                        try:
+                            _get_firestore().collection("platform_settings").document(
+                                "facebook"
+                            ).set({"access_token": token}, merge=True)
+                        except Exception as e:
+                            logger.warning("[viral] FB token Firestore save failed: %s", e)
+                        return token
+            logger.warning(
+                "[viral] FB /me/accounts returned no match for page_id=%s (attempt %d)",
+                page_id, attempt,
+            )
+        except Exception as e:
+            logger.warning("[viral] Failed to resolve FB page token (attempt %d): %s", attempt, e)
     return ""
 
 
@@ -692,6 +729,26 @@ def _can_post_now() -> tuple:
         return False, f"Firestore check failed, blocking ({e})"
 
 
+def _already_posted(url: str) -> bool:
+    """True if this article URL was already posted recently (dedup).
+
+    Prevents rescanning the same top story (which currently gets re-picked
+    on every 5-min scan and re-posted/retried). Skips on any Firestore error
+    so transient failures never cascade into a false "already posted".
+    """
+    if not url:
+        return False
+    try:
+        db = _get_firestore()
+        for d in db.collection("viral_news_posts").where("url", "==", url).limit(5).stream():
+            if d.to_dict().get("url") == url:
+                return True
+        return False
+    except Exception as e:
+        logger.warning("[viral] Dedup check failed, NOT blocking: %s", e)
+        return False
+
+
 # ═══════════════════════════════════════════════════════════════════════════
 # Core agent functions
 # ═══════════════════════════════════════════════════════════════════════════
@@ -760,6 +817,10 @@ def run_viral_check(forced: bool = False) -> dict:
                         article_score, score["breakdown"])
 
             if score["is_viral"]:
+                if _already_posted(article.get("link", "")):
+                    logger.info("[viral] Skipping already-posted story: %s",
+                                article.get("title", "?")[:50])
+                    continue
                 can_post, reason = _can_post_now()
                 if not can_post:
                     logger.info("[viral] Stopping scan mid-batch: %s", reason)
@@ -822,6 +883,10 @@ def test_now():
 
 def _publish_viral_post(article: dict, score: dict) -> bool:
     """Generate content and publish a viral post to Facebook + Instagram."""
+    if _already_posted(article.get("link", "")):
+        logger.info("[viral] Dedup: article already posted, skipping: %s",
+                    article.get("title", "?")[:50])
+        return False
     can_post, reason = _can_post_now()
     if not can_post:
         logger.info("[viral] Blocked by guard, not posting: %s", reason)
@@ -856,10 +921,28 @@ def _publish_viral_post(article: dict, score: dict) -> bool:
         platform_results["facebook"] = fb_result
 
     # YouTube Community post (text) — gated by ENABLE_COMMUNITY_POSTS.
+    # Run in a worker thread with a short timeout: expired Studio cookies
+    # trigger a 120s interactive login wait inside playwright which must never
+    # stall the viral scan (09-22: FB post landed ~3min late behind it).
     yt_caption = f"{caption}\n\n{article.get('link', '')}"
+    yt_ok = False
     try:
-        from utils.community_manager import post_community_text
-        yt_ok = post_community_text(yt_caption)
+        import threading
+
+        _yt_holder = {}
+
+        def _post_yt():
+            from utils.community_manager import post_community_text
+            _yt_holder["ok"] = post_community_text(yt_caption)
+
+        _t = threading.Thread(target=_post_yt, daemon=True)
+        _t.start()
+        _t.join(timeout=10)
+        if _t.is_alive():
+            logger.warning("[viral] YouTube community post timed out (>10s), skipping")
+            yt_ok = False
+        else:
+            yt_ok = bool(_yt_holder.get("ok", False))
     except Exception as cm_err:
         logger.warning("[viral] YouTube community post failed: %s", cm_err)
         yt_ok = False
