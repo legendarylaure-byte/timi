@@ -20,3 +20,12 @@ test_*.py
 *.json
 .git/
 .github/
+
+# 1823 dead generated sprite/background/sfx assets (20MB). Nothing at runtime
+# reads them -- only utils/assets/generate_*.py wrote them, and the render chain
+# is manim -> blender -> stock -> branded card. Shipping them made BuildKit fail
+# with "mount options is too long" on COPY utils/.
+utils/assets/characters/
+utils/assets/backgrounds/
+utils/assets/effects/
+utils/assets/sfx/

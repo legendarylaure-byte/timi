@@ -19,6 +19,14 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     mesa-utils \
     wget \
     xz-utils \
+    fonts-freefont-ttf \
+    fonts-wqy-zenhei \
+    texlive-latex-base \
+    texlive-latex-recommended \
+    texlive-fonts-recommended \
+    lmodern \
+    dvisvgm \
+    ghostscript \
     && rm -rf /var/lib/apt/lists/*
 
 ARG BLENDER_VERSION=4.5.12

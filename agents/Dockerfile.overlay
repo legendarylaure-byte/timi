@@ -2,40 +2,26 @@
 # Avoids re-downloading the 3GB torch/CUDA stack (floating python:3.11-slim base tag invalidation).
 FROM timi-pipeline:latest
 
-# manim 0.21.0 verified working inside the container (spike: valid mp4 rendered).
-RUN pip install --no-cache-dir "manim>=0.20.0,<0.22.0"
-
-# manim's BarChart/MathTex render TeX via latex + dvisvgm — the base image has no TeX.
-RUN apt-get update && apt-get install -y --no-install-recommends \
-    texlive-latex-base \
-    texlive-latex-recommended \
-    texlive-fonts-recommended \
-    lmodern \
-    dvisvgm \
-    ghostscript \
-    && rm -rf /var/lib/apt/lists/*
-
-COPY requirements.txt /app/requirements.txt
+# manim 0.21.0, texlive-latex-*, lmodern, dvisvgm and ghostscript are ALREADY in
+# the base image (verified in-container). They used to be installed here, which
+# re-ran a multi-minute apt/pip on every build and pushed the instruction count
+# past this builder's limit -- 2 RUN + 5 COPY died with "mount options is too
+# long" at COPY models/. A real dependency change needs `docker compose build`
+# against the full Dockerfile, not this overlay.
+#
+# Thin overlay: sync the whole source tree instead of ~45 per-file COPY lines.
+# The per-file list kept growing with every change and eventually tripped
+# "mount options is too long" in BuildKit's solve plan. Whole-directory COPYs
+# are one instruction each, cache the same, and can't grow that failure mode.
+#
+# ponytail: the old "mount options is too long" failure was NOT an instruction
+# count limit -- it was the 492-layer parent overflowing the kernel arg limit
+# when BuildKit assembled the parent mount spec. The base is now flattened
+# (timi-pipeline:flat, 1 layer; latest is 3-8 layers), so a 6th COPY builds fine.
+# Keep new paths out of this file anyway to stay cache-friendly, and verify any
+# 6th instruction with a real build before relying on it.
 COPY main.py /app/main.py
-COPY utils/viral_news_agent.py /app/utils/viral_news_agent.py
-COPY utils/viral_config.py /app/utils/viral_config.py
-COPY utils/news_scraper.py /app/utils/news_scraper.py
-COPY crew/manim_agent.py /app/crew/manim_agent.py
-COPY crew/scriptwriter.py /app/crew/scriptwriter.py
-COPY utils/multi_platform_publisher.py /app/utils/multi_platform_publisher.py
-COPY utils/scene_schema.py /app/utils/scene_schema.py
-COPY utils/scene_parser.py /app/utils/scene_parser.py
-COPY utils/blender_renderer.py /app/utils/blender_renderer.py
-COPY utils/asset_router.py /app/utils/asset_router.py
-COPY utils/diagram_renderer.py /app/utils/diagram_renderer.py
-COPY utils/manim_renderer.py /app/utils/manim_renderer.py
-COPY utils/video_compositor.py /app/utils/video_compositor.py
-COPY utils/annotation_renderer.py /app/utils/annotation_renderer.py
-COPY utils/concurrent_pipeline.py /app/utils/concurrent_pipeline.py
-COPY utils/voice_gen.py /app/utils/voice_gen.py
-COPY utils/alert_manager.py /app/utils/alert_manager.py
-COPY utils/community_manager.py /app/utils/community_manager.py
-COPY utils/subtitle_gen.py /app/utils/subtitle_gen.py
-COPY utils/music_gen.py /app/utils/music_gen.py
-COPY utils/upscaler.py /app/utils/upscaler.py
-COPY models/ltx_model.py /app/models/ltx_model.py
+COPY utils/ /app/utils/
+COPY crew/ /app/crew/
+COPY models/ /app/models/
+COPY scripts/ /app/scripts/
