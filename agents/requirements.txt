@@ -46,7 +46,7 @@ onnxruntime>=1.20.0
 manim>=0.20.0,<0.22.0
 
 # Pinned transitive deps to stop pip backtracking during Docker build
-litellm==1.53.3
+litellm==1.93.0
 cohere==5.21.1
 tokenizers==0.22.2
 langchain-community==0.3.27
