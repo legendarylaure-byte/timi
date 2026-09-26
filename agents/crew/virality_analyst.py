@@ -72,15 +72,17 @@ def get_virality_threshold(format_type: str = "shorts") -> int:
     return int(os.getenv("MIN_VIRALITY_SCORE", str(MIN_VIRALITY_SCORE)))
 
 
-def get_prewriting_guidance(topic: str, category: str, format_type: str = "shorts") -> str:
+def get_prewriting_guidance(topic: str, category: str, format_type: str = "shorts", video_id: str = "") -> str:
     """Return short virality guidance for the scriptwriter before writing.
 
     Uses hook_tester stats + topic scoring to suggest formula, pacing, tone.
+    `video_id` is forwarded as the hook-rotation salt so this agrees with the
+    direct suggest_hook_formula() call made alongside it in main.py.
     """
     parts = []
     try:
         from utils.hook_tester import suggest_hook_formula, get_hook_stats
-        formula = suggest_hook_formula(category)
+        formula = suggest_hook_formula(category, salt=video_id)
         stats = get_hook_stats(category)
         best = stats.get(formula, {})
         if best.get("count", 0) > 0:

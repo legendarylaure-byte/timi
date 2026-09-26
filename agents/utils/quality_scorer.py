@@ -43,6 +43,13 @@ IMPORTANT: Evaluate based on information quality, not entertainment value:
 
 Only flag factually incorrect or misleading content. Do NOT penalize for being AI-generated."""
 
+# Keys score_content() itself dereferences. extract_json() does no schema
+# validation, so an LLM that returns valid-but-partial JSON reaches the
+# `result['overall_score']` log line and raises an uncaught KeyError that
+# kills the whole video pipeline (seen 2026-09-25: "FAILED at
+# long_video_pipeline: [quality_scoring] 'overall_score'"). Reject at ingestion.
+_REQUIRED_SCORE_KEYS = frozenset({"overall_score", "breakdown", "flags", "recommendation"})
+
 
 def score_content(script: str, title: str, category: str, format_type: str = "shorts") -> dict:
     """Score video content using Groq AI and return quality metrics."""
@@ -93,7 +100,7 @@ Score each dimension and return the JSON object as specified."""
             result = _fallback_score(script, title, category)
         elif call_result[0]:
             result = extract_json(call_result[0])
-            if result is None:
+            if not result or not _REQUIRED_SCORE_KEYS.issubset(result):
                 result = _fallback_score(script, title, category)
         else:
             result = _fallback_score(script, title, category)

@@ -2,9 +2,13 @@ import os
 import json
 import time
 import logging
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 
 logger = logging.getLogger(__name__)
+
+
+def _utcnow_iso() -> str:
+    return datetime.now(timezone.utc).isoformat()
 
 TEST_DATA_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "data", "title_tests")
 os.makedirs(TEST_DATA_DIR, exist_ok=True)
@@ -32,14 +36,21 @@ def _test_path(video_id: str) -> str:
 
 
 def start_title_test(video_id: str, variants: list, initial_title: str) -> dict:
+    # Start at the variant we actually published, not blindly at index 0.
+    current_index = next((i for i, v in enumerate(variants)
+                          if (v.get("title") if isinstance(v, dict) else v) == initial_title), 0)
     test = {
         "video_id": video_id,
         "variants": variants,
-        "current_index": 0,
-        "started_at": datetime.utcnow().isoformat(),
-        "stage_end": (datetime.utcnow() + timedelta(hours=24)).isoformat(),
+        "current_index": current_index,
+        "started_at": _utcnow_iso(),
+        "stage_end": (datetime.now(timezone.utc) + timedelta(hours=24)).isoformat(),
         "status": "testing",
         "results": {},
+        # views_at_stage_start[title] = view count when that variant went live.
+        # CTR/impressions are NOT available on this channel (no Brand Account), so
+        # views-per-hour is the only real signal an A/B test can use here.
+        "views_at_stage_start": {initial_title: None},
     }
     test["results"][initial_title] = None
     with open(_test_path(video_id), "w") as f:
@@ -56,7 +67,7 @@ def advance_title_test(video_id: str, youtube_api_update_func=None) -> dict:
         test = json.load(f)
     if test["status"] != "testing":
         return test
-    now = datetime.utcnow()
+    now = datetime.now(timezone.utc)
     stage_end = datetime.fromisoformat(test["stage_end"])
     if now < stage_end:
         remaining = (stage_end - now).total_seconds() / 3600
@@ -72,6 +83,7 @@ def advance_title_test(video_id: str, youtube_api_update_func=None) -> dict:
                 test["current_index"] = next_idx
                 test["stage_end"] = (now + timedelta(hours=24)).isoformat()
                 test["results"][next_title] = None
+                test.setdefault("views_at_stage_start", {})[next_title] = None
                 logger.info(f"Title test advanced to variant {next_idx + 1}: '{next_title}'")
             except Exception as e:
                 logger.error(f"Failed to update title: {e}")
@@ -100,16 +112,29 @@ def record_title_ctr(video_id: str, title: str, ctr: float):
 
 
 def _pick_winner(test: dict) -> dict:
-    results = test.get("results", {})
-    best_title = None
-    best_ctr = -1
-    for title, ctr in results.items():
-        if ctr is not None and ctr > best_ctr:
-            best_ctr = ctr
-            best_title = title
-    if best_title:
-        return {"title": best_title, "ctr": best_ctr, "method": "highest_ctr"}
-    return {"title": list(results.keys())[0] if results else "unknown", "ctr": 0, "method": "first_available"}
+    """Pick the variant that gained the most views per hour of exposure.
+
+    Returns method="insufficient_data" when nothing was measured — never a fake
+    winner, which is what the old CTR version did on an all-None results dict.
+    """
+    results = test.get("results", {}) or {}
+    starts = test.get("views_at_stage_start", {}) or {}
+    hours = float(os.getenv("TITLE_TEST_STAGE_HOURS", "24"))
+
+    measured = {}
+    for title, views in results.items():
+        if views is None:
+            continue
+        start = starts.get(title)
+        if start is None:
+            continue
+        measured[title] = (views - start) / hours
+    if measured:
+        best = max(measured, key=measured.get)
+        return {"title": best, "views_per_hour": round(measured[best], 3),
+                "method": "highest_views_per_hour", "measured": measured}
+    return {"title": None, "method": "insufficient_data",
+            "message": "No view data measured for any variant; leaving the title unchanged."}
 
 
 def get_test_status(video_id: str) -> dict:
@@ -121,9 +146,15 @@ def get_test_status(video_id: str) -> dict:
 
 
 def sync_title_ctr_from_youtube() -> int:
-    """Pull real YouTube CTR for all active title tests and update their results.
-    
-    Returns count of tests updated.
+    """Record the view count for whatever variant is currently live.
+
+    Kept under the old name so existing callers still work, but it no longer tries to
+    read CTR: this channel has no Brand Account, so YouTube returns no impressions and
+    fetch_video_stats() exposes no impression, title or ctr keys at all. The old version
+    guarded on the impression and title keys and therefore skipped every single video,
+    forever.
+
+    Returns the number of tests updated.
     """
     try:
         from utils.youtube_upload import fetch_video_stats
@@ -131,26 +162,36 @@ def sync_title_ctr_from_youtube() -> int:
         return 0
 
     updated = 0
+    if not os.path.isdir(TEST_DATA_DIR):
+        return 0
     for fname in os.listdir(TEST_DATA_DIR):
         if not fname.endswith(".json"):
             continue
-        vid = fname[:-5]
         path = os.path.join(TEST_DATA_DIR, fname)
         try:
             with open(path) as f:
                 test = json.load(f)
         except Exception:
             continue
-
-        stats = fetch_video_stats(vid)
-        if not stats or not stats.get("impressions"):
+        if test.get("status") != "testing":
             continue
 
-        ctr = stats.get("ctr", 0)
-        current_title = stats.get("title", "")
-        if ctr > 0 and current_title:
-            test["results"][current_title] = ctr
-            test["_last_ctr_sync"] = datetime.utcnow().isoformat()
+        variants = test.get("variants") or []
+        idx = test.get("current_index", 0)
+        if not (0 <= idx < len(variants)):
+            continue
+        current = variants[idx]
+        current_title = current.get("title") if isinstance(current, dict) else current
+        if not current_title:
+            continue
+
+        # Record the stage baseline the first time we see this variant.
+        starts = test.setdefault("views_at_stage_start", {})
+        if starts.get(current_title) is None:
+            stats = fetch_video_stats(test["video_id"])
+            if not stats or stats.get("error"):
+                continue
+            starts[current_title] = stats.get("views", 0)
             with open(path, "w") as f:
                 json.dump(test, f, indent=2)
             updated += 1

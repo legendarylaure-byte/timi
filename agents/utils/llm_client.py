@@ -20,7 +20,10 @@ def generate_completion(prompt: str, system_prompt: str = "", temperature: float
 
     try:
         from utils.llm_helper import get_llm
-        llm = get_llm(temperature=temperature, max_tokens=max_tokens)
+        # agent_id routes via OLLAMA_MODEL_ROUTES; without it every caller got the
+        # default model no matter which agent it was (caller_id was only used for
+        # failure counting).
+        llm = get_llm(temperature=temperature, max_tokens=max_tokens, agent_id=caller_id)
         messages = []
         if system_prompt:
             messages.append({"role": "system", "content": system_prompt})

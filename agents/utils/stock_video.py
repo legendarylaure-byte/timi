@@ -28,6 +28,59 @@ CLIPS_DIR = Path(__file__).parent.parent / "tmp" / "clips"
 CLIPS_DIR.mkdir(parents=True, exist_ok=True)
 register_temp_dir(str(CLIPS_DIR))
 
+# Recently-used stock clips. Without this the same clip comes back for the same
+# keyword on every single video, because provider results are returned in a stable
+# relevance order and the sort is stable.
+USED_LEDGER = Path(__file__).parent.parent / "data" / "stock_used.json"
+STOCK_REPEAT_DAYS = float(os.getenv("STOCK_REPEAT_DAYS", "21"))
+_ledger_lock = threading.Lock()
+
+
+def _load_ledger() -> dict:
+    try:
+        if USED_LEDGER.exists():
+            import json
+            return json.loads(USED_LEDGER.read_text())
+    except Exception:
+        pass
+    return {}
+
+
+def _mark_used(clip_id: str) -> None:
+    with _ledger_lock:
+        data = _load_ledger()
+        data[clip_id] = time.time()
+        # Keep the ledger bounded.
+        cutoff = time.time() - (STOCK_REPEAT_DAYS * 2 * 86400)
+        data = {k: v for k, v in data.items() if isinstance(v, (int, float)) and v > cutoff}
+        try:
+            USED_LEDGER.parent.mkdir(parents=True, exist_ok=True)
+            import json
+            USED_LEDGER.write_text(json.dumps(data))
+        except Exception:
+            pass
+
+
+def _repeat_penalty(clip_id: str) -> float:
+    """Higher = we already used this clip recently, so deprioritise it."""
+    used = _load_ledger().get(clip_id)
+    if not used:
+        return 0.0
+    age_days = (time.time() - used) / 86400
+    if age_days >= STOCK_REPEAT_DAYS:
+        return 0.0
+    # Used 1 day ago -> 2.0 penalty; used today -> ~5.0. Strongly but not absolutely.
+    return 5.0 * (1.0 - age_days / STOCK_REPEAT_DAYS)
+
+
+def _stable_jitter(video_id: str, scene_idx: int, clip_id: str) -> float:
+    """Deterministic per (video, scene, clip) so a re-run picks the same clip,
+    but a different video gets a different one."""
+    import hashlib
+    h = hashlib.sha256(f"{video_id}|{scene_idx}|{clip_id}".encode()).hexdigest()
+    return int(h[:8], 16) / 0xFFFFFFFF * 1.5
+
+
 _API_CACHE = {}
 _PIXABAY_BLOCKED_UNTIL = 0.0
 _PIXABAY_LOCK = threading.Lock()
@@ -285,11 +338,32 @@ PEXELS_KEYWORD_MAP = {
 
 
 def _keyword_expand(base_keyword: str) -> list[str]:
-    base = base_keyword.lower().strip()
+    """Build a query list that LEADS with the scene's own words.
+
+    The old version did the opposite: on any substring hit against PEXELS_KEYWORD_MAP
+    it returned the entry's generic aliases and threw the scene keyword away, so a
+    scene about "quantum qubit superposition" was searched as whatever fixed alias
+    list matched. That alias collapse is why the same generic clips came back for
+    scene after scene. Scene words first, generic aliases only as fallback.
+    """
+    base = " ".join(str(base_keyword or "").lower().split())
+    if not base:
+        return ["technology background"]
+
+    queries = [base]
+
+    # Aliases are fallbacks, never replacements.
     for key, aliases in PEXELS_KEYWORD_MAP.items():
-        if key in base or base in key:
-            return aliases
-    return [base, base + " animation", base + " visualization", base + " educational"]
+        if key in base:
+            for a in aliases:
+                if a not in queries:
+                    queries.append(a)
+            break
+
+    # A few scene-specific variations beat a generic alias list.
+    queries.append(f"{base} close up")
+    queries.append(f"{base} 4k")
+    return queries[:6]
 
 
 def _handle_rate_limit(resp: requests.Response, source: str, max_retries: int = 1) -> requests.Response:
@@ -611,6 +685,7 @@ def search_and_download(
     orientation: str = "landscape",
     scene_idx: int = 0,
     narration_text: str = "",
+    video_id: str = "",
 ) -> Optional[dict]:
     CLIPS_DIR.mkdir(parents=True, exist_ok=True)
     expanded = _keyword_expand(scene_keyword)
@@ -628,14 +703,30 @@ def search_and_download(
             seen_ids.add(cid)
             unique.append(c)
 
-    unique.sort(key=lambda c: _score_stock_relevance(c, scene_keyword, narration_text), reverse=True)
+    # Relevance first, then penalise recently-used clips, then a stable per-video
+    # jitter so two videos with the same keyword do not land on the same clip.
+    for c in unique:
+        c["_cid"] = f"{c['source']}_{c['id']}"
+    unique.sort(
+        key=lambda c: (
+            _score_stock_relevance(c, scene_keyword, narration_text)
+            - _repeat_penalty(c["_cid"])
+            + _stable_jitter(video_id, scene_idx, c["_cid"])
+        ),
+        reverse=True,
+    )
 
     for candidate in unique:
-        filename = f"clip_{scene_idx:03d}_{candidate['source']}_{candidate['id']}.mp4"
+        # Namespaced by video_id: the old name was clip_{scene_idx}_{src}_{id}.mp4, so
+        # a clip downloaded for one video was silently reused by the next video that
+        # had the same scene position — part of why footage repeated across videos.
+        vid_tag = video_id or "novid"
+        filename = f"clip_{vid_tag}_{scene_idx:03d}_{candidate['source']}_{candidate['id']}.mp4"
         output_path = CLIPS_DIR / filename
         if output_path.exists():
             duration = get_video_duration(str(output_path))
             if duration > 0:
+                _mark_used(candidate["_cid"])
                 return {
                     "path": str(output_path),
                     "duration": duration,
@@ -648,6 +739,7 @@ def search_and_download(
         if download_clip(candidate["url"], output_path):
             duration = get_video_duration(str(output_path))
             if duration > 0:
+                _mark_used(candidate["_cid"])
                 return {
                     "path": str(output_path),
                     "duration": duration,
@@ -662,14 +754,14 @@ def search_and_download(
 
 
 def _search_single_scene(args: tuple) -> dict | None:
-    i, scene, orientation, max_retries = args
+    i, scene, orientation, max_retries, video_id = args
     keyword = scene.get("keyword", scene.get("description", ""))
     target_dur = scene.get("target_duration", 5.0)
     for attempt in range(max_retries):
         if attempt > 0:
             time.sleep(2)
         clip = search_and_download(keyword, target_duration=target_dur, orientation=orientation, scene_idx=i,
-                                   narration_text=scene.get("narration_text", ""))
+                                   narration_text=scene.get("narration_text", ""), video_id=video_id)
         if clip:
             print(f"[stock_video] Scene {i+1}: '{keyword}' -> {clip['path']} ({clip['duration']:.1f}s)")
             return clip
@@ -677,12 +769,12 @@ def _search_single_scene(args: tuple) -> dict | None:
     return None
 
 
-def search_videos_for_scenes(scenes: list[dict], orientation: str = "landscape") -> list[dict]:
+def search_videos_for_scenes(scenes: list[dict], orientation: str = "landscape", video_id: str = "") -> list[dict]:
     max_retries_per_scene = 2
     n = len(scenes)
     from concurrent.futures import ThreadPoolExecutor, as_completed
 
-    args_list = [(i, scene, orientation, max_retries_per_scene) for i, scene in enumerate(scenes)]
+    args_list = [(i, scene, orientation, max_retries_per_scene, video_id) for i, scene in enumerate(scenes)]
     clip_map = {}
     with ThreadPoolExecutor(max_workers=min(n, 8)) as executor:
         futures = {executor.submit(_search_single_scene, args): i for i, args in enumerate(args_list)}

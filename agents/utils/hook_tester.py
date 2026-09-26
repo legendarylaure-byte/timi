@@ -12,8 +12,11 @@ Usage:
 import os
 import json
 import time
+import logging
 from pathlib import Path
 from typing import Optional
+
+logger = logging.getLogger(__name__)
 
 DATA_DIR = Path(__file__).parent.parent / "data" / "hook_testing"
 DATA_DIR.mkdir(parents=True, exist_ok=True)
@@ -35,32 +38,58 @@ def _save_results(data: dict):
     RESULTS_FILE.write_text(json.dumps(data, indent=2))
 
 
-def suggest_hook_formula(category: str) -> str:
+def _rotation_index(category: str, salt: str = "") -> int:
+    """Stable across processes — unlike hash(), which is salted per interpreter."""
+    import hashlib
+    h = hashlib.sha256(f"{category}{salt}".encode()).hexdigest()
+    return int(h[:8], 16)
+
+
+def suggest_hook_formula(category: str, salt: str = "") -> str:
     """Suggest the best hook formula for a category based on past performance.
 
-    Returns the formula with highest average views. Falls back to rotation
-    if no data exists.
+    Only recommends a winner when there is a real signal (at least 2 videos with
+    non-zero views). Otherwise it rotates.
+
+    `salt` exists to make that rotation vary *per video* while staying stable for
+    any given video. Pass the video_id:
+
+        stable   -> suggest_hook_formula("AI News", "short-20260926-1") always
+                    returns the same formula, so a re-run or retry of that video
+                    reuses its original hook rather than silently changing it.
+        varied   -> two different video_ids in the same category get different
+                    formulas, so the channel stops opening every video the same way.
+
+    Without a salt the fallback resolves from `category` alone and is therefore
+    constant for that category forever — which is the bug this parameter fixes.
+    Do not "simplify" the salt away.
     """
     data = _load_results()
     cat_data = data.get(category, {})
 
-    if not cat_data:
-        # No data — use simple rotation based on category hash
-        idx = hash(category) % len(FORMULAS)
-        return FORMULAS[idx]
-
-    # Score each formula by average views
-    best_formula = FORMULAS[0]
-    best_avg = 0
+    # Score each formula, but only trust formulas with enough real signal.
+    scored = []
     for formula in FORMULAS:
-        entries = cat_data.get(formula, [])
-        if entries:
-            avg_views = sum(e.get("views", 0) for e in entries) / len(entries)
-            if avg_views > best_avg:
-                best_avg = avg_views
-                best_formula = formula
+        entries = [e for e in cat_data.get(formula, []) if e.get("views", 0) > 0]
+        if len(entries) >= 2:
+            scored.append((sum(e["views"] for e in entries) / len(entries), formula))
 
-    return best_formula
+    if scored:
+        scored.sort(reverse=True)
+        chosen = scored[0][1]
+        logger.debug(
+            "[HookTester] category=%r salt=%r -> %r (real signal, %d formula(s) scored)",
+            category, salt, chosen, len(scored),
+        )
+        return chosen
+
+    # No usable signal: rotate deterministically so the hook actually varies.
+    chosen = FORMULAS[_rotation_index(category, salt) % len(FORMULAS)]
+    logger.debug(
+        "[HookTester] category=%r salt=%r -> %r (no real signal yet, rotating)",
+        category, salt, chosen,
+    )
+    return chosen
 
 
 def record_hook_result(

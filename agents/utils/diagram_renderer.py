@@ -34,9 +34,21 @@ _FONT_CANDIDATES = [
 ]
 
 
-def _resolve_font(size: int) -> ImageFont.FreeTypeFont:
-    """Find the first available TrueType font (env → candidates → default)."""
-    for path in [FONT_PATH] + _FONT_CANDIDATES:
+def _resolve_font(size: int, text: str = "") -> ImageFont.FreeTypeFont:
+    """Find a TrueType font that covers `text`.
+
+    The module-level FONT_PATH/_FONT_CANDIDATES are Latin-only DejaVu/Liberation,
+    so non-Latin labels would render as .notdef boxes. When `text` is non-Latin
+    the script is detected from the text itself and a covering font is used
+    instead, so callers need no language context.
+    """
+    candidates = [FONT_PATH] + _FONT_CANDIDATES
+    if text:
+        from utils.fonts import font_for_text
+        covering = font_for_text(text)
+        if covering and os.path.exists(covering):
+            candidates.insert(0, covering)
+    for path in candidates:
         if os.path.exists(path):
             try:
                 return ImageFont.truetype(path, size)
@@ -45,8 +57,8 @@ def _resolve_font(size: int) -> ImageFont.FreeTypeFont:
     return ImageFont.load_default()
 
 
-def _font(size: int = FONT_SIZE, bold: bool = False) -> ImageFont.FreeTypeFont:
-    return _resolve_font(size)
+def _font(size: int = FONT_SIZE, bold: bool = False, text: str = "") -> ImageFont.FreeTypeFont:
+    return _resolve_font(size, text)
 
 
 def render_diagram(spec: dict, width: int = 1920, height: int = 1080) -> Optional[str]:
@@ -71,7 +83,7 @@ def render_diagram(spec: dict, width: int = 1920, height: int = 1080) -> Optiona
     items = spec.get("items", [])
 
     if title:
-        tf = _font(32, bold=True)
+        tf = _font(32, bold=True, text=title)
         tw = draw.textlength(title, font=tf)
         draw.text(((width - tw) / 2, 20), title, fill=WHITE, font=tf)
 
@@ -119,7 +131,7 @@ def _render_flow(draw: ImageDraw.Draw, items: list, width: int,
         label = item if isinstance(item, str) else item.get("label", "")
         x = gap + i * (bw + gap)
         draw.rectangle([x, y, x + bw, y + bh], outline=accent, width=2, fill=(50, 50, 50))
-        f = _font(14)
+        f = _font(14, text=label)
         tw = _text_w(draw, label, f)
         draw.text((x + (bw - tw) / 2, y + (bh - 20) / 2), label, fill=WHITE, font=f)
         if i < n - 1:
@@ -148,7 +160,7 @@ def _render_bar(draw: ImageDraw.Draw, items: list, width: int,
         bx = x0 + i * (bar_w + gap)
         by = y0 - bh
         draw.rectangle([bx, by, bx + bar_w, y0], fill=accent, width=0)
-        f = _font(12)
+        f = _font(12, text=labels[i])
         lbl = labels[i][:12]
         tw = _text_w(draw, lbl, f)
         draw.text((bx + (bar_w - tw) / 2, y0 + 5), lbl, fill=LIGHT_GRAY, font=f)
@@ -167,8 +179,13 @@ def _render_comparison(draw: ImageDraw.Draw, items: list, width: int,
     col_w = (width - 120) // cols
     y = margin_top + 10
     rh = 30
-    header_f = _font(16, bold=True)
-    cell_f = _font(14)
+    all_text = " ".join(
+        str(x) for it in items
+        for x in ([it.get("header", "") if isinstance(it, dict) else str(it)]
+                 + [r if isinstance(r, str) else r.get("text", str(r))
+                    for r in (it.get("rows", []) if isinstance(it, dict) else [])]))
+    header_f = _font(16, bold=True, text=all_text)
+    cell_f = _font(14, text=all_text)
     for c in range(cols):
         item = items[c] if isinstance(items[c], dict) else {"header": str(items[c])}
         header = item.get("header", str(items[c]))
@@ -204,11 +221,11 @@ def _render_timeline(draw: ImageDraw.Draw, items: list, width: int,
         draw.ellipse([x - dot_r, y - dot_r, x + dot_r, y + dot_r], fill=accent, width=0)
         label = item if isinstance(item, str) else item.get("label", "")
         desc = item if isinstance(item, str) else item.get("description", "")
-        f = _font(14)
+        f = _font(14, text=label)
         tw = _text_w(draw, label, f)
         draw.text((x - tw / 2, y - 40), label, fill=WHITE, font=f)
         if desc:
-            df = _font(12)
+            df = _font(12, text=desc)
             dw = _text_w(draw, desc, df)
             draw.text((x - dw / 2, y + 20), desc, fill=LIGHT_GRAY, font=df)
 
@@ -237,7 +254,7 @@ def _render_architecture(draw: ImageDraw.Draw, items: list, width: int,
             bx = bx0 + bi * (bw + 10)
             by = ly + (layer_h - bh) // 2
             draw.rectangle([bx, by, bx + bw, by + bh], outline=accent, width=2, fill=(50, 50, 50))
-            f = _font(12)
+            f = _font(12, text=b_label)
             tw = _text_w(draw, b_label, f)
             draw.text((bx + (bw - tw) / 2, by + (bh - 16) / 2), b_label, fill=WHITE, font=f)
             if li < n_layers - 1 and bi < len(layers[li + 1].get("blocks", [])):

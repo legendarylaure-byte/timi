@@ -1,4 +1,34 @@
 import random
+import re
+
+# Titles that echo a raw news-feed or debug string instead of being written for
+# a viewer. One long video published 2026-09-25 as
+#   "AI News Update: GRIEF 97%x2, 91% \U0001F534 75%+ x55 \U0001F534 STREAM 392"
+# -- a rolling live-blog headline carrying repetition counters, emoji, and a
+# live ticker token. Emoji additionally render as .notdef boxes because the
+# container fonts have no emoji glyphs (same constraint as the LIKE CTA fix).
+# ponytail: neg lookbehind so "Pixel 2" is not read as the counter "x2".
+_GARBAGE_TITLE_RE = re.compile(
+    r"(?<![A-Za-z])x\d+"           # repetition counters: "97%x2", "x55"
+    r"|[\U0001F300-\U0001FAFF\U00002600-\U000027BF]"  # emoji / dingbats
+    r"|\bSTREAM\s+\d+",             # live-blog ticker token
+    re.IGNORECASE,
+)
+
+
+def is_garbage_title(title: str) -> bool:
+    """True if a title is unusable for publication (raw feed/debug debris)."""
+    t = (title or "").strip()
+    if not t:
+        return True
+    if _GARBAGE_TITLE_RE.search(t):
+        return True
+    # Stat soup with no prose: mostly digits/punctuation, so not a title.
+    # A false positive only costs a catchy title -- callers fall back to the
+    # topic the script was actually written from.
+    prose = sum(c.isalpha() or c.isspace() for c in t)
+    return prose / len(t) < 0.6
+
 
 TITLE_TEMPLATES = {
     "how": [

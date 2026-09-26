@@ -58,6 +58,17 @@ def analyze_retention(
     if not retention_curve or duration_seconds <= 0:
         return {"hook_retention": 0, "avg_retention": 0, "drop_off_points": []}
 
+    # Every index below is treated as a SECOND. If the caller handed us one value per
+    # ratio-bucket instead (the original bug), resample onto per-second so hook_idx=5
+    # really is t=5s and drop-off labels are real timestamps.
+    total_seconds = max(1, int(duration_seconds))
+    if len(retention_curve) != total_seconds:
+        n = len(retention_curve)
+        retention_curve = [
+            retention_curve[min(n - 1, int(round(i / total_seconds * n)))]
+            for i in range(total_seconds)
+        ]
+
     # Hook retention (first 5 seconds)
     hook_idx = min(5, len(retention_curve) - 1)
     hook_retention = retention_curve[hook_idx] if hook_idx < len(retention_curve) else 0
@@ -166,16 +177,46 @@ def pull_retention_from_youtube(video_id: str, category: str, duration_seconds: 
         if not rows:
             return {"hook_retention": 0, "avg_retention": 0, "error": "no data"}
 
-        # Convert relative time ratios to absolute seconds, build retention curve
-        retention_curve = []
+        # YouTube returns (elapsedVideoTimeRatio, audienceWatchRatio) buckets — a
+        # ratio, not a second, and NOT one bucket per second. The old code appended
+        # the raw ratio and then indexed it as seconds, so hook_retention was read at
+        # 6% of the video and every drop-off was labelled with a bucket index
+        # ("45s" for a 45%-through point). Resample onto a real per-second curve.
+        total_seconds = max(1, int(duration_seconds))
+        curve = [0.0] * total_seconds
         for row in rows:
-            ratio = row[1] if len(row) > 1 else 0
-            retention_curve.append(ratio)
+            if len(row) < 2:
+                continue
+            time_ratio, watch_ratio = float(row[0]), float(row[1])
+            idx = min(total_seconds - 1, max(0, int(round(time_ratio * total_seconds))))
+            curve[idx] = watch_ratio
 
-        if not retention_curve:
+        # Forward-fill so the curve is monotonic-ish and has no holes between buckets.
+        last = curve[0] if curve else 0.0
+        for i in range(len(curve)):
+            if curve[i] > 0:
+                last = curve[i]
+            else:
+                curve[i] = last
+        if last <= 0:
             return {"hook_retention": 0, "avg_retention": 0, "error": "empty curve"}
 
-        return analyze_retention(video_id, category, retention_curve, duration_seconds)
+        result = analyze_retention(video_id, category, curve, total_seconds)
+
+        # Persist the real curve so there is a usable retention dataset (and the
+        # dashboard has something to plot) instead of a per-category average only.
+        try:
+            from utils.firebase_status import get_firestore_client
+            db = get_firestore_client()
+            if db:
+                db.collection("videos").document(video_id).set({
+                    "retention_curve": curve,
+                    "retention_measured_at": datetime.now().isoformat(),
+                }, merge=True)
+        except Exception as e:
+            logger.debug(f"[RETENTION] curve persist failed for {video_id}: {e}")
+
+        return result
 
     except Exception as e:
         logger.warning(f"[RETENTION] YouTube pull failed for {video_id}: {e}")

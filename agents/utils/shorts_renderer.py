@@ -6,6 +6,7 @@ import tempfile
 from pathlib import Path
 from utils.subprocess_helper import register_temp_dir, safe_run_bool
 from utils.video_compositor import _subtitle_style_escaped
+from utils.fonts import font_for_text
 
 logger = logging.getLogger(__name__)
 
@@ -110,7 +111,7 @@ def reformat_to_shorts(input_path: str, hook_text: str, output_path: str,
         f"fontsize=42:fontcolor=white:box=1:boxcolor=black@0.5:"
         f"x=(w-text_w)/2:y=h*0.15:"
         f"alpha=if(lt(t\\,{hook_duration})\\,t/{hook_duration}\\,1):"
-        f"fontfile={os.getenv('FONT_PATH', '/System/Library/Fonts/Helvetica.ttc')}"
+        f"fontfile={font_for_text(hook_text)}"
     )
 
     cta_start = max(0, clip_duration - 4.0)
@@ -121,7 +122,7 @@ def reformat_to_shorts(input_path: str, hook_text: str, output_path: str,
         f"fontsize=38:fontcolor=white:box=1:boxcolor=#8a50e8@0.7:"
         f"x=(w-text_w)/2:y=(h-text_h)/2:"
         f"alpha=if(lt(t\\,{cta_start + 1})\\,0\\,if(lt(t\\,{cta_start + 3})\\,(t-{cta_start})/2\\,1)):"
-        f"fontfile={os.getenv('FONT_PATH', '/System/Library/Fonts/Helvetica.ttc')}:"
+        f"fontfile={font_for_text(cta_text)}:"
         f"text_align=C:line_spacing=8"
     )
 
@@ -135,7 +136,7 @@ def reformat_to_shorts(input_path: str, hook_text: str, output_path: str,
             f"fontsize=34:fontcolor=white:box=1:boxcolor=#00CCCC@0.75:"
             f"x=(w-text_w)/2:y=h*0.72:"
             f"alpha=if(lt(t\\,{like_start + 1})\\,0\\,if(lt(t\\,{like_start + 2.5})\\,(t-{like_start})/1.5\\,1)):"
-            f"fontfile={os.getenv('FONT_PATH', '/System/Library/Fonts/Helvetica.ttc')}:"
+            f"fontfile={font_for_text(like_text)}:"
             f"text_align=C"
         )
 

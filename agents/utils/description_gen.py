@@ -154,9 +154,11 @@ def get_tech_metadata(category: str, format_type: str = "shorts", title: str = "
         "machine learning",
     ]
     all_tags = list(dict.fromkeys(title_tags + base_tags))
-    # News categories map to YouTube's News & Politics (25); everything else stays Science & Tech (28).
-    news_cats = {"World News (24hr)", "Nepal News"}
-    category_id = "25" if category in news_cats else "28"
+    # News categories map to YouTube's News & Politics (25); everything else stays
+    # Science & Technology (28). Both IDs are valid. The news set is a hardcoded copy
+    # of NEWS_CATS, so any category added to scene_schema silently published as 28.
+    from utils.scene_schema import NEWS_CATS
+    category_id = "25" if category in NEWS_CATS else "28"
     return {
         "madeForKids": False,
         "selfDeclaredMadeForKids": False,

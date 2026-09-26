@@ -116,6 +116,12 @@ def fetch_youtube_trending(max_results: int = 20, region_code: str = "US") -> li
 
 
 def fetch_google_trends() -> list:
+    # Which pillar a trend belongs to, by the seed keyword it was discovered under.
+    _TREND_SEED_CATEGORY = {
+        "AI tools": "Programming & Software",
+        "machine learning": "Science & Technology",
+        "deep learning": "Science & Technology",
+    }
     try:
         from pytrends.request import TrendReq
         pytrends = TrendReq(hl="en-US", tz=360)
@@ -137,9 +143,13 @@ def fetch_google_trends() -> list:
                 if _is_non_tech_topic(query):
                     continue
                 value = row.get("value", 0)
+                # Was hardcoded "AI Explained", a category that no longer exists — every
+                # Google trend landed on a dead name and got remapped to the same
+                # pillar, so trend topics were indistinguishable from each other.
+                seed_cat = _TREND_SEED_CATEGORY.get(kw, "AI News")
                 results.append({
                     "title": query,
-                    "category": "AI Explained",
+                    "category": seed_cat,
                     "search_volume": max(10000, int(value * 10000)) if isinstance(value, (int, float)) else 50000,
                     "growth": value if isinstance(value, (int, float)) and value > 0 else random.randint(20, 80),
                     "competition": "medium",

@@ -26,11 +26,21 @@ def _ensure_header():
 
 def log_llm_cost(caller: str, input_tokens: int, output_tokens: int, model: str = "gemini-2.5-flash"):
     _ensure_header()
-    pricing = GEMINI_PRICING.get(model, GEMINI_PRICING["gemini-2.5-flash"])
-    cost = input_tokens * pricing["input"] + output_tokens * pricing["output"]
+    pricing = GEMINI_PRICING.get(model)
+    if pricing is None:
+        # Do NOT silently bill an unpriced model at another model's rate — a wrong
+        # cost that looks authoritative is worse than an obviously missing one.
+        cost = "unknown"
+        logger.warning(
+            "[CostTracker] No pricing for model %r (caller=%s, %d in / %d out) — "
+            "logged as 'unknown' instead of guessing. Add it to GEMINI_PRICING.",
+            model, caller, input_tokens, output_tokens,
+        )
+    else:
+        cost = round(input_tokens * pricing["input"] + output_tokens * pricing["output"], 6)
     with open(COST_LOG, "a", newline="") as f:
         w = csv.writer(f)
-        w.writerow([datetime.utcnow().isoformat(), caller, input_tokens, output_tokens, round(cost, 6), model])
+        w.writerow([datetime.utcnow().isoformat(), caller, input_tokens, output_tokens, cost, model])
 
 
 def log_stock_call(provider: str):
@@ -49,6 +59,7 @@ def get_cost_summary(days: int = 30) -> dict:
     by_day = defaultdict(float)
     llm_calls = 0
     stock_calls = 0
+    unpriced_calls = 0
     with open(COST_LOG) as f:
         for row in csv.DictReader(f):
             ts = row.get("timestamp", "")
@@ -58,7 +69,20 @@ def get_cost_summary(days: int = 30) -> dict:
             except Exception:
                 continue
             caller = row.get("caller", "unknown")
-            cost = float(row.get("cost_usd", 0))
+            raw_cost = row.get("cost_usd", 0)
+            try:
+                cost = float(raw_cost)
+            except (TypeError, ValueError):
+                # 'unknown' (unpriced model) or any corrupt row: flag it, don't crash
+                # the summary, and don't silently drop it either.
+                cost = 0.0
+                unpriced_calls += 1
+                logger.warning(
+                    "[CostTracker] Non-numeric cost_usd %r for caller=%s model=%r at %s "
+                    "— counted as 0.0 and excluded from the total. This is unpriced or "
+                    "corrupt data; fix GEMINI_PRICING or the writer upstream.",
+                    raw_cost, caller, row.get("model", ""), ts,
+                )
             total += cost
             by_caller[caller] += cost
             day = ts[:10]
@@ -73,4 +97,6 @@ def get_cost_summary(days: int = 30) -> dict:
         "by_day": dict(by_day),
         "llm_calls": llm_calls,
         "stock_calls": stock_calls,
+        # >0 means the total above is a floor, not the real spend.
+        "unpriced_calls": unpriced_calls,
     }

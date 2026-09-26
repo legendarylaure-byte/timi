@@ -15,6 +15,14 @@ DEFAULT_VOICE = "en-US-AriaNeural"
 DEFAULT_RATE = "-8%"
 DEFAULT_PITCH = "-2Hz"
 
+# Single source of truth for the TTS backend. edge-tts is the default because it
+# needs no API key, no local model, and no dependency beyond edge_tts itself;
+# Kokoro additionally downloads multi-GB weights + spacy on first use.
+# Kept here (not in .env) so the code default, agents/.env and Firestore env_vars
+# can be compared against ONE reference -- see validate_env()'s drift report.
+DEFAULT_VOICE_PROVIDER = "edge"
+VALID_VOICE_PROVIDERS = ("edge", "kokoro", "google")
+
 GOOGLE_VOICE_MAP = {
     "en-US-AriaNeural": {"name": "en-US-Studio-O", "language_code": "en-US"},
     "en-US-JennyNeural": {"name": "en-US-Studio-Q", "language_code": "en-US"},
@@ -267,7 +275,8 @@ class GoogleCloudTTSProvider(BaseTTSProvider):
                               voice: str = DEFAULT_VOICE,
                               rate: str = DEFAULT_RATE,
                               pitch: str = DEFAULT_PITCH,
-                              is_deep_lesson: bool = False) -> list[dict]:
+                              is_deep_lesson: bool = False,
+                              is_documentary: bool = False) -> list[dict]:
         try:
             client = self._get_client()
             voice_name = self._map_voice(voice)
@@ -364,7 +373,11 @@ class KokoroProvider(BaseTTSProvider):
                        voice: str = DEFAULT_VOICE,
                        rate: str = DEFAULT_RATE,
                        pitch: str = DEFAULT_PITCH,
-                       is_deep_lesson: bool = False) -> bool:
+                       is_deep_lesson: bool = False,
+                       is_documentary: bool = False) -> bool:
+        # is_documentary accepted-and-unused, matching EdgeTTSProvider: voice_gen
+        # passes it to every provider, and kokoro is the DEFAULT provider, so
+        # omitting it raised TypeError on any env without VOICE_PROVIDER=edge.
         try:
             pipe = self._get_pipeline()
             speed = self._rate_to_speed(rate)
@@ -398,7 +411,11 @@ class KokoroProvider(BaseTTSProvider):
                               voice: str = DEFAULT_VOICE,
                               rate: str = DEFAULT_RATE,
                               pitch: str = DEFAULT_PITCH,
-                              is_deep_lesson: bool = False) -> list[dict]:
+                              is_deep_lesson: bool = False,
+                              is_documentary: bool = False) -> list[dict]:
+        # is_documentary is accepted-and-unused, matching EdgeTTSProvider:
+        # voice_gen passes it to EVERY provider, so a missing keyword here is a
+        # TypeError on the first call. Locked by utils/voice_provider_selfcheck.
         events = await self._hybrid_timing(text, voice, rate, pitch)
         if events:
             return events
@@ -465,11 +482,22 @@ _PROVIDER_INSTANCE = None
 
 def get_tts_provider(name: str | None = None) -> BaseTTSProvider:
     global _PROVIDER_INSTANCE
+    if name is None:
+        name = os.getenv("VOICE_PROVIDER", DEFAULT_VOICE_PROVIDER)
+    name = (name or "").strip().lower()
+
+    # Fail loudly on an unknown name. Previously any typo fell through to
+    # edge-tts with only an INFO line, so a broken VOICE_PROVIDER looked like a
+    # healthy boot while quietly using a different engine than configured.
+    # Checked BEFORE the cache so a bad value can never be masked by an
+    # already-constructed provider.
+    if name not in VALID_VOICE_PROVIDERS:
+        raise ValueError(
+            f"Unknown VOICE_PROVIDER={name!r}. Valid: {', '.join(VALID_VOICE_PROVIDERS)}"
+        )
+
     if _PROVIDER_INSTANCE is not None:
         return _PROVIDER_INSTANCE
-
-    if name is None:
-        name = os.getenv("VOICE_PROVIDER", "kokoro")
 
     if name == "kokoro":
         provider = KokoroProvider()
@@ -487,6 +515,8 @@ def get_tts_provider(name: str | None = None) -> BaseTTSProvider:
             return provider
         logger.warning("Google TTS not available (credentials missing?), falling back to edge-tts")
 
+    # Reached when name == "edge", or when an explicitly requested provider was
+    # unavailable (each of those already logged a warning above).
     logger.info("Using Edge TTS provider")
     _PROVIDER_INSTANCE = EdgeTTSProvider()
     return _PROVIDER_INSTANCE

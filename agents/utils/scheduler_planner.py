@@ -2,7 +2,7 @@ import os
 import json
 import logging
 import random
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import Optional
 
 logger = logging.getLogger(__name__)
@@ -278,7 +278,10 @@ def _load_recent_topic_titles(days: int = 30) -> list:
         db = get_firestore_client()
         if not db:
             return load_plan_recent_titles()
-        cutoff = (datetime.now() - timedelta(days=days)).isoformat()
+        # created_at is written as SERVER_TIMESTAMP, i.e. a Firestore Timestamp. The
+        # old cutoff here was an ISO *string*, so the range query mismatched types,
+        # raised or matched nothing, and the whole 30-day dedup silently no-opped.
+        cutoff = datetime.now(timezone.utc) - timedelta(days=days)
         docs = db.collection("videos").where("created_at", ">=", cutoff).stream()
         titles = []
         for doc in docs:
@@ -313,11 +316,20 @@ def _normalize_topic(text: str) -> str:
     return " ".join(w for w in text.split() if w not in stop)
 
 
-def _topic_recently_used(candidate_topic: str, recent: list, threshold: int = 1) -> bool:
-    """True if any significant content word in the candidate matches a recent topic."""
-    cand = set(_normalize_topic(candidate_topic).split())
+def _topic_recently_used(candidate_topic: str, recent: list, threshold: int = 0) -> bool:
+    """True if the candidate substantially repeats a recent topic.
+
+    threshold=0 means "auto": a short candidate (1-2 significant words) must match
+    ALL of them, a longer one needs at least 2. The old hard default of 1 matched any
+    single shared word, so words like "learning" or "machine" blocked nearly every
+    candidate and the planner collapsed onto a handful of topics.
+    """
+    cand = {w for w in _normalize_topic(candidate_topic).split() if len(w) > 3}
+    if not cand:
+        return False
+    need = threshold or (len(cand) if len(cand) <= 2 else 2)
     for r in recent:
-        if len(cand & set(r.split())) >= threshold:
+        if len(cand & set(r.split())) >= need:
             return True
     return False
 
@@ -524,8 +536,18 @@ def generate_content_plan(force_llm: bool = False, slot: str = "", extra_context
         # if dedup emptied a slot, top up with highest-priority repeats so the day isn't idle
         shorts_for_slot = keep_shorts[:wanted_shorts] or [v for v in selected if v.get("format") != "long"][:wanted_shorts]
         longs_for_slot = keep_longs[:wanted_longs] or [v for v in selected if v.get("format") == "long"][:wanted_longs]
-        deduped = shorts_for_slot + longs_for_slot
-        deduped.sort(key=lambda x: x.get("priority", 50), reverse=True)
+        # Dedup within the plan itself: a short and a long can pick the same topic,
+        # which looked like a repeat to viewers even on a fresh day.
+        deduped, seen_today = [], set()
+        for v in sorted(longs_for_slot + shorts_for_slot, key=lambda x: x.get("priority", 50), reverse=True):
+            key = _normalize_topic(v.get("title", "") or "")
+            sig = " ".join(sorted(w for w in key.split() if len(w) > 3))
+            if sig and sig in seen_today:
+                logger.info(f"  [dedup] dropping same-plan duplicate: {v.get('title')}")
+                continue
+            if sig:
+                seen_today.add(sig)
+            deduped.append(v)
     else:
         deduped = selected[:]
 

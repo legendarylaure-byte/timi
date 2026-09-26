@@ -41,7 +41,7 @@ def _generate_static_image(description: str, keyword: str = "", width: int = 192
         font = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf", font_size)
     except (OSError, IOError):
         try:
-            font = ImageFont.truetype("/System/Library/Fonts/Helvetica.ttc", font_size)
+            font = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf", font_size)
         except (OSError, IOError):
             font = ImageFont.load_default()
     bbox = draw.textbbox((0, 0), title_text, font=font)
@@ -59,7 +59,7 @@ def _generate_static_image(description: str, keyword: str = "", width: int = 192
     subtitle_text = "Vyom Ai Cloud"
     sub_font_size = 28
     try:
-        sub_font = ImageFont.truetype("/System/Library/Fonts/Helvetica.ttc", sub_font_size)
+        sub_font = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf", sub_font_size)
     except (OSError, IOError):
         sub_font = ImageFont.load_default()
     sub_bbox = draw.textbbox((0, 0), subtitle_text, font=sub_font)
@@ -94,15 +94,17 @@ def _enforce_asset_diversity(scenes: list[dict]) -> list[dict]:
     return scenes
 
 
-def _get_stock_clip(keyword: str, orientation: str = "landscape", duration: float = 8.0) -> str | None:
-    cache_key = f"stock_{keyword}_{orientation}"
+def _get_stock_clip(keyword: str, orientation: str = "landscape", duration: float = 8.0, video_id: str = "") -> str | None:
+    # Cache key includes video_id: keying on the keyword alone made every video with
+    # the same keyword reuse the exact same clip within one process.
+    cache_key = f"stock_{video_id}_{keyword}_{orientation}"
     if cache_key in CACHE:
         cached = CACHE[cache_key]
         if cached and os.path.exists(cached) and os.path.getsize(cached) > 1000:
             return cached
     try:
         scenes_input = [{"keyword": keyword, "target_duration": duration, "description": keyword}]
-        clips = _search_stock(scenes_input, orientation=orientation)
+        clips = _search_stock(scenes_input, orientation=orientation, video_id=video_id)
         if clips and len(clips) > 0:
             result = clips[0].get("path")
             if result and os.path.getsize(result) > 1000:
@@ -206,12 +208,12 @@ def _render_scene_inner(scene: dict, video_id: str, scene_idx: int,
 
     if os.getenv("ENABLE_STOCK_FOOTAGE", "true").lower() == "true":
         search_query = ", ".join(kw_list) or description
-        path = _get_stock_clip(search_query, orientation, duration)
+        path = _get_stock_clip(search_query, orientation, duration, video_id=video_id)
         if path and os.path.exists(path):
             logger.info(f"[AssetRouter] Scene {scene_idx}: stock OK (query={search_query[:60]})")
             return {"path": path, "duration": duration, "asset_type": "STOCK_FOOTAGE", "source": "stock"}
         for k in kw_list:
-            path = _get_stock_clip(k, orientation, duration)
+            path = _get_stock_clip(k, orientation, duration, video_id=video_id)
             if path and os.path.exists(path):
                 logger.info(f"[AssetRouter] Scene {scene_idx}: stock OK (keyword={k})")
                 return {"path": path, "duration": duration, "asset_type": "STOCK_FOOTAGE", "source": "stock"}
@@ -241,6 +243,19 @@ def dispatch_scene(scene: dict, video_id: str, scene_idx: int = 0,
         _built_prompt = _visual
 
     for attempt in range(2):
+        # Intro/outro go straight to the branded title card. They used to be
+        # render_type="stock" with keywords like "subscribe"/"outro"/"channel_brand",
+        # which meant the identical generic clip appeared in every single video.
+        if scene.get("render_type") == "branded_card":
+            img_w, img_h = (1080, 1920) if format_type == "shorts" else (1920, 1080)
+            static = _generate_static_image(
+                scene.get("description", ""), scene.get("keyword", "Vyom Ai Cloud"),
+                width=img_w, height=img_h, video_id=video_id, scene_idx=scene_idx)
+            if static and os.path.exists(static):
+                return {"path": static, "duration": duration,
+                        "asset_type": "STATIC_IMAGE", "source": "branded_card"}
+            logger.warning(f"[AssetRouter] Scene {scene_idx}: branded card failed, falling through")
+
         result = _render_scene_inner(scene, video_id, scene_idx, format_type, duration)
         if not result or not os.path.exists(result["path"]):
             continue
@@ -287,7 +302,7 @@ def dispatch_scene(scene: dict, video_id: str, scene_idx: int = 0,
                    f"trying stock footage one more time with full description")
     kw = scene.get("keyword", "technology")
     desc = scene.get("description", kw)
-    stock_path = _get_stock_clip(desc, orientation, duration)
+    stock_path = _get_stock_clip(desc, orientation, duration, video_id=video_id)
     if stock_path and os.path.exists(stock_path):
         logger.info(f"[AssetRouter] Scene {scene_idx}: stock fallback OK (keyword={desc})")
         return {"path": stock_path, "duration": duration, "asset_type": "STOCK_FOOTAGE", "source": "stock"}
@@ -307,6 +322,51 @@ def dispatch_scene(scene: dict, video_id: str, scene_idx: int = 0,
     return None
 
 
+def describe_render_chain() -> list[tuple[str, str, str]]:
+    """Describe which render backends are actually live, for the startup log.
+
+    Returns [(component, status, remediation_if_degraded)]. The point is to make a
+    silent degradation visible at boot rather than discovering it as "why does every
+    video look like a slideshow" weeks later. A deliberately-off component (the paid
+    cloud model) is reported as informational, not as a fault.
+    """
+    out = []
+
+    manim = os.getenv("ENABLE_MANIM", "true").lower() == "true"
+    out.append(("manim", "on" if manim else "off", "" if manim else
+                "set ENABLE_MANIM=true to re-enable"))
+
+    try:
+        from utils.blender_renderer import BLENDER_BIN
+    except Exception as e:
+        out.append(("blender", "unavailable",
+                    f"import failed ({e}); blender scenes fall back to manim/diagram"))
+    else:
+        if BLENDER_BIN:
+            out.append(("blender", f"on ({BLENDER_BIN})", ""))
+        else:
+            out.append(("blender", "unavailable",
+                        "Blender binary is missing or not executable in this image. "
+                        "Scenes routed to blender fall back to manim/diagram/stock. "
+                        "Fix: install Blender in the image or set BLENDER_BIN to a "
+                        "runnable linux binary."))
+
+    try:
+        model = get_video_model()
+    except Exception:
+        model = None
+    if model is not None and getattr(model, "is_available", lambda: False)():
+        out.append((f"ai_video[{model.name()}]", "on (PAID)", ""))
+    else:
+        out.append(("ai_video", "none (zero-cost)",
+                    "intentional: LTX needs MLX (Apple-only) and the cloud model is "
+                    "disabled; all visuals come from manim/blender/stock/branded-card"))
+
+    out.append(("stock", "on", ""))
+    out.append(("branded_card", "on (last-resort floor)", ""))
+    return out
+
+
 def _try_blender_for_scene(scene: dict, category: str = "") -> bool:
     """Check if a Blender template can handle this scene based on keyword matching.
 
@@ -314,9 +374,15 @@ def _try_blender_for_scene(scene: dict, category: str = "") -> bool:
     Returns True if scene was converted to render_type='blender'.
     """
     rt = scene.get("render_type", "stock")
+    if rt == "manim":
+        return False
     if rt == "blender":
         return True
-    if rt == "manim":
+    # Only hijack the scene if Blender can actually render here. Otherwise these
+    # diagram scenes used to fail instantly and fall all the way through to generic
+    # stock footage, even though Manim handles diagrams and does work.
+    from utils.blender_renderer import BLENDER_BIN
+    if not BLENDER_BIN:
         return False
     from blender_templates import TEMPLATE_KEYWORDS
     desc = (scene.get("description") or "") + " " + " ".join(scene.get("asset_keywords", []))
@@ -438,7 +504,7 @@ def dispatch_scenes(scenes: list[dict], video_id: str, format_type: str = "long"
                     bs_desc = bs.get("description", bs.get("keyword", "technology"))
                     bs_orientation = "portrait" if format_type == "shorts" else "landscape"
                     bs_dur = bs.get("target_duration", bs.get("duration", 8.0))
-                    stock_path = _get_stock_clip(bs_desc, bs_orientation, bs_dur)
+                    stock_path = _get_stock_clip(bs_desc, bs_orientation, bs_dur, video_id=video_id)
                     if stock_path and os.path.exists(stock_path):
                         clips_map[bs_idx] = {"path": stock_path, "duration": bs_dur,
                             "asset_type": "STOCK_FOOTAGE", "source": "stock"}

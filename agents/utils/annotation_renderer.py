@@ -4,6 +4,7 @@ on top of video frames using ffmpeg drawtext/drawbox/drawgraph filters.
 Each annotation type produces one or more ffmpeg vf filter strings
 that can be appended to the compositor's filter chain.
 """
+import os
 
 
 
@@ -13,8 +14,22 @@ BRAND_PURPLE = "#8a50e8"
 BRAND_DARK = "#1e1e1e"
 BRAND_WHITE = "#FFFFFF"
 
-FONT = "/System/Library/Fonts/Helvetica.ttc"
-FONT_BOLD = "/System/Library/Fonts/Helvetica.ttc"
+FONT = os.getenv("FONT_PATH") or "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf"
+FONT_BOLD = os.getenv("FONT_PATH_BOLD") or "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf"
+
+
+def _font_for(text: str, bold: bool = False) -> str:
+    """Font file that actually covers `text`, for a drawtext filter.
+
+    The module-level FONT/FONT_BOLD are Latin-only DejaVu, so any non-Latin
+    annotation would render as .notdef boxes. Script is detected from the text
+    itself, so callers need no language context.
+    """
+    from utils.fonts import font_for_text
+    resolved = font_for_text(text)
+    if resolved:
+        return resolved
+    return FONT_BOLD if bold else FONT
 
 POSITIONS = {
     "top-left":      ("(w*0.05)",            "h*0.08"),
@@ -80,7 +95,7 @@ def animate_callout_box(text: str, appear: float, duration: float,
         f"box=1:boxcolor={box_bg}:boxborderw=8:"
         f"x={x_expr}:y={y_key}:"
         f"enable='{enable}':"
-        f"fontfile={FONT}"
+        f"fontfile={_font_for(text)}"
     )
     return filters
 
@@ -102,12 +117,12 @@ def animate_step_counter(step_num: int, text: str, appear: float,
         f"drawtext=text='{label}':fontsize={fontsize}:fontcolor={BRAND_WHITE}:"
         f"box=1:boxcolor={color}@0.9:boxborderw=6:"
         f"x=w*0.03:y=h*0.12:"
-        f"enable='{enable}':fontfile={FONT}"
+        f"enable='{enable}':fontfile={_font_for(text)}"
     )
     filters.append(
         f"drawtext=text='{escaped}':fontsize={fontsize - 2}:fontcolor={BRAND_WHITE}:"
         f"x=w*0.03+{label_offset}:y=h*0.12:"
-        f"enable='{enable}':fontfile={FONT}"
+        f"enable='{enable}':fontfile={_font_for(text)}"
     )
     return filters
 
@@ -126,12 +141,12 @@ def animate_definition(term: str, definition: str, appear: float,
         f"drawtext=text='{escaped_term}':fontsize=22:fontcolor={BRAND_TEAL}:"
         f"box=1:boxcolor=black@0.7:boxborderw=6:"
         f"x=(w-text_w)/2:y=h*0.05:"
-        f"enable='{enable}':fontfile={FONT_BOLD}"
+        f"enable='{enable}':fontfile={_font_for(term, bold=True)}"
     )
     filters.append(
         f"drawtext=text='{escaped_def}':fontsize=16:fontcolor={BRAND_WHITE}:"
         f"x=(w-text_w)/2:y=h*0.05+28:"
-        f"enable='{enable}':fontfile={FONT}"
+        f"enable='{enable}':fontfile={_font_for(definition)}"
     )
     return filters
 
@@ -150,7 +165,7 @@ def animate_arrow(direction: str = "down", appear: float = 0,
     return [
         f"drawtext=text='{arrow_char}':fontsize=48:fontcolor={color}:"
         f"x={x_key}:y={y_key}:"
-        f"enable='{enable}':fontfile={FONT}"
+        f"enable='{enable}':fontfile={_font_for(arrow_char)}"
     ]
 
 
@@ -194,7 +209,7 @@ def animate_counter(label: str, start_val: float = 0, end_val: float = 100,
         filters.append(
             f"drawtext=text='{escaped_label}':fontsize=20:fontcolor={BRAND_WHITE}:"
             f"x={x_key}:y={y_key.replace('text_h', '0')}-30:"
-            f"enable='{enable}':fontfile={FONT}"
+            f"enable='{enable}':fontfile={_font_for(label)}"
         )
     value_expr = (
         f"if(lt(t\\,{appear})\\,{start_val}\\,"

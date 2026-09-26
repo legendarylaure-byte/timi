@@ -138,7 +138,7 @@ def _get_ollama_llm(temperature: float, max_tokens: int, agent_id: str | None = 
 
 def _get_gemini_llm(temperature: float, max_tokens: int) -> LLM:
     gemini_key = os.getenv("GEMINI_API_KEY", "")
-    gemini_model = os.getenv("GEMINI_MODEL", "gemini-2.5-flash")
+    gemini_model = os.getenv("GEMINI_MODEL", "gemini-3.8-flash")
     print(f"[LLM] Using Gemini ({gemini_model})")
     from utils.gemini_llm import GeminiLLM
     return GeminiLLM(

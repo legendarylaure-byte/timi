@@ -41,7 +41,7 @@ VOICE_ROTATION = [
     "en-US-EricNeural",
 ]
 
-def _wrap_ssml(text: str, voice_name: str = None, rate: str = "0%", is_deep_lesson: bool = False) -> str:
+def _wrap_ssml(text: str, voice_name: str = None, rate: str = "+0%", is_deep_lesson: bool = False) -> str:
     """XML-escape text for TTS. No SSML tags — edge-tts escapes all input."""
     text = (
         text.replace("&", "&amp;")
@@ -395,8 +395,31 @@ def get_voice_settings(content_type: str = "general") -> dict:
     return settings.get(content_type, settings["general"])
 
 
+def _hard_wrap(text: str, max_chars: int) -> list[str]:
+    """Split an over-long terminator-less run on whitespace where possible."""
+    if len(text) <= max_chars:
+        return [text]
+    out, cur = [], ""
+    for word in text.split():
+        if cur and len(cur) + len(word) + 1 > max_chars:
+            out.append(cur)
+            cur = word
+        else:
+            cur = f"{cur} {word}" if cur else word
+    if cur:
+        out.append(cur)
+    return out or [text[:max_chars]]
+
+
 def split_script_into_segments(script: str, max_chars: int = 300) -> list[str]:
-    sentences = re.split(r'(?<=[.!?])\s+', script.strip())
+    # Devanagari uses the danda (।) and Arabic the inverted question mark (؟) as
+    # sentence terminators, so splitting on ASCII punctuation alone left those
+    # scripts as one giant segment. Whitespace after the terminator is optional
+    # because Devanagari commonly omits it ("...।यह...").
+    sentences = [s for s in re.split(r'(?<=[.!?।؟])\s*', script.strip()) if s.strip()]
+    # A long run with no terminator at all (common in Hindi) would otherwise be
+    # handed to TTS as one oversized chunk, which degrades prosody badly.
+    sentences = [w for s in sentences for w in _hard_wrap(s, max_chars)]
     segments = []
     current = ""
     for sentence in sentences:

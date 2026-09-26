@@ -29,6 +29,54 @@ def _sanitize_metadata(text: str, max_length: int) -> str:
     cleaned = re.sub(r"(?<![\ud800-\udbff])[\udc00-\udfff]", "", cleaned)
     return cleaned[:max_length]
 
+
+def _resolve_publish_at(publish_at: str | None) -> str | None:
+    """Return None when publish_at is already past, so the upload goes public.
+
+    ponytail: an unparseable value is passed through unchanged, exactly as before
+    this was extracted. Upstream should validate; nulling it here would silently
+    turn a scheduled upload into an immediate one.
+    """
+    if not publish_at:
+        return None
+    try:
+        pub_dt = datetime.fromisoformat(publish_at.replace("Z", "+00:00"))
+    except ValueError:
+        print(f"[YOUTUBE] Could not parse publish_at: {publish_at}")
+        return publish_at
+    if pub_dt < datetime.now(timezone.utc):
+        print(f"[YOUTUBE] publish_at {publish_at} is in the past, uploading as public instead")
+        return None
+    return publish_at
+
+
+def _caption_body(video_id: str, default_language: str | None = None) -> dict:
+    """Build the caption-track metadata body.
+
+    Dubbed tracks must be labelled with the dubbed language: the SRT handed in is
+    already translated, so a hardcoded "en" would mislabel a Hindi/Korean track as
+    English. Defaults to en only when no language is supplied.
+    """
+    code = (default_language or "en").strip().lower()
+    if code == "en":
+        name = "English"  # source language, deliberately absent from translate.LANGUAGES
+    else:
+        try:
+            # lazy import: translate pulls in the LLM client, unneeded just to read a name
+            from utils.translate import LANGUAGES
+            name = LANGUAGES.get(code, {}).get("name", code)
+        except Exception:  # noqa: BLE001 - never let a label lookup fail an upload
+            name = code
+    return {
+        "snippet": {
+            "videoId": video_id,
+            "language": code,
+            "name": name,
+            "isDraft": False,
+        }
+    }
+
+
 CLIENT_ID = os.getenv("YOUTUBE_CLIENT_ID")
 CLIENT_SECRET = os.getenv("YOUTUBE_CLIENT_SECRET")
 
@@ -188,6 +236,7 @@ def upload_video_to_youtube(
     is_shorts: bool = False,
     publish_at: str = None,
     subtitle_path: str = None,
+    default_language: str = None,
 ) -> dict:
     if not os.path.exists(video_file):
         print(f"[YOUTUBE] Video file not found: {video_file}")
@@ -208,14 +257,7 @@ def upload_video_to_youtube(
         return {"success": False, "error": "No YouTube credentials available"}
     youtube = build("youtube", "v3", credentials=creds)
 
-    if publish_at:
-        try:
-            pub_dt = datetime.fromisoformat(publish_at.replace("Z", "+00:00"))
-            if pub_dt < datetime.now(timezone.utc):
-                print(f"[YOUTUBE] publish_at {publish_at} is in the past, uploading as public instead")
-                publish_at = None
-        except ValueError:
-            print(f"[YOUTUBE] Could not parse publish_at: {publish_at}")
+    publish_at = _resolve_publish_at(publish_at)
 
     privacy_status = "public"
     if publish_at:
@@ -230,8 +272,10 @@ def upload_video_to_youtube(
             "description": description,
             "tags": tags,
             "categoryId": category_id,
-            "defaultLanguage": "en",
-            "defaultAudioLanguage": "en",
+            # A dubbed upload is not English, so the audio/caption language has
+            # to be declared or YouTube mislabels the track and search ignores it.
+            "defaultLanguage": default_language or "en",
+            "defaultAudioLanguage": default_language or "en",
         },
         "status": {
             "privacyStatus": privacy_status,
@@ -293,14 +337,7 @@ def upload_video_to_youtube(
                 try:
                     youtube.captions().insert(
                         part="snippet",
-                        body={
-                            "snippet": {
-                                "videoId": video_id,
-                                "language": "en",
-                                "name": "English",
-                                "isDraft": False,
-                            },
-                        },
+                        body=_caption_body(video_id, default_language),
                         media_body=MediaFileUpload(subtitle_path, mimetype="text/plain"),
                     ).execute()
                     caption_success = True
@@ -375,31 +412,14 @@ def fetch_video_stats(video_id: str) -> dict:
             "duration_seconds": duration_seconds,
         }
 
-        try:
-            from googleapiclient.discovery import build as analytics_build
-            analytics = analytics_build("youtubeAnalytics", "v2", credentials=creds)
-            report = analytics.reports().query(
-                ids="channel==MINE",
-                startDate="2015-01-01",
-                endDate=datetime.now(timezone.utc).strftime("%Y-%m-%d"),
-                metrics="estimatedImpressions,estimatedClicks,averageViewDuration",
-                filters=f"video=={video_id}",
-            ).execute()
-            rows = report.get("rows", [])
-            if rows and len(rows) > 0:
-                impressions = int(rows[0][0]) if len(rows[0]) > 0 else 0
-                clicks = int(rows[0][1]) if len(rows[0]) > 1 else 0
-                avg_view_duration = float(rows[0][2]) if len(rows[0]) > 2 else 0.0
-                result["impressions"] = impressions
-                result["clicks"] = clicks
-                result["ctr"] = round(clicks / max(impressions, 1) * 100, 2)
-                result["average_view_duration_seconds"] = round(avg_view_duration, 1)
-        except Exception:
-            result["impressions"] = 0
-            result["clicks"] = 0
-            result["ctr"] = 0.0
-            result["average_view_duration_seconds"] = 0.0
-
+        # NOTE: impressions / CTR are deliberately NOT faked here. This channel has no
+        # Brand Account, so YouTube Analytics rejects the impression metrics outright
+        # ("Unknown identifier (impressions)") and `annotationImpressions` returns 0 for
+        # every day. `dimensions=video` is also unsupported, so per-video Analytics does
+        # not exist for us. Writing ctr=0.0 would be worse than absent — the feedback
+        # loop would rank every category on a fabricated 0% CTR. See
+        # fetch_channel_daily_views() for the analytics data that IS available.
+        # To unlock real CTR: create a Brand Account for this channel in YouTube Studio.
         return result
     except HttpError as e:
         print(f"[YOUTUBE] Failed to fetch stats for video {video_id}: {e}")

@@ -19,14 +19,42 @@ register_temp_dir(str(BLENDER_RENDER_DIR))
 
 TEMPLATE_DIR = Path(__file__).parent.parent / "blender_templates"
 
+# None = not probed yet.
+_BLENDER_RUNNABLE = None
+
+
+def _blender_can_run(path: str) -> bool:
+    """Existence is not enough — the binary has to actually execute.
+
+    A macOS/Rosetta build sitting in a Linux container passes every existence check and
+    then dies with a loader error on every single render. Cached, so the probe costs one
+    subprocess per process.
+    """
+    global _BLENDER_RUNNABLE
+    if _BLENDER_RUNNABLE is not None:
+        return _BLENDER_RUNNABLE
+    try:
+        r = subprocess.run([path, "--background", "--factory-startup", "--python-expr", "pass"],
+                           capture_output=True, timeout=60)
+        _BLENDER_RUNNABLE = r.returncode == 0
+    except Exception as e:
+        logger.warning(f"[Blender] Binary at {path} cannot run here: {e}")
+        _BLENDER_RUNNABLE = False
+    if not _BLENDER_RUNNABLE:
+        logger.warning(
+            "[Blender] Found a Blender binary but it cannot execute in this environment "
+            "(wrong architecture?). Diagram scenes will be routed to Manim/LTX instead. "
+            "Rebuild the image from Dockerfile to get a native Linux build.")
+    return _BLENDER_RUNNABLE
+
 
 def _find_blender():
     blender = shutil.which("blender")
-    if blender:
+    if blender and _blender_can_run(blender):
         return blender
     for candidate in ["/Applications/Blender.app/Contents/MacOS/blender",
                        "/usr/bin/blender", "/usr/local/bin/blender"]:
-        if os.path.exists(candidate):
+        if os.path.exists(candidate) and _blender_can_run(candidate):
             return candidate
     return None
 
@@ -36,7 +64,8 @@ BLENDER_BIN = _find_blender()
 if BLENDER_BIN:
     logger.info(f"[Blender] Using: {BLENDER_BIN}")
 else:
-    logger.warning("[Blender] No Blender binary found — Blender scenes will fall through to stock/LTX")
+    logger.warning("[Blender] No *working* Blender binary found — diagram scenes will be "
+                   "routed to Manim/LTX instead")
 
 
 def _samples_for_format(format_type: str, tier: str = "") -> int:

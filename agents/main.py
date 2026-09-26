@@ -34,7 +34,7 @@ from utils.thumbnail_gen import generate_thumbnail_image, generate_thumbnail_var
 from utils.health_monitor import start_heartbeat_monitor, start_health_server, check_ollama_health
 from utils.description_gen import generate_description
 from utils.subtitle_gen import generate_subtitles_for_video
-from utils.translate import translate_script, dub_all_languages, register_dub_cleanup as register_dub_cleanup_func
+from utils.translate import translate_script, register_dub_cleanup as register_dub_cleanup_func
 from utils.comment_analyzer import analyze_sentiment, flag_negative_comments
 from utils.pillar_manager import track_pillar_video, suggest_next_pillar, validate_plan_balance
 from utils.seo_optimizer import get_optimized_tags, score_description_seo
@@ -272,6 +272,130 @@ def _duration_ok(video_path: str, format_type: str) -> tuple[bool, str]:
     return True, ""
 
 
+def _publish_dubbed_languages(video_id: str, clean_video_path: str, script_text: str,
+                              topic: str, translations: dict, thumbnail_path: str,
+                              fmt: str, description_text: str = "") -> dict:
+    """Reconcile, mux and publish one YouTube video per translated language.
+
+    Shared by the short and long paths. Every step refuses rather than shipping
+    something wrong: a failed translation, narration that cannot be reconciled to
+    the visual, or a missing clean master each skip that language only. The
+    English upload already happened by the time this runs, so a dub problem can
+    never block or damage the primary video.
+    """
+    from utils.dub_pipeline import (dub_language, build_dub_video, build_dub_timings,
+                                    write_srt, make_intro_card, intro_seconds,
+                                    duration_of)
+    from utils.translate import generate_dubbed_audio, is_publishable
+
+    results = {"published": [], "skipped": {}, "failed": {}}
+    if not clean_video_path or not os.path.exists(clean_video_path):
+        results["failed"]["_setup"] = "no clean master available for dubbing"
+        log_event("DUB", f"Skipping dubs: no clean master for {video_id}", "warn")
+        return results
+
+    target = duration_of(clean_video_path)
+    out_dir = os.path.dirname(clean_video_path)
+
+    for lang_code, trans in (translations or {}).items():
+        try:
+            # A fallback translation is the ENGLISH script tagged as the target
+            # language. Dubbing it would publish English through a foreign voice.
+            if not is_publishable(trans):
+                results["skipped"][lang_code] = "translation unavailable (fallback/empty)"
+                log_event("DUB", f"{lang_code}: translation unusable, not dubbing", "warn")
+                continue
+
+            voice = trans.get("edge_tts_voice") or "en-US-JennyNeural"
+            label = trans.get("language_name") or lang_code.upper()
+            script = trans.get("translated_script") or ""
+
+            def _tts(rate, _lc=lang_code, _v=voice, _s=script):
+                return _run_async(generate_dubbed_audio(
+                    _s, _lc, _v, f"{video_id}_{_lc}", rate, "-2Hz"), timeout=900)
+
+            work = os.path.join(out_dir, f"dubwork_{video_id}_{lang_code}")
+            dub = dub_language(lang_code, target, _tts, work, label=label)
+            if not dub.get("success"):
+                results["failed"][lang_code] = dub.get("reason", "unknown")
+                log_event("DUB", f"{lang_code} refused: {dub.get('reason')}", "warn")
+                continue
+
+            # Desync: each language opens with its own card, held for a
+            # per-language duration, so YouTube cannot read the uploads as
+            # near-identical copies of the English video.
+            card_s = intro_seconds(lang_code)
+            card_path = ""
+            try:
+                card_path = make_intro_card(label, os.path.join(work, f"card_{lang_code}.png"),
+                                            lang_code=lang_code)
+            except Exception as e:
+                log_event("DUB", f"{lang_code} intro card failed ({e}); continuing without", "debug")
+
+            stem, ext = os.path.splitext(clean_video_path)
+            dub_video = os.path.join(out_dir, f"{video_id}_{lang_code}_dub{ext}")
+            ok, stats = build_dub_video(clean_video_path, dub["audio_path"], dub_video,
+                                        card_path, card_s)
+            if not ok:
+                results["failed"][lang_code] = stats.get("reason", "mux failed")
+                log_event("DUB", f"{lang_code} mux failed: {stats.get('reason')}", "warn")
+                continue
+
+            # Captions must sit after the card and follow the corrected audio.
+            scale = float(dub.get("stats", {}).get("scale", 1.0))
+            phrases = build_dub_timings(dub.get("segments", []),
+                                        dub.get("segment_durations", []),
+                                        lang_code, scale=scale, offset_s=card_s)
+            srt_path = ""
+            if phrases:
+                srt_path = os.path.join(out_dir, f"{video_id}_{lang_code}.srt")
+                try:
+                    write_srt(phrases, srt_path)
+                except Exception as e:
+                    log_event("DUB", f"{lang_code} SRT failed: {e}", "warn")
+                    srt_path = ""
+
+            title = trans.get("title") or f"{topic} [{label}]"
+            description = "\n\n".join(x for x in (
+                trans.get("description_snippet", ""), description_text) if x)[:4800]
+
+            # Localized tags so the dub is findable in its own language. Built
+            # from the translated title plus the language name; the publisher
+            # appends the brand defaults and caps the total.
+            tags = [label] + [w for w in title.split() if len(w) > 3][:6]
+
+            from utils.multi_platform_publisher import multi_platform_publish
+            pub = multi_platform_publish(
+                video_id=f"{video_id}_{lang_code}",
+                title=title[:100],
+                description=description,
+                video_path=dub_video,
+                thumbnail_path=thumbnail_path,
+                format_type=fmt,
+                platforms=["youtube"],
+                subtitle_path=srt_path,
+                tags=tags,
+                default_language=lang_code,
+                cleanup=False,
+            )
+            if pub.get("success_count", 0) > 0:
+                results["published"].append(lang_code)
+                log_event("DUB", f"Published {lang_code} ({card_s}s card, {len(phrases)} cues)")
+            else:
+                results["failed"][lang_code] = str(pub.get("results", "upload returned no success"))
+                log_event("DUB", f"{lang_code} upload did not succeed", "warn")
+
+        except Exception as e:
+            results["failed"][lang_code] = str(e)
+            log_event("DUB", f"{lang_code} failed: {e}", "warn")
+
+    try:
+        register_dub_cleanup_func(video_id)
+    except Exception:
+        pass
+    return results
+
+
 def _run_async(coro, timeout=300):
     """Run an async coroutine safely, even from a threaded context with a running loop."""
     try:
@@ -299,7 +423,6 @@ for _key in ("SHORTS_MAX_DURATION", "MIN_VIRALITY_SCORE", "MIN_VIRALITY_SCORE_LO
     if _val:
         os.environ[_key] = _val
 SHORTS_MAX_DURATION = int(os.getenv("SHORTS_MAX_DURATION", "180"))
-LONG_MAX_DURATION = int(os.getenv("LONG_MAX_DURATION", "600"))
 
 # Override env vars from Firestore env_vars collection (dashboard-managed)
 sync_env_from_firestore()
@@ -324,19 +447,23 @@ AGENT_MAP = {
 control_listener = AgentControlListener(check_interval=60)
 
 AUTO_APPROVE_THRESHOLD = int(os.getenv("AUTO_APPROVE_THRESHOLD", 80))
-ENABLE_MULTI_LANG = os.getenv("ENABLE_MULTI_LANG", "true").lower() == "true"
+ENABLE_MULTI_LANG = os.getenv("ENABLE_MULTI_LANG", "false").lower() == "true"
 ENABLE_SUBTITLES = os.getenv("ENABLE_SUBTITLES", "true").lower() == "true"
 ENABLE_REVIEW_GATE = os.getenv("ENABLE_REVIEW_GATE", "true").lower() == "true"
 ENABLE_COMPANION_PAGES = os.getenv("ENABLE_COMPANION_PAGES", "true").lower() == "true"
 ENABLE_DIRECTOR_REVIEW = os.getenv("ENABLE_DIRECTOR_REVIEW", "true").lower() == "true"
-MULTI_LANG_CODES = os.getenv("MULTI_LANG_CODES", "es,de,fr").split(",")
+# Pilot order is es, then hi, then ko. Default stays single-language so enabling
+# the feature can never fan out to four dubs in one run by accident.
+MULTI_LANG_CODES = [c.strip() for c in os.getenv("MULTI_LANG_CODES", "es").split(",") if c.strip()]
 ENABLE_MULTI_LANG_DUB = os.getenv("ENABLE_MULTI_LANG_DUB", "false").lower() == "true"
 ENABLE_LTX_CACHE = os.getenv("ENABLE_LTX_CACHE", "true").lower() == "true"
 PIPELINE_TIMEOUT_MINUTES = int(os.getenv("PIPELINE_TIMEOUT_MINUTES", 120))
 MAX_RETRIES_PER_TOPIC = int(os.getenv("MAX_RETRIES_PER_TOPIC", 2))
 FORCE_PUBLISH = os.getenv("FORCE_PUBLISH", "true").lower() == "true"
 USE_ANIMATION_ENGINE = os.getenv("USE_ANIMATION_ENGINE", "true").lower() == "true"
-LONG_MAX_DURATION = int(os.getenv("LONG_MAX_DURATION", 600))
+# 300 matches agents/.env (regular longs ~5min). The old default was 600, so an
+# unset var doubled render length. DEEP_LESSON stays 600 -- long-form lessons.
+LONG_MAX_DURATION = int(os.getenv("LONG_MAX_DURATION", 300))
 DEEP_LESSON_MAX_DURATION = int(os.getenv("DEEP_LESSON_MAX_DURATION", 600))
 DOCUMENTARY_MAX_DURATION = int(os.getenv("DOCUMENTARY_MAX_DURATION", 2400))
 LONG_MIN_NARRATION_WORDS = int(os.getenv("LONG_MIN_NARRATION_WORDS", "360"))
@@ -445,6 +572,83 @@ def _track_step(video_id, step_name):
         raise
 
 
+def _env_drift_report() -> None:
+    """Print the effective value of every var whose wrong value changes behaviour.
+
+    Config drift in this project is silent: agents/.env is injected by compose,
+    then Firestore `env_vars` overwrites it at import (sync_env_from_firestore,
+    line 429), so the value on disk is often NOT the value running. Kokoro was a
+    code default that disagreed with .env and was only noticed because a fresh
+    container had no VOICE_PROVIDER. This makes that class visible every boot.
+
+    agents/.env is deliberately NOT read here -- it is not in the image, and
+    comparing against the file would report the pre-override value. Instead the
+    report shows what is actually running and flags which vars Firestore set.
+    Secrets are never printed, only set/unset.
+    """
+    watched = {
+        "VOICE_PROVIDER": "TTS engine (single source: DEFAULT_VOICE_PROVIDER)",
+        "FIREBASE_PROJECT_ID": "which Firestore project is written to",
+        "CLOUD_VIDEO_PROVIDER": "paid video API; must stay unset/none (zero-cost)",
+        "OLLAMA_BASE_URL": "primary LLM endpoint",
+        "PLATFORMS_TO_PUBLISH": "where uploads go",
+        "SUBTITLE_MODE": "burn vs soft-CC captions",
+        "LONG_MAX_DURATION": "long-form target seconds",
+        "SCHEDULE_SHORTS_PER_DAY": "daily volume",
+        "SCHEDULE_LONG_PER_DAY": "daily volume",
+        "FORCE_PUBLISH": "bypasses quality gates",
+        "ENABLE_NEWS": "mandatory news slots",
+        "ENABLE_MULTI_LANG": "dub pilot master switch",
+        "ENABLE_MULTI_LANG_DUB": "dub pilot switch",
+        "MULTI_LANG_CODES": "pilot languages",
+        "TIKTOK_PRIVACY_LEVEL": "audit gate: unset = hard fail, not a default",
+    }
+    from utils.voice_provider import (
+        DEFAULT_VOICE_PROVIDER,
+        VALID_VOICE_PROVIDERS,
+    )
+    from utils.firebase_status import firestore_overridden_keys
+
+    overridden = firestore_overridden_keys()
+
+    def _show(name: str) -> str:
+        val = os.environ.get(name)
+        if val is None:
+            return "<unset>"
+        if any(s in name for s in ("TOKEN", "KEY", "SECRET", "PASSWORD", "CREDENTIAL")):
+            return f"<set, {len(val)} chars, hidden>"
+        return val[:60]
+
+    log_event("ENV", "effective config (runtime wins over agents/.env):", "info")
+    for name, why in watched.items():
+        src = "firestore" if name in overridden else ("env" if os.environ.get(name) else "CODE-DEFAULT")
+        log_event("ENV", f"  {name:26} = {_show(name):28} [{src}] {why}", "info")
+
+    # The two checks that actually catch mistakes.
+    prov = (os.environ.get("VOICE_PROVIDER") or "").strip().lower()
+    if not prov:
+        log_event(
+            "ENV",
+            f"VOICE_PROVIDER unset - code default {DEFAULT_VOICE_PROVIDER!r} applies. "
+            "A fresh container (no agents/.env) will silently use it.",
+            "warn",
+        )
+    elif prov not in VALID_VOICE_PROVIDERS:
+        log_event(
+            "ENV",
+            f"VOICE_PROVIDER={prov!r} is not a valid provider "
+            f"({', '.join(VALID_VOICE_PROVIDERS)}); get_tts_provider() will raise",
+            "error",
+        )
+    if os.environ.get("CLOUD_VIDEO_PROVIDER"):
+        log_event(
+            "ENV",
+            f"CLOUD_VIDEO_PROVIDER={os.environ['CLOUD_VIDEO_PROVIDER']!r} is set - this project is "
+            "ZERO-COST. It is inert only because replicate version_is_valid() gates it.",
+            "warn",
+        )
+
+
 def validate_env():
     """Validate required env vars at startup. Log warnings for missing critical vars."""
     critical = {
@@ -467,6 +671,7 @@ def validate_env():
     for var, purpose in conditional.items():
         if not os.getenv(var):
             log_event("ENV", f"MISSING optional env var: {var} ({purpose}) — feature disabled", "warn")
+    _env_drift_report()
     log_event("ENV", f"Gate enforcement mode: {GATE_ENFORCEMENT_MODE}")
     from utils.subprocess_helper import security_audit
     security_audit("STARTUP", f"Gate enforcement mode: {GATE_ENFORCEMENT_MODE}")
@@ -574,7 +779,7 @@ def _rewrite_on_director_fix(review: dict, topic: str, category: str, fmt: str, 
 def _pick_best_title(variants, topic: str, category: str = "") -> str:
     """Pick the highest-scoring title from CrewAI variants instead of blindly [0].
     Falls back to the topic when nothing usable exists."""
-    from utils.title_optimizer import score_title
+    from utils.title_optimizer import score_title, is_garbage_title
     if isinstance(topic, dict):
         topic = topic.get("title", "")
     vals = []
@@ -582,7 +787,10 @@ def _pick_best_title(variants, topic: str, category: str = "") -> str:
         if isinstance(v, dict):
             v = v.get("title", "")
         v = (v or "").strip()
-        if v:
+        # Drop titles that echo raw news-feed/debug debris. If every variant is
+        # garbage we fall through to the topic below -- which is exactly what the
+        # scriptwriter wrote from, so it is always a truthful title.
+        if v and not is_garbage_title(v):
             vals.append(v)
     if not vals:
         return topic or "Untitled"
@@ -1053,18 +1261,40 @@ def run_video_pipeline(script_text: str, storyboard_text: str, category: str, fo
     anim_label = " with Asset Router" if use_asset_router else " with FFmpeg"
     update_agent_status("editor", "working", f"Compositing video{anim_label}")
 
-    from utils.video_compositor import composite_video
+    from utils.video_compositor import composite_video, burn_subtitles
+
+    # Burned captions are pixels, so a master with them burned in can never be
+    # reused for a dubbed track. When dubs are enabled, composite the master CLEAN
+    # (no captions) and burn the English SRT in one cheap pass afterwards for the
+    # English upload. Dubs disabled => unchanged single-pass behavior.
+    clean_master = ""
+    subs_for_composite = None if ENABLE_MULTI_LANG_DUB else subtitle_path
+
     if use_asset_router:
-        final_path = composite_video(clips=clips, voice_path=voice_result["path"], music_path=music_path, format_type=format_type, video_id=video_id, subtitle_path=subtitle_path, chapters=chapters, category=category, scenes=scenes, tier=_tier_param)
+        final_path = composite_video(clips=clips, voice_path=voice_result["path"], music_path=music_path, format_type=format_type, video_id=video_id, subtitle_path=subs_for_composite, chapters=chapters, category=category, scenes=scenes, tier=_tier_param)
     else:
-        final_path = composite_video(clips=clips, voice_path=voice_result["path"], music_path=music_path, format_type=format_type, video_id=video_id, subtitle_path=subtitle_path, chapters=chapters, category=category, scenes=scenes, tier=_tier_param)
+        final_path = composite_video(clips=clips, voice_path=voice_result["path"], music_path=music_path, format_type=format_type, video_id=video_id, subtitle_path=subs_for_composite, chapters=chapters, category=category, scenes=scenes, tier=_tier_param)
 
     if not final_path:
         log_event("EDITOR", "Composite failed, retrying with concat-only fallback")
         if use_asset_router:
-            final_path = composite_video(clips=clips, voice_path=voice_result["path"], music_path=music_path, format_type=format_type, video_id=video_id, subtitle_path=subtitle_path, chapters=chapters, category=category, scenes=scenes, force_concat=True, tier=_tier_param)
+            final_path = composite_video(clips=clips, voice_path=voice_result["path"], music_path=music_path, format_type=format_type, video_id=video_id, subtitle_path=subs_for_composite, chapters=chapters, category=category, scenes=scenes, force_concat=True, tier=_tier_param)
         else:
-            final_path = composite_video(clips=clips, voice_path=voice_result["path"], music_path=music_path, format_type=format_type, video_id=video_id, subtitle_path=subtitle_path, chapters=chapters, category=category, scenes=scenes, force_concat=True, tier=_tier_param)
+            final_path = composite_video(clips=clips, voice_path=voice_result["path"], music_path=music_path, format_type=format_type, video_id=video_id, subtitle_path=subs_for_composite, chapters=chapters, category=category, scenes=scenes, force_concat=True, tier=_tier_param)
+
+    if ENABLE_MULTI_LANG_DUB and final_path and subtitle_path:
+        clean_master = final_path
+        stem, ext = os.path.splitext(final_path)
+        burned_path = f"{stem}_en{ext}"
+        # burn_subtitles defaults to 12px, which is ~29px tall on a 1080p frame --
+        # barely legible. Mirror the sizes the single-pass filter already uses.
+        sub_size = 32 if format_type == "shorts" else 24
+        if burn_subtitles(final_path, subtitle_path, burned_path, fontsize=sub_size, tier=_tier_param):
+            final_path = burned_path
+            log_event("EDITOR", f"English captions burned over clean master -> {burned_path}")
+        else:
+            # English still ships, just without burned captions; dubs continue.
+            log_event("EDITOR", "English caption burn failed; uploading clean master for English")
 
     if not final_path:
         log_pipeline_error(video_id, "Video compositing failed after retry", "video_compositing")
@@ -1074,6 +1304,7 @@ def run_video_pipeline(script_text: str, storyboard_text: str, category: str, fo
 
     return {
         "video_path": final_path,
+        "clean_video_path": clean_master,
         "voice_path": voice_result["path"],
         "music_path": music_path,
         "subtitle_path": subtitle_path,
@@ -1260,7 +1491,7 @@ def generate_short_video(topic: str, category: str, video_id: str, publish_at: s
                 extra_parts = [news_ctx]
             try:
                 from utils.hook_tester import suggest_hook_formula, get_hook_stats
-                best_hook = suggest_hook_formula(category)
+                best_hook = suggest_hook_formula(category, salt=video_id)
                 hook_stats = get_hook_stats(category)
                 best_stat = hook_stats.get(best_hook, {})
                 if best_stat.get("count", 0) > 0:
@@ -1270,7 +1501,7 @@ def generate_short_video(topic: str, category: str, video_id: str, publish_at: s
             # Pre-writing virality guidance
             try:
                 from crew.virality_analyst import get_prewriting_guidance
-                extra_parts.append(get_prewriting_guidance(topic, category, "shorts"))
+                extra_parts.append(get_prewriting_guidance(topic, category, "shorts", video_id=video_id))
             except Exception:
                 pass
             extra_context = "\n".join(extra_parts) if extra_parts else ""
@@ -1561,7 +1792,9 @@ def generate_short_video(topic: str, category: str, video_id: str, publish_at: s
             except Exception as e:
                 log_event("COMPANION", f"Companion page skipped: {e}", "debug")
 
-        if publish_result.get("success_count", 0) > 0:
+        if publish_result.get("success_count", 0) > 0 and not ENABLE_MULTI_LANG_DUB:
+            # Deferred while dubbing: the clean master the dubs are built from
+            # still has to exist, and cleanup would delete it.
             log_event("CLEANUP", "Cleaning up intermediate files after successful upload")
             from utils.cleanup_service import cleanup_after_upload
             cleanup_after_upload(
@@ -1586,32 +1819,40 @@ def generate_short_video(topic: str, category: str, video_id: str, publish_at: s
                     "translations": {k: v.get("title", "") for k, v in translations.items()},
                 })
                 if ENABLE_MULTI_LANG_DUB:
-                    log_event("PIPELINE", "Generating dubbed audio for multi-language")
-                    try:
-                        dubs = _run_async(dub_all_languages(translations, video_id))
-                        if dubs:
-                            update_video_record(video_id, {"dubs": {k: {"duration": v["duration"]} for k, v in dubs.items() if v["success"]}})
-                            register_dub_cleanup_func(video_id)
-                            output_video_path = (video_result or {}).get("video_path", "")
-                            for lang_code, dub_result in dubs.items():
-                                if dub_result["success"] and output_video_path and os.path.exists(output_video_path):
-                                    dub_video_path = os.path.join(os.path.dirname(output_video_path), f"{video_id}_{lang_code}.mp4")
-                                    from utils.translate import mux_dubbed_video
-                                    if mux_dubbed_video(output_video_path, dub_result["audio_path"], dub_video_path):
-                                        log_event("DUB", f"Muxed {lang_code} version -> {dub_video_path}")
-                                        try:
-                                            from utils.multi_platform_publisher import upload_to_platform
-                                            upload_to_platform(dub_video_path, {
-                                                "title": translations[lang_code].get("title", f"{topic} [{lang_code.upper()}]"),
-                                                "description": translations[lang_code].get("description_snippet", ""),
-                                                "language": lang_code,
-                                                "format": "short",
-                                            })
-                                            log_event("DUB", f"Published {lang_code} version")
-                                        except Exception as ue:
-                                            log_event("DUB", f"Upload {lang_code} failed: {ue}")
-                    except Exception as e:
-                        log_event("DUB", f"Failed to generate dubs: {e}")
+                    # Dubs are YouTube-only and the English upload is the source
+                    # of record, so never publish a dub track for a video whose
+                    # English upload did not land.
+                    if not _yt:
+                        log_event("DUB", "Skipping dubs: English YouTube upload produced no URL", "warn")
+                    else:
+                        try:
+                            dub_out = _publish_dubbed_languages(
+                                video_id=video_id,
+                                clean_video_path=(video_result or {}).get("clean_video_path", ""),
+                                script_text=script_text,
+                                topic=topic,
+                                translations=translations,
+                                thumbnail_path=thumbnail_path,
+                                fmt="shorts",
+                            )
+                            if dub_out.get("published") or dub_out.get("failed"):
+                                update_video_record(video_id, {
+                                    "dubs": {"published": dub_out["published"],
+                                             "failed": dub_out["failed"],
+                                             "skipped": dub_out["skipped"]},
+                                })
+                        except Exception as e:
+                            log_event("DUB", f"Dub stage failed: {e}", "warn")
+
+        if publish_result.get("success_count", 0) > 0 and ENABLE_MULTI_LANG_DUB:
+            from utils.cleanup_service import cleanup_after_upload
+            cleanup_after_upload(
+                video_path=video_result.get("video_path", ""),
+                thumbnail_path=thumbnail_path,
+                voice_path=video_result.get("voice_path"),
+                music_path=video_result.get("music_path"),
+                subtitle_path=video_result.get("subtitle_path"),
+            )
 
         failed_step = "title_tester"
         youtube_url = publish_result.get('platforms', {}).get('youtube', {}).get('video_url', '')
@@ -1829,7 +2070,7 @@ def generate_long_video(topic: str, category: str, video_id: str, publish_at: st
                 extra_parts = [news_ctx]
             try:
                 from utils.hook_tester import suggest_hook_formula, get_hook_stats
-                best_hook = suggest_hook_formula(category)
+                best_hook = suggest_hook_formula(category, salt=video_id)
                 hook_stats = get_hook_stats(category)
                 best_stat = hook_stats.get(best_hook, {})
                 if best_stat.get("count", 0) > 0:
@@ -1839,7 +2080,7 @@ def generate_long_video(topic: str, category: str, video_id: str, publish_at: st
             # Pre-writing virality guidance
             try:
                 from crew.virality_analyst import get_prewriting_guidance
-                extra_parts.append(get_prewriting_guidance(topic, category, "long"))
+                extra_parts.append(get_prewriting_guidance(topic, category, "long", video_id=video_id))
             except Exception:
                 pass
             extra_context = "\n".join(extra_parts) if extra_parts else ""
@@ -2170,7 +2411,9 @@ def generate_long_video(topic: str, category: str, video_id: str, publish_at: st
             except Exception as e:
                 log_event("COMPANION", f"Companion page skipped: {e}", "debug")
 
-        if publish_result.get("success_count", 0) > 0:
+        if publish_result.get("success_count", 0) > 0 and not ENABLE_MULTI_LANG_DUB:
+            # Deferred while dubbing: the clean master the dubs are built from
+            # still has to exist, and cleanup would delete it.
             log_event("CLEANUP", "Cleaning up intermediate files after successful upload")
             from utils.cleanup_service import cleanup_after_upload
             cleanup_after_upload(
@@ -2195,32 +2438,41 @@ def generate_long_video(topic: str, category: str, video_id: str, publish_at: st
                     "translations": {k: v.get("title", "") for k, v in translations.items()},
                 })
                 if ENABLE_MULTI_LANG_DUB:
-                    log_event("PIPELINE", "Generating dubbed audio for multi-language")
-                    try:
-                        dubs = _run_async(dub_all_languages(translations, video_id))
-                        if dubs:
-                            update_video_record(video_id, {"dubs": {k: {"duration": v["duration"]} for k, v in dubs.items() if v["success"]}})
-                            register_dub_cleanup_func(video_id)
-                            output_video_path = (video_result or {}).get("video_path", "")
-                            for lang_code, dub_result in dubs.items():
-                                if dub_result["success"] and output_video_path and os.path.exists(output_video_path):
-                                    dub_video_path = os.path.join(os.path.dirname(output_video_path), f"{video_id}_{lang_code}.mp4")
-                                    from utils.translate import mux_dubbed_video
-                                    if mux_dubbed_video(output_video_path, dub_result["audio_path"], dub_video_path):
-                                        log_event("DUB", f"Muxed {lang_code} version -> {dub_video_path}")
-                                        try:
-                                            from utils.multi_platform_publisher import upload_to_platform
-                                            upload_to_platform(dub_video_path, {
-                                                "title": translations[lang_code].get("title", f"{topic} [{lang_code.upper()}]"),
-                                                "description": translations[lang_code].get("description_snippet", ""),
-                                                "language": lang_code,
-                                                "format": "long",
-                                            })
-                                            log_event("DUB", f"Published {lang_code} version")
-                                        except Exception as ue:
-                                            log_event("DUB", f"Upload {lang_code} failed: {ue}")
-                    except Exception as e:
-                        log_event("DUB", f"Failed to generate dubs: {e}")
+                    # Dubs are YouTube-only and the English upload is the source
+                    # of record, so never publish a dub track for a video whose
+                    # English upload did not land.
+                    if not _yt:
+                        log_event("DUB", "Skipping dubs: English YouTube upload produced no URL", "warn")
+                    else:
+                        try:
+                            dub_out = _publish_dubbed_languages(
+                                video_id=video_id,
+                                clean_video_path=(video_result or {}).get("clean_video_path", ""),
+                                script_text=script_text,
+                                topic=topic,
+                                translations=translations,
+                                thumbnail_path=thumbnail_path,
+                                fmt="long",
+                                description_text=description_text,
+                            )
+                            if dub_out.get("published") or dub_out.get("failed"):
+                                update_video_record(video_id, {
+                                    "dubs": {"published": dub_out["published"],
+                                             "failed": dub_out["failed"],
+                                             "skipped": dub_out["skipped"]},
+                                })
+                        except Exception as e:
+                            log_event("DUB", f"Dub stage failed: {e}", "warn")
+
+        if publish_result.get("success_count", 0) > 0 and ENABLE_MULTI_LANG_DUB:
+            from utils.cleanup_service import cleanup_after_upload
+            cleanup_after_upload(
+                video_path=video_result.get("video_path", ""),
+                thumbnail_path=thumbnail_path,
+                voice_path=video_result.get("voice_path"),
+                music_path=video_result.get("music_path"),
+                subtitle_path=video_result.get("subtitle_path"),
+            )
 
         failed_step = "title_tester"
         youtube_url = publish_result.get('platforms', {}).get('youtube', {}).get('video_url', '')
@@ -2361,9 +2613,12 @@ def _add_days(dt, n: int):
 def _platforms_to_publish() -> list:
     """Target platforms for video publishing.
 
-    Read a comma list from PLATFORMS_TO_PUBLISH (default 'youtube').
-    All four platforms (youtube,tiktok,facebook,instagram) are configured
-    in Firestore env_vars — that collection overrides .env at boot.
+    Read a comma list from PLATFORMS_TO_PUBLISH. Default is deliberately
+    'youtube' ONLY: an unset value should not fan out to platforms whose tokens
+    may be missing, which would burn upload quota on guaranteed failures. All four
+    are configured in Firestore env_vars, which overrides .env at boot — if this
+    ever returns just ['youtube'] in production, PLATFORMS_TO_PUBLISH is unset and
+    _env_drift_report() will say so.
     """
     raw = os.getenv("PLATFORMS_TO_PUBLISH", "youtube")
     return [p.strip().lower() for p in raw.split(",") if p.strip()]
@@ -2461,8 +2716,11 @@ def daily_content_job():
         log_event("TRENDS", f"Trend discovery failed: {e}", "error")
         trends = []
 
-    shorts_per_day = int(os.getenv("SCHEDULE_SHORTS_PER_DAY", 2))
-    long_per_day = int(os.getenv("SCHEDULE_LONG_PER_DAY", 1))
+    # 1 short + 2 longs is the configured daily slate (agents/.env,
+    # SCHEDULE_* and scheduler_planner). These defaults used to be 2/1 -- the
+    # inverse -- so an unset var silently swapped which format dominated.
+    shorts_per_day = int(os.getenv("SCHEDULE_SHORTS_PER_DAY", 1))
+    long_per_day = int(os.getenv("SCHEDULE_LONG_PER_DAY", 2))
 
     log_event("SCHEDULER", "Generating content plan via scheduler planner")
     try:
@@ -3390,6 +3648,15 @@ if __name__ == "__main__":
     ollama_status = "✅" if ollama_ok else "❌"
     gemini_status = "✅" if gemini_ok else "❌"
     log_event("LLM", f"Startup: Ollama={ollama_status} Gemini={gemini_status} (Ollama primary, Gemini fallback)")
+
+    # Report the render chain at boot so a silent backend degradation is visible now
+    # rather than weeks later. Degraded components carry their own fix.
+    try:
+        from utils.asset_router import describe_render_chain
+        for _comp, _status, _fix in describe_render_chain():
+            log_event("RENDER", f"{_comp}: {_status}" + (f" — FIX: {_fix}" if _fix else ""))
+    except Exception as _e:
+        log_event("RENDER", f"render chain introspection failed: {_e}", "warn")
 
     scheduler = BlockingScheduler()
     # D24: run content generation overnight (15:05 UTC = 8:50 PM Nepal) so the

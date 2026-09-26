@@ -159,12 +159,26 @@ def _extend_clip(input_path: str, output_path: str, target_dur: float) -> bool:
     return safe_run_bool(cmd_cat, timeout=300)
 
 
-def resize_to_target(input_path: str, output_path: str, target_w: int, target_h: int, duration: float = 0) -> bool:
+def resize_to_target(input_path: str, output_path: str, target_w: int, target_h: int, duration: float = 0, motion_seed: int = 0) -> bool:
+    # A still held dead-still for a whole scene reads as a mistake. When we know the
+    # duration (the still-image path), add a slow push-in so the frame is alive.
+    if duration > 0:
+        frames = max(2, int(duration * OUTPUT_FPS))
+        # 1.0 -> 1.08 over the scene: slow enough not to be distracting, enough to move.
+        direction = -1 if motion_seed % 2 else 1
+        zoom_expr = f"min(1.08, 1+0.08*on/{frames})" if direction > 0 else f"min(1.08, 1.08-0.08*on/{frames})"
+        vf = (
+            f"scale={target_w * 2}:{target_h * 2}:flags=lanczos:force_original_aspect_ratio=increase,"
+            f"crop={target_w * 2}:{target_h * 2},"
+            f"zoompan=z='{zoom_expr}':d={frames}:x='iw/2-(iw/zoom/2)':y='ih/2-(ih/zoom/2)':s={target_w}x{target_h}:fps={OUTPUT_FPS}"
+        )
+    else:
+        vf = f"scale={target_w}:{target_h}:flags=lanczos:force_original_aspect_ratio=increase,crop={target_w}:{target_h}"
     cmd = [
         _ffmpeg_cmd(), "-y",
         *(["-loop", "1", "-t", str(duration)] if duration > 0 else []),
         "-i", input_path, *_sws_flags(),
-        "-vf", f"scale={target_w}:{target_h}:flags=lanczos:force_original_aspect_ratio=increase,crop={target_w}:{target_h}",
+        "-vf", vf,
         "-c:v", "libx264", "-preset", PRESET, "-crf", CRF,
         "-r", str(OUTPUT_FPS), "-an", "-pix_fmt", "yuv420p", output_path,
     ]
@@ -332,7 +346,10 @@ def mix_audio(voice_path: str, music_path: Optional[str], output_path: str,
                 music_raw = music_raw.high_pass_filter(100).low_pass_filter(8000)
             music_raw = (music_raw * (len(voice) // len(music_raw) + 1))[:len(voice)]
             if len(music_raw) > 4000:
-                music_raw = music_raw.fade_in(3000).fade_out(4000)
+                # Was fade_in(3000): three seconds of near-silence at the start of
+                # every video, which is dead air in the exact window that decides
+                # retention. Short, and long enough to avoid a click.
+                music_raw = music_raw.fade_in(400).fade_out(1200)
             music_raw = _apply_ducking(music_raw, voice, duck_db=duck_db)
             mixed = voice.overlay(music_raw)
         else:
@@ -438,7 +455,7 @@ def _process_clip(clip: dict, target_w: int, target_h: int, idx: int, format_typ
             if not apply_ken_burns(trimmed, out, target_w, target_h, dur, idx, vid):
                 return None
     else:
-        if not resize_to_target(src, out, target_w, target_h, duration=dur):
+        if not resize_to_target(src, out, target_w, target_h, duration=dur, motion_seed=idx):
             return None
 
     # ponytail: light denoise on LTX clips
@@ -458,27 +475,6 @@ def _process_clip(clip: dict, target_w: int, target_h: int, idx: int, format_typ
         pass
 
     return out if os.path.exists(out) and os.path.getsize(out) > 1000 else None
-
-
-def _fade_in_first_clip(clip_path: str, idx: int, dur: float) -> str:
-    """Add a 0.5s fade-in from black on the first video clip."""
-    if idx != 0 or not clip_path or not os.path.exists(clip_path):
-        return clip_path
-    out = clip_path.replace(".mp4", "_fadein.mp4")
-    cmd = [
-        _ffmpeg_cmd(), "-y", "-i", clip_path,
-        "-vf", f"fade=t=in:st=0:d=0.5",
-        "-c:v", "libx264", "-preset", PRESET, "-crf", CRF,
-        "-c:a", "copy",
-        out
-    ]
-    try:
-        safe_run(cmd, timeout=60)
-        if os.path.exists(out) and os.path.getsize(out) > 1000:
-            return out
-    except Exception:
-        pass
-    return clip_path
 
 
 def _apply_camera_motion(input_path: str, output_path: str, target_w: int, target_h: int,
@@ -631,6 +627,7 @@ def _subtitle_style_escaped(fontsize: int, margin_v: int = 60,
                             border_style: int = 1,
                             has_outline: int = 1,
                             back_colour: str = "") -> str:
+    from utils.fonts import resolve_font_family
     parts = [
         f"FontSize={fontsize}",
         f"PrimaryColour={primary}",
@@ -640,7 +637,9 @@ def _subtitle_style_escaped(fontsize: int, margin_v: int = 60,
         f"BorderStyle={border_style}",
         f"Alignment=2",
         f"MarginV={margin_v}",
-        "FontName=Arial",
+        # Was a hardcoded "Arial", which does not exist in the image and so
+        # silently degraded to a Latin-only face. Resolve the real family.
+        f"FontName={resolve_font_family()}",
     ]
     if back_colour:
         parts.append(f"BackColour={back_colour}")
@@ -866,12 +865,13 @@ def _build_keyterm_filters(scenes: list[dict], clips: list[dict]) -> list[str]:
                 f"-text_w-20)))"
             )
             y_expr = "h*0.10" if is_hook else "h*0.12"
+            from utils.fonts import font_for_text
             filters.append(
                 f"drawtext=text='{escaped}':fontsize={font_size}:fontcolor={font_color}:"
                 f"x={x_expr}:y={y_expr}:"
                 f"borderw=2:bordercolor=#1e1e1e@0.8:"
                 f"enable='between(t\\,{appear}\\,{end})':"
-                f"fontfile=/System/Library/Fonts/Helvetica.ttc"
+                f"fontfile={font_for_text(term)}"
             )
     return filters
 
@@ -907,7 +907,8 @@ def composite_video(clips: list[dict], voice_path: str, music_path: Optional[str
         print("[compositor] No clips to composite")
         return None
 
-    processed[0] = _fade_in_first_clip(processed[0], 0, durations[0] if durations else 8.0)
+    # No fade-from-black on the first clip: it opened every video on a black screen
+    # for half a second, delaying the visual the viewer came for. Start on frame 1.
 
     if ENABLE_COLOR_GRADING:
         grade_ref = DOCUMENTARY_YUV if tier == "documentary" else BRAND_TEAL_YUV

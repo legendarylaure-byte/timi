@@ -1,4 +1,5 @@
 import os
+import re
 import time
 import json
 import logging
@@ -7,12 +8,35 @@ from models.base_video_model import BaseVideoModel
 
 logger = logging.getLogger(__name__)
 
+# Replicate pins a model to an immutable 64-character version hash. Anything else
+# (a truncated paste, a tag, a "latest" alias) 404s at call time, which is why the
+# availability check validates the *shape* of this value and not just the API key.
+MODEL_VERSION = "luma/ray:2e7e5c4d8c5fb7d73c3e8c3d9b8e0e8f"
+
+# owner/name:64-hex-version
+_VERSION_RE = re.compile(r"^[\w.-]+/[\w.-]+:[0-9a-f]{64}$")
+
+
+def version_is_valid(version: str) -> bool:
+    """True when `version` is a pinned Replicate model:version string."""
+    return bool(_VERSION_RE.match(version or ""))
+
 
 class ReplicateVideoModel(BaseVideoModel):
-    """Cloud video generation via Replicate or fal.ai APIs."""
+    """Cloud video generation via Replicate or fal.ai APIs.
+
+    This is a PAID provider. The pipeline runs zero-cost by leaving it disabled:
+    with no LTX (MLX is Apple-only, absent in the Linux container) there is no AI
+    video model, and every scene falls through to Manim / Blender / stock /
+    branded-card. See AGENTS.md "Render Chain & Zero-Cost Constraint".
+    """
 
     def __init__(self):
-        self.provider = os.getenv("CLOUD_VIDEO_PROVIDER", "replicate")
+        # "none" is the safe default: this project is zero-cost, and a bare
+        # CLOUD_VIDEO_PROVIDER must never imply a paid backend. Matches neither
+        # "replicate" nor "fal", so is_available() is False -> scenes fall through
+        # to Manim/Blender/stock/branded-card. Set the var explicitly to opt in.
+        self.provider = os.getenv("CLOUD_VIDEO_PROVIDER", "none")
         self.replicate_key = os.getenv("REPLICATE_API_KEY", "")
         self.fal_key = os.getenv("FAL_KEY", "")
         self._available = None
@@ -24,11 +48,31 @@ class ReplicateVideoModel(BaseVideoModel):
         if self._available is not None:
             return self._available
         if self.provider == "replicate" and self.replicate_key:
-            self._available = True
-            logger.info("[Replicate] API key found — cloud fallback available")
+            if not version_is_valid(MODEL_VERSION):
+                # Loud on purpose: a wrong version here silently burns wall-clock on
+                # doomed API calls while looking like a healthy paid provider.
+                logger.warning(
+                    "[Replicate] DISABLED — MODEL_VERSION must be a pinned "
+                    "owner/name:<64-hex-version> string; got %d chars ('%s'). "
+                    "Scenes will fall back to Manim/Blender/stock. Fix: set a real "
+                    "64-char version hash, or leave unset to stay zero-cost.",
+                    len(MODEL_VERSION or ""), MODEL_VERSION,
+                )
+                self._available = False
+            else:
+                self._available = True
+                logger.info("[Replicate] API key found — cloud fallback available")
         elif self.provider == "fal" and self.fal_key:
-            self._available = True
-            logger.info("[Replicate] FAL key found — cloud fallback available")
+            if not version_is_valid(MODEL_VERSION):
+                logger.warning(
+                    "[Replicate] DISABLED — MODEL_VERSION invalid for fal provider "
+                    "(%d chars: '%s'); falling back to Manim/Blender/stock.",
+                    len(MODEL_VERSION or ""), MODEL_VERSION,
+                )
+                self._available = False
+            else:
+                self._available = True
+                logger.info("[Replicate] FAL key found — cloud fallback available")
         else:
             self._available = False
             logger.info("[Replicate] No API key set — cloud fallback disabled")
@@ -102,7 +146,7 @@ class ReplicateVideoModel(BaseVideoModel):
             logger.info("[Replicate] generating: '%s' (%d frames)", prompt[:40], frames)
 
             output = replicate.run(
-                "luma/ray:2e7e5c4d8c5fb7d73c3e8c3d9b8e0e8f",
+                MODEL_VERSION,
                 input={
                     "prompt": prompt,
                     "num_frames": frames,

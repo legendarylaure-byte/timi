@@ -103,15 +103,26 @@ Translate all content to {lang['name']} while preserving technical accuracy and 
             prompt=prompt,
             system_prompt=SYSTEM_PROMPT,
             temperature=0.3,
-            max_tokens=2000,
+            # Was 2000, which truncated long-form Hindi/Korean. Sized for the
+            # deepest script in the set at ~1500 English words.
+            max_tokens=8000,
         )
 
         result = extract_json(response)
         if result is None:
             return _fallback_translation(script, title, target_lang, lang)
+        body = (result.get("translated_script") or "").strip()
+        # Devanagari/Korean tokenize far heavier than Latin, so a long-form
+        # script could be silently cut at the token ceiling and dubbed as a
+        # half-finished narration. Treat an implausibly short result as failure.
+        if not body or len(body) < max(40, len(script) * 0.35):
+            logger.warning("[translate] %s translation looks truncated (%d chars from %d); "
+                           "refusing to publish", target_lang, len(body), len(script))
+            return _fallback_translation(script, title, target_lang, lang)
         result["language_code"] = target_lang
         result["language_name"] = lang["name"]
         result["edge_tts_voice"] = lang["edge_tts_voice"]
+        result["is_fallback"] = False
         return result
     except Exception as e:
         print(f"[translate] Translation error: {e}")
@@ -128,7 +139,25 @@ def _fallback_translation(script: str, title: str, lang_code: str, lang_info: di
         "language_code": lang_code,
         "language_name": lang_info["name"],
         "edge_tts_voice": lang_info["edge_tts_voice"],
+        # The body is still English. Publishing this would put an English
+        # script through a foreign neural voice, so consumers must refuse it.
+        "is_fallback": True,
     }
+
+
+def is_publishable(translation: dict) -> bool:
+    """True when a translation is real output we can safely dub and publish.
+
+    Guards the silent failure where the LLM returns unparseable JSON: the old
+    fallback returned the *English* script tagged as the target language, which
+    would have been dubbed by e.g. hi-IN-SwaraNeural and published as Hindi.
+    """
+    if not translation or not isinstance(translation, dict):
+        return False
+    if translation.get("is_fallback"):
+        return False
+    body = (translation.get("translated_script") or "").strip()
+    return len(body) > 0
 
 
 def translate_script_batch(script: str, title: str = "", languages: list = None) -> dict:
@@ -170,7 +199,7 @@ async def generate_dubbed_audio(
     target_lang: str,
     voice: str,
     video_id: str,
-    rate: str = "0%",
+    rate: str = "+0%",
     pitch: str = "-2Hz",
 ) -> dict:
     """Generate dubbed audio for a translated script in the target language.
@@ -195,12 +224,21 @@ async def generate_dubbed_audio(
         seg_path = str(lang_dir / f"seg_{i+1:04d}.wav")
         tasks.append(_dub_segment(seg_text, voice, rate, pitch, seg_path))
 
-    results = await asyncio.gather(*tasks)
-    segment_files = [str(lang_dir / f"seg_{i+1:04d}.wav") for i, ok in enumerate(results) if ok]
+    # return_exceptions keeps one bad segment from killing the whole language;
+    # without it a single failure propagated out of gather and voided the dub.
+    results = await asyncio.gather(*tasks, return_exceptions=True)
+    ok_flags = [isinstance(r, bool) and r for r in results]
+    for i, r in enumerate(results):
+        if isinstance(r, Exception):
+            logger.warning("[dub] %s segment %d failed: %s", target_lang, i + 1, r)
+
+    segment_files = [str(lang_dir / f"seg_{i+1:04d}.wav") for i, ok in enumerate(ok_flags) if ok]
+    segment_texts = [t for t, ok in zip(segments, ok_flags) if ok]
 
     if not segment_files:
         logger.warning("[dub] No segments generated for %s", target_lang)
-        return {"audio_path": "", "segment_paths": [], "duration": 0.0, "success": False}
+        return {"audio_path": "", "segment_paths": [], "duration": 0.0, "success": False,
+                "segments": [], "segment_durations": []}
 
     audio_path = str(lang_dir / f"dub_{target_lang}.wav")
     concat_success = concatenate_audio(segment_files, audio_path)
@@ -214,63 +252,19 @@ async def generate_dubbed_audio(
         except Exception:
             pass
 
+    # Per-segment durations drive the subtitle cues, so they are measured from
+    # the dubbed audio rather than estimated -- subtitles must match the voice.
+    from utils.dub_pipeline import duration_of
+    segment_durations = [duration_of(p) for p in segment_files]
+
     return {
         "audio_path": audio_path,
         "segment_paths": segment_files,
         "duration": duration,
         "success": concat_success,
+        "segments": segment_texts,
+        "segment_durations": segment_durations,
     }
-
-
-async def dub_all_languages(
-    translations: dict,
-    video_id: str,
-    rate: str = "0%",
-    pitch: str = "-2Hz",
-) -> dict:
-    """Generate dubbed audio for all translated languages.
-
-    Args:
-        translations: dict of lang_code -> {translated_script, edge_tts_voice, ...}
-        video_id: unique video ID for directory naming
-
-    Returns:
-        dict of lang_code -> {audio_path, duration, success, ...}
-    """
-    tasks = {}
-    for lang_code, trans in translations.items():
-        voice = trans.get("edge_tts_voice", "en-US-JennyNeural")
-        script = trans.get("translated_script", "")
-        if not script:
-            continue
-        tasks[lang_code] = generate_dubbed_audio(script, lang_code, voice, video_id, rate, pitch)
-
-    results = {}
-    for lang_code, task in tasks.items():
-        try:
-            results[lang_code] = await task
-        except Exception as e:
-            logger.error("[dub] Failed to dub %s: %s", lang_code, e)
-            results[lang_code] = {"audio_path": "", "segment_paths": [], "duration": 0.0, "success": False}
-
-    return results
-
-
-def mux_dubbed_video(video_path: str, dub_audio_path: str, output_path: str) -> bool:
-    """Replace audio track in video with dubbed audio via ffmpeg."""
-    from utils.subprocess_helper import safe_run_bool
-    cmd = [
-        "ffmpeg", "-y",
-        "-i", video_path,
-        "-i", dub_audio_path,
-        "-c:v", "copy",
-        "-c:a", "aac",
-        "-map", "0:v:0",
-        "-map", "1:a:0",
-        "-shortest",
-        output_path,
-    ]
-    return safe_run_bool(cmd, timeout=300)
 
 
 def register_dub_cleanup(video_id: str):

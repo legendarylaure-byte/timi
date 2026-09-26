@@ -35,6 +35,12 @@ def _compress_for_facebook(video_path: str) -> str:
     Uses lower CRF (higher compression) than the master render since Facebook
     re-encodes videos anyway. Returns path to compressed temp file.
     """
+    # self-heal: the 04:00 UTC cleanup_local_files() rmdir's empty tmp/ subdirs
+    # and this one is always empty after upload, so module-import-only makedirs
+    # left ffmpeg writing to a deleted dir -> fell back to the uncompressed
+    # original -> "Video Upload Time Out" (subcode 1363030). Same bug+fix as
+    # viral_news.generate_image().
+    os.makedirs(_FACEBOOK_TEMP_DIR, exist_ok=True)
     base = os.path.splitext(os.path.basename(video_path))[0]
     out_path = os.path.join(_FACEBOOK_TEMP_DIR, f"{base}_fb.mp4")
     original_size = os.path.getsize(video_path)
@@ -78,6 +84,9 @@ def _get_video_duration_ffprobe(video_path: str) -> float:
 
 
 def _trim_for_instagram(video_path: str, max_seconds: float = IG_REELS_MAX_SECONDS) -> str:
+    # self-heal: see _compress_for_facebook -- tmp/ subdirs are rmdir'd by the
+    # daily cleanup, so module-import-only makedirs is not enough.
+    os.makedirs(_INSTAGRAM_TEMP_DIR, exist_ok=True)
     duration = _get_video_duration_ffprobe(video_path)
     if duration <= max_seconds:
         return video_path
@@ -264,7 +273,7 @@ def _is_graph_permission_error(err: dict) -> bool:
     return False
 
 
-def upload_to_platform(platform: str, title: str, description: str, video_path: str, thumbnail_path: str, format_type: str = 'shorts', publish_at: str = None, subtitle_path: str = None, tags: list = None, tiktok_privacy_level: str = None, tiktok_comment_disabled: bool = False, tiktok_duet_disabled: bool = False, tiktok_stitch_disabled: bool = False) -> dict:  # noqa: E501
+def upload_to_platform(platform: str, title: str, description: str, video_path: str, thumbnail_path: str, format_type: str = 'shorts', publish_at: str = None, subtitle_path: str = None, tags: list = None, tiktok_privacy_level: str = None, tiktok_comment_disabled: bool = False, tiktok_duet_disabled: bool = False, tiktok_stitch_disabled: bool = False, default_language: str = None) -> dict:  # noqa: E501
     """Upload a video to a specific platform."""
     platform_info = PLATFORMS.get(platform)
     if not platform_info:
@@ -274,7 +283,7 @@ def upload_to_platform(platform: str, title: str, description: str, video_path: 
 
     try:
         if platform == 'youtube':
-            return _upload_youtube(title, description, video_path, thumbnail_path, format_type, publish_at, subtitle_path, tags=tags)
+            return _upload_youtube(title, description, video_path, thumbnail_path, format_type, publish_at, subtitle_path, tags=tags, default_language=default_language)
         elif platform == 'tiktok':
             return _upload_tiktok(title, video_path, format_type, privacy_level=tiktok_privacy_level,
                                   comment_disabled=tiktok_comment_disabled,
@@ -291,7 +300,7 @@ def upload_to_platform(platform: str, title: str, description: str, video_path: 
         return {'success': False, 'error': safe_log(str(e))}
 
 
-def _upload_youtube(title: str, description: str, video_path: str, thumbnail_path: str, format_type: str, publish_at: str = None, subtitle_path: str = None, tags: list = None) -> dict:  # noqa: E501
+def _upload_youtube(title: str, description: str, video_path: str, thumbnail_path: str, format_type: str, publish_at: str = None, subtitle_path: str = None, tags: list = None, default_language: str = None) -> dict:  # noqa: E501
     try:
         from utils.youtube_upload import upload_video_to_youtube
         from utils.description_gen import get_tech_metadata
@@ -314,6 +323,7 @@ def _upload_youtube(title: str, description: str, video_path: str, thumbnail_pat
             is_shorts=(format_type == "shorts"),
             publish_at=publish_at,
             subtitle_path=subtitle_path,
+            default_language=default_language,
         )
 
         ai_flags = get_ai_disclosure("youtube")
@@ -863,7 +873,8 @@ def multi_platform_publish(video_id: str, title: str, description: str, video_pa
                            tiktok_privacy_level: str = None,
                            tiktok_comment_disabled: bool = False,
                            tiktok_duet_disabled: bool = False,
-                           tiktok_stitch_disabled: bool = False) -> dict:
+                           tiktok_stitch_disabled: bool = False,
+                           default_language: str = None) -> dict:
     """Publish to multiple platforms with progress tracking."""
     if platforms is None:
         platforms = ['youtube']
@@ -897,7 +908,8 @@ def multi_platform_publish(video_id: str, title: str, description: str, video_pa
                                         tiktok_privacy_level=tiktok_privacy_level,
                                         tiktok_comment_disabled=tiktok_comment_disabled,
                                         tiktok_duet_disabled=tiktok_duet_disabled,
-                                        tiktok_stitch_disabled=tiktok_stitch_disabled)
+                                        tiktok_stitch_disabled=tiktok_stitch_disabled,
+                                        default_language=default_language)
             results['platforms'][platform] = result
 
             # Update queue in Firestore

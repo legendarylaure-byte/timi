@@ -6,57 +6,49 @@ from typing import Optional
 
 logger = logging.getLogger(__name__)
 
+# Keys must be VALID_CATEGORIES from utils.scene_schema. These used to be keyed on
+# "AI Explained"/"Deep Tech"/"Paper Breakdowns"/"Tool Tutorials"/"Industry Analysis"/
+# "Code & Build"/"Career & Learning" — all deleted back in D24, so every lookup missed
+# and every video fell back to the same generic BASE_TAGS. Old tag pools are merged
+# into the surviving categories so nothing valuable was lost.
 CATEGORY_TAGS = {
-    "AI Explained": [
-        "artificial intelligence", "machine learning", "deep learning",
-        "neural networks", "AI explained", "what is AI", "AI for beginners",
-        "machine learning explained", "AI concepts", "artificial intelligence explained",
-        "transformers", "GPT", "large language models", "AI tutorial", "learn AI",
-    ],
-    "Deep Tech": [
-        "deep tech", "advanced AI", "machine learning research",
-        "neural network architecture", "deep learning explained",
-        "AI research", "technical deep dive", "algorithm", "computer science",
-        "data science", "math for ML", "optimization", "backpropagation",
-        "gradient descent", "attention mechanism",
-    ],
-    "Paper Breakdowns": [
-        "research paper", "AI paper explained", "paper breakdown",
-        "machine learning paper", "research explained", "academic paper",
-        "AI research paper", "paper review", "deep learning paper",
-        "paper summary", "latest research", "arXiv", "scientific paper",
-        "conference paper", "NeurIPS",
-    ],
-    "Tool Tutorials": [
-        "tutorial", "how to", "tool tutorial", "AI tools", "productivity",
-        "beginner tutorial", "step by step", "software tutorial",
-        "AI software", "tech tutorial", "tips and tricks", "workflow",
-        "automation", "AI workflow", "beginner guide",
-    ],
-    "Industry Analysis": [
-        "AI industry", "tech industry", "market analysis", "AI market",
-        "industry trends", "tech business", "AI business", "startup",
-        "tech companies", "industry insights", "AI adoption", "enterprise AI",
-        "AI investment", "future of AI", "tech news analysis",
-    ],
-    "Code & Build": [
-        "coding", "programming", "build with AI", "python tutorial",
-        "coding tutorial", "software development", "AI coding",
-        "programming tutorial", "code along", "build project",
-        "github", "open source", "API tutorial", "developer tools",
-        "practical AI",
-    ],
     "AI News": [
         "AI news", "tech news", "latest AI", "AI update", "technology news",
         "breaking AI", "AI developments", "AI announcement", "tech update",
         "AI industry news", "AI breakthrough", "new AI model", "AI launch",
-        "weekly AI news", "AI roundup",
+        "artificial intelligence", "machine learning", "GPT",
+        "large language models", "AI industry", "tech industry", "market analysis",
+        "industry trends", "AI adoption", "future of AI",
     ],
-    "Career & Learning": [
-        "AI career", "tech career", "learn AI", "AI learning path",
-        "career advice", "tech jobs", "AI jobs", "learning resources",
-        "AI skills", "career growth", "tech skills", "AI certification",
-        "study guide", "roadmap", "career development",
+    "Science & Technology": [
+        "artificial intelligence", "machine learning", "deep learning",
+        "neural networks", "AI explained", "what is AI", "AI for beginners",
+        "machine learning explained", "AI concepts", "transformers",
+        "AI tutorial", "learn AI", "deep tech", "advanced AI",
+        "machine learning research", "neural network architecture",
+        "AI research", "technical deep dive", "algorithm", "computer science",
+        "data science", "math for ML", "attention mechanism",
+        "research paper", "AI paper explained", "paper breakdown",
+        "AI research paper", "paper review", "latest research", "arXiv",
+        "scientific paper", "conference paper", "NeurIPS",
+    ],
+    "Programming & Software": [
+        "coding", "programming", "build with AI", "python tutorial",
+        "coding tutorial", "software development", "AI coding",
+        "programming tutorial", "code along", "build project",
+        "github", "open source", "API tutorial", "developer tools",
+        "practical AI", "tutorial", "how to", "AI tools", "step by step",
+        "software tutorial", "AI software", "tech tutorial", "workflow",
+        "automation", "beginner guide", "AI learning path", "learning resources",
+    ],
+    "World News (24hr)": [
+        "world news", "breaking news", "global news", "today in news",
+        "current events", "news explained", "headlines", "international news",
+    ],
+    "Nepal News": [
+        "Nepal news", "Nepal", "news from Nepal", "Kathmandu",
+        "Nepali news", "current affairs Nepal", "Nepal headlines",
+        "Nepal politics", "Nepal economy", "नेपाल",
     ],
 }
 

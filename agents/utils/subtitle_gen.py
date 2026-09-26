@@ -28,9 +28,12 @@ def subtitle_mode_for(format_type: str) -> str:
     if mode in ("burn", "cc", "both"):
         return mode
     if mode == "auto":
-        return "burn" if format_type == "shorts" else "both"
-    # ponytail: fallback maps to the same auto heuristic (shorts=burn, long=burn+CC)
-    return "burn" if format_type == "shorts" else "both"
+        # ponytail: "cc" for longs, not "both" -- burning AND uploading a track
+        # shows the viewer two copies of the same line. It also left the dubbing
+        # clean master with burned English captions baked in.
+        return "burn" if format_type == "shorts" else "cc"
+    # ponytail: fallback maps to the same auto heuristic (shorts=burn, long=cc)
+    return "burn" if format_type == "shorts" else "cc"
 
 
 def should_burn_subtitles(format_type: str) -> bool:

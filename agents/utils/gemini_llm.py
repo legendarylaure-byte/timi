@@ -36,7 +36,7 @@ def _wait_rate_limit():
 
 class GeminiLLM(LLM):
     def __init__(self, model=None, api_key=None, temperature=0.7, max_tokens=2000, **kwargs):
-        model = model or os.getenv("GEMINI_MODEL", "gemini-2.5-flash")
+        model = model or os.getenv("GEMINI_MODEL", "gemini-3.8-flash")
         api_key = api_key or os.getenv("GEMINI_API_KEY", "")
         self._model_name = model
         self._temperature = temperature

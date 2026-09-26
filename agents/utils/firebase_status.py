@@ -246,7 +246,25 @@ def update_video_analytics(video_id: str, stats: dict):
 
     duration_sec = stats.get('duration_seconds', 0)
     views = stats.get('views', 0)
-    estimated_watch_hours = (views * duration_sec) / 3600 if duration_sec > 0 else 0
+    avg_view_duration = stats.get('average_view_duration_seconds', 0) or 0
+    # Only carry CTR/impressions through when the API actually returned them. This
+    # channel has no Brand Account so impressions are unavailable, and persisting
+    # ctr=0.0 would make every category look like it had a 0% click rate.
+    measured = {
+        k: stats[k] for k in ('ctr', 'impressions', 'clicks', 'average_view_duration_seconds')
+        if k in stats
+    }
+
+    # Watch hours used to be views * FULL_DURATION, i.e. a 100%-AVD assumption that
+    # inflated the YPP number and made "118 watch hours" meaningless. Use the real
+    # averageViewDuration when we have one; only fall back to the full-duration
+    # guess, and record which of the two we used.
+    if avg_view_duration > 0:
+        estimated_watch_hours = (views * avg_view_duration) / 3600
+        watch_hours_measured = True
+    else:
+        estimated_watch_hours = (views * duration_sec) / 3600 if duration_sec > 0 else 0
+        watch_hours_measured = False
 
     def _do():
         doc_ref = db.collection('videos').document(video_id)
@@ -255,17 +273,25 @@ def update_video_analytics(video_id: str, stats: dict):
             'likes': stats.get('likes', 0),
             'comments': stats.get('comments', 0),
             'duration_seconds': duration_sec,
+            # CTR/impressions used to be fetched but never stored, so 0 of 501 videos
+            # had a CTR. Now stored whenever the API can supply one.
+            **measured,
             'estimated_watch_hours': estimated_watch_hours,
+            'watch_hours_measured': watch_hours_measured,
             'analytics_updated_at': firestore.SERVER_TIMESTAMP,
             'updated_at': firestore.SERVER_TIMESTAMP,
         }, merge=True)
         db.collection('videos').document(video_id).collection('analytics_history').add({
             **stats,
             'estimated_watch_hours': estimated_watch_hours,
+            'watch_hours_measured': watch_hours_measured,
             'recorded_at': firestore.SERVER_TIMESTAMP,
         })
     _retry_firestore(f"Video analytics '{video_id}'", _do)
-    print(f"[FIRESTORE] Analytics updated for video '{video_id}': {views} views, {estimated_watch_hours:.1f} watch hours")
+    src = 'measured' if watch_hours_measured else 'assumed 100% AVD'
+    ctr_txt = f"ctr={measured['ctr']}%, " if 'ctr' in measured else ""
+    print(f"[FIRESTORE] Analytics updated for video '{video_id}': {views} views, "
+          f"{ctr_txt}{estimated_watch_hours:.1f} watch hours ({src})")
 
 
 def update_channel_stats(stats: dict):
@@ -276,17 +302,21 @@ def update_channel_stats(stats: dict):
     try:
         videos = list(db.collection('videos').where('estimated_watch_hours', '>', 0).stream())
         total_watch_hours = sum(v.to_dict().get('estimated_watch_hours', 0) for v in videos)
+        measured = sum(1 for v in videos if v.to_dict().get('watch_hours_measured'))
     except Exception:
         total_watch_hours = 0
+        measured = 0
 
     def _do():
         db.collection('system').document('channel_stats').set({
             **stats,
             'total_watch_hours': total_watch_hours,
+            'watch_hours_measured_count': measured,
             'last_updated': firestore.SERVER_TIMESTAMP,
         }, merge=True)
     _retry_firestore("Channel stats update", _do)
-    print(f"[FIRESTORE] Channel stats updated: {stats.get('subscribers', '?')} subs, {total_watch_hours:.1f} watch hours")
+    print(f"[FIRESTORE] Channel stats updated: {stats.get('subscribers', '?')} subs, "
+          f"{total_watch_hours:.1f} watch hours ({measured} measured)")
 
 
 from utils.scene_schema import VALID_CATEGORIES as TECH_CATEGORIES
@@ -476,12 +506,19 @@ def get_all_env_vars() -> dict:
         return {}
 
 
+_FIRESTORE_ENV_KEYS = set()
+
+
 def sync_env_from_firestore():
     """Read all env vars from Firestore and set os.environ for each.
 
     This is called at pipeline startup after load_dotenv() so that
     dashboard-managed overrides take effect. Existing env vars from .env
     are NOT overwritten unless they also exist in Firestore.
+
+    Records the keys it applied in _FIRESTORE_ENV_KEYS so validate_env() can
+    report which running values came from Firestore rather than agents/.env --
+    i.e. exactly the vars where the .env file on disk is misleading.
     """
     env_vars = get_all_env_vars()
     if not env_vars:
@@ -490,9 +527,15 @@ def sync_env_from_firestore():
     for key, value in env_vars.items():
         if value:
             os.environ[key] = value
+            _FIRESTORE_ENV_KEYS.add(key)
             count += 1
     if count:
         print(f"[FIRESTORE] Synced {count} env vars from Firestore to os.environ")
+
+
+def firestore_overridden_keys() -> set:
+    """Env var names whose running value came from Firestore, not agents/.env."""
+    return set(_FIRESTORE_ENV_KEYS)
 
 
 def get_pipeline_metrics(limit: int = 50) -> list:

@@ -480,11 +480,17 @@ def _estimate_scene_duration(block: str, format_type: str, total_scenes: int, ma
         importance = _score_narrative_importance(narration_text)
         pacing = _compute_pacing_multiplier(scene_index, total_scenes) if scene_index >= 0 else 1.0
         duration_from_narration *= importance * pacing
+        # Scene 0 is the hook. Viewers decide in the first couple of seconds, so the
+        # opening gets its own extra tightening and a lower floor than later scenes.
+        is_hook = scene_index == 0
+        if is_hook:
+            duration_from_narration *= 0.75
+        floor = 2.5 if is_hook else 4.0
         if format_type == "shorts":
             duration_from_narration = min(duration_from_narration, 15.0)
         else:
             duration_from_narration = min(duration_from_narration, 25.0)
-        return round(max(4.0, duration_from_narration), 1)
+        return round(max(floor, duration_from_narration), 1)
     if format_type == "shorts":
         total_seconds = float(max_duration) if max_duration else 60.0
     else:

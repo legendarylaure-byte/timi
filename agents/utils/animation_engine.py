@@ -38,7 +38,7 @@ def render_single_frame(scene: dict, format_type: str = "shorts") -> Image.Image
         style = t.get("style", "title")
         font_size = 48 if style == "title" else 28
         try:
-            font = ImageFont.truetype("/System/Library/Fonts/Helvetica.ttc", font_size)
+            font = ImageFont.truetype(os.getenv("FONT_PATH_BOLD") or "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf", font_size)
         except (OSError, IOError):
             font = ImageFont.load_default()
         color = (255, 255, 255) if sum(bg) < 384 else (12, 12, 24)

@@ -213,53 +213,215 @@ def generate_thumbnail_image(topic: str, thumbnail_text: str, format_type: str =
     }
 
 
+def _measure_image(path: str) -> dict:
+    """Measure REAL visual properties from pixels.
+
+    The old scorer derived every metric from `hash(loop_index)` — identical on every
+    run, unrelated to the image. A thumbnail has to be judged on what a viewer
+    actually sees, so measure the pixels: colourfulness, edge/detail density, and
+    luminance spread (flat art scores badly, which is the point).
+    """
+    out = {"colorfulness": 0.0, "edge_density": 0.0, "contrast": 0.0}
+    try:
+        from PIL import ImageFilter as _IF
+        import numpy as np
+        with Image.open(path) as im:
+            im = im.convert("RGB")
+            small = im.resize((160, 90), Image.BILINEAR)
+            arr = np.asarray(small).astype("float32")
+            r, g, b = arr[:, :, 0], arr[:, :, 1], arr[:, :, 2]
+            rg = np.abs(r - g)
+            yb = np.abs(0.5 * (r + g) - b)
+            out["colorfulness"] = float((np.sqrt(rg.std() ** 2 + yb.std() ** 2) + 0.3 * np.sqrt(rg.mean() ** 2 + yb.mean() ** 2)))
+            gray = np.asarray(small.convert("L")).astype("float32")
+            out["contrast"] = float(gray.std() / 128.0)
+            edges = np.asarray(small.convert("L").filter(_IF.FIND_EDGES)).astype("float32")
+            out["edge_density"] = float((edges > 24).mean())
+    except Exception:
+        pass
+    return out
+
+
 def _score_thumbnail(variant: dict) -> float:
+    """Score a thumbnail on measured properties. Higher is better."""
+    m = variant.get("measured") or {}
+    colorfulness = m.get("colorfulness", 0.0)
+    edge_density = m.get("edge_density", 0.0)
+    contrast = m.get("contrast", 0.0)
+
+    score = 20.0
+    # Colourful photos beat flat gradients.
+    score += min(colorfulness, 80.0) * 0.6
+    # Some detail is good (readable subject); a mush of noise is not.
+    if 0.04 <= edge_density <= 0.30:
+        score += 25.0
+    elif edge_density > 0.30:
+        score += max(0.0, 25.0 - (edge_density - 0.30) * 60.0)
+    # Luminance spread: the text has to read against it.
+    if 0.18 <= contrast <= 0.55:
+        score += 20.0
+    # Text length: YouTube thumbnails should be near-wordless. The old scorer
+    # REWARDED longer text, which is backwards.
     text_len = variant.get("text_length", 0)
-    contrast = variant.get("contrast", 0.5)
-    scheme_idx = variant.get("scheme_idx", 0)
-    score = 50
-    score += min(text_len * 2, 20)
-    if contrast > 0.3 and contrast < 0.9:
-        score += 15
-    if scheme_idx in (1, 4, 6):
-        score += 10
-    score += variant.get("blob_density", 5)
-    return score
+    if 0 < text_len <= 40:
+        score += 15.0
+    elif text_len > 70:
+        score -= 10.0
+    return round(score, 2)
+
+
+def _compose_thumbnail(background: str, title: str, out_path: str,
+                       format_type: str = "long", style: str = "abstract") -> str:
+    """Overlay the real title on a real background, cropped to the target aspect.
+
+    Keeps the text legible: draws a bottom scrim so white/yellow text reads over any
+    photo. Returns "" if it fails.
+    """
+    try:
+        from PIL import ImageEnhance
+        target = (1080, 1920) if format_type == "shorts" else (1280, 720)
+        tw, th = target
+        with Image.open(background) as src:
+            src = src.convert("RGB")
+            # Centre-crop the generated image to the target aspect (no letterboxing).
+            sw, sh = src.size
+            scale = max(tw / sw, th / sh)
+            nw, nh = max(tw, int(sw * scale + 0.5)), max(th, int(sh * scale + 0.5))
+            src = src.resize((nw, nh), Image.LANCZOS)
+            left, top = (nw - tw) // 2, (nh - th) // 2
+            src = src.crop((left, top, left + tw, top + th))
+            src = ImageEnhance.Color(src).enhance(1.15)
+            src = ImageEnhance.Contrast(src).enhance(1.08)
+
+            scrim_h = int(th * 0.34) if format_type != "shorts" else int(th * 0.26)
+            grad = Image.new("RGBA", (tw, th), (0, 0, 0, 0))
+            gd = ImageDraw.Draw(grad)
+            for i in range(scrim_h):
+                alpha = int(170 * (i / max(1, scrim_h - 1)))
+                gd.rectangle([(0, th - scrim_h + i), (tw, th - scrim_h + i + 1)], fill=(0, 0, 0, alpha))
+            src = src.convert("RGBA")
+            src.alpha_composite(grad)
+
+            draw = ImageDraw.Draw(src)
+            if style == "dark":
+                title_color, sub_color = (255, 255, 255), (0, 204, 204)
+            else:
+                title_color, sub_color = (255, 235, 59), (0, 204, 204)
+
+            tf = _find_font(96 if format_type == "shorts" else 76)
+            sf = _find_font(40)
+            max_w = int(tw * 0.88)
+            lines = _wrap_text(title, tf, max_w)[:4] if title else []
+            y = th - scrim_h + int(scrim_h * 0.12)
+            for line in lines:
+                _draw_text_shadow(draw, line, (tw // 2, y), tf, title_color)
+                y += tf.size + 8
+
+            _ensure_thumbnail_dir()
+            os.makedirs(os.path.dirname(out_path) or ".", exist_ok=True)
+            # JPEG: YouTube rejects thumbnails over 2MB and PNG art hits that fast.
+            src.convert("RGB").save(out_path, "JPEG", quality=92, optimize=True)
+        return out_path if os.path.exists(out_path) and os.path.getsize(out_path) > 2000 else ""
+    except Exception as e:
+        print(f"[THUMBNAIL] compose failed: {e}")
+        return ""
+
+
+def fit_under_2mb(path: str, limit: int = 2 * 1024 * 1024 - 4096) -> str:
+    """Shrink a thumbnail until YouTube's ~2MB limit accepts it. Returns the path."""
+    if not path or not os.path.exists(path):
+        return path
+    if os.path.getsize(path) <= limit:
+        return path
+    try:
+        with Image.open(path) as im:
+            im = im.convert("RGB")
+            quality, width = 92, im.width
+            while quality >= 40 and os.path.getsize(path) > limit:
+                tmp = path + ".tmp.jpg"
+                im.save(tmp, "JPEG", quality=quality, optimize=True)
+                os.replace(tmp, path)
+                if os.path.getsize(path) <= limit:
+                    break
+                quality -= 12
+                if quality < 40 and width > 640:
+                    # Still too big: downscale a notch and retry.
+                    width = max(640, int(width * 0.85))
+                    im = im.resize((width, int(im.height * width / im.width)), Image.LANCZOS)
+        print(f"[THUMBNAIL] Compressed to {os.path.getsize(path)}B (limit {limit}B)")
+    except Exception as e:
+        print(f"[THUMBNAIL] 2MB fit failed: {e}")
+    return path
 
 
 def generate_thumbnail_variants(topic: str, thumbnail_text: str, format_type: str = "shorts") -> dict:
-    variants = []
-    text_overlay = extract_text_overlay(thumbnail_text)
-    overlay = text_overlay or " ".join(topic.split()[:4])
-    styles = ["abstract", "dark"]
+    """Generate candidate thumbnails and return the one that actually measures best.
 
+    Candidates are real generated images (utils.image_gen, Pollinations by default)
+    with the title burned in. Falls back to the procedural art when image gen is
+    unavailable so the pipeline never breaks.
+    """
+    text_overlay = extract_text_overlay(thumbnail_text)
+    overlay = (text_overlay or " ".join(topic.split()[:4])).strip()
+
+    _ensure_thumbnail_dir()
+    from utils.image_gen import generate_variants
+
+    backgrounds = generate_variants(
+        prompt=f"{topic}. {overlay}",
+        out_dir=THUMBNAIL_DIR,
+        count=3,
+        width=1024,   # Pollinations pins output to 1024x576 regardless of request
+        height=576,
+        style="tech editorial photography",
+    )
+
+    variants = []
+    if backgrounds:
+        for i, bg in enumerate(backgrounds):
+            out = os.path.join(THUMBNAIL_DIR, f"thumb_{format_type}_ai_{i}.jpg")
+            if _compose_thumbnail(bg, overlay, out, format_type=format_type, style="photo"):
+                variants.append({
+                    "path": out,
+                    "style": "photo_ai",
+                    "text_length": len(overlay),
+                    "background": bg,
+                })
+        if variants:
+            for v in variants:
+                v["measured"] = _measure_image(v["path"])
+                v["score"] = _score_thumbnail(v)
+            variants.sort(key=lambda x: x["score"], reverse=True)
+            return {
+                "best": variants[0]["path"],
+                "variants": [v["path"] for v in variants],
+                "count": len(variants),
+                "source": "image_gen",
+            }
+        print("[THUMBNAIL] Image gen produced no usable background, using procedural art")
+
+    # Fallback: the original procedural art, now measured instead of hash-scored.
+    styles = ["abstract", "dark", "abstract"]
     for i in range(3):
         style = styles[i % len(styles)]
-        scheme_idx = (hash(topic + str(i)) % len(COLOR_SCHEMES))
         out = f"thumb_{format_type}_{hash(topic + str(i)) % 100000}.png"
         result = generate_thumbnail_image(topic, thumbnail_text, format_type, out, style=style)
         if result["success"]:
-            blob_density = 5 + (hash(str(i)) % 10)
             variants.append({
                 "path": result["path"],
-                "scheme_idx": scheme_idx,
-                "text_length": len(overlay),
-                "contrast": 0.4 + (hash(str(i)) % 30) / 100,
-                "blob_density": blob_density,
                 "style": style,
-                "score": 0,
+                "text_length": len(overlay),
             })
-
     for v in variants:
+        v["measured"] = _measure_image(v["path"])
         v["score"] = _score_thumbnail(v)
-
     variants.sort(key=lambda x: x["score"], reverse=True)
-    best = variants[0] if variants else None
 
     return {
-        "best": best["path"] if best else None,
+        "best": variants[0]["path"] if variants else None,
         "variants": [v["path"] for v in variants],
         "count": len(variants),
+        "source": "procedural",
     }
 
 
@@ -442,13 +604,37 @@ def generate_thumbnail_from_video(video_path: str, title: str, format_type: str 
 
 
 def pick_best_thumbnail(answer_path: str, video_path: str, title: str, format_type: str) -> str:
-    """Preferred: video frame thumbnail. Fallback: abstract art thumbnail."""
-    result = generate_thumbnail_from_video(video_path, title, format_type)
-    if result["success"]:
-        print(f"[THUMBNAIL] Generated video-frame thumbnail: {result['path']}")
-        return result["path"]
-    print(f"[THUMBNAIL] Video frame failed, using abstract art")
-    return answer_path
+    """Pick the best available thumbnail.
+
+    The old version ignored the generated variants entirely and always returned a
+    blurred video frame, throwing away the work of generate_thumbnail_variants().
+    Now: use the best generated variant when we have one, and only fall back to the
+    video frame / procedural art when there isn't.
+    """
+    chosen = answer_path
+    if answer_path and os.path.exists(answer_path):
+        try:
+            measured = _measure_image(answer_path)
+            if _score_thumbnail({"measured": measured, "text_length": len(title or "")}) > 0:
+                chosen = answer_path
+        except Exception:
+            chosen = answer_path
+
+    if video_path and os.path.exists(video_path):
+        result = generate_thumbnail_from_video(video_path, title, format_type)
+        if result["success"] and os.path.exists(result["path"]):
+            # A video frame is a real photo but carries no title text, so only take
+            # it when we have nothing better.
+            if not chosen or not os.path.exists(chosen):
+                chosen = result["path"]
+                print(f"[THUMBNAIL] Using video-frame thumbnail: {chosen}")
+            else:
+                print("[THUMBNAIL] Keeping generated variant over video frame")
+
+    if not chosen:
+        print("[THUMBNAIL] No usable thumbnail")
+
+    return fit_under_2mb(chosen) if chosen else ""
 
 
 def _get_thumbnail_style_from_path(path: str) -> str:
