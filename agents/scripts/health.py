@@ -18,7 +18,11 @@ load_dotenv()
 
 from utils.health_monitor import check_stale_heartbeat
 from utils.firebase_status import get_firestore_client
-from utils.voice_provider import GoogleCloudTTSProvider
+from utils.voice_provider import (
+    GoogleCloudTTSProvider,
+    DEFAULT_VOICE_PROVIDER,
+    VALID_VOICE_PROVIDERS,
+)
 from models.registry import get_video_model
 
 OK = "OK"
@@ -143,7 +147,9 @@ def _check_ltx() -> tuple:
 
 
 def _check_tts() -> tuple:
-    provider = os.getenv("VOICE_PROVIDER", "edge")
+    provider = (os.getenv("VOICE_PROVIDER") or DEFAULT_VOICE_PROVIDER).strip().lower()
+    if provider not in VALID_VOICE_PROVIDERS:
+        return (FAIL, f"unknown VOICE_PROVIDER={provider!r} (valid: {', '.join(VALID_VOICE_PROVIDERS)})")
     if provider == "google":
         try:
             g = GoogleCloudTTSProvider()
@@ -152,7 +158,11 @@ def _check_tts() -> tuple:
             return (FAIL, "Google TTS creds missing")
         except Exception as e:
             return (FAIL, str(e)[:60])
-    return (OK, "edge-tts (default)")
+    if provider == "kokoro":
+        return (OK, "kokoro (local; downloads multi-GB weights on first use)")
+    if os.getenv("VOICE_PROVIDER"):
+        return (OK, "edge-tts (from env)")
+    return (WARN, f"VOICE_PROVIDER unset - defaulting to {DEFAULT_VOICE_PROVIDER}")
 
 
 def _check_python_version() -> tuple:

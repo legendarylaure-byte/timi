@@ -73,6 +73,48 @@ def test_score_content_empty_script(mock_llm, mock_firebase):
     assert isinstance(result, dict)
 
 
+def test_score_content_valid_json_missing_overall_score(mock_firebase):
+    """Regression: 2026-09-25 "FAILED at long_video_pipeline: [quality_scoring]
+    'overall_score'". extract_json() does no schema validation, so an LLM that
+    returns well-formed JSON missing a key used to raise an uncaught KeyError at
+    `result['overall_score']` (quality_scorer.py) / `quality["overall_score"]`
+    (main.py save_checkpoint) and kill the whole video pipeline.
+    Must fall back, not crash."""
+    from utils.quality_scorer import score_content
+    with patch("utils.quality_scorer.generate_completion") as m:
+        m.return_value = '{"breakdown": {"clarity": 80}, "feedback": "partial"}'
+        result = score_content("A reasonably long script about neural networks.", "Title", "AI", "long")
+    assert isinstance(result, dict)
+    for key in ("overall_score", "breakdown", "flags", "recommendation"):
+        assert key in result, f"fallback dropped required key: {key}"
+    assert 0 <= result["overall_score"] <= 100
+
+
+def test_score_content_valid_json_missing_breakdown(mock_firebase):
+    """Partial dict missing a different key must also fall back."""
+    from utils.quality_scorer import score_content
+    with patch("utils.quality_scorer.generate_completion") as m:
+        m.return_value = '{"overall_score": 91}'
+        result = score_content("A reasonably long script about neural networks.", "Title", "AI", "shorts")
+    assert "breakdown" in result
+    assert "flags" in result
+    assert "recommendation" in result
+
+
+def test_score_content_complete_json_is_not_discarded(mock_llm, mock_firebase):
+    """Guard against over-correcting: a schema-complete LLM answer must be
+    used as-is, not silently replaced by the heuristic fallback."""
+    from utils.quality_scorer import score_content
+    with patch("utils.quality_scorer.generate_completion") as m:
+        m.return_value = """
+        {"overall_score": 77, "breakdown": {"clarity": 70, "accuracy": 80},
+         "flags": [], "recommendation": "approve", "feedback": "good"}
+        """
+        result = score_content("A reasonably long script about neural networks.", "Title", "AI", "long")
+    assert result["overall_score"] == 77
+    assert "Local heuristic score" not in str(result.get("feedback", ""))
+
+
 def test_score_content_long_format(mock_llm, mock_firebase):
     from utils.quality_scorer import score_content
     result = score_content("Long script " * 50, "Long Video", "Deep Tech", "long")

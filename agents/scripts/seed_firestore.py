@@ -13,7 +13,15 @@ if sa_key:
     cred = credentials.Certificate(json.loads(base64.b64decode(sa_key)))
 else:
     cred = credentials.Certificate(sa_path)
-project_id = os.getenv('FIREBASE_PROJECT_ID', 'timi-ai-tech')
+# Matches utils/firebase_status.py. The old 'timi-ai-tech' default pointed at a
+# different project, so running this without FIREBASE_PROJECT_ID set would seed
+# the wrong Firestore (or fail confusingly). Nothing here justifies a guess.
+project_id = os.getenv('FIREBASE_PROJECT_ID')
+if not project_id:
+    raise SystemExit(
+        "FIREBASE_PROJECT_ID is required - refusing to guess a project id. "
+        "Set it to timi-childern-stories (or your own project)."
+    )
 firebase_admin.initialize_app(cred, {
     'projectId': project_id,
 })

@@ -75,7 +75,8 @@ def test_pull_all_video_analytics_skips_non_uploaded(
     col.order_by.return_value.limit.return_value.stream.return_value = docs
     from utils.youtube_analytics import pull_all_video_analytics
     result = pull_all_video_analytics()
-    assert result == {"processed": 0, "failed": 0}
+    assert result["processed"] == 0 and result["failed"] == 0
+    assert result["videos"] == []
     mock_fetch_stats.assert_not_called()
 
 
@@ -99,7 +100,11 @@ def test_pull_all_video_analytics_processes_uploaded(
     mock_fetch_stats.return_value = {"views": 100, "likes": 5, "comments": 2, "favorites": 0}
     from utils.youtube_analytics import pull_all_video_analytics
     result = pull_all_video_analytics()
-    assert result == {"processed": 1, "failed": 0}
+    assert result["processed"] == 1 and result["failed"] == 0
+    # P1: the per-video rows must be in the result; callers index result["videos"].
+    assert len(result["videos"]) == 1
+    assert result["videos"][0]["video_id"] == "v1"  # Firestore doc id
+    assert result["videos"][0]["views"] == 100
     mock_fetch_stats.assert_called_once_with("dQw4w9WgXcQ")
     mock_update.assert_called_once_with("v1", {"views": 100, "likes": 5, "comments": 2, "favorites": 0})
 
@@ -114,7 +119,8 @@ def test_pull_all_video_analytics_no_credentials(
     mock_get_creds.return_value = None
     from utils.youtube_analytics import pull_all_video_analytics
     result = pull_all_video_analytics()
-    assert result == {"processed": 0, "failed": 0}
+    assert result["processed"] == 0 and result["failed"] == 0
+    assert result["videos"] == []
     mock_get_firestore.assert_not_called()
 
 
