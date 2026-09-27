@@ -9,20 +9,26 @@
 5. **Title caps are inclusive.** Implemented `<=60` (shorts) / `<=40` (longs); the original directive was strict `<60` / `<40`. Unconfirmed which is wanted.
 
 **Publishing / rate limits**
-6. **Zero rate headroom in the daily run.** `subprocess_helper.rate_limiter` is in-memory per process, default 10/hr, but TikTok/Instagram/Facebook each call it at `max_per_hour=5`. A 5-video slate needs exactly 5 per platform, so a 6th upload in the same window **fails silently** (`success: False`, no exception). The limiter resets on any container restart, so this is per-deploy luck, not a designed budget.
+6. **Zero rate headroom in the daily run.** `subprocess_helper.rate_limiter` is in-memory per process, default 10/hr, but TikTok/Instagram/Facebook each call it at `max_per_hour=5`. A 5-video slate needs exactly 5 per platform, so a 6th upload in the same window **fails silently** (`success: False`, no exception). The limiter resets on any container restart, so this is per-deploy luck, not a designed budget. **Partial mitigation, verified 09-27:** `multi_platform_publisher.py:894` staggers every platform by `PLATFORM_UPLOAD_DELAY` (default 60s) *and within* a video's platforms, so 5 videos spread over minutes rather than bursting — this is why the last three runs held 4/4. It reduces the risk, it does not remove it: a 6th video published in the same hour would still be refused.
 7. **Token-refresh race.** `_refresh_tiktok_token` / `_refresh_facebook_token` can run in two processes at once and both write back to Firestore; a stale write would clobber a fresh token. Only reachable on a 401, so low probability, high blast radius.
 8. **TikTok publishes private.** `TIKTOK_PRIVACY_LEVEL=SELF_ONLY` until the Direct Post app audit is granted; flip to `PUBLIC_TO_EVERYONE` after.
 9. **Description + tags are not persisted** to Firestore, so any re-publish of an already-rendered video must regenerate both. Title *is* persisted.
+10. **Overnight alert gap.** `check_pipeline_health_alert`, `check_staleness` and `check_daily_volume` all live in `daily_analytics_job`, which is a cron at **08:00 UTC only** (`main.py:3813`). The video run works 15:05 → ~04:00, so a failure at 02:00 is silent for ~6h. Slack is the only working channel (`SLACK_WEBHOOK_URL` set; `TELEGRAM_*` unset, confirming the D28 switch). Verified 09-27. Fix would be scheduling the volume guard periodically instead of once at 08:00 — not built.
+11. **Viral TikTok photo posts are silently absent.** The viral agent is healthy on Facebook + Instagram (3/3 posts on 09-27, `ok=['facebook','instagram']`; 5/5/day on 09-22→09-26), but `_tt_post_photo` never lands: PULL_FROM_URL needs a domain verified in the TikTok dev portal and R2 hosts (`*.r2.cloudflarestorage.com`, `pub-*.r2.dev`) cannot be verified. Non-fatal by design, so the missing platform drops out of `platform_results` without failing the post. Needs a Cloudflare R2 custom domain + portal verification + `VIRAL_IMAGE_URL_BASE`. See D33.
 
 **Housekeeping**
-10. **Dependabot PR #165 open** — auto-close needs a token with `addComment` + `closePullRequest`; current token lacks both. Pin `pin_dependencies=false` or close manually.
-11. **Two demo records read as failures.** `manual-long` / `manual-shorts` sit in Firestore as `status: upload_failed` with no youtube_url. They will trip any "failed today" check. Relabel or delete before trusting a failure count.
-12. **`agents/output/demo_assets/` is untracked** (long SRT + short thumb, ~170KB). Commit or gitignore deliberately.
+12. **Dependabot PR #165 open** — auto-close needs a token with `addComment` + `closePullRequest`; current token lacks both. Pin `pin_dependencies=false` or close manually.
+13. **Two demo records read as failures.** `manual-long` / `manual-shorts` sit in Firestore as `status: upload_failed` with no youtube_url. They will trip any "failed today" check. Relabel or delete before trusting a failure count.
+14. **`agents/output/demo_assets/` is untracked** (long SRT + short thumb, ~170KB). Commit or gitignore deliberately.
 
 **Never started**
-13. External legacy-color HTML logo sources in the dashboard (two found by audit, not yet fixed).
-14. Held-story fallback: when rank 1 is already posted, check rank 2 before discarding.
-15. Watermark on localized/dubbed output — pilot dark, so low priority, but it must be checked before the pilot goes live.
+15. External legacy-color HTML logo sources in the dashboard (two found by audit, not yet fixed).
+16. Held-story fallback: when rank 1 is already posted, check rank 2 before discarding.
+17. Watermark on localized/dubbed output — pilot dark, so low priority, but it must be checked before the pilot goes live.
+
+**Verification discipline (learned 09-27, two false alarms)**
+- **Never assert a field is absent before checking the real field name.** Two "the pipeline is broken" calls were bad queries, not faults: (a) sorting `viral_news_posts` on `timestamp`, which does not exist, made a healthy collection look empty and hid posts from *today*; (b) reading top-level `facebook_url`/`instagram_url` when the publisher actually writes a `publish_urls` dict + `published_platforms` list, making 4/4 publishes look like 2/4. Confirm with a full `to_dict()` dump before concluding a field is missing.
+- **The same trap applies to pixel proxies**: a luma>230 ("white text") threshold reported zero burned captions on videos that had 274,719 amber pixels. Measure the actual design colour, or diff two renders. See D37d.
 
 ## Latest Changes (committed)
 
