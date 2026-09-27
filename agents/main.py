@@ -2709,7 +2709,16 @@ def _platforms_to_publish() -> list:
     are configured in Firestore env_vars, which overrides .env at boot — if this
     ever returns just ['youtube'] in production, PLATFORMS_TO_PUBLISH is unset and
     _env_drift_report() will say so.
+
+    DEMO_RENDER_ONLY short-circuits to [] so a video can be rendered, measured
+    and eyeballed without going public. Demo sign-off is a human gate, and
+    PLATFORMS_TO_PUBLISH cannot be used to hold it: that key lives in Firestore
+    env_vars, so sync_env_from_firestore() overwrites any value handed to
+    `docker run -e` before a single line of pipeline code runs. A key Firestore
+    does not hold is never clobbered, which is why this is a separate switch.
     """
+    if os.getenv("DEMO_RENDER_ONLY", "").strip().lower() in ("1", "true", "yes"):
+        return []
     raw = os.getenv("PLATFORMS_TO_PUBLISH", "youtube")
     return [p.strip().lower() for p in raw.split(",") if p.strip()]
 

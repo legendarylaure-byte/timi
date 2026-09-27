@@ -328,3 +328,42 @@ def test_all_failed_run_does_not_fall_back_to_yesterday():
     assert alert["detail"]["published"] == 0
     assert alert["severity"] == "error"
     assert alert["detail"]["docs_seen"] == 5
+
+
+def test_demo_render_only_suppresses_publishing():
+    """Demo sign-off is a human gate: render and measure, but do not go public.
+
+    Deliberately NOT implemented as a PLATFORMS_TO_PUBLISH override. That key
+    lives in Firestore env_vars, and sync_env_from_firestore() runs
+    unconditionally at import, so `docker run -e PLATFORMS_TO_PUBLISH=,` is
+    silently reverted before the pipeline starts -- which looks like the switch
+    worked right up until the upload lands.
+    """
+    try:
+        from main import _platforms_to_publish
+    except Exception as e:  # pragma: no cover - host-only
+        import pytest
+
+        pytest.skip(f"main not importable here: {e}")
+
+    old = dict(os.environ)
+    try:
+        # Firestore will have set this to all four platforms in production.
+        os.environ["PLATFORMS_TO_PUBLISH"] = "youtube,tiktok,facebook,instagram"
+        os.environ.pop("DEMO_RENDER_ONLY", None)
+        assert _platforms_to_publish() == [
+            "youtube", "tiktok", "facebook", "instagram"
+        ], "unset switch must not change production routing"
+
+        for truthy in ("1", "true", "TRUE", "yes"):
+            os.environ["DEMO_RENDER_ONLY"] = truthy
+            assert _platforms_to_publish() == [], f"{truthy!r} must yield no platforms"
+
+        for falsy in ("", "0", "false", "no"):
+            os.environ["DEMO_RENDER_ONLY"] = falsy
+            assert _platforms_to_publish() == [
+                "youtube", "tiktok", "facebook", "instagram"
+            ], f"{falsy!r} must not suppress publishing"
+    finally:
+        os.environ.clear()
+        os.environ.update(old)
