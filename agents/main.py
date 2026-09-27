@@ -649,6 +649,31 @@ def _env_drift_report() -> None:
             "warn",
         )
 
+    # The two SCHEDULE_* vars are PILLAR counts, so their sum is not daily volume:
+    # news adds 2 shorts + 1 long, and the news long consumes a GPU slot that the
+    # budget would otherwise give a pillar long. Printing the derived slate is the
+    # only way to see the real 3/2/5 without doing the arithmetic in your head.
+    try:
+        from utils.scheduler_planner import daily_slate
+        _s = daily_slate()
+        log_event(
+            "ENV",
+            f"Daily slate: {_s['total']}/day = {_s['shorts']} short + {_s['longs']} long "
+            f"(pillar {_s['pillar_shorts']}+{_s['pillar_long_slots']}, news "
+            f"{_s['news_shorts']}+{_s['news_longs']}, GPU budget {_s['gpu_budget']})",
+            "info",
+        )
+        if _s["pillar_longs"] != _s["pillar_long_slots"]:
+            log_event(
+                "ENV",
+                f"GPU budget {_s['gpu_budget']} means only {_s['pillar_long_slots']} of "
+                f"{_s['pillar_longs']} configured pillar longs are buildable "
+                f"(news long takes the first slot)",
+                "warn",
+            )
+    except Exception as slate_err:
+        log_event("ENV", f"Daily slate not derivable: {slate_err}", "warn")
+
 
 def validate_env():
     """Validate required env vars at startup. Log warnings for missing critical vars."""
@@ -777,12 +802,22 @@ def _rewrite_on_director_fix(review: dict, topic: str, category: str, fmt: str, 
         return script_text
 
 
-def _pick_best_title(variants, topic: str, category: str = "") -> str:
+def _pick_best_title(variants, topic: str, category: str = "", fmt: str = "") -> str:
     """Pick the highest-scoring title from CrewAI variants instead of blindly [0].
     Falls back to the topic when nothing usable exists."""
     from utils.title_optimizer import score_title, is_garbage_title
     if isinstance(topic, dict):
         topic = topic.get("title", "")
+    # Shorts and longs have different display surfaces. A Shorts title is read
+    # on a phone above a vertical video and anything past ~60 chars is cut off
+    # in the feed; a long-form title has room for ~40 before YouTube truncates
+    # the important half. Long titles were the visible symptom of this: they
+    # also inflated clickbait-y variants the scorer rewarded.
+    cap = 100
+    if fmt == "short":
+        cap = 60
+    elif fmt == "long":
+        cap = 40
     vals = []
     for v in (variants or []):
         if isinstance(v, dict):
@@ -797,11 +832,14 @@ def _pick_best_title(variants, topic: str, category: str = "") -> str:
         return topic or "Untitled"
     scored = [(score_title(t, [category]), t) for t in vals]
     scored.sort(key=lambda x: x[0]["score"], reverse=True)
-    best = scored[0][1]
+    # Prefer a title that fits: an over-length winner is worse than a slightly
+    # lower-scoring variant that renders whole, so shortlist on length first.
+    fitting = [t for _s, t in scored if len(t) <= cap]
+    best = (fitting[0] if fitting else scored[0][1])
     # YouTube API hard-caps titles at 100 chars; LLMs can't count, so enforce at the choke point.
-    if len(best) > 100:
-        cut = best[:100].rsplit(" ", 1)[0].rstrip()
-        best = (cut or best[:100]).rstrip()
+    if len(best) > cap:
+        cut = best[:cap].rsplit(" ", 1)[0].rstrip()
+        best = (cut or best[:cap]).rstrip()
     return best
 
 
@@ -1804,7 +1842,7 @@ def generate_short_video(topic: str, category: str, video_id: str, publish_at: s
         failed_step = "publishing"
         with _track_step(video_id, "publishing"):
             platforms_to_publish = _platforms_to_publish()
-            best_title = _pick_best_title(title_variants, topic, category)
+            best_title = _pick_best_title(title_variants, topic, category, "short")
             publish_result = multi_platform_publish(
                 video_id=video_id,
                 title=best_title,
@@ -2422,7 +2460,7 @@ def generate_long_video(topic: str, category: str, video_id: str, publish_at: st
         failed_step = "publishing"
         with _track_step(video_id, "publishing"):
             platforms_to_publish = _platforms_to_publish()
-            best_title = _pick_best_title(title_variants, topic, category)
+            best_title = _pick_best_title(title_variants, topic, category, "long")
             publish_result = multi_platform_publish(
                 video_id=video_id,
                 title=best_title,
@@ -2856,10 +2894,26 @@ def daily_content_job():
 
     retry_queue = get_retry_queue()
     if retry_queue:
+        # ponytail: was retry_queue[:2]. D30 (2026-09-15) lost 4/5 videos to a
+        # shared temp-file race; a hard cap of 2 meant two failures were simply
+        # never retried and the day shipped short with no record of why. Cap by
+        # wall clock instead -- drop entries as they are consumed, so however
+        # many are queued, as many as fit in the budget get a real attempt.
+        retry_budget_s = max(int(os.getenv("RETRY_BUDGET_MINUTES", "45")), 1) * 60
+        retry_started = time.time()
         log_event("SCHEDULER", f"Processing {len(retry_queue)} retries from queue")
-        for retry_entry in retry_queue[:2]:
+        for _i, retry_entry in enumerate(retry_queue):
+            if time.time() - retry_started > retry_budget_s:
+                skipped = len(retry_queue) - _i
+                log_event(
+                    "SCHEDULER",
+                    f"Retry budget {retry_budget_s // 60}m exhausted: deferred "
+                    f"{skipped} entr{'y' if skipped == 1 else 'ies'} to the next run",
+                    "warn",
+                )
+                break
             process_retry(retry_entry['id'])
-            log_event("SCHEDULER", f"Retrying: {retry_entry['topic']}")
+            log_event("SCHEDULER", f"Retried: {retry_entry['topic']}")
 
     video_date = datetime.utcnow().strftime('%Y%m%d')
     pipeline_jobs = []
@@ -2990,6 +3044,27 @@ def daily_content_job():
         })
 
     log_event("SCHEDULER", f"Planned {len(pipeline_jobs)} pipelines ({sum(1 for j in pipeline_jobs if not j['gpu'])} shorts, {sum(1 for j in pipeline_jobs if j['gpu'])} longs)")
+
+    # Self-audit: the plan is built from several independent config reads plus
+    # source availability, so a short plan is silent by default. Compare against
+    # the same slate the post-run guard will use, so a shortfall is reported
+    # *before* five hours of rendering instead of being discovered next morning.
+    try:
+        from utils.scheduler_planner import daily_slate
+        _slate_check = daily_slate()
+        _planned_short = sum(1 for j in pipeline_jobs if not j["gpu"])
+        _planned_long = sum(1 for j in pipeline_jobs if j["gpu"])
+        if len(pipeline_jobs) < _slate_check["total"]:
+            msg = (
+                f"Plan under-filled: {len(pipeline_jobs)}/{_slate_check['total']} "
+                f"(shorts {_planned_short}/{_slate_check['shorts']}, "
+                f"longs {_planned_long}/{_slate_check['longs']}) -- "
+                f"check news scrape + pillar topics + GPU budget"
+            )
+            send_alert(msg, "warning")
+            log_event("ALERT", msg, "warn")
+    except Exception as plan_err:
+        log_event("ALERT", f"Plan self-audit failed: {plan_err}", "warn")
 
     # ponytail: news jobs are mandatory daily slots AND carry a specific verified article
     # (which plain schedule_topic() drops). Re-run a failed news job serially with the
@@ -3192,34 +3267,40 @@ def daily_analytics_job():
             except Exception:
                 pass
 
-            # Missed-slot / daily-volume guard — verifies the scheduled 5/day landed
+            # Missed-slot / daily-volume guard — verifies the scheduled 5/day landed.
+            # Target comes from daily_slate(), NOT SCHEDULE_*_PER_DAY: those are
+            # pillar counts and the news long consumes a GPU slot, so their sum
+            # (3) understates real daily volume (5) and the old guard passed on a
+            # day that shipped 3 of 5. It also compared format == "short" against
+            # docs stored as "shorts", so per-format counts were always 0.
             try:
-                target_short = int(os.getenv("SCHEDULE_SHORTS_PER_DAY", "1"))
-                target_long = int(os.getenv("SCHEDULE_LONG_PER_DAY", "2"))
-                target_total = target_short + target_long
-                if db:
-                    cutoff = datetime.utcnow() - timedelta(hours=26)
-                    published = 0
-                    short_count, long_count = 0, 0
-                    _snap = db.collection("videos").where(
-                        "created_at", ">=", cutoff
-                    ).stream()
-                    for _doc in _snap:
-                        _v = _doc.to_dict() or {}
-                        if _v.get("status") in ("uploaded", "scheduled", "published", "completed"):
-                            published += 1
-                            if _v.get("format") == "short":
-                                short_count += 1
-                            elif _v.get("format") == "long":
-                                long_count += 1
-                    if published < target_total:
-                        msg = (f"Missed-slot warning: only {published} video(s) in last 26h "
-                               f"(target {target_total}; shorts {short_count}/{target_short}, "
-                               f"longs {long_count}/{target_long})")
-                        send_alert(msg, "warning")
-                        log_event("ALERT", msg, "warn")
-            except Exception:
-                pass
+                from utils.scheduler_planner import daily_slate
+                from utils.alert_manager import check_daily_volume
+
+                _slate = daily_slate()
+                cutoff = datetime.utcnow() - timedelta(hours=26)
+                _docs = [
+                    _d.to_dict() or {}
+                    for _d in db.collection("videos")
+                    .where("created_at", ">=", cutoff)
+                    .stream()
+                ] if db else []
+
+                _vol_alert = check_daily_volume(_docs, _slate)
+                if _vol_alert:
+                    send_alert(_vol_alert["message"], _vol_alert["severity"])
+                    log_event("ALERT", _vol_alert["message"], "warn")
+                else:
+                    log_event(
+                        "ALERT",
+                        f"Daily volume OK: {_slate['shorts']} short + {_slate['longs']} long "
+                        f"expected ({_slate['total']}/day)",
+                        "debug",
+                    )
+            except Exception as vol_err:
+                # Previously `except Exception: pass` -- a guard that cannot fail
+                # loudly is not a guard. Log it so a broken target is visible.
+                log_event("ALERT", f"Daily-volume guard failed: {vol_err}", "warn")
         except Exception as alert_err:
             log_event("ALERT", f"Alert checks failed: {alert_err}", "debug")
     except Exception as e:

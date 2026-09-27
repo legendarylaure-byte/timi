@@ -63,3 +63,63 @@ def test_pick_best_title_keeps_good_variant_among_garbage():
     from main import _pick_best_title
     variants = [REAL_GARBAGE, "How Neural Networks Actually Learn"]
     assert _pick_best_title(variants, "fallback topic", "AI News") == "How Neural Networks Actually Learn"
+
+
+# --------------------------------------------------------------------------
+# Per-format length caps
+#
+# Shorts and longs have different display surfaces. A Shorts title is read on a
+# phone above a vertical video and is cut off in the feed past ~60 chars; a
+# long-form title loses its second half past ~40. Both were unconstrained and
+# the 100-char YouTube API cap was the only limit, so titles routinely ran long.
+# --------------------------------------------------------------------------
+
+def _pad(word: str, n: int) -> str:
+    return " ".join([word] * n)
+
+
+def test_short_title_is_capped_at_60():
+    from main import _pick_best_title
+    long_one = _pad("quantum", 14)          # 96 chars
+    assert len(long_one) > 60
+    out = _pick_best_title([long_one], "fallback", "AI News", "short")
+    assert len(out) <= 60, f"shorts title {len(out)} chars: {out!r}"
+
+
+def test_long_title_is_capped_at_40():
+    from main import _pick_best_title
+    long_one = _pad("transformer", 10)      # 111 chars
+    assert len(long_one) > 40
+    out = _pick_best_title([long_one], "fallback", "AI News", "long")
+    assert len(out) <= 40, f"long title {len(out)} chars: {out!r}"
+
+
+def test_unknown_format_keeps_the_100_char_api_cap():
+    """Backwards compatible: no fmt means the original 100-char behaviour."""
+    from main import _pick_best_title
+    long_one = _pad("model", 30)            # 149 chars
+    out = _pick_best_title([long_one], "fallback", "AI News")
+    assert len(out) <= 100, f"{len(out)} chars"
+    assert len(out) > 60, "unknown format should not inherit the short cap"
+
+
+def test_fitting_variant_beats_longer_higher_scoring_one():
+    """A truncated winner is worse than a slightly lower-scoring title that fits.
+
+    The scorer rewards power words and length; without a length shortlist the
+    top-scored variant always won and then got chopped mid-word.
+    """
+    from main import _pick_best_title
+    long_scoring = "The SHOCKING Truth About AI That Nobody Tells You About Transformers"
+    short_fitting = "Why AI Transformers Fail"
+    assert len(long_scoring) > 60
+    out = _pick_best_title([long_scoring, short_fitting], "fallback", "AI News", "short")
+    assert out == short_fitting, f"picked {out!r}"
+
+
+def test_truncation_never_leaves_a_dangling_word():
+    from main import _pick_best_title
+    filler = " ".join(["alpha"] * 20)       # no spaces near the boundary to test
+    out = _pick_best_title([filler], "fallback", "AI News", "long")
+    assert out == out.strip()
+    assert not out.endswith(" ") and len(out) <= 40

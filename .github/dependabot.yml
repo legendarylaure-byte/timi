@@ -9,6 +9,30 @@ updates:
     labels:
       - "dependencies"
       - "python"
+    # The agent stack is one coupled cluster, not eight independent packages, so
+    # per-package bumps are not reviewable. This was not theoretical: Dependabot
+    # opened PR #165 (run 36245840881) bumping litellm 1.53.3 -> 1.93.0, which
+    # requires openai>=1.99, so it could not resolve against the openai==1.55.0
+    # pin and the job failed on a conflict every single week. As of 2026-09-27,
+    # current PyPI is litellm 1.102.1 (needs openai>=2.20.0) and openai 3.19.2 --
+    # two majors past the pin, and langchain-openai 0.2.11 does not span it.
+    #
+    # Ignored deliberately: a coordinated bump is the only safe path, verified by
+    # the pytest suite plus the 11 in-container selfchecks, because D23 tuned
+    # behaviour against these exact versions (qwen2.5:7b routing, the
+    # empty_response_fallback provider rotation, force_fallback on TimeoutError).
+    # Everything not listed here still updates weekly and is where the value is.
+    # Upgrade path: move openai + litellm + langchain* + crewai* in one PR, run
+    # `agents/scripts/verify.sh`, then delete these entries.
+    ignore:
+      - dependency-name: "openai"
+      - dependency-name: "litellm"
+      - dependency-name: "langchain"
+      - dependency-name: "langchain-core"
+      - dependency-name: "langchain-community"
+      - dependency-name: "langchain-openai"
+      - dependency-name: "crewai"
+      - dependency-name: "crewai-tools"
 
   - package-ecosystem: "pip"
     directory: "/bot"

@@ -424,6 +424,60 @@ def _apply_pillar_balance(plan: list) -> list:
         return plan
 
 
+def daily_slate() -> dict:
+    """What the daily run will actually enqueue, derived from config.
+
+    This exists because `SCHEDULE_SHORTS_PER_DAY` / `SCHEDULE_LONG_PER_DAY` are
+    **pillar** counts. Daily volume is NOT their sum: `ENABLE_NEWS` adds a World
+    short, a Nepal short and a news long on top, and the news long is charged
+    against `GPU_VIDEO_BUDGET_PER_DAY` *before* the pillar-long loop, so it eats a
+    slot the budget would otherwise have given a pillar long.
+
+    On the production config that is 3 shorts + 2 longs = 5, not the 1 + 2 = 3
+    the old guard compared against. That arithmetic bug is why 2026-09-25
+    shipped 3 of 5 videos and raised no alert: the target was wrong, the format
+    string was wrong ('short' vs the stored 'shorts'), and the whole block sat
+    behind `except Exception: pass`.
+
+    Mirrors `daily_content_job`'s enqueue order. This is the single place the
+    arithmetic lives -- do not re-derive it at a call site.
+    """
+    import os as _os
+
+    def _int(name: str, default: int) -> int:
+        try:
+            return int(_os.getenv(name, "") or default)
+        except (TypeError, ValueError):
+            return default
+
+    pillar_shorts = max(_int("SCHEDULE_SHORTS_PER_DAY", 1), 0)
+    pillar_longs = max(_int("SCHEDULE_LONG_PER_DAY", 2), 0)
+    gpu_budget = max(_int("GPU_VIDEO_BUDGET_PER_DAY", pillar_longs), 0)
+    news_on = (_os.getenv("ENABLE_NEWS", "true") or "true").lower() == "true"
+
+    news_shorts = 2 if news_on else 0   # World + Nepal
+    news_longs = 1 if news_on else 0    # charged against the GPU budget first
+
+    # The pillar-long loop breaks on `pillars_so_far + news_longs >= budget`, so
+    # the news long consumes a slot before any pillar long is considered.
+    pillar_long_slots = max(min(pillar_longs, gpu_budget - news_longs), 0)
+
+    shorts = pillar_shorts + news_shorts
+    longs = pillar_long_slots + news_longs
+    return {
+        "pillar_shorts": pillar_shorts,
+        "pillar_longs": pillar_longs,
+        "pillar_long_slots": pillar_long_slots,
+        "news_shorts": news_shorts,
+        "news_longs": news_longs,
+        "gpu_budget": gpu_budget,
+        "news_enabled": news_on,
+        "shorts": shorts,
+        "longs": longs,
+        "total": shorts + longs,
+    }
+
+
 def generate_content_plan(force_llm: bool = False, slot: str = "", extra_context: str = "") -> list:
     logger.info("Generating content plan...")
     try:
@@ -506,14 +560,12 @@ def generate_content_plan(force_llm: bool = False, slot: str = "", extra_context
         # ponytail: daily_content_job runs with SLOT="" and the plan was sizing to
         # {shorts:1, longs:0}, starving pillar longs. Size to the env-configured daily
         # counts so each night's plan guarantees a full slate of pillar content.
-        try:
-            import os as _os
-            alloc = {
-                "shorts": int(_os.getenv("SCHEDULE_SHORTS_PER_DAY", "1")),
-                "longs": int(_os.getenv("SCHEDULE_LONG_PER_DAY", "2")),
-            }
-        except Exception:
-            alloc = {"shorts": 1, "longs": 2}
+        # Sized to daily_slate()'s *consumable* pillar slots, not the raw
+        # SCHEDULE_LONG_PER_DAY: the news long already took a GPU slot, so with
+        # the production config only 1 pillar long is actually buildable and
+        # planning 2 just produces a topic that gets silently skipped.
+        _slate = daily_slate()
+        alloc = {"shorts": _slate["pillar_shorts"], "longs": _slate["pillar_long_slots"]}
     shorts_per_day = alloc["shorts"]
     long_per_day = alloc["longs"]
 
