@@ -13,6 +13,7 @@ from utils.concurrent_pipeline import run_with_gpu_lock
 from models import get_video_model
 from utils.scene_schema import DEEP_LESSON_CATS as _DEEP_LESSON_CATS
 from utils.manim_renderer import render_manim_scene, render_manim_code_snippet
+from utils.brand_palette import LICORICE
 
 logger = logging.getLogger(__name__)
 
@@ -27,9 +28,35 @@ _manim_used: dict[str, int] = {}
 _manim_cap = int(os.getenv("MANIM_MAX_SCENES_PER_VIDEO", "6"))
 
 
+def _build_ltx_prompt(scene: dict, visual: str) -> str:
+    """The one place an LTX prompt is assembled.
+
+    Both the render path and the narration-match gate MUST call this. The gate
+    exists to avoid wasting a ~20 minute LTX render, so if it validates a
+    different prompt than the one actually rendered it is checking the wrong
+    thing. These two sites used to duplicate the logic inline, which is the same
+    class of bug as the D34 hook salt: add a brand phrase to one and the gate
+    silently stops matching the render.
+
+    The brand accent phrase goes here because this is the only point where the
+    model is told what colour to light the scene with. Brand colour applied as
+    an overlay later reads as an overlay; asked for here it reads as produced by.
+    """
+    from utils.visual_profiles import brand_lighting_phrase
+
+    base = visual[:500].strip()
+    lighting = brand_lighting_phrase(scene.get("category", "") or "")
+    if lighting and lighting.lower() not in base.lower():
+        base = f"{base}, {lighting}"
+    narration = scene.get("narration_text", "") or ""
+    if narration:
+        return f"{base} -- narration context: {narration[:150].strip()}"
+    return base
+
+
 def _generate_static_image(description: str, keyword: str = "", width: int = 1920, height: int = 1080, video_id: str = "", scene_idx: int = 0) -> str:
     from PIL import ImageFont
-    bg = "#1e1e1e"
+    bg = LICORICE
     img = Image.new("RGB", (width, height), bg)
     draw = ImageDraw.Draw(img)
     accent = (0, 204, 204)
@@ -159,7 +186,7 @@ def _render_scene_inner(scene: dict, video_id: str, scene_idx: int,
             spec = scene["diagram"] if isinstance(scene["diagram"], dict) else {"type": scene["diagram"], "items": []}
             diag_path = render_diagram(spec, width=1920, height=1080)
             if diag_path:
-                diag_clip = str(Path(tempfile.gettempdir()) / f"diag_{uuid.uuid4().hex[:8]}.mp4")
+                diag_clip = os.path.join(tempfile.gettempdir(), f"diag_{uuid.uuid4().hex[:8]}.mp4")
                 cmd = ["ffmpeg", "-y", "-loop", "1", "-i", diag_path, "-c:v", "libx264",
                        "-t", str(duration), "-pix_fmt", "yuv420p", "-r", "24", "-vf",
                        "scale=1920:1080:flags=lanczos", diag_clip]
@@ -190,15 +217,7 @@ def _render_scene_inner(scene: dict, video_id: str, scene_idx: int,
     model = get_video_model()
     if model and model.is_available():
         visual = scene.get("ltx_prompt", "") or description or ", ".join(kw_list)
-        narration = scene.get("narration_text", "")
-        if narration:
-            # visual-led: the concrete scene description drives the shot. Leading with
-            # 400 chars of spoken narration makes every category look like the same
-            # abstract tech footage; the visual tail was being ignored. Narration is
-            # demoted to a short context tail.
-            prompt = f"{visual[:500].strip()} -- narration context: {narration[:150].strip()}"
-        else:
-            prompt = visual
+        prompt = _build_ltx_prompt(scene, visual)
         clip_path = run_with_gpu_lock(model.generate_clip, prompt, int(duration),
                                       format_type=format_type, timeout=3600,
                                       seed=abs(hash(f"{video_id}_{scene_idx}")) % (2**31 - 1))
@@ -233,14 +252,11 @@ def dispatch_scene(scene: dict, video_id: str, scene_idx: int = 0,
     source = None
 
     # Build the exact prompt _render_scene_inner will use so the narration-match
-    # gate checks the real prompt (visual-first, narration as tail) — otherwise a
-    # visual-first prompt fails the gate and wastes one full LTX render on retry.
+    # gate checks the real prompt (visual-first, brand accent, narration as tail)
+    # — otherwise a visual-first prompt fails the gate and wastes one full LTX
+    # render on retry. Shared builder, not a copy: see _build_ltx_prompt.
     _visual = scene.get("ltx_prompt", "") or scene.get("description", "") or ", ".join(scene.get("asset_keywords", []))
-    _narration = scene.get("narration_text", "")
-    if _narration:
-        _built_prompt = f"{_visual[:500].strip()} -- narration context: {_narration[:150].strip()}"
-    else:
-        _built_prompt = _visual
+    _built_prompt = _build_ltx_prompt(scene, _visual)
 
     for attempt in range(2):
         # Intro/outro go straight to the branded title card. They used to be
@@ -490,7 +506,7 @@ def dispatch_scenes(scenes: list[dict], video_id: str, format_type: str = "long"
             )
             blender_path = render_blender_block(failed_scenes, video_id, format_type)
             if blender_path:
-                total_dur = sum(s.get("duration", s.get("target_duration", 8.0)) for s in failed_scenes)
+                total_dur = sum(s.get("target_duration", s.get("duration", 8.0)) for s in failed_scenes)
                 insert_pos = min(
                     (next(i for i, s in enumerate(scenes) if s is bs) for bs in failed_scenes),
                     default=len(clips)

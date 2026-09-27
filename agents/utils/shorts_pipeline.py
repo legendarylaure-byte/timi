@@ -24,6 +24,7 @@ from utils.video_compositor import _ffmpeg_cmd, CRF, TEMP_DIR as _TEMP_DIR
 
 FPS = 24  # ponytail: match compositor output framerate
 from utils.hook_engine import get_hook_template, render_hook_overlay, detect_hook_formula
+from utils.brand_palette import LICORICE, ORANGE
 
 
 def _get_shorts_config(category: str) -> dict:
@@ -85,10 +86,10 @@ def _render_subscribe_card(
     cmd = [
         _ffmpeg_cmd(), "-y",
         "-f", "lavfi", "-i",
-        f"color=c=0x1e1e1e:s={width}x{height}:d={duration}:r=24",
+        f"color=c=0x{LICORICE.lstrip('#')}:s={width}x{height}:d={duration}:r=24",
         "-vf", (
             f"drawtext=text='Subscribe':"
-            f"fontsize=56:fontcolor=0x00CCCC:"
+            f"fontsize=56:fontcolor=0x{ORANGE.lstrip('#')}:"
             f"x=(w-text_w)/2:y=(h-text_h)/2-60:"
             f"fontfile=/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf,"
             f"drawtext=text='for more AI content':"

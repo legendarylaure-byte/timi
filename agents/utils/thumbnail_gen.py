@@ -1,11 +1,15 @@
 import os
 import re
+import zlib
 import random
 import time
 import json
 from pathlib import Path
 from PIL import Image, ImageDraw, ImageFont, ImageFilter
 from utils.subprocess_helper import safe_run, safe_run_bool
+from utils.brand_palette import (
+    LICORICE, PURPLE, VIOLET, PINK, ORANGE, LIGHT_ORANGE, WHITE, hex_to_rgb, lerp,
+)
 
 THUMBNAIL_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "tmp", "thumbnails")
 
@@ -16,27 +20,57 @@ def _ensure_thumbnail_dir():
 
 _ensure_thumbnail_dir()
 
-COLOR_SCHEMES = [
-    {"bg1": (255, 107, 107), "bg2": (78, 205, 196), "accent": (255, 230, 109), "text": (255, 255, 255)},
-    {"bg1": (108, 92, 231), "bg2": (253, 121, 168), "accent": (255, 234, 167), "text": (255, 255, 255)},
-    {"bg1": (0, 206, 201), "bg2": (255, 159, 67), "accent": (255, 255, 255), "text": (255, 255, 255)},
-    {"bg1": (46, 213, 115), "bg2": (255, 165, 2), "accent": (255, 255, 255), "text": (255, 255, 255)},
-    {"bg1": (255, 118, 117), "bg2": (86, 180, 233), "accent": (255, 255, 255), "text": (255, 255, 255)},
-    {"bg1": (162, 155, 254), "bg2": (0, 210, 211), "accent": (253, 203, 110), "text": (255, 255, 255)},
-    {"bg1": (116, 185, 255), "bg2": (223, 230, 233), "accent": (255, 118, 117), "text": (45, 52, 54)},
-    {"bg1": (255, 159, 67), "bg2": (255, 107, 107), "accent": (46, 213, 115), "text": (255, 255, 255)},
+# Thumbnail palettes, derived from the channel brand rather than hand-picked.
+#
+# These were eight unrelated schemes (teal, green, red, orange) chosen by
+# `hash(topic) % 8`. Two problems: the thumbnail is the most-seen surface the
+# channel has -- it is what people see in browse and search -- and it was the
+# one place carrying no brand at all; and `hash()` on a str is salted per
+# process, so the same topic rendered a different palette after every restart
+# and nothing was reproducible.
+#
+# Every scheme is a dark gradient over Licorice. Dark bases are not just
+# on-brand, they are also what makes the white text reliably legible: the old
+# light schemes (a near-white #DFE6E9) forced a per-scheme dark text colour, and
+# that is the kind of thing that silently ships unreadable when the wrap count
+# changes.
+#
+# The gradient's light end is the accent blended 50% toward Licorice, NOT the
+# accent itself. Measured against WCAG, white on the full-brightness accents is
+# 5.63:1 (violet) but only 3.06:1 (pink) and 2.49:1 (orange) -- below AA, i.e.
+# unreadable at thumbnail size. Blending to 50% puts the worst case at ~5.4:1
+# while keeping the hue. The decorative accents stay at full brightness, so the
+# thumbnail still pops; only the surface the text sits on is deepened.
+_GRADIENT_BLEND = 0.5
+BRAND_SCHEMES = [
+    {"bg1": hex_to_rgb(LICORICE), "bg2": lerp(acc, LICORICE, _GRADIENT_BLEND),
+     "accent": hex_to_rgb(acc), "text": hex_to_rgb(WHITE)}
+    for acc in (VIOLET, PURPLE, PINK, ORANGE, VIOLET, PURPLE)
 ]
+# Kept as the module's public name -- pick_best_thumbnail and the selfcheck read it.
+COLOR_SCHEMES = BRAND_SCHEMES
 
 DARK_COLORS = {
-    "bg_dark": (10, 10, 15),
-    "indigo": (99, 102, 241),
-    "cyan": (34, 211, 238),
-    "violet": (167, 139, 250),
-    "white": (255, 255, 255),
+    "bg_dark": hex_to_rgb(LICORICE),
+    "indigo": hex_to_rgb(PURPLE),
+    "cyan": hex_to_rgb(LIGHT_ORANGE),
+    "violet": hex_to_rgb(VIOLET),
+    "white": hex_to_rgb(WHITE),
     "gray": (156, 163, 175),
-    "accent_gradient_start": (99, 102, 241),
-    "accent_gradient_end": (34, 211, 238),
+    "accent_gradient_start": hex_to_rgb(VIOLET),
+    "accent_gradient_end": hex_to_rgb(PINK),
 }
+
+
+def _stable_hash(text: str) -> int:
+    """crc32, not hash().
+
+    Python salts str hashes per process (PYTHONHASHSEED), so every one of these
+    call sites produced a different value after a container restart: the palette
+    changed, and worse the *output filenames* changed, so a thumbnail could not
+    be re-found by name and any name-keyed cache missed every time.
+    """
+    return zlib.crc32(text.encode("utf-8"))
 
 
 def extract_sdxl_prompt(thumbnail_text: str) -> str:
@@ -114,7 +148,8 @@ def generate_thumbnail_image(topic: str, thumbnail_text: str, format_type: str =
         title_color = c["indigo"]
         sub_color = c["cyan"]
     else:
-        scheme = COLOR_SCHEMES[hash(topic) % len(COLOR_SCHEMES)]
+        # Stable across restarts: zlib.crc32, not hash() (PYTHONHASHSEED salts str hashes).
+        scheme = COLOR_SCHEMES[zlib.crc32(topic.encode("utf-8")) % len(COLOR_SCHEMES)]
         img = Image.new("RGB", (width, height), scheme["bg1"])
         draw = ImageDraw.Draw(img)
         try:
@@ -133,7 +168,8 @@ def generate_thumbnail_image(topic: str, thumbnail_text: str, format_type: str =
         except Exception:
             pass
 
-        for seed_val in range(hash(topic) % 100, hash(topic) % 100 + 5):
+        _seed0 = zlib.crc32(topic.encode("utf-8")) % 100
+        for seed_val in range(_seed0, _seed0 + 5):
             rng = seed_val
             cx = (rng * 17) % width
             cy = (rng * 23) % height
@@ -183,14 +219,14 @@ def generate_thumbnail_image(topic: str, thumbnail_text: str, format_type: str =
             topic_y += subtitle_font.size + 8
 
     if style != "dark":
-        for seed_val in range(hash(topic + "sparkles") % 100, hash(topic + "sparkles") % 100 + 10):
+        for seed_val in range(_stable_hash(topic + "sparkles") % 100, _stable_hash(topic + "sparkles") % 100 + 10):
             x = (seed_val * 31) % width
             y = (seed_val * 37) % height
             size = 3 + (seed_val * 3) % 8
             draw.ellipse([(x, y), (x + size, y + size)], fill=scheme["accent"] + (150,))
 
     if output_filename is None:
-        output_filename = f"thumb_{format_type}_{hash(topic) % 100000}.png"
+        output_filename = f"thumb_{format_type}_{_stable_hash(topic) % 100000}.png"
     output_path = os.path.join(THUMBNAIL_DIR, output_filename)
 
     _ensure_thumbnail_dir()
@@ -304,9 +340,9 @@ def _compose_thumbnail(background: str, title: str, out_path: str,
 
             draw = ImageDraw.Draw(src)
             if style == "dark":
-                title_color, sub_color = (255, 255, 255), (0, 204, 204)
+                title_color, sub_color = hex_to_rgb(WHITE), hex_to_rgb(LIGHT_ORANGE)
             else:
-                title_color, sub_color = (255, 235, 59), (0, 204, 204)
+                title_color, sub_color = hex_to_rgb(WHITE), hex_to_rgb(LIGHT_ORANGE)
 
             tf = _find_font(96 if format_type == "shorts" else 76)
             sf = _find_font(40)
@@ -404,7 +440,7 @@ def generate_thumbnail_variants(topic: str, thumbnail_text: str, format_type: st
     styles = ["abstract", "dark", "abstract"]
     for i in range(3):
         style = styles[i % len(styles)]
-        out = f"thumb_{format_type}_{hash(topic + str(i)) % 100000}.png"
+        out = f"thumb_{format_type}_{_stable_hash(topic + str(i)) % 100000}.png"
         result = generate_thumbnail_image(topic, thumbnail_text, format_type, out, style=style)
         if result["success"]:
             variants.append({
@@ -517,7 +553,7 @@ def extract_video_frame(video_path: str, time_sec: float = None, smart: bool = T
     If smart=True and no time_sec given, automatically picks the midpoint of the
     longest stable segment (no scene changes).
     """
-    frame_path = os.path.join(THUMBNAIL_DIR, f"frame_{hash(video_path) % 100000}.jpg")
+    frame_path = os.path.join(THUMBNAIL_DIR, f"frame_{_stable_hash(video_path) % 100000}.jpg")
     os.makedirs(os.path.dirname(frame_path), exist_ok=True)
     if time_sec is None:
         if smart:
@@ -549,7 +585,7 @@ def generate_thumbnail_from_video(video_path: str, title: str, format_type: str 
     """Generate a thumbnail using a frame from the actual video content."""
     from PIL import ImageDraw
     if output_filename is None:
-        output_filename = f"thumb_video_{hash(video_path) % 100000}.png"
+        output_filename = f"thumb_video_{_stable_hash(video_path) % 100000}.png"
     output_path = os.path.join(THUMBNAIL_DIR, output_filename)
     os.makedirs(THUMBNAIL_DIR, exist_ok=True)
 
@@ -569,7 +605,7 @@ def generate_thumbnail_from_video(video_path: str, title: str, format_type: str 
             scheme = COLOR_SCHEMES[0]
             bg = Image.new("RGB", (thumb_w, thumb_h), scheme["bg1"])
     else:
-        scheme = COLOR_SCHEMES[hash(title) % len(COLOR_SCHEMES)]
+        scheme = COLOR_SCHEMES[_stable_hash(title) % len(COLOR_SCHEMES)]
         bg = Image.new("RGB", (thumb_w, thumb_h), scheme["bg1"])
         for seed_val in range(100, 105):
             rng = seed_val

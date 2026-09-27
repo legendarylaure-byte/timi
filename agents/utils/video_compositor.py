@@ -12,6 +12,20 @@ from pydub import AudioSegment
 load_dotenv()
 
 from utils.scene_schema import DEEP_LESSON_CATS as _DEEP_LESSON_CATS
+from utils.brand_palette import (
+    GRADE_CURVES,
+    GRADE_REFERENCE_YUV,
+    ass,
+    LICORICE,
+    PURPLE,
+    VIOLET,
+    ORANGE,
+    LIGHT_ORANGE,
+    PINK,
+    WHITE,
+    AMBER,
+    watermark_position,
+)
 from utils.annotation_renderer import build_annotation_filters
 
 OUTPUT_DIR = Path(__file__).parent.parent / "output"
@@ -26,11 +40,31 @@ OUTPUT_W = 3840 if OUTPUT_4K else 1920
 OUTPUT_H = 2160 if OUTPUT_4K else 1080
 
 ENABLE_COLOR_GRADING = os.getenv("ENABLE_COLOR_GRADING", "true").lower() == "true"
-COLOR_GRADING_THRESHOLD = float(os.getenv("COLOR_GRADING_THRESHOLD", "0.15"))
+# Deadband for "this scene is far enough off target to be worth a re-encode".
+# Was 0.15, which was tuned when the reference was the fictional y=140 teal value.
+# Against the measured target (y=92) a genuinely too-dark scene at y=43 shifts
+# only 0.080, so 0.15 silently graded almost nothing. 0.05 leaves a real
+# deadband around the target while catching the darkness we actually ship.
+COLOR_GRADING_THRESHOLD = float(os.getenv("COLOR_GRADING_THRESHOLD", "0.05"))
+# One dial for how far to move. 0 disables the grade entirely (everything passes
+# through untouched); 1 is the full look. Exists because taste is not something
+# that should need a code change plus a 16GB image rebuild to adjust.
+GRADE_STRENGTH = max(0.0, min(1.0, float(os.getenv("GRADE_STRENGTH", "1.0"))))
 
-# Brand palette reference (teal/dark/orange)
-# YUV histogram target for consistent visual identity across all scenes
-BRAND_TEAL_YUV = {"y_mean": 140.0, "u_mean": 160.0, "v_mean": 80.0}
+# Brand palette reference (Licorice/Purple/Violet/Orange) — measured from real
+# output by scripts/measure_grade.py, not freehand. See brand_palette.py for the
+# measurements and why the target is a well-exposed look rather than a restatement
+# of the near-black video the pipeline used to produce.
+BRAND_YUV = dict(GRADE_REFERENCE_YUV)
+
+# Subtitle palette. These are ASS (&HAABBGGRR&, BGR), so they go through
+# ass() rather than being written by hand — '&H000088CC' and '#CC8800' are the
+# same colour and this way the intent is readable. Subtitles deliberately stay
+# amber: they must stay legible over unknown footage, and the brand is carried
+# by the CTAs and lower-third instead.
+SUBTITLE_ASS = ass(AMBER)              # &H003388CC& -> RGB(204,136,0) amber
+SUBTITLE_OUTLINE_ASS = ass(LICORICE, alpha=0x40)   # soft dark halo
+SUBTITLE_BORDER_ASS = ass(LICORICE, alpha=0x80)
 
 # Documentary palette (cooler/desaturated — PBS NOVA / Branch Education style)
 DOCUMENTARY_YUV = {"y_mean": 90.0, "u_mean": 128.0, "v_mean": 118.0}
@@ -582,7 +616,7 @@ def add_text_overlay(video_path: str, text: str, output_path: str,
 
 
 def add_animated_lower_third(video_path: str, text: str, output_path: str,
-                              fontsize: int = 22, color: str = "#8a50e8",
+                              fontsize: int = 22, color: str = PURPLE,
                               start_time: float = 0, duration: float = 5) -> bool:
     escaped = text.replace("'", "\u2019").replace(":", "\\:").replace("-", "\\-")
     ts = start_time
@@ -606,19 +640,67 @@ def add_animated_lower_third(video_path: str, text: str, output_path: str,
 
 
 def add_logo_overlay(video_path: str, logo_path: str, output_path: str,
-                     position: str = "bottom_right", scale: float = 0.1) -> bool:
-    positions = {"bottom_right": "main_w-overlay_w-20:main_h-overlay_h-20",
-                 "top_right": "main_w-overlay_w-20:20",
-                 "bottom_left": "20:main_h-overlay_h-20",
-                 "top_left": "20:20"}
-    pos = positions.get(position, positions["bottom_right"])
+                     position: str = "safe", scale: float = 0.0,
+                     width: int = 0, height: int = 0, format_type: str = "landscape") -> bool:
+    """Burn the channel logo into a corner, inside the platform safe area.
+
+    This had zero callers -- the channel has never shipped a watermark -- and a
+    hardcoded 20px margin, which is nowhere near a real safe area: on 9:16 the
+    bottom ~18% is covered by the platform's own caption and channel name, so a
+    bottom-right logo is invisible on upload despite rendering perfectly locally.
+
+    `position="safe"` resolves via watermark_position(): top-right on both
+    formats, the only corner clear of the notch, the action rail and the caption
+    band. Explicit corners still work for callers that want them.
+    `scale=0` picks a width from the frame rather than a fraction of the logo's
+    own pixels, so a 1024px source and a 180px source land the same size.
+    """
+    if not (os.path.exists(logo_path) and os.path.getsize(logo_path) > 0):
+        logger.warning(f"[Logo] missing or empty logo asset, skipping: {logo_path}")
+        return False
+
+    if not (width and height):
+        try:
+            probe = safe_run([_ffmpeg_cmd(), "-i", video_path], timeout=60)
+            blob = probe[1] if isinstance(probe, (list, tuple)) else str(probe)
+            width = int(re.search(r"(\d{2,5})x(\d{2,5})", blob).group(1))
+            height = int(re.search(r"(\d{2,5})x(\d{2,5})", blob).group(2))
+        except Exception as e:
+            logger.warning(f"[Logo] could not probe dimensions, skipping: {e}")
+            return False
+
+    if position == "safe":
+        pos = watermark_position(width, height, format_type)
+    else:
+        m = round(height * 0.035)
+        pos = {
+            "bottom_right": f"main_w-overlay_w-{m}:main_h-overlay_h-{m}",
+            "top_right": f"main_w-overlay_w-{m}:{m}",
+            "bottom_left": f"{m}:main_h-overlay_h-{m}",
+            "top_left": f"{m}:{m}",
+        }.get(position, f"main_w-overlay_w-{m}:{m}")
+
+    if scale <= 0:
+        # ~11% of frame width: legible on a phone, small enough not to eat the shot
+        scale = round(width * 0.11)
+
     cmd = [
         _ffmpeg_cmd(), "-y", "-i", video_path, "-i", logo_path, *_sws_flags(),
-        "-filter_complex", f"[1:v]scale=iw*{scale}:ih*{scale}[logo];[0:v][logo]overlay={pos}",
+        "-filter_complex",
+        # -1 keeps the logo's own aspect ratio; scaling by width alone would
+        # stretch a square icon into a rectangle.
+        f"[1:v]scale={scale}:-1[logo];[0:v][logo]overlay={pos}",
         "-c:v", "libx264", "-preset", PRESET, "-crf", CRF,
         "-c:a", "copy", "-pix_fmt", "yuv420p", output_path,
     ]
-    return safe_run_bool(cmd, timeout=120)
+    if not safe_run_bool(cmd, timeout=180):
+        return False
+    # Reject a 0-byte result rather than reporting a watermark that isn't there.
+    if not (os.path.exists(output_path) and os.path.getsize(output_path) > 1024):
+        logger.error(f"[Logo] overlay produced no usable output: {output_path}")
+        return False
+    return True
+
 
 
 def _subtitle_style_escaped(fontsize: int, margin_v: int = 60,
@@ -651,9 +733,9 @@ def burn_subtitles(video_path: str, subtitle_path: str, output_path: str,
                    fontsize: int = 12, tier: str = "") -> bool:
     abs_sub = os.path.abspath(subtitle_path)
     if tier == "documentary":
-        sub_style = _subtitle_style_escaped(fontsize, 40, '&H000088CC&', '&H00000000&', has_outline=2)
+        sub_style = _subtitle_style_escaped(fontsize, 40, SUBTITLE_ASS, '&H00000000&', has_outline=2)
     else:
-        sub_style = _subtitle_style_escaped(fontsize, 40, '&H000088CC&', '&H40002B00&', 3, 0, '&H40000000&')
+        sub_style = _subtitle_style_escaped(fontsize, 40, SUBTITLE_ASS, ass('#402B00', alpha=0x40), 3, 0, '&H40000000&')
     vf = f"subtitles=filename='{abs_sub}':force_style={sub_style}"
     cmd = [
         _ffmpeg_cmd(), "-y", "-i", video_path, *_sws_flags(),
@@ -714,7 +796,7 @@ def _color_grade_scenes(processed: list[str], video_id: str, threshold: float = 
         return processed
 
     graded = []
-    ref = target_ref or BRAND_TEAL_YUV
+    ref = target_ref or BRAND_YUV
 
     for i, curr in enumerate(processed):
         curr_hist = _extract_yuv_histogram(curr)
@@ -723,12 +805,17 @@ def _color_grade_scenes(processed: list[str], video_id: str, threshold: float = 
             continue
 
         shift = _histogram_shift(ref, curr_hist)
-        if shift > threshold or i == 0:
-            if i > 0 or shift > threshold:
-                logger.info("[color_grade] Scene %d brand shift=%.3f > %.3f, correcting to brand palette",
-                            i, shift, threshold)
+        # No special case for scene 0. There used to be `or i == 0`, which
+        # re-encoded the hook on every single video through a filter that
+        # derived brightness=+0.000 -- a full generation-lossy pass, on the most
+        # important scene, producing literally no change. The hook is the
+        # retention frame; it should not be the frame we double-compress.
+        if shift > threshold and GRADE_STRENGTH > 0:
+            logger.info("[color_grade] Scene %d off target by %.3f (threshold %.3f), "
+                        "grading y=%.1f -> %.1f", i, shift, threshold,
+                        curr_hist.get("y_mean", 0), ref.get("y_mean", 0))
             corrected = str(TEMP_DIR / f"color_corrected_{video_id}_{i:03d}.mp4")
-            if _apply_color_correction(curr, corrected, ref):
+            if _apply_color_correction(curr, corrected, ref, curr_hist):
                 graded.append(corrected)
             else:
                 graded.append(curr)
@@ -742,37 +829,58 @@ def _color_grade_scenes(processed: list[str], video_id: str, threshold: float = 
 
 
 def _extract_yuv_histogram(video_path: str) -> dict | None:
+    """Mean YUV of a clip, in the units `_histogram_shift` expects.
+
+    This used to shell out to ffprobe with
+    `-show_entries frame=...:signalstats=YAVG,UAVG,VAVG`, which can never work:
+    `signalstats` is an ffmpeg *video filter*, not an ffprobe metadata section,
+    so ffprobe rejects the argument and exits non-zero. Every call returned
+    None, `_color_grade_scenes` appended every scene unchanged, and colour
+    grading was inert no matter what ENABLE_COLOR_GRADING said.
+
+    ffmpeg's `metadata=print` filter is the supported way to read these.
+    Frames are sampled at 2fps rather than measured one by one: signalstats on
+    every frame of a 300s clip is thousands of rows for an average that does not
+    change materially.
+    """
+    dump = TEMP_DIR / f"yuv_{os.getpid()}_{abs(hash(video_path)) % 10**8}.txt"
     cmd = [
-        _ffprobe_cmd(), "-v", "error", "-f", "lavfi",
-        "-i", f"movie={video_path},signalstats",
-        "-show_entries", "frame=pts_time:signalstats=YAVG,UAVG,VAVG",
-        "-of", "json", "-v", "quiet",
+        _ffmpeg_cmd(), "-v", "error", "-i", video_path,
+        "-vf", f"fps=2,signalstats,metadata=print:file={dump}",
+        "-f", "null", "-",
     ]
     try:
-        result = safe_run(cmd, timeout=30, capture_output=True, text=True)
-        if result.returncode != 0:
+        result = safe_run(cmd, timeout=120, capture_output=True, text=True)
+        if result.returncode != 0 or not dump.exists():
+            logger.warning("[color_grade] signalstats failed (rc=%s) for %s",
+                           result.returncode, os.path.basename(video_path))
             return None
-        data = json.loads(result.stdout)
-        frames = data.get("frames", [])
-        if not frames:
-            return None
-        y_vals, u_vals, v_vals = [], [], []
-        for f in frames:
-            ss = f.get("tags", {})
-            if ss.get("YAVG") is not None:
-                y_vals.append(float(ss["YAVG"]))
-                u_vals.append(float(ss["UAVG"]))
-                v_vals.append(float(ss["VAVG"]))
-        if not y_vals:
-            return None
-        return {
-            "y_mean": sum(y_vals) / len(y_vals),
-            "u_mean": sum(u_vals) / len(u_vals),
-            "v_mean": sum(v_vals) / len(v_vals),
-        }
+        text = dump.read_text(errors="ignore")
     except Exception as e:
         logger.warning("[color_grade] Histogram extraction failed: %s", e)
         return None
+    finally:
+        try:
+            dump.unlink()
+        except OSError:
+            pass
+
+    acc = {"YAVG": 0.0, "UAVG": 0.0, "VAVG": 0.0}
+    counts = dict.fromkeys(acc, 0)
+    for line in text.splitlines():
+        m = re.search(r"lavfi\.signalstats\.(YAVG|UAVG|VAVG)=([0-9.]+)", line)
+        if m:
+            acc[m.group(1)] += float(m.group(2))
+            counts[m.group(1)] += 1
+    if not counts["YAVG"]:
+        logger.warning("[color_grade] signalstats produced no YAVG rows for %s",
+                       os.path.basename(video_path))
+        return None
+    return {
+        "y_mean": acc["YAVG"] / counts["YAVG"],
+        "u_mean": acc["UAVG"] / counts["UAVG"],
+        "v_mean": acc["VAVG"] / counts["VAVG"],
+    }
 
 
 def _histogram_shift(h1: dict, h2: dict) -> float:
@@ -782,17 +890,51 @@ def _histogram_shift(h1: dict, h2: dict) -> float:
     return (dy + du + dv) / 3.0
 
 
-def _apply_color_correction(source: str, output: str, target_hist: dict) -> bool:
-    # ponytail: match luminance/saturation via eq filter (correct color science)
-    target_y = target_hist.get("y_mean", 128) / 255.0
-    target_u = target_hist.get("u_mean", 128) / 255.0
-    target_v = target_hist.get("v_mean", 128) / 255.0
-    brightness = (target_y - 0.5) * 0.3
-    saturation = 0.9 + (target_v * 0.2)
-    contrast = 0.95 + (target_y * 0.1)
+def _grade_filter(measured: dict | None, target: dict, strength: float) -> str:
+    """Filter chain that moves `measured` toward `target`. Extracted so it can be
+    unit-tested without running ffmpeg, and so the maths is readable in one place.
+
+    Brightness is a DELTA, not an absolute. The old form was
+    `brightness = (target_y - 0.5) * 0.3`, which pins neutral at target 0.5 and
+    can therefore only ever nudge: against measured Y=43 it derived +0.000. A
+    grader that structurally cannot express "make this brighter" cannot fix
+    video that is measurably too dark, which is exactly what we were shipping.
+
+    `vibrance` rather than `eq=saturation`, because vibrance boosts the
+    undersaturated colours and leaves already-saturated ones (skin) alone --
+    the difference between "rich" and "orange".
+    """
+    meas_y = (measured or {}).get("y_mean", target.get("y_mean", 92.0))
+    dy = (target["y_mean"] - meas_y) / 255.0
+    if strength <= 0:
+        # An honest no-op. Returning the curve anyway would mean the dial lied:
+        # brightness and vibrance scale to zero but `curves` does not, so
+        # "off" would still re-encode and still change the picture.
+        return "null"
+    # ponytail: clamped, not unbounded. ffmpeg `eq` brightness is asymmetric --
+    # a large negative is a *cut*, and overshooting a lift flattens highlights
+    # long before it rescues the shadows. 0.22 was calibrated against real
+    # output (p50 43 -> 78) and is ~56 luma levels of headroom below clipping,
+    # so there is room but it is not free. Raise it only on evidence from
+    # measure_grade --histogram.
+    brightness = max(-0.12, min(0.22, dy * 0.85)) * strength
+    contrast = 1.0 + (0.06 * strength)
+    vibrance = 0.18 * strength
+    return (f"eq=brightness={brightness:+.4f}:contrast={contrast:.3f},"
+            f"curves=all='{GRADE_CURVES}',"
+            f"vibrance=intensity={vibrance:.3f}")
+
+
+def _apply_color_correction(source: str, output: str, target_hist: dict,
+                            measured_hist: dict | None = None) -> bool:
+    # Luma + a filmic curve + vibrance. eq cannot touch chroma, and forcing U/V
+    # toward a brand hue is what makes AI footage look tinted and cheap -- the
+    # brand is carried by the CTA/lower-third/watermark instead. The reference's
+    # u_mean is still meaningful: _histogram_shift uses it to flag chroma drift.
+    vf = _grade_filter(measured_hist, target_hist, GRADE_STRENGTH)
     cmd = [
         _ffmpeg_cmd(), "-y", "-i", source,
-        "-vf", f"eq=brightness={brightness:.3f}:contrast={contrast:.3f}:saturation={saturation:.3f}",
+        "-vf", vf,
         "-c:v", "libx264", "-preset", "fast", "-crf", CRF,
         "-pix_fmt", "yuv420p", output,
     ]
@@ -845,7 +987,9 @@ def _build_keyterm_filters(scenes: list[dict], clips: list[dict]) -> list[str]:
 
         is_hook = (i == first_content_idx)
         font_size = 48 if is_hook else 36
-        font_color = "#e07040" if is_hook else "#8a50e8"
+        # Hook gets the warmer, higher-contrast brand step so it separates from
+        # the purple term overlays that follow it.
+        font_color = LIGHT_ORANGE if is_hook else PURPLE
         fade_in_dur = 0.8 if is_hook else 0.4
 
         for j, term in enumerate(terms):
@@ -869,7 +1013,7 @@ def _build_keyterm_filters(scenes: list[dict], clips: list[dict]) -> list[str]:
             filters.append(
                 f"drawtext=text='{escaped}':fontsize={font_size}:fontcolor={font_color}:"
                 f"x={x_expr}:y={y_expr}:"
-                f"borderw=2:bordercolor=#1e1e1e@0.8:"
+                f"borderw=2:bordercolor={LICORICE}@0.8:"
                 f"enable='between(t\\,{appear}\\,{end})':"
                 f"fontfile={font_for_text(term)}"
             )
@@ -899,6 +1043,19 @@ def composite_video(clips: list[dict], voice_path: str, music_path: Optional[str
             if _extend_clip(out, extended, requested_dur):
                 processed[-1] = extended
                 actual_dur = requested_dur
+        elif actual_dur > requested_dur + 0.5:
+            # A renderer that ignored target_duration (manim/outro read the stale
+            # `duration`) emits one clip far longer than its slot. Nothing trimmed
+            # it, so the concat overran the audio and `-shortest` silently chopped
+            # the tail -- freezing whole videos on the first oversized clip.
+            trimmed = str(TEMP_DIR / f"trimmed_{video_id}_{i:03d}.mp4")
+            if trim_clip(out, trimmed, 0.0, requested_dur):
+                processed[-1] = trimmed
+                logger.warning(
+                    "[compositor] Clip %d rendered %.1fs but was allotted %.1fs; trimmed. "
+                    "A renderer is sizing from `duration` instead of `target_duration`.",
+                    i, actual_dur, requested_dur)
+                actual_dur = requested_dur
         clip["duration"] = actual_dur
         transitions.append(clip.get("transition", "dissolve"))
         durations.append(actual_dur)
@@ -911,7 +1068,7 @@ def composite_video(clips: list[dict], voice_path: str, music_path: Optional[str
     # for half a second, delaying the visual the viewer came for. Start on frame 1.
 
     if ENABLE_COLOR_GRADING:
-        grade_ref = DOCUMENTARY_YUV if tier == "documentary" else BRAND_TEAL_YUV
+        grade_ref = DOCUMENTARY_YUV if tier == "documentary" else BRAND_YUV
         processed = _color_grade_scenes(processed, video_id, COLOR_GRADING_THRESHOLD, target_ref=grade_ref)
 
     combined_video = str(TEMP_DIR / f"combined_{video_id}.mp4")
@@ -985,7 +1142,7 @@ def composite_video(clips: list[dict], voice_path: str, music_path: Optional[str
                     f"(w-text_w)/2))"
                 )
                 vf_parts.append(
-                    f"drawtext=text='{escaped}':fontsize=28:fontcolor=#8a50e8:box=1:boxcolor=black@0.4:"
+                    f"drawtext=text='{escaped}':fontsize=28:fontcolor={PURPLE}:box=1:boxcolor=black@0.4:"
                     f"boxborderw=6:x={x_expr}:y=h-130:enable='between(t\\,{ts}\\,{te})'"
                 )
 
@@ -1009,7 +1166,7 @@ def composite_video(clips: list[dict], voice_path: str, music_path: Optional[str
                 f"(w-text_w)/2))"
             )
             vf_parts.append(
-                f"drawtext=text='Subscribe for more':fontsize=28:fontcolor=#00CCCC:"
+                f"drawtext=text='Subscribe for more':fontsize=28:fontcolor={ORANGE}:"
                 f"box=1:boxcolor=black@0.7:boxborderw=10:"
                 f"x={cta_x}:y=h*0.75:enable='between(t\\,{cta_time}\\,{cta_end})'"
             )
@@ -1027,7 +1184,7 @@ def composite_video(clips: list[dict], voice_path: str, music_path: Optional[str
             like_escaped = like_text.replace("'", "\u2019").replace(":", "\\:").replace("-", "\\-")
             vf_parts.append(
                 f"drawtext=text='{like_escaped}':fontsize=30:fontcolor=white:"
-                f"box=1:boxcolor=#00CCCC@0.8:boxborderw=10:"
+                f"box=1:boxcolor={VIOLET}@0.8:boxborderw=10:"
                 f"x=(w-text_w)/2:y=h*0.70:alpha={like_alpha}:"
                 f"text_align=C:enable='between(t\\,{like_start}\\,{like_end})'"
             )
@@ -1039,27 +1196,27 @@ def composite_video(clips: list[dict], voice_path: str, music_path: Optional[str
         if is_doc:
             sub_fs = 24
             margin_v = 60
-            sub_primary = "&H000088CC&"
+            sub_primary = SUBTITLE_ASS
             sub_outline = "&H00000000&"
-            sub_border = "&H80000000&"
+            sub_border = SUBTITLE_OUTLINE_ASS
             has_outline = 2
         elif is_deep:
             sub_fs = 26
             margin_v = 90
-            sub_primary = "&H000088CC&"
-            sub_outline = "&H80000000&"
+            sub_primary = SUBTITLE_ASS
+            sub_outline = SUBTITLE_OUTLINE_ASS
             has_outline = 1
         elif format_type == "shorts":
             sub_fs = 28
             margin_v = 60
-            sub_primary = "&H000088CC&"
-            sub_outline = "&H80000000&"
+            sub_primary = SUBTITLE_ASS
+            sub_outline = SUBTITLE_OUTLINE_ASS
             has_outline = 1
         else:
             sub_fs = 24
             margin_v = 80
-            sub_primary = "&H000088CC&"
-            sub_outline = "&H80000000&"
+            sub_primary = SUBTITLE_ASS
+            sub_outline = SUBTITLE_OUTLINE_ASS
             has_outline = 1
         vf_parts.append(
             f"subtitles=filename='{abs_sub}':force_style="
@@ -1067,6 +1224,26 @@ def composite_video(clips: list[dict], voice_path: str, music_path: Optional[str
         )
 
     vf_filter = ",".join(vf_parts)
+
+    # Audio is authoritative. `-shortest` below trims to it, but it used to hide
+    # a 4.7x visual overrun: the output looked fine and the tail was simply gone.
+    # Auto-trim and publish, but say so loudly -- silence is what let a frozen
+    # video ship to YouTube.
+    _vis = _get_duration(combined_video) or 0.0
+    _aud = _get_duration(mixed_audio) or 0.0
+    if _vis > 0 and _aud > 0:
+        _drift = (_vis - _aud) / _aud
+        if abs(_drift) > 0.10:
+            msg = (f"[compositor] Duration drift {f'{_drift:+.0%}':>5} "
+                   f"(visual {_vis:.1f}s vs audio {_aud:.1f}s) for {video_id}; "
+                   f"auto-trimming to audio.")
+            logger.warning(msg)
+            print(msg, flush=True)
+            try:  # lazy: keeps Firestore out of the hot path when there is no drift
+                from utils.firebase_status import log_activity
+                log_activity("editor", msg.lstrip("[compositor] "), "warn")
+            except Exception:
+                pass
 
     cmd = [
         _ffmpeg_cmd(), "-y", "-i", combined_video, "-i", mixed_audio, *_sws_flags(),

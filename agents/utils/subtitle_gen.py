@@ -15,7 +15,7 @@ def subtitle_mode_for(format_type: str) -> str:
     """Resolve how captions are delivered for a format.
 
     SUBTITLE_MODE: auto | burn | cc | both | off
-      - auto:  burn for shorts (max mobile visibility), soft CC for longs
+      - auto:  burn for every format (max mobile visibility, one caption layer)
       - burn:  always burn into frames, never upload CC
       - cc:    never burn; upload soft CC track only
       - both:  burn AND upload CC
@@ -28,12 +28,13 @@ def subtitle_mode_for(format_type: str) -> str:
     if mode in ("burn", "cc", "both"):
         return mode
     if mode == "auto":
-        # ponytail: "cc" for longs, not "both" -- burning AND uploading a track
-        # shows the viewer two copies of the same line. It also left the dubbing
-        # clean master with burned English captions baked in.
-        return "burn" if format_type == "shorts" else "cc"
-    # ponytail: fallback maps to the same auto heuristic (shorts=burn, long=cc)
-    return "burn" if format_type == "shorts" else "cc"
+        # ponytail: "burn" for BOTH formats. Burning AND uploading a track shows
+        # the viewer two copies of the same line, and a burned master can never
+        # be reused for a dubbed track. Burned was chosen for guaranteed mobile
+        # visibility, which is the whole point of the auto default.
+        return "burn"
+    # ponytail: fallback matches the auto heuristic
+    return "burn"
 
 
 def should_burn_subtitles(format_type: str) -> bool:

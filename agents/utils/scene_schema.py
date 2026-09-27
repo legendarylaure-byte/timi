@@ -11,6 +11,25 @@ DEEP_LESSON_CATS = {"AI News", "Science & Technology", "Programming & Software"}
 
 NEWS_CATS = {"World News (24hr)", "Nepal News"}
 
+# Per-scene duration bounds. One source of truth: the audio aligner, the scene
+# parser, the renderers and the compositor must all agree. A scene outside these
+# bounds is a bug, not a style choice -- an unbounded scene once rendered 400s of
+# video into a 257s video and `-shortest` silently froze the whole thing.
+MIN_SCENE_DURATION = 2.0
+MAX_SCENE_DURATION = 30.0
+
+
+def clamp_scene_duration(value, fallback: float = 8.0) -> float:
+    """Coerce a scene duration into [MIN_SCENE_DURATION, MAX_SCENE_DURATION]."""
+    try:
+        dur = float(value)
+    except (TypeError, ValueError):
+        dur = float(fallback)
+    if dur != dur or dur in (float("inf"), float("-inf")):  # NaN / inf
+        dur = float(fallback)
+    return max(MIN_SCENE_DURATION, min(MAX_SCENE_DURATION, dur))
+
+
 CATEGORY_ALIASES = {
     "AI Explained": "AI News",
     "AI Foundations": "AI News",

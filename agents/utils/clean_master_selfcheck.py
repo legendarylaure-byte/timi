@@ -143,10 +143,16 @@ def main():
         check("re-burn put text in the same place as the single-pass burn",
               abs(pb - pd) / max(pd, 1) < 0.35, f"direct={pd} burned={pb}")
 
-        print("\n[5] caption routing still prefers ONE caption track")
-        check("long form uploads a soft CC track, not burned", not should_burn_subtitles("long"))
+        print("\n[5] caption routing gives every format exactly ONE caption layer")
+        check("longs burn (guaranteed mobile visibility)",
+              should_burn_subtitles("long"))
+        check("longs do NOT also upload a soft CC track",
+              not should_upload_cc("long"), "would double up on burned captions")
         check("shorts burn", should_burn_subtitles("shorts"))
-        print(f"       upload_cc(long)={should_upload_cc('long')}")
+        check("shorts do NOT also upload a soft CC track",
+              not should_upload_cc("shorts"))
+        print(f"       upload_cc(long)={should_upload_cc('long')} "
+              f"(dubs bypass via default_language -- see youtube_upload._caption_body)")
 
     print("\n" + "=" * 68)
     if FAILED:

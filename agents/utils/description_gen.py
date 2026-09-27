@@ -69,7 +69,11 @@ Generate a description that:
 1. Starts with an engaging hook for tech/AI enthusiasts (KEY INFO IN FIRST 150 CHARS)
 2. Includes 5-8 relevant hashtags (tech-focused)
 3. Clearly explains what the viewer will learn
-4. Includes an AI-generated content disclaimer
+4. Includes a short subscribe/watch-next CTA
+5. Includes an AI-generated content disclaimer
+
+Do NOT invent links, sources, citations, or statistics. Only reference material
+that actually appears in the content preview above.
 
 Return ONLY a JSON object:
 {{
@@ -86,26 +90,35 @@ Return ONLY a JSON object:
             temperature=0.5,
             max_tokens=1000,
         )
-
         result = extract_json(response)
-        if result is None:
-            result = _fallback_description(title, category, format_type, hook)
-
-        full_description = result.get("description", "")
-        full_description += chapters
-        full_description += merch_section
-        full_description += affiliate_section
-        full_description += ai_disclaimer
-        full_description += f"\n\n© {channel_name}."
-
-        result["full_description"] = full_description
-        result["chapters"] = chapters.strip() if chapters else ""
-        return result
     except Exception as e:
         print(f"[description_gen] Error: {e}")
+        result = None
+
+    if not isinstance(result, dict):
         result = _fallback_description(title, category, format_type, hook)
-        result["full_description"] = result.get("description", "") + chapters + merch_section
-        return result
+
+    # Fall back on the BODY only. Swapping the whole dict out would throw away
+    # the LLM's other keys (seo_title, tags) whenever the body key came back
+    # missing or empty, which is what the extract_json contract allows.
+    body = result.get("description") or result.get("full_description") or ""
+    if not body.strip():
+        body = _fallback_description(title, category, format_type, hook)["description"]
+
+    # Assembled once, OUTSIDE the try. The disclosure is a YouTube policy
+    # requirement, but it used to be appended inside the try, so the except path
+    # returned a description with no disclosure, no copyright line and no
+    # affiliate links: an LLM outage silently un-disclosed every upload.
+    full_description = body
+    full_description += chapters
+    full_description += merch_section
+    full_description += affiliate_section
+    full_description += ai_disclaimer
+    full_description += f"\n\n© {channel_name}."
+
+    result["full_description"] = full_description
+    result["chapters"] = chapters.strip() if chapters else ""
+    return result
 
 
 def _fallback_description(title: str, category: str, format_type: str, hook: str) -> dict:

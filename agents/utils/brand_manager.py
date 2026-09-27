@@ -4,6 +4,8 @@ import logging
 from datetime import datetime
 from typing import Optional
 
+from utils.brand_palette import AMBER, PURPLE, LICORICE, ORANGE, WHITE, ass
+
 logger = logging.getLogger(__name__)
 
 DATA_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "data", "brand")
@@ -15,7 +17,11 @@ TERM_FILE = os.path.join(DATA_DIR, "vocabulary.json")
 DEFAULT_STYLE_GUIDE = {
     "channel_name": "Vyom Ai Cloud",
     "tagline": "AI Made Simple",
-    "colors": {"primary": "#8a50e8", "secondary": "#c060d0", "accent": "#e07040", "text": "#FFFFFF"},
+    # Kept in step with utils/brand_palette.py. These two used to disagree with
+    # each other AND with the renderers (this said #8a50e8, style_guide.json said
+    # the retired teal #00CCCC, and both claimed white subtitles while the
+    # compositor burns amber), so a reader could never tell which was true.
+    "colors": {"primary": PURPLE, "secondary": LICORICE, "accent": ORANGE, "text": WHITE},
     "fonts": {"title": "Inter Bold", "body": "Inter Regular", "caption": "Inter Medium"},
     "voice": {
         "tone": "educational, friendly, authoritative",
@@ -32,7 +38,8 @@ DEFAULT_STYLE_GUIDE = {
         "intro_duration": 3.0,
         "outro_duration": 5.0,
         "transition": "fade",
-        "subtitle_color": "&H00FFFFFF&",
+        # ass() so the BGR flip lives in exactly one place.
+        "subtitle_color": ass(AMBER),
         "subtitle_font_size": 24,
         "thumbnail_style": "bold text on dark background with accent color",
     },

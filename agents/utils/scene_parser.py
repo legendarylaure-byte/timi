@@ -5,7 +5,8 @@ from dataclasses import dataclass, field
 from typing import Optional
 from utils.llm_client import generate_completion
 from utils.firebase_status import log_activity
-from utils.scene_schema import ValidationError
+from utils.scene_schema import ValidationError, clamp_scene_duration
+from utils.brand_palette import LICORICE, PURPLE
 
 TECH_TERMS = {
     "neural", "network", "layer", "deep learning", "transformer", "attention",
@@ -83,7 +84,7 @@ class SceneState:
     camera_angle: str = ""
     lighting: str = ""
     color_palette: str = "violet and dark gray"
-    dominant_colors: list[str] = field(default_factory=lambda: ["#1e1e1e", "#8a50e8"])
+    dominant_colors: list[str] = field(default_factory=lambda: [LICORICE, PURPLE])
 
 SYSTEM_PROMPT = """You are a scene director for tech/AI educational videos. Convert the given script into structured scene descriptions.
 
@@ -728,7 +729,7 @@ def _infer_ltx_prompt(text: str, title: str = "", scene_index: int = 0, scene: d
         camera_angle=cam,
         lighting=lighting,
         color_palette=" and ".join(sorted(color_terms)[:3]) or "violet and dark",
-        dominant_colors=["#1e1e1e", "#8a50e8"],
+        dominant_colors=[LICORICE, PURPLE],
     )
     return prompt, state
 
@@ -1041,11 +1042,19 @@ def _extract_keyterms_from_scene(scene: dict) -> list[str]:
 
 
 def normalize_scene_durations(scenes: list[dict]) -> None:
+    """Make `duration` and `target_duration` the same, bounded value.
+
+    They used to be filled from each other with no clamp, so an over-long
+    `_estimate_scene_duration` (400s, 625s) propagated into `target_duration` and
+    the renderer sized a 400s clip for a 30s slot. Both fields now hold one
+    clamped value, so every consumer -- chapters, asset_router, renderers,
+    compositor -- reads the same bounded number.
+    """
     for scene in scenes:
-        if "target_duration" not in scene:
-            scene["target_duration"] = scene.get("duration", 8.0)
-        elif "duration" not in scene:
-            scene["duration"] = scene.get("target_duration", 8.0)
+        raw = scene.get("target_duration", scene.get("duration"))
+        dur = clamp_scene_duration(raw if raw is not None else 8.0)
+        scene["duration"] = dur
+        scene["target_duration"] = dur
 
 
 def build_timestamps(scenes: list[dict]) -> str:

@@ -69,7 +69,7 @@ from crew.storyboard import create_storyboard_crew
 from crew.scriptwriter import create_scriptwriter_crew, create_deep_lesson_crew
 from crew.title_optimizer import create_title_optimizer_crew
 from crew.virality_analyst import create_virality_analyst_crew, get_virality_threshold
-from crew.monetization_tracker import create_monetization_review_crew, weekly_check_in, get_growth_summary
+from crew.monetization_tracker import create_monetization_review_crew, weekly_check_in, get_growth_summary, update_platform_metrics
 from utils.engagement_manager import append_comment_prompt_to_script
 from compliance.hook_scorer import score_hook, enforce_rewrite
 from compliance.content_safety import check_content_safety
@@ -447,6 +447,7 @@ AGENT_MAP = {
 control_listener = AgentControlListener(check_interval=60)
 
 AUTO_APPROVE_THRESHOLD = int(os.getenv("AUTO_APPROVE_THRESHOLD", 80))
+ENABLE_WATERMARK = os.getenv("ENABLE_WATERMARK", "true").lower() == "true"
 ENABLE_MULTI_LANG = os.getenv("ENABLE_MULTI_LANG", "false").lower() == "true"
 ENABLE_SUBTITLES = os.getenv("ENABLE_SUBTITLES", "true").lower() == "true"
 ENABLE_REVIEW_GATE = os.getenv("ENABLE_REVIEW_GATE", "true").lower() == "true"
@@ -469,7 +470,7 @@ DOCUMENTARY_MAX_DURATION = int(os.getenv("DOCUMENTARY_MAX_DURATION", 2400))
 LONG_MIN_NARRATION_WORDS = int(os.getenv("LONG_MIN_NARRATION_WORDS", "360"))
 NEWS_LONG_MIN_NARRATION_WORDS = int(os.getenv("NEWS_LONG_MIN_NARRATION_WORDS", "450"))
 
-from utils.scene_schema import DEEP_LESSON_CATS as DEEP_LESSON_CATEGORIES
+from utils.scene_schema import DEEP_LESSON_CATS as DEEP_LESSON_CATEGORIES, clamp_scene_duration
 
 
 def _deep_lesson_dur(category: str) -> int:
@@ -1033,8 +1034,15 @@ def _tokenize(text: str) -> set:
 
 
 def _align_scenes_to_audio(scenes: list[dict], phrase_timings: list[dict], audio_duration: float) -> list[dict]:
-    if not phrase_timings or not scenes or audio_duration <= 0:
+    if not scenes or audio_duration <= 0:
         return scenes
+
+    if not phrase_timings:
+        # This used to return `scenes` untouched and without a log line, so the
+        # unbounded parser durations survived and a renderer sized a 400s clip
+        # for a 30s slot. Fall back to proportional scaling instead of going silent.
+        log_event("VOICE", "Audio align: no phrase timings, using proportional scaling", "warn")
+        return _proportional_scale(scenes, audio_duration)
 
     if len(phrase_timings) < 3:
         log_event("VOICE", "Audio align: too few phrase timings, using proportional scaling", "debug")
@@ -1084,19 +1092,33 @@ def _align_scenes_to_audio(scenes: list[dict], phrase_timings: list[dict], audio
     for i, s_dur in enumerate(scene_audio_durs):
         gap = 0.3
         if s_dur > 0:
-            scenes[i]["target_duration"] = round(max(2.0, min(30.0, s_dur + gap)), 1)
+            scenes[i]["target_duration"] = round(clamp_scene_duration(s_dur + gap), 1)
         else:
             planner = scenes[i].get("duration", scenes[i].get("target_duration", 8.0))
-            scenes[i]["target_duration"] = round(max(2.0, min(30.0, planner)), 1)
+            scenes[i]["target_duration"] = round(clamp_scene_duration(planner), 1)
+        # Keep `duration` in lockstep. Two fields holding different values is what
+        # let chapters, asset_router and the renderers disagree about a scene's
+        # length. `duration` is the historical name every consumer already reads.
+        scenes[i]["duration"] = scenes[i]["target_duration"]
 
     new_total = sum(s.get("target_duration", 8.0) for s in scenes)
     if new_total > audio_duration * 1.1:
         ratio = audio_duration / max(new_total, 1)
         for s in scenes:
-            s["target_duration"] = round(max(2.0, min(30.0, s.get("target_duration", 8.0) * ratio)), 1)
-        log_event("VOICE", f"Audio align: compressed {new_total:.1f}s → {audio_duration:.1f}s ({ratio:.2f}x)", "debug")
+            s["target_duration"] = round(clamp_scene_duration(s.get("target_duration", 8.0) * ratio), 1)
+            s["duration"] = s["target_duration"]
+        log_event("VOICE", f"Audio align: compressed {new_total:.1f}s → {audio_duration:.1f}s ({ratio:.2f}x)", "warn")
     else:
-        log_event("VOICE", f"Audio align: mapped {mapped_count}/{total_phrases} phrases, total {sum(scene_audio_durs):.1f}s", "debug")
+        log_event("VOICE", f"Audio align: mapped {mapped_count}/{total_phrases} phrases, total {sum(scene_audio_durs):.1f}s", "info")
+
+    # Closing invariant. Every path above clamps, so this cannot be reached with
+    # an over-long scene -- but the ratio is the one thing that actually matters,
+    # and a silent 4.7x overrun is what froze a published video. Check it here so
+    # the failure is loud and cheap, not discovered on YouTube.
+    final_total = sum(s.get("target_duration", 8.0) for s in scenes)
+    if final_total > audio_duration * 1.25:
+        log_event("VOICE", f"Audio align: still {final_total / max(audio_duration, 1):.2f}x audio "
+                            f"({final_total:.1f}s vs {audio_duration:.1f}s) after alignment", "warn")
 
     return scenes
 
@@ -1108,7 +1130,8 @@ def _proportional_scale(scenes: list[dict], audio_duration: float) -> list[dict]
     ratio = audio_duration / scene_total
     for s in scenes:
         td = s.get("target_duration", s.get("duration", 8.0))
-        s["target_duration"] = max(2.0, min(30.0, round(td * ratio, 1)))
+        s["target_duration"] = round(clamp_scene_duration(td * ratio), 1)
+        s["duration"] = s["target_duration"]
     return scenes
 
 
@@ -1173,6 +1196,15 @@ def run_video_pipeline(script_text: str, storyboard_text: str, category: str, fo
     elif audio_dur > 0 and scenes:
         scenes = _proportional_scale(scenes, audio_dur)
         total_video_duration = audio_dur
+    else:
+        # Never reach here silently: with no audio duration and no phrase timings
+        # the scenes keep their parser durations, which are bounded but unrelated
+        # to the narration. Say so, loudly.
+        log_event("VOICE", f"Duration alignment skipped (audio_dur={audio_dur}, "
+                            f"phrase_timings={len(voice_result.get('phrase_timings') or [])}); "
+                            f"scene durations are estimates, not narration-aligned", "warn")
+        if scenes:
+            total_video_duration = sum(s.get("target_duration", 8.0) for s in scenes)
 
     subtitle_path = None
     if generate_subs and ENABLE_SUBTITLES:
@@ -1261,7 +1293,7 @@ def run_video_pipeline(script_text: str, storyboard_text: str, category: str, fo
     anim_label = " with Asset Router" if use_asset_router else " with FFmpeg"
     update_agent_status("editor", "working", f"Compositing video{anim_label}")
 
-    from utils.video_compositor import composite_video, burn_subtitles
+    from utils.video_compositor import composite_video, burn_subtitles, add_logo_overlay
 
     # Burned captions are pixels, so a master with them burned in can never be
     # reused for a dubbed track. When dubs are enabled, composite the master CLEAN
@@ -1295,6 +1327,26 @@ def run_video_pipeline(script_text: str, storyboard_text: str, category: str, fo
         else:
             # English still ships, just without burned captions; dubs continue.
             log_event("EDITOR", "English caption burn failed; uploading clean master for English")
+
+    if ENABLE_WATERMARK and final_path:
+        # One insertion here covers short and long: both go through this function.
+        # add_logo_overlay had zero callers until now, so the channel has never
+        # shipped a watermark. Top-right, inside the platform safe area -- on 9:16
+        # the bottom band is the caption/channel-name zone and a bottom-right bug
+        # is invisible on upload despite rendering fine locally.
+        logo_path = os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                                 "utils", "assets", "channel_logo.png")
+        wm_path = f"{os.path.splitext(final_path)[0]}_wm{os.path.splitext(final_path)[1]}"
+        try:
+            if add_logo_overlay(final_path, logo_path, wm_path,
+                                position="safe", format_type=format_type):
+                final_path = wm_path
+                log_event("EDITOR", f"Channel watermark applied -> {wm_path}")
+            else:
+                # Never fail a render over branding: ship the clean master instead.
+                log_event("EDITOR", "Watermark skipped (overlay failed); uploading without it")
+        except Exception as e:
+            log_event("EDITOR", f"Watermark raised {type(e).__name__}; uploading without it")
 
     if not final_path:
         log_pipeline_error(video_id, "Video compositing failed after retry", "video_compositing")
@@ -3209,7 +3261,7 @@ def weekly_monetization_job():
                 })
                 log_event("MONETIZATION", f"Real stats: {stats.get('subscribers')} subs, {stats.get('total_views')} views")
         except Exception as e:
-            log_event("MONETIZATION", f"Could not fetch real YouTube stats: {e}", "warn")
+            log_event("MONETIZATION", f"Could not record real YouTube stats: {e}", "warn")
         check_in = weekly_check_in()
         log_event("MONETIZATION", f"Weekly check-in recorded for {check_in['date'][:10]}")
         growth_summary = get_growth_summary()
@@ -3273,22 +3325,28 @@ def weekly_documentary_job():
             log_event("SCHEDULER", "No long videos in plan — skipping")
             return
         original_format = os.environ.get("FORMAT", "")
+        original_tier = os.environ.get("TIER", "")
         os.environ["TIER"] = "documentary"
-        for video in videos:
-            topic = video.get("topic", "")
-            cat = video.get("category", "AI Explained")
-            video_id = generate_video_id()
-            try:
-                log_event("SCHEDULER", f"Generating documentary: {topic}")
-                update_agent_status("scheduler", "working", f"Documentary: {topic[:40]}")
-                generate_long_video(topic=topic, category=cat, video_id=video_id)
-                log_event("SCHEDULER", f"Documentary generated: {topic}")
-            except Exception as e:
-                log_event("SCHEDULER", f"Documentary failed: {topic}: {e}", "error")
-                continue
-        os.environ["TIER"] = ""
-        if original_format:
-            os.environ["FORMAT"] = original_format
+        # ponytail: try/finally, not post-loop restore — a raise inside the loop
+        # used to leave TIER="documentary" set for the rest of the process, so the
+        # NEXT daily run rendered as a documentary tier (40-min cap, calm voice).
+        try:
+            for i, video in enumerate(videos, 1):
+                topic = video.get("topic", "")
+                cat = video.get("category", "AI Explained")
+                video_id = f"long-{datetime.utcnow().strftime('%Y%m%d')}-doc{i}"
+                try:
+                    log_event("SCHEDULER", f"Generating documentary: {topic}")
+                    update_agent_status("scheduler", "working", f"Documentary: {topic[:40]}")
+                    generate_long_video(topic=topic, category=cat, video_id=video_id)
+                    log_event("SCHEDULER", f"Documentary generated: {topic}")
+                except Exception as e:
+                    log_event("SCHEDULER", f"Documentary failed: {topic}: {e}", "error")
+                    continue
+        finally:
+            os.environ["TIER"] = original_tier
+            if original_format:
+                os.environ["FORMAT"] = original_format
         EVERYONE_DOCUMENTARY_JOB = True
     except Exception as e:
         log_event("SCHEDULER", f"Weekly documentary job failed: {e}", "error")

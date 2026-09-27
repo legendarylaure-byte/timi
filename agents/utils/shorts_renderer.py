@@ -7,6 +7,11 @@ from pathlib import Path
 from utils.subprocess_helper import register_temp_dir, safe_run_bool
 from utils.video_compositor import _subtitle_style_escaped
 from utils.fonts import font_for_text
+from utils.brand_palette import VIOLET, ORANGE, AMBER, ass
+
+# Shorts burn subtitles, so they use the same amber as the compositor. Kept as a
+# computed constant so this renderer cannot drift out of sync with the palette.
+SUBTITLE_ASS = ass(AMBER)
 
 logger = logging.getLogger(__name__)
 
@@ -119,7 +124,7 @@ def reformat_to_shorts(input_path: str, hook_text: str, output_path: str,
     cta_escaped = cta_text.replace("'", "\u2019").replace(":", "\\:").replace("-", "\\-")
     cta_filter = (
         f"drawtext=text='{cta_escaped}':"
-        f"fontsize=38:fontcolor=white:box=1:boxcolor=#8a50e8@0.7:"
+        f"fontsize=38:fontcolor=white:box=1:boxcolor={VIOLET}@0.7:"
         f"x=(w-text_w)/2:y=(h-text_h)/2:"
         f"alpha=if(lt(t\\,{cta_start + 1})\\,0\\,if(lt(t\\,{cta_start + 3})\\,(t-{cta_start})/2\\,1)):"
         f"fontfile={font_for_text(cta_text)}:"
@@ -133,7 +138,7 @@ def reformat_to_shorts(input_path: str, hook_text: str, output_path: str,
         like_escaped = like_text.replace("'", "\u2019").replace(":", "\\:").replace("-", "\\-")
         like_filter = (
             f"drawtext=text='{like_escaped}':"
-            f"fontsize=34:fontcolor=white:box=1:boxcolor=#00CCCC@0.75:"
+            f"fontsize=34:fontcolor=white:box=1:boxcolor={ORANGE}@0.75:"
             f"x=(w-text_w)/2:y=h*0.72:"
             f"alpha=if(lt(t\\,{like_start + 1})\\,0\\,if(lt(t\\,{like_start + 2.5})\\,(t-{like_start})/1.5\\,1)):"
             f"fontfile={font_for_text(like_text)}:"
@@ -147,7 +152,7 @@ def reformat_to_shorts(input_path: str, hook_text: str, output_path: str,
         abs_sub = os.path.abspath(subtitle_path)
         subtitle_filter = (
             f",subtitles=filename='{abs_sub}':force_style="
-            f"{_subtitle_style_escaped(28, primary='&H000088CC&')}"
+            f"{_subtitle_style_escaped(28, primary={SUBTITLE_ASS})}"
         )
 
     vf = f"{scale_filter},{hook_filter},{cta_filter},{like_filter},{quality_filters}{subtitle_filter}"

@@ -122,6 +122,73 @@ def check_freeze_frames(video_path: str, duration: float = 1.0,
         return {"freeze_ratio": 0.0, "segments": []}
 
 
+def check_static_video(video_path: str, sample_count: int = 16,
+                       motion_threshold: float = 1.5) -> dict:
+    """Detect a video that is effectively one still image for its whole runtime.
+
+    `check_freeze_frames` cannot catch this: ffmpeg `freezedetect` compares
+    *consecutive* frames, so a small animated overlay (hook text, progress bar,
+    CTA pill) keeps the noise above threshold for the entire runtime. A real
+    incident shipped a 257s video that was one static card with a moving bar, and
+    every existing check passed it.
+
+    This samples frames across the *whole* timeline and measures how much the
+    picture actually changes between them, so a slow-moving overlay cannot hide a
+    frozen video.
+    """
+    if not os.path.exists(video_path):
+        return {"motion_score": 0.0, "is_static": False, "sampled": 0, "error": "file not found"}
+
+    size = 32  # 32x32 grayscale per sample
+    dur_cmd = [
+        _ffprobe_path(), "-v", "error", "-show_entries", "format=duration",
+        "-of", "default=noprint_wrappers=1:nokey=1", video_path,
+    ]
+    try:
+        dur_result = safe_run(dur_cmd, timeout=15)
+        total_dur = float(dur_result.stdout.strip()) or 0.0
+    except Exception:
+        total_dur = 0.0
+
+    # Two samples are meaningless; cap the count so short clips are not over-penalised.
+    n = max(4, min(sample_count, int(total_dur / 2) or 4))
+    interval = max(total_dur / n, 0.5) if total_dur > 0 else 1.0
+
+    cmd = [
+        _ffmpeg_path(), "-i", video_path,
+        "-vf", f"fps=1/{interval:.3f},scale={size}:{size},format=gray",
+        "-frames:v", str(n), "-f", "rawvideo", "-",
+    ]
+    try:
+        result = safe_run(cmd, timeout=120, text=False)
+    except Exception as e:
+        logger.warning("Static-video detection failed: %s", e)
+        return {"motion_score": 0.0, "is_static": False, "sampled": 0, "error": str(e)}
+
+    frame_bytes = size * size
+    raw = result.stdout or b""
+    frames = [raw[i * frame_bytes:(i + 1) * frame_bytes] for i in range(len(raw) // frame_bytes)]
+    if len(frames) < 2:
+        return {"motion_score": 0.0, "is_static": False, "sampled": len(frames),
+                "error": "not enough frames sampled"}
+
+    diffs = []
+    for a, b in zip(frames, frames[1:]):
+        total = sum(abs(x - y) for x, y in zip(a, b))
+        diffs.append(total / frame_bytes)
+
+    motion_score = sum(diffs) / len(diffs)
+    # A genuinely static card: samples are byte-identical, or differ only by a
+    # few grey levels of overlay. Real footage sits an order of magnitude higher.
+    is_static = motion_score < motion_threshold
+    return {
+        "motion_score": round(motion_score, 3),
+        "is_static": is_static,
+        "sampled": len(frames),
+        "max_sample_diff": round(max(diffs), 3),
+    }
+
+
 def check_corruption(video_path: str) -> dict:
     if not os.path.exists(video_path):
         return {"total_frames": 0, "decode_errors": 1, "is_corrupt": True}
@@ -306,11 +373,20 @@ def check_frame_quality(video_path: str, format_type: str = "shorts",
     blur = check_blur(video_path, blur_threshold=blur_threshold)
     report["checks"]["blur"] = blur
 
+    static = check_static_video(video_path)
+    report["checks"]["static"] = static
+
     issues = []
     if blur.get("blur_ratio", 0) > 0.3:
         issues.append(f"Blurry frames: {blur['blur_ratio']*100:.1f}% (score={blur['avg_blur_score']})")
     if blur.get("sample_count", 0) == 0:
         issues.append("Could not sample any frames for blur check")
+    if static.get("is_static"):
+        issues.append(
+            f"STATIC VIDEO: picture barely changes across the whole runtime "
+            f"(motion={static.get('motion_score')}, {static.get('sampled')} samples) -- "
+            f"this is a still image, not a video"
+        )
 
     report["passed"] = len(issues) == 0
     report["summary"] = "; ".join(issues) if issues else "All frame quality checks passed"

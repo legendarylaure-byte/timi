@@ -16,9 +16,9 @@ from typing import Optional
 # ponytail: 5 hook formulas, each with visual style
 HOOK_TEMPLATES = {
     "question": {
-        "bg_color": "0x1a1a2e",
+        "bg_color": "0x1B1212",
         "text_color": "white",
-        "accent_color": "0x00CCCC",
+        "accent_color": "0x9B4DFF",
         "icon": "?",
         "font_size": 42,
         "animation": "slide_in",

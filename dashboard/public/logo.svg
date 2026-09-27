@@ -1,15 +1,15 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 200 200" width="200" height="200">
   <defs>
     <linearGradient id="bg" x1="0%" y1="0%" x2="0%" y2="100%">
-      <stop offset="0%" stop-color="#9040F0"/>
-      <stop offset="100%" stop-color="#7030C0"/>
+      <stop offset="0%" stop-color="#9B4DFF"/>
+      <stop offset="100%" stop-color="#6641FC"/>
     </linearGradient>
   </defs>
   <rect x="0" y="0" width="200" height="200" rx="36" fill="url(#bg)"/>
   <!-- Bold V monogram -->
   <path d="M 100 160 L 30 45 L 58 45 L 100 120 L 142 45 L 170 45 Z" fill="white"/>
   <!-- Orange accent dot -->
-  <circle cx="168" cy="55" r="10" fill="#F07030"/>
+  <circle cx="168" cy="55" r="10" fill="#FF8133"/>
   <!-- VYOMAI wordmark -->
   <text x="100" y="185" text-anchor="middle" font-family="system-ui,-apple-system,sans-serif" font-weight="700" font-size="40" fill="white" letter-spacing="2">VYOMAI</text>
 </svg>

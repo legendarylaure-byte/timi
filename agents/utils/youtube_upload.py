@@ -324,11 +324,15 @@ def upload_video_to_youtube(
             result["thumbnail_set"] = False
 
     if subtitle_path and os.path.exists(subtitle_path):
-        # ponytail: only upload a soft CC track when SUBTITLE_MODE allows it for this
-        # format (default: soft CC for longs ONLY — shorts burn-in, avoiding double tracks).
+        # ponytail: skip the soft CC track only when it would DOUBLE UP on burned-in
+        # captions. A localized dub is the exception -- it is muxed onto a clean
+        # master with nothing burned, so its translated SRT is the only caption the
+        # viewer gets. `default_language` is set for dubs and left None for English,
+        # so it is the signal; no extra parameter needed.
         try:
             from utils.subtitle_gen import should_upload_cc
-            _upload_cc = should_upload_cc("shorts" if is_shorts else "long")
+            _is_localized_dub = bool(default_language) and default_language.lower() != "en"
+            _upload_cc = _is_localized_dub or should_upload_cc("shorts" if is_shorts else "long")
         except Exception:
             _upload_cc = True
         if _upload_cc:

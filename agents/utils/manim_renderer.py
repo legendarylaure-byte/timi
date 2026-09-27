@@ -7,6 +7,10 @@ import threading
 from pathlib import Path
 
 from utils.subprocess_helper import safe_run, register_temp_dir
+from utils.scene_schema import clamp_scene_duration
+from utils.brand_palette import (
+    LICORICE, PURPLE, VIOLET, PINK, ORANGE, LIGHT_ORANGE, WHITE, ACCENT_RAMP,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -69,7 +73,7 @@ def _apply_manim_compat(code: str) -> str:
 # One manim render at a time on the 16GB box (CPU-heavy, shares with LTX/Blender).
 _preview_lock = threading.Lock()
 
-_PALETTE = ["#00CCCC", "#FF6B35", "#8a50e8", "#5aa9e6", "#e6c229", "#9ae66e"]
+_PALETTE = list(ACCENT_RAMP)
 
 
 def _item_label(item) -> str:
@@ -106,8 +110,8 @@ def _data_viz_scene(task: dict) -> str | None:
         "",
         "class DiagScene(Scene):",
         "    def construct(self):",
-        '        self.camera.background_color = "#1e1e1e"',
-        f"        title = Text({TITLE!r}, font_size=40, color=\"#00CCCC\").to_edge(UP, buff=0.4)",
+        f'        self.camera.background_color = "{LICORICE}"',
+        f'        title = Text({TITLE!r}, font_size=40, color="{PURPLE}").to_edge(UP, buff=0.4)',
         "        self.add(title)",
     ]
 
@@ -123,7 +127,7 @@ def _data_viz_scene(task: dict) -> str | None:
         for i in range(n):
             col = _PALETTE[i % len(_PALETTE)]
             L.append(f'        b{i} = Rectangle(width=1.3, height={heights[i]:.2f}, stroke_color="{col}", fill_color="{col}", fill_opacity=0.9)')
-            L.append(f'        lb{i} = Text({_item_label(items[i])!r}, font_size=26, color="#FFFFFF")')
+            L.append(f'        lb{i} = Text({_item_label(items[i])!r}, font_size=26, color="{WHITE}")')
             L.append(f"        bars.add(b{i})")
             L.append(f"        bar_labels.add(lb{i})")
         L.append("        bars.arrange(RIGHT, buff=0.45).shift(DOWN * 0.5)")
@@ -144,7 +148,7 @@ def _data_viz_scene(task: dict) -> str | None:
         for i in range(n):
             col = _PALETTE[i % len(_PALETTE)]
             L.append(f'        x{i} = Rectangle(width=5.0, height={bh:.2f}, stroke_color="{col}", fill_color="{col}", fill_opacity=0.85)')
-            L.append(f'        xt{i} = Text({_item_label(items[i])!r}, font_size=24, color="#1e1e1e")')
+            L.append(f'        xt{i} = Text({_item_label(items[i])!r}, font_size=24, color="{LICORICE}")')
             L.append(f"        boxes.add(x{i})")
             L.append(f"        box_labels.add(xt{i})")
         L.append("        boxes.arrange(DOWN, buff=0.15).shift(DOWN * 0.2)")
@@ -160,18 +164,18 @@ def _data_viz_scene(task: dict) -> str | None:
         x0, w = -7.2, min(3.0, 14.4 / (n + 1))
         y = 0.6
         per = (DUR - (n - 1) * 0.4) / n if n else DUR
-        L.append(f"        line = Line([{x0 + w / 2 - 4}, {y}, 0], [{x0 + w / 2 + 12}, {y}, 0], color='#8a50e8', stroke_width=4)")
+        L.append(f'        line = Line([{x0 + w / 2 - 4}, {y}, 0], [{x0 + w / 2 + 12}, {y}, 0], color="{VIOLET}", stroke_width=4)')
         L.append("        self.play(Create(line), run_time=0.5)")
         for i in range(n):
             col = _PALETTE[i % len(_PALETTE)]
             cx = x0 + i * w + w / 2
             L.append(f'        p{i} = Circle(radius=0.45, color="{col}", fill_color="{col}", fill_opacity=1.0).move_to([{cx:.2f}, {y}, 0])')
-            L.append(f'        pt{i} = Text({_item_label(items[i])!r}, font_size=22, color="#FFFFFF").next_to(p{i}, {"UP" if i % 2 == 0 else "DOWN"}, buff=0.4)')
+            L.append(f'        pt{i} = Text({_item_label(items[i])!r}, font_size=22, color="{WHITE}").next_to(p{i}, {"UP" if i % 2 == 0 else "DOWN"}, buff=0.4)')
             L.append(f"        self.play(GrowFromCenter(p{i}), run_time=0.4)")
             L.append(f"        self.play(FadeIn(pt{i}), run_time={per - 0.4:.2f})")
             if i > 0:
                 prev_x = x0 + (i - 1) * w + w / 2
-                L.append(f"        a{i} = Line([{prev_x + 0.45:.2f}, {y}, 0], [{cx - 0.45:.2f}, {y}, 0], color='#00CCCC', stroke_width=5)")
+                L.append(f'        a{i} = Line([{prev_x + 0.45:.2f}, {y}, 0], [{cx - 0.45:.2f}, {y}, 0], color="{ORANGE}", stroke_width=5)')
                 L.append(f"        self.play(Create(a{i}), run_time=0.2)")
         L.append("        self.wait(0.5)")
         return "\n".join(L)
@@ -221,8 +225,9 @@ def render_manim_scene(
 
     quality = os.getenv("MANIM_RENDER_QUALITY", "qh")
     w, h = (1080, 1920) if format_type == "shorts" else (1920, 1080)
-    dur = scene.get("target_duration", scene.get("duration", 8.0))
-    dur = max(2.0, float(dur))
+    # Bounded: an unclamped target_duration made manim render 400s (9600 frames)
+    # for a 30s slot, and the extra was thrown away at the mux.
+    dur = clamp_scene_duration(scene.get("target_duration", scene.get("duration")))
 
     task = {
         "title": topic or "AI Concept",
@@ -343,10 +348,10 @@ from manim import Code
 
 class DiagScene(Scene):
     def construct(self):
-        self.camera.background_color = "#1e1e1e"
+        self.camera.background_color = {LICORICE}
         title_text = {(title or "Code")[:60]!r}
         if title_text:
-            title = Text(title_text, color="#00CCCC", font_size=36)
+            title = Text(title_text, color="{PURPLE}", font_size=36)
             title.to_edge(UP, buff=0.5)
             self.add(title)
         code = Code(

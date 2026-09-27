@@ -28,12 +28,17 @@ _BASE_DIR = Path(__file__).resolve().parent.parent
 _TEMP_DIR = _BASE_DIR / "tmp" / "viral_news"
 _TEMP_DIR.mkdir(parents=True, exist_ok=True)
 
-# ── Brand colors (consistent with pipeline) ────────────────────────────────
-_BRAND_BG = "#1e1e1e"
-_BRAND_TEAL = "#00CCCC"
-_BRAND_ORANGE = "#FF6B35"
-_WHITE = "#FFFFFF"
+# ── Brand colors ───────────────────────────────────────────────────────────
+# The palette itself lives in utils/brand_palette.py -- one source of truth,
+# because these four were hardcoded here AND in ~20 other places. The old local
+# copies (_BRAND_BG/_BRAND_TEAL/_BRAND_ORANGE/_WHITE) are gone; import from there.
 _FONT_PATH = os.getenv("FONT_PATH", "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf")
+# Concept B headline voice. FreeSerif ships in the image (fonts-freefont-ttf, which
+# the Hindi/Korean font work already depends on), so this needs no new package.
+# Falls back to the sans face rather than tofu if the container ever loses it.
+_SERIF_FONT_PATH = os.getenv(
+    "VIRAL_SERIF_FONT_PATH", "/usr/share/fonts/truetype/freefont/FreeSerif.ttf"
+)
 
 # ── Virality thresholds ────────────────────────────────────────────────────
 VIRAL_THRESHOLD = float(os.getenv("VIRAL_THRESHOLD", "55"))
@@ -317,8 +322,19 @@ def generate_caption(article: dict) -> str:
     """
     title = article.get("title", "Untitled")
     source = article.get("source", "Verified Source")
+    link = (article.get("link") or "").strip()
     body = (article.get("body") or article.get("description") or "")[:300]
     category = article.get("category", "")
+
+    # The card image draws a "Read the full story at <source>" panel, but an
+    # IMAGE CANNOT BE A HYPERLINK. The caption is the only clickable surface on
+    # a Facebook/Instagram/TikTok photo post, so the link must be here -- the
+    # card is the visual cue, this is the destination.
+    if link:
+        link_line = f"\nRead the full story at {source}: {link}"
+    else:
+        # No article link means no destination to point at. Never fabricate one.
+        link_line = "\nRead the full story in the comments."
 
     # Try LLM-generated caption first
     try:
@@ -331,7 +347,7 @@ Rules:
 3. End with a CTA: "What's your take? Comment below 👇" or "Share if you agree"
 4. Max 150 words total
 5. No emojis except 👇 and 🔥 at CTA — NO other emojis
-6. NO URLs — do not mention any website/link
+6. Write NO links or URLs yourself. The link is appended separately and automatically.
 7. Brand tone: smart, curious, educational
 8. Include 3-5 relevant hashtags at the end
 
@@ -344,7 +360,10 @@ Return ONLY the caption text (no markdown, no quotes around it):"""
         messages = [{"role": "user", "content": prompt}]
         resp = llm.call(messages)
         if resp and len(str(resp).strip()) > 20:
-            return str(resp).strip()
+            # Append the source link AFTER the hashtags, so it is the last
+            # clickable thing in the caption on every platform.
+            return f"{str(resp).strip()}{link_line}"
+
     except Exception as e:
         logger.warning("[viral] LLM caption failed, using template: %s", e)
 
@@ -357,17 +376,56 @@ Return ONLY the caption text (no markdown, no quotes around it):"""
         f"Source: {source}\n"
         f"What's your take? Comment below 👇\n"
         f"#News #Breaking #AI #Technology #Nepal"
+        f"{link_line}"
     )
 
 
-def generate_image(article: dict, index: int = 0) -> str:
-    """Generate a branded news card image.
+def _spotlight_background(W: int, H: int) -> Image.Image:
+    """Concept B: a dark base with a soft spotlight bloom behind the headline.
 
-    Creates a clean image with:
-    - Dark background (brand color)
-    - Teal accent bar at top
-    - Article headline wrapped to fit
-    - Source attribution at bottom
+    Built as a vertical ramp instead of a blur, because a blur over a 1080px
+    canvas is the single slowest thing in image generation and buys nothing
+    that a 3-stop ramp does not.
+    """
+    from utils.brand_palette import LICORICE, SPOTLIGHT_RAMP, hex_to_rgb, lerp
+
+    base = hex_to_rgb(LICORICE)
+    # Where the glow peaks, as a fraction of height (upper third = headline zone).
+    peak = 0.34
+    span = 0.62
+
+    img = Image.new("RGB", (1, H))
+    px = img.load()
+    for row in range(H):
+        d = abs((row / H) - peak) / span
+        # ease-out so the glow falls off fast and the bottom stays near-black
+        w = max(0.0, 1.0 - d) ** 2
+        if w <= 0.001:
+            px[0, row] = base
+            continue
+        # Two ramp stops, weighted by w, keeps it cheap and predictable.
+        pos = w * (len(SPOTLIGHT_RAMP) - 1)
+        i = min(int(pos), len(SPOTLIGHT_RAMP) - 2)
+        blend = lerp(SPOTLIGHT_RAMP[i], SPOTLIGHT_RAMP[i + 1], pos - i)
+        px[0, row] = tuple(
+            round(base[c] + (blend[c] - base[c]) * w) for c in range(3)
+        )
+    return img.resize((W, H), Image.BILINEAR)
+
+
+def generate_image(article: dict, index: int = 0) -> str:
+    """Generate a branded news card (Concept B — Gradient Spotlight).
+
+    Layout:
+      - Licorice base with a spotlight bloom behind the headline
+      - Full-width gradient accent strip at the top
+      - Category + date eyebrow, then the wrapped headline
+      - Orange divider
+      - A "Read the full story" panel naming the SOURCE, which is the visual
+        half of the click-through; the other half is the link the post caption
+        must carry (see generate_caption). An image cannot be a hyperlink, so
+        the card points at it and the caption delivers it.
+      - Original article URL printed small, for people reading the image itself
 
     Returns path to the generated PNG.
     """
@@ -377,58 +435,96 @@ def generate_image(article: dict, index: int = 0) -> str:
 
     _TEMP_DIR.mkdir(parents=True, exist_ok=True)
 
-    title = (article.get("title") or "Breaking News")[:100]
+    from utils.brand_palette import (LICORICE, LIGHT_ORANGE, ORANGE, PINK, PURPLE,
+                                     VIOLET, WHITE)
+
+    title = (article.get("title") or "Breaking News")[:120]
     source = article.get("source", "Verified Source")
+    link = (article.get("link") or "").strip()
     category = article.get("category", "News")
     ts = datetime.now(timezone.utc).strftime("%b %d, %Y")
 
     W, H = _IMAGE_WIDTH, _IMAGE_HEIGHT
-    img = Image.new("RGB", (W, H), _BRAND_BG)
-    draw = ImageDraw.Draw(img)
+    img = _spotlight_background(W, H)
+    draw = ImageDraw.Draw(img, "RGBA")
 
-    # Teal accent bar at top
-    bar_h = int(H * 0.06)
-    draw.rectangle([0, 0, W, bar_h], fill=_BRAND_TEAL)
+    # Gradient accent strip across the top, in the brand ramp order.
+    bar_h = int(H * 0.035)
+    ramp = (PURPLE, VIOLET, PINK, ORANGE, LIGHT_ORANGE)
+    for col in range(W):
+        pos = col / max(W - 1, 1) * (len(ramp) - 1)
+        i = min(int(pos), len(ramp) - 2)
+        draw.line([(col, 0), (col, bar_h)],
+                  fill=(*_mix(ramp[i], ramp[i + 1], pos - i), 255))
 
-    # "BREAKING" or category label
+    # Fonts: display serif for the headline, sans for everything else.
     try:
-        font_lg = ImageFont.truetype(_FONT_PATH, int(H * 0.045))
-        font_md = ImageFont.truetype(_FONT_PATH, int(H * 0.035))
-        font_sm = ImageFont.truetype(_FONT_PATH, int(H * 0.022))
-        font_title = ImageFont.truetype(_FONT_PATH, int(H * 0.048))
+        font_eyebrow = ImageFont.truetype(_FONT_PATH, int(H * 0.028))
+        font_title = ImageFont.truetype(_SERIF_FONT_PATH, int(H * 0.062))
+        font_src = ImageFont.truetype(_FONT_PATH, int(H * 0.030))
+        font_cta = ImageFont.truetype(_FONT_PATH, int(H * 0.026))
+        font_url = ImageFont.truetype(_FONT_PATH, int(H * 0.020))
     except Exception:
-        font_lg = font_md = font_sm = font_title = ImageFont.load_default()
+        font_eyebrow = font_title = font_src = font_cta = font_url = ImageFont.load_default()
 
-    # Category label (small, under bar)
-    margin = int(H * 0.04)
-    y = bar_h + margin
-    draw.text((margin, y), f"{category.upper()} • {ts}", fill=_BRAND_TEAL, font=font_md)
+    margin = int(W * 0.075)
 
-    # Headline (wrapped)
-    y += int(H * 0.09)
+    # Eyebrow: category + date
+    y = bar_h + int(H * 0.055)
+    draw.text((margin, y), f"{category.upper()}   •   {ts}", fill=LIGHT_ORANGE, font=font_eyebrow)
+
+    # Headline
+    y += int(H * 0.075)
     max_line_w = W - margin * 2
     lines = _wrap_text(draw, title, font_title, max_line_w)
-    line_spacing = int(H * 0.055)
-    for i, line in enumerate(lines[:6]):
-        draw.text((margin, y + i * line_spacing), line, fill=_WHITE, font=font_title)
-    y += len(lines[:6]) * line_spacing + int(H * 0.03)
+    line_spacing = int(H * 0.078)
+    for i, line in enumerate(lines[:5]):
+        draw.text((margin, y + i * line_spacing), line, fill=WHITE, font=font_title)
+    y += len(lines[:5]) * line_spacing + int(H * 0.035)
 
-    # Orange divider
-    div_y = y + int(H * 0.01)
-    draw.line([(margin, div_y), (W - margin, div_y)], fill=_BRAND_ORANGE, width=3)
+    # Divider
+    div_y = min(y, H - int(H * 0.30))
+    draw.line([(margin, div_y), (W - margin, div_y)], fill=ORANGE, width=4)
 
-    # Source
-    y = div_y + int(H * 0.04)
-    draw.text((margin, y), f"Source: {source}", fill=_BRAND_TEAL, font=font_sm)
+    # "Read the full story" panel — the click-through cue.
+    panel_y = div_y + int(H * 0.045)
+    panel_h = int(H * 0.105)
+    if panel_y + panel_h < H - int(H * 0.06):
+        draw.rounded_rectangle(
+            [margin, panel_y, W - margin, panel_y + panel_h],
+            radius=int(H * 0.014), fill=(255, 255, 255, 22),
+            outline=(*_mix(PURPLE, VIOLET, 0.5), 200), width=3,
+        )
+        pad = int(H * 0.018)
+        draw.text((margin + pad, panel_y + pad),
+                  "Read the full story", fill=WHITE, font=font_src)
+        draw.text((margin + pad, panel_y + pad + int(H * 0.036)),
+                  f"at {source}", fill=LIGHT_ORANGE, font=font_cta)
+        # Arrow, so it reads as an affordance rather than a caption.
+        ax = W - margin - pad
+        ay = panel_y + panel_h // 2
+        for dx, dy in ((-int(H * 0.022), -int(H * 0.022)),
+                       (0, 0),
+                       (-int(H * 0.022), int(H * 0.022))):
+            draw.line([(ax, ay), (ax + dx, ay + dy)], fill=PURPLE, width=5)
 
-    # Bottom label
-    y = H - int(H * 0.055)
-    draw.text((margin, y), "Verified News • Viral Agent", fill="#888888", font=font_sm)
+    # The URL itself, small, for anyone reading the image.
+    if link:
+        host = link.split("//", 1)[-1].split("/", 1)[0].removeprefix("www.")
+        url_y = H - int(H * 0.038)
+        draw.text((margin, url_y), host, fill=(255, 255, 255, 150), font=font_url)
 
     out_path = str(_TEMP_DIR / f"viral_post_{int(time.time())}_{index}.png")
     img.save(out_path, "PNG", optimize=True)
-    logger.info("[viral] Generated image: %s", out_path)
+    logger.info("[viral] Generated image: %s (source=%s)", out_path, source)
     return out_path
+
+
+def _mix(a: str, b: str, t: float) -> tuple:
+    """Local alias so the card body stays readable; see brand_palette.lerp."""
+    from utils.brand_palette import lerp
+    return lerp(a, b, t)
+
 
 
 def _wrap_text(draw, text: str, font, max_width: int) -> list:

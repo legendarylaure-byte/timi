@@ -75,23 +75,21 @@ def test_subtitle_style_builds_valid_string():
         f"Commas should be escaped: {style}"
 
 
-def test_auto_subtitle_mode_gives_longs_exactly_one_caption_track(monkeypatch):
-    """SUBTITLE_MODE=auto must not burn AND upload captions for long form.
+def test_auto_subtitle_mode_burns_for_both_formats(monkeypatch):
+    """SUBTITLE_MODE=auto must give every format exactly ONE caption layer.
 
-    Regression: auto returned "both" for longs, so every long video shipped two
-    copies of the same line, and the dubbing clean master inherited burned
-    English captions. One format, one caption track.
+    History: auto returned "both" for longs (two visible copies of every line),
+    then "cc" (soft track only -- invisible for most mobile viewers watching
+    muted). Burned-only is the deliberate choice for guaranteed visibility, and
+    it also keeps the dubbing clean master free of baked-in English captions.
     """
     from utils import subtitle_gen
 
     monkeypatch.setenv("SUBTITLE_MODE", "auto")
-    assert subtitle_gen.subtitle_mode_for("long") == "cc"
-    assert subtitle_gen.should_upload_cc("long") is True
-    assert subtitle_gen.should_burn_subtitles("long") is False
-
-    assert subtitle_gen.subtitle_mode_for("shorts") == "burn"
-    assert subtitle_gen.should_burn_subtitles("shorts") is True
-    assert subtitle_gen.should_upload_cc("shorts") is False
+    for fmt in ("long", "shorts"):
+        assert subtitle_gen.subtitle_mode_for(fmt) == "burn"
+        assert subtitle_gen.should_burn_subtitles(fmt) is True
+        assert subtitle_gen.should_upload_cc(fmt) is False
 
 
 def test_explicit_subtitle_modes_are_respected(monkeypatch):
