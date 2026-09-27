@@ -25,3 +25,11 @@ COPY utils/ /app/utils/
 COPY crew/ /app/crew/
 COPY models/ /app/models/
 COPY scripts/ /app/scripts/
+
+# The base image still carries utils/assets/logo.png -- the OLD pre-rebrand teal
+# mark, inherited from a layer COPY can never remove. Nothing references it (the
+# watermark reads utils/assets/channel_logo.png), but shipping an off-brand logo
+# is how one gets re-wired by accident months later, and
+# tests/test_brand_colors.py::test_no_unreferenced_offbrand_logo_asset_is_left_behind
+# fails on it. `rm -f` is idempotent, so this is safe on a base that never had it.
+RUN rm -f /app/utils/assets/logo.png

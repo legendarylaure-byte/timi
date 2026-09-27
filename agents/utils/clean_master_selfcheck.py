@@ -90,6 +90,23 @@ def main():
     from utils.video_compositor import composite_video, burn_subtitles
     from utils.subtitle_gen import should_burn_subtitles, should_upload_cc
 
+    # This selfcheck proves one thing: whether the clean master carries burned
+    # captions. It detects that by counting pixels above luma 100 and asserting
+    # the count is exactly 0.
+    #
+    # That proxy stopped being valid once colour grading shipped. The grade
+    # legitimately lifts dark footage toward the Y=92 reference, and the two
+    # test clips here are 0x1e2a38 / 0x2a1e38 (luma ~40), so grading pushed 185
+    # of their pixels over the threshold and the check reported captions in a
+    # master that has none -- while a real burn scores ~53,000. 185 vs 53,000 is
+    # a 290x gap, so the pixels were source content, not text.
+    #
+    # Grading is orthogonal to caption routing, so switch it off here rather than
+    # invent a brightness threshold. The grade is verified on its own terms by
+    # scripts/measure_grade.py and tests/test_brand_colors.py; if it silently
+    # stopped working, this selfcheck would never have noticed either way.
+    vc.GRADE_STRENGTH = 0.0
+
     with tempfile.TemporaryDirectory() as tmp:
         # composite_video writes to the module-level OUTPUT_DIR, which is the
         # host-mounted agents/output/. Redirect it so a selfcheck never drops

@@ -28,7 +28,17 @@ if [[ ! -f "$ENV_FILE" ]]; then
 fi
 if [[ ! -f "$SA_KEY" ]]; then
   echo "FATAL: $SA_KEY not found -- selfchecks that touch Firestore need it" >&2
-  exit 2
+  exit 1
+fi
+# agents/data/ is gitignored runtime state and is deliberately not in the image,
+# so test_brand_colors.py's config-agreement checks pass on the host and fail in
+# the container for want of a file the image never had. Mount ONLY data/brand:
+# hook_selfcheck and retention_selfcheck *write* to data/hook_testing and
+# data/retention, so mounting all of agents/data read-only kills both with
+# "Read-only file system". The rest of data/ stays container-ephemeral.
+if [[ ! -d "$ROOT/agents/data/brand" ]]; then
+  echo "FATAL: $ROOT/agents/data/brand not found -- brand config checks need it" >&2
+  exit 1
 fi
 
 # The multilang font selfcheck is pure-PIL, but everything else wants the real env.
@@ -37,6 +47,7 @@ docker run --rm -i \
   --env-file "$ENV_FILE" \
   -v "$ROOT/$SA_KEY:/app/$SA_KEY:ro" \
   -v "$ROOT/agents/tests:/app/tests:ro" \
+  -v "$ROOT/agents/data/brand:/app/data/brand:ro" \
   --entrypoint python3 \
   "$IMAGE" - <<'PY'
 import os, sys, subprocess
