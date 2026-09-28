@@ -31,6 +31,10 @@ pipeline/temp/
 *.jpg
 !dashboard/public/*.png
 !dashboard/public/*.jpg
+# The watermark source. The image bakes it in from the working tree, so leaving
+# it untracked means a clean clone silently renders with no watermark, and CI
+# cannot assert the invariant. Same reasoning as the dashboard/public negations.
+!agents/utils/assets/channel_logo.png
 firebase-debug.log
 .vercel
 *.tsbuildinfo
