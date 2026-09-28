@@ -588,6 +588,42 @@ def _runtime_style_guide():
     return json.loads(p.read_text()) if p.exists() else None
 
 
+def _colour_forms(token):
+    """Every spelling a config colour could be hiding behind.
+
+    An ASS colour is `&HAABBGGRR&` -- BGR, the reverse of CSS `#RRGGBB`. Hand
+    editing a CSS hex into that field without swapping the pairs is exactly how
+    the style guide ended up holding `&HFF00CCCC&`: read as CSS that is the
+    retired teal `#00CCCC`, so the value is a mangled teal whichever way you
+    read it, and a guard that only searched for `#00CCCC` never saw it. Return
+    both orderings and the bare digits so none of them can hide.
+    """
+    text = token.strip()
+    forms = {text.upper()}
+    m = re.fullmatch(r"&H([0-9A-F]{2})([0-9A-F]{6})&", text.upper())
+    if m:
+        bgr, g, r = m.group(2)[0:2], m.group(2)[2:4], m.group(2)[4:6]
+        forms.add("#" + r + g + bgr)   # what a viewer actually sees
+        forms.add("#" + bgr + g + r)   # what the editor assumed they had typed
+    bare = re.sub(r"[^0-9A-Fa-f]", "", text)
+    if len(bare) == 6:
+        forms.add("#" + bare.upper())
+    return forms
+
+
+def _compositor_subtitle_sizes():
+    """Read the font sizes video_compositor actually burns, out of its source.
+
+    Parsed rather than hardcoded so the guard follows the renderer: if a tier
+    is retuned, the style guide's admissible range moves with it instead of
+    silently going stale in the other direction.
+    """
+    import utils.video_compositor as vc
+
+    src = pathlib.Path(vc.__file__).read_text()
+    return {int(n) for n in re.findall(r"sub_fs\s*=\s*(\d+)", src)}
+
+
 def test_stored_brand_config_agrees_with_the_palette():
     """Two live pre-publish config sources used to carry two *different* stale
     palettes while the renderers used a third.
@@ -628,6 +664,29 @@ def test_stored_subtitle_colour_matches_what_the_compositor_burns():
     )
     assert stored == "&H000088CC&", "amber is BGR 00 00 88 CC"
 
+    # The code default is only half the story: data/brand/style_guide.json is the
+    # copy a human actually opens, and it said the retired teal at size 14 while
+    # the default said amber at 24 and the compositor burned amber at 24/26/28/34
+    # depending on tier. Reading the default alone is what let that stand.
+    #
+    # The size check is "one of the sizes the compositor really burns", not
+    # "equal to the default": the guide has a single un-per-tier slot while
+    # video_compositor picks 24/26/28/34 by tier, so demanding equality with one
+    # branch would be inventing an invariant the renderers do not have. What it
+    # must never do is advertise a size nothing uses -- 14 was that.
+    guide = _runtime_style_guide()
+    if guide is not None:
+        assert guide["visual"]["subtitle_color"].upper() == SUBTITLE_ASS.upper(), (
+            f"style_guide.json says {guide['visual']['subtitle_color']}, "
+            f"compositor burns {SUBTITLE_ASS}"
+        )
+        burned = _compositor_subtitle_sizes()
+        assert guide["visual"]["subtitle_font_size"] in burned, (
+            f"style_guide.json advertises subtitle_font_size="
+            f"{guide['visual']['subtitle_font_size']}, which the compositor "
+            f"never burns; it uses {sorted(burned)}"
+        )
+
 
 def test_legacy_teal_is_gone_from_stored_config():
     """#00CCCC is the pre-D35 teal. It is not a brand colour any more; if it
@@ -639,8 +698,12 @@ def test_legacy_teal_is_gone_from_stored_config():
     blob = (json.dumps(guide) if guide is not None else "") + json.dumps(
         DEFAULT_STYLE_GUIDE
     )
-    for old in ("#00CCCC", "#8a50e8", "#c060d0", "#e07040", "#9040F0", "#7030C0"):
-        assert old.lower() not in blob.lower(), f"legacy colour {old} is back in stored config"
+    present = set()
+    for token in re.findall(r"&H[0-9A-Fa-f]{8}&|#[0-9A-Fa-f]{6}", blob):
+        present |= _colour_forms(token)
+    present = {p.lower() for p in present}
+    for old in LEGACY_HEXES:
+        assert old.lower() not in present, f"legacy colour {old} is back in stored config"
 
 
 LEGACY_HEXES = ("#00cccc", "#8a50e8", "#c060d0", "#e07040", "#9040f0", "#7030c0",
