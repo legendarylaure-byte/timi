@@ -84,7 +84,7 @@ from crew.affiliate_manager import build_affiliate_section
 from datetime import datetime, timedelta
 from apscheduler.schedulers.blocking import BlockingScheduler
 from dotenv import load_dotenv
-from utils.scene_parser import normalize_scene_durations
+from utils.scene_parser import normalize_scene_durations, first_content_scene
 from utils.scene_architect import audit_scenes, SceneArchitectError
 
 os.environ["GRPC_VERBOSITY"] = "ERROR"
@@ -1193,17 +1193,25 @@ def run_video_pipeline(script_text: str, storyboard_text: str, category: str, fo
     is_long = format_type == "long"
     is_deep_lesson = True if format_type == "long" else (category in DEEP_LESSON_CATEGORIES)
 
-    # Hook-scene guarantee: deep-lesson pillar videos force scene[0] → manim diagram attempt.
-    # Runs before _align_scenes_to_audio (which fixes durations) so the manim cap + dispatch see the tag.
+    # Hook-scene guarantee: deep-lesson pillar videos force the opening CONTENT
+    # scene to a manim diagram attempt. Runs before _align_scenes_to_audio
+    # (which fixes durations) so the manim cap + dispatch see the tag.
+    #
+    # This used to look at scenes[0], but inject_intro_outro runs earlier
+    # (main.py:1018) so scenes[0] is always the branded intro card, whose
+    # render_type is "branded_card" -- the old `== "manim"` condition could
+    # therefore never be true, and the guarantee documented in D29 had never
+    # once fired on any video. first_content_scene() skips the cards; the intro
+    # and outro are left alone.
     if scenes and len(scenes) > 0 and is_deep_lesson and os.getenv("ENABLE_MANIM", "true").lower() == "true":
-        hook = scenes[0]
-        if hook.get("render_type") == "manim":
+        hook = first_content_scene(scenes)
+        if hook is not None and hook.get("render_type") == "manim":
             hook.setdefault("asset_type", "DIAGRAM_ANIMATION")
             if not hook.get("diagram"):
                 from utils.scene_parser import _infer_diagram
                 hook["diagram"] = _infer_diagram(hook.get("narration_text", "") + " " + hook.get("keyword", ""))
             hook.setdefault("text", [{"text": hook.get("keyword", "")[:60]}])
-            log_event("SCENE", f"Hook scene #0 forced → manim attempt (topic={hook.get('keyword', '')[:40]})")
+            log_event("SCENE", f"Hook scene → manim attempt (topic={hook.get('keyword', '')[:40]})")
 
     from utils.voice_gen import extract_narration_text
     narration_text = extract_narration_text(script_text, is_long_form=is_long)

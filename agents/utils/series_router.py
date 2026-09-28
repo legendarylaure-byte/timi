@@ -20,7 +20,8 @@ def inject_intro_outro(scenes: list[dict], category: str, format_type: str = "sh
             "duration": 4.0,
             "asset_type": "STATIC_IMAGE",
             "render_type": "branded_card",
-            "asset_keywords": ["intro", series_title],
+            # Keep the real subject, drop the routing label. Was ["intro", series_title].
+            "asset_keywords": [series_title],
             "text": [],
             "transition": "fade",
             "camera": {"zoom": 1.0, "pan_x": 0, "pan_y": 0},
@@ -32,7 +33,9 @@ def inject_intro_outro(scenes: list[dict], category: str, format_type: str = "sh
             "duration": 4.0,
             "asset_type": "STATIC_IMAGE",
             "render_type": "branded_card",
-            "asset_keywords": ["subscribe", "outro"],
+            # Same reasoning as the intro card: if this card render fails, a
+            # stock search for "subscribe"/"outro" returns a clip of the word.
+            # The visible text comes from `description` below.
             "description": "Subscribe to Vyom Ai Cloud",
             "text": [],
             "transition": "fade",
@@ -47,7 +50,11 @@ def inject_intro_outro(scenes: list[dict], category: str, format_type: str = "sh
         "duration": 4.0,
         "asset_type": "STATIC_IMAGE",
         "render_type": "branded_card",
-        "asset_keywords": ["intro", "channel_brand"],
+        # Was ["intro", "channel_brand"] -- pipeline routing labels, not
+        # content. The branded card never rendered them, but if the card render
+        # failed this fell through to a stock search for "intro" and produced a
+        # clip of the word. The card's own text comes from `description`; the
+        # keyword list is now left to asset_router's honest default.
         "description": "Vyom Ai Cloud",
         "text": [],
         "transition": "fade",
@@ -60,8 +67,10 @@ def inject_intro_outro(scenes: list[dict], category: str, format_type: str = "sh
         "duration": 5.0,
         "asset_type": "STATIC_IMAGE",
         "render_type": "branded_card",
-        "asset_keywords": ["subscribe", "outro"],
-            "description": "Subscribe to Vyom Ai Cloud",
+        # Same reasoning as the intro card: if this card render fails, a stock
+        # search for "subscribe"/"outro" returns a clip of the word. The visible
+        # text comes from `description` below.
+        "description": "Subscribe to Vyom Ai Cloud",
         "text": [],
         "transition": "fade",
         "camera": {"zoom": 1.0, "pan_x": 0, "pan_y": 0},

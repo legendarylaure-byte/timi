@@ -47,12 +47,22 @@ CATEGORY_VISUAL_STYLE = {
 # Pexels/Pixabay-friendly keywords injected into asset_keywords so the container's
 # stock-footage path (which searches asset_keywords, not ltx_prompt) also gets
 # per-category visual identity.
+#
+# Phase B: the first half of every term list is the "opening" vocabulary. The
+# owner review found the openings reading as generic dark procedural cards, and
+# the stock path is what supplies a real image instead. Futuristic/neon terms
+# are what Pexels and Pixabay actually index for this look; the previous lists
+# were all literal subject matter ("circuit board") and returned workshop shots.
 CATEGORY_VISUAL_KEYWORDS = {
-    "AI News": ["data center", "server room", "holographic dashboard", "data streaming"],
-    "Science & Technology": ["circuit board", "oscilloscope", "laboratory", "microchip"],
-    "Programming & Software": ["programming code", "computer screen", "mechanical keyboard", "developer workspace"],
-    "World News (24hr)": ["news studio", "world map", "television studio", "live newsroom"],
-    "Nepal News": ["kathmandu", "city skyline", "newsroom", "nepal"],
+    "AI News": ["abstract data visualization", "glowing blue network", "futuristic digital interface",
+                "holographic dashboard", "neon light trails", "server room", "data streaming"],
+    "Science & Technology": ["futuristic laboratory", "glowing circuit macro", "quantum computing abstract",
+                             "particle light", "neon technology background", "microchip macro", "oscilloscope"],
+    "Programming & Software": ["abstract code animation", "futuristic ui interface", "glowing terminal",
+                               "neon matrix light", "developer workspace", "computer screen", "programming code"],
+    "World News (24hr)": ["futuristic broadcast studio", "global connection lines", "news studio",
+                          "television studio", "world map", "live newsroom"],
+    "Nepal News": ["kathmandu", "city skyline", "himalaya landscape", "newsroom", "nepal"],
 }
 
 
@@ -77,6 +87,72 @@ def _apply_category_style(scenes: list[dict], category: str) -> list[dict]:
                         existing.append(kw)
                 s["asset_keywords"] = existing
     return scenes
+
+
+# Plumbing vocabulary: the pipeline's own field names and backend labels. These
+# are never content, but they reach the screen two ways, both of which the
+# owner flagged as "the video is buried under text":
+#   1. asset_router falls back to `", ".join(asset_keywords)` as the LTX prompt
+#      when a scene has no ltx_prompt/description, so a scene keyed on
+#      "intro"/"channel_brand" renders a clip of the word.
+#   2. _infer_diagram pulls capitalised tokens out of scene text, so a block
+#      mentioning the field "Narration" could produce a diagram whose only
+#      visible items are Narration / Visual.
+# One shared set, filtered at both choke points, rather than a wordlist in each.
+META_TOKENS = frozenset({
+    # scene schema field names
+    "narration", "narration_text", "visual", "ltx_prompt", "asset_keywords",
+    "render_type", "asset_type", "diagram", "scene", "background", "camera",
+    "transition", "music_mood", "target_duration", "storyboard", "script",
+    "script_text", "block", "clip", "text", "format",
+    # render backends and sources
+    "manim", "blender", "pexels", "pixabay", "ltx", "stock", "stock_footage",
+    "branded_card", "static_image", "diagram_animation",
+    # routing labels
+    "intro", "outro", "channel_brand", "keyterm", "callout", "hook",
+    # literals that leak out of dict/tuple dumps
+    "true", "false", "none", "null",
+})
+
+
+def is_meta_token(token: str) -> bool:
+    """True for pipeline plumbing, which must never reach a viewer."""
+    return str(token or "").strip().lower().replace(" ", "_") in META_TOKENS
+
+
+def clean_scene_keywords(keywords) -> list[str]:
+    """Drop plumbing, keep real search terms in order. Falls back to [] so the
+    caller decides its own default rather than silently getting a meta word."""
+    if isinstance(keywords, str):
+        keywords = [keywords]
+    out, seen = [], set()
+    for kw in keywords or []:
+        k = str(kw or "").strip()
+        if not k or is_meta_token(k):
+            continue
+        if k.lower() in seen:
+            continue
+        seen.add(k.lower())
+        out.append(k)
+    return out
+
+
+def first_content_scene(scenes: list[dict]) -> Optional[dict]:
+    """The first scene with something worth showing, skipping the branded
+    intro/outro cards.
+
+    Exists because inject_intro_outro() prepends a branded card, so scenes[0] is
+    never the content -- which is why the D29 hook guarantee was dead code: it
+    checked scenes[0] for render_type == "manim" and the intro card is always
+    "branded_card". main.py imports this rather than re-deriving it, so the test
+    guards the real behaviour instead of a copy of the predicate.
+    """
+    for s in scenes or []:
+        if s.get("render_type") == "branded_card":
+            continue
+        if s.get("narration_text") or s.get("description"):
+            return s
+    return None
 
 
 @dataclass
@@ -618,10 +694,18 @@ def _infer_diagram(text: str) -> dict | None:
         return None
     matches = re.findall(r'\b([A-Z][A-Za-z]{2,15})\b', text)
     stopwords = {"The", "This", "That", "With", "From", "They", "What", "When", "How", "Are", "Was", "Were", "Has", "Have", "Our", "You", "Can", "Its", "Now", "Just", "Over"}
-    items = [m for m in matches if m not in stopwords][:6]
-    if not items:
+    real = [m for m in matches if m not in stopwords]
+    if real:
+        # A diagram whose only visible items are the pipeline's own field names
+        # reads as leaked plumbing on screen -- worse than no diagram at all.
+        items = [m for m in real if not is_meta_token(m)][:6]
+        if not items:
+            return None
+    else:
+        # No capitalised tokens at all: the generic step fallback is real
+        # content, so keep the pre-existing behaviour here.
         items = ["Step 1", "Step 2", "Step 3"] if dtype in ("flow", "architecture") else ["A", "B"]
-    return {"type": dtype, "title": items[0] if items else "", "items": items}
+    return {"type": dtype, "title": items[0], "items": items}
 
 
 def _infer_ltx_prompt(text: str, title: str = "", scene_index: int = 0, scene: dict = None, prev_state: Optional[SceneState] = None) -> tuple[str, SceneState]:

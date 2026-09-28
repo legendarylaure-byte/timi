@@ -151,10 +151,12 @@ def _render_scene_inner(scene: dict, video_id: str, scene_idx: int,
     orientation = "portrait" if format_type == "shorts" else "landscape"
     kw = scene.get("keyword", "technology")
     description = scene.get("description", "")
-    kw_list = scene.get("asset_keywords", [kw])
-    if isinstance(kw_list, list):
-        kw_list = kw_list
-    else:
+    # Plumbing keywords ("intro", "channel_brand") are not searchable content.
+    # Dropped here because this list feeds both the stock search and, further
+    # down, the LTX prompt fallback in dispatch_scene -- one filter, both paths.
+    from utils.scene_parser import clean_scene_keywords
+    kw_list = clean_scene_keywords(scene.get("asset_keywords", [kw])) or clean_scene_keywords([kw]) or ["technology"]
+    if isinstance(kw_list, str):
         kw_list = [kw_list]
 
     if render_type == "manim" and os.getenv("ENABLE_MANIM", "true").lower() == "true":
@@ -246,6 +248,16 @@ def dispatch_scene(scene: dict, video_id: str, scene_idx: int = 0,
     from utils.video_qa import check_corruption, check_visual_narration_match
 
     scene.setdefault("asset_keywords", [scene.get("keyword", "technology")])
+    # Keep the plumbing out of the stored scene too, not just the local copy:
+    # this list is read again by the narration-match gate below, and by the
+    # LTX prompt fallback, so filtering only at the search site would leave the
+    # words live everywhere else.
+    from utils.scene_parser import clean_scene_keywords
+    scene["asset_keywords"] = (
+        clean_scene_keywords(scene["asset_keywords"])
+        or clean_scene_keywords([scene.get("keyword", "technology")])
+        or ["technology"]
+    )
     _try_blender_for_scene(scene, category)
     duration = scene.get("target_duration", scene.get("duration", 8.0))
     orientation = "portrait" if format_type == "shorts" else "landscape"
