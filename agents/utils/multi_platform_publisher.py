@@ -14,6 +14,14 @@ from utils.platform_captions import optimize_for_platform, optimize_title_for_pl
 from utils.subprocess_helper import retry_with_backoff, rate_limiter, security_audit, safe_run, register_temp_dir
 
 _FACEBOOK_CRF = os.getenv("FACEBOOK_CRF", "30")
+# Above this size we use Meta's 3-phase resumable upload instead of a single
+# multipart POST. Module constant (not an inline literal) so tests can force the
+# resumable path with a small file -- otherwise exercising the protocol needs a
+# real 50MB+ upload every time.
+_FB_RESUMABLE_THRESHOLD = 50 * 1024 * 1024
+# Chunk size for each 'transfer' call. 5MB is a safe per-request payload; the
+# upload's overall size is driven by Meta's returned next-offset, not by this.
+_FB_CHUNK_BYTES = 5 * 1024 * 1024
 _FACEBOOK_TEMP_DIR = os.path.join(
     os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "tmp", "facebook"
 )
@@ -684,6 +692,141 @@ def _upload_instagram(title: str, video_path: str, format_type: str) -> dict:
         return {'success': False, 'platform': 'instagram', 'error': safe_log(str(e))}
 
 
+def _fb_json(resp, phase: str) -> dict:
+    """Parse a Graph response without blowing up on an HTML/plaintext error body.
+
+    `requests.Response.json()` raises `Expecting value: line 1 column 1` on a
+    non-JSON reply, which is how the resumable bug reported itself: an opaque
+    exception with no status code, no phase, and no body. Keep the response
+    object under `_resp` so the caller can still inspect the status.
+    """
+    try:
+        body = resp.json()
+    except ValueError:
+        snippet = safe_log((resp.text or '')[:200])
+        raise RuntimeError(
+            f'Facebook {phase} returned non-JSON (HTTP {resp.status_code}): {snippet}'
+        )
+    if not isinstance(body, dict):
+        raise RuntimeError(
+            f'Facebook {phase} returned {type(body).__name__}, expected object '
+            f'(HTTP {resp.status_code})'
+        )
+    body['_resp'] = resp
+    return body
+
+
+def _fb_resumable_transfer(upload_path: str, page_id: str, access_token: str,
+                           file_size: int, session: dict, idem_key: str,
+                           _fb_json, _raise_fb_api_error, _check_meta_rate_limit,
+                           on_401=None, start_offset: int = 0) -> None:
+    """Phases 2 and 3 of Meta's resumable upload: transfer chunks, then finish.
+
+    The old code sent the entire file in one request under the field name
+    `source` with `start_offset=0` and never called `finish`, so the session was
+    opened and abandoned mid-flight (error 1363030). The byte offset must come
+    from Meta, and the file handle must be seeked to it -- sending the whole
+    stream against a non-zero `start_offset` is the same bug with a different
+    symptom.
+
+    `start_offset` comes from the 'start' response and is the resume position.
+    We do NOT cap chunks by `end_offset`: on the start response that field is
+    the last byte received so far, not a limit on how much we may send. Capping
+    by it made a fresh session (which reports end_offset=0) send one byte per
+    request -- ~5M requests for a 5GB file. Each transfer response returns the
+    next offset, and that is what drives the loop.
+
+    Error 1363037 means the offset is no longer valid; Meta returns the correct
+    window in that response and the upload continues from there.
+    """
+    import requests
+
+    url = f'https://graph.facebook.com/v25.0/{page_id}/videos'
+    upload_session_id = session['upload_session_id']
+    offset = max(0, int(start_offset or 0))
+    # ponytail: bounded retry. A stalled resumable session is recoverable, but
+    # an unbounded loop would hang the overnight run.
+    stalls = 0
+    MAX_STALLS = 3
+
+    with open(upload_path, 'rb') as f:
+        while offset < file_size:
+            f.seek(offset)
+            chunk = f.read(_FB_CHUNK_BYTES)
+            if not chunk:
+                break
+
+            params = {
+                'access_token': access_token,
+                'upload_phase': 'transfer',
+                'upload_session_id': upload_session_id,
+                'start_offset': str(offset),
+                'idempotency_key': idem_key,
+            }
+            resp = requests.post(
+                url, params=params,
+                files={'video_file_chunk': chunk},
+                timeout=600,
+            )
+            _check_meta_rate_limit(resp, 'Facebook')
+
+            # Refresh BEFORE parsing: an expired token can come back as an HTML
+            # error page, and _fb_json would raise on it and skip the refresh.
+            if resp.status_code in (401, 403) and on_401 is not None:
+                new_token = on_401()
+                if new_token:
+                    access_token = new_token
+                    params['access_token'] = new_token
+                    continue  # same offset, fresh token
+
+            body = _fb_json(resp, f'resumable transfer @{offset}')
+            err = body.get('error') or {}
+
+            # 1363037 means the offset went stale (session idle too long, or a
+            # previous attempt got further than this one). Meta returns the valid
+            # window in the SAME error body, so this is recoverable -- raising here
+            # would throw away an upload that is most of the way done.
+            if err.get('code') == 1363037 and 'start_offset' in body:
+                next_offset = int(body['start_offset'])
+            else:
+                _raise_fb_api_error(body, f'resumable transfer @{offset}')
+                # Trust Meta's window when it gives one; otherwise advance by what
+                # we actually sent.
+                next_offset = body.get('start_offset')
+                next_offset = offset + len(chunk) if next_offset is None else int(next_offset)
+
+            if next_offset <= offset:
+                stalls += 1
+                if stalls > MAX_STALLS:
+                    raise RuntimeError(
+                        f'Facebook resumable upload stalled at offset {offset}/{file_size} '
+                        f'(meta returned {next_offset})'
+                    )
+            else:
+                stalls = 0
+            offset = next_offset
+
+    if offset < file_size:
+        raise RuntimeError(
+            f'Facebook resumable upload incomplete: {offset}/{file_size} bytes sent'
+        )
+
+    # Phase 3 -- without this the session is opened and never published.
+    finish = _fb_json(requests.post(
+        url,
+        params={
+            'access_token': access_token,
+            'upload_phase': 'finish',
+            'upload_session_id': upload_session_id,
+        },
+        timeout=120,
+    ), 'resumable finish')
+
+    _raise_fb_api_error(finish, 'resumable finish')
+    if not finish.get('success', True):
+        raise RuntimeError('Facebook resumable finish reported success=false')
+
+
 def _upload_facebook(title: str, description: str, video_path: str, thumbnail_path: str = None) -> dict:
     """Upload to Facebook via Graph API with retry, rate limit, token refresh."""
     if not rate_limiter("facebook_upload", max_per_hour=5):
@@ -722,7 +865,7 @@ def _upload_facebook(title: str, description: str, video_path: str, thumbnail_pa
         import requests
 
         file_size = os.path.getsize(upload_path)
-        upload_method = 'resumable' if file_size > 50 * 1024 * 1024 else 'direct'
+        upload_method = 'resumable' if file_size > _FB_RESUMABLE_THRESHOLD else 'direct'
 
         ai_flags = get_ai_disclosure("facebook")
         fb_description = description
@@ -761,7 +904,7 @@ def _upload_facebook(title: str, description: str, video_path: str, thumbnail_pa
                     access_token = refreshed
                     return _do_upload()
 
-            body = upload_resp.json()
+            body = _fb_json(upload_resp, 'direct upload')
             _raise_fb_api_error(body, 'direct upload')
 
             video_id = body.get('id')
@@ -776,6 +919,11 @@ def _upload_facebook(title: str, description: str, video_path: str, thumbnail_pa
                 'status': 'published',
             }
         else:
+            # Meta's 3-phase resumable protocol. The bug this replaces sent the
+            # whole file in ONE transfer under the field name 'source' and never
+            # called 'finish', so the session was opened and abandoned -> 1363030.
+            # The field is 'video_file_chunk', and the byte window comes from
+            # Meta's response, not from us. video_id arrives on 'start'.
             init_resp = requests.post(
                 f'https://graph.facebook.com/v25.0/{page_id}/videos',
                 params={
@@ -797,42 +945,37 @@ def _upload_facebook(title: str, description: str, video_path: str, thumbnail_pa
                     access_token = refreshed
                     return _do_upload()
 
-            init_body = init_resp.json()
-            _raise_fb_api_error(init_body, 'resumable init')
+            init_body = _fb_json(init_resp, 'resumable start')
+            _raise_fb_api_error(init_body, 'resumable start')
 
+            # The id lives on the start response; the finish response has none.
+            video_id = init_body.get('video_id') or init_body.get('id')
             upload_session_id = init_body.get('upload_session_id')
             if not upload_session_id:
                 raise RuntimeError(f'No upload session ID from Facebook (size={file_size})')
+            if not video_id:
+                raise RuntimeError(f'Facebook resumable start returned no video ID (size={file_size})')
 
-            with open(upload_path, 'rb') as f:
-                chunk_resp = requests.post(
-                    f'https://graph.facebook.com/v25.0/{page_id}/videos',
-                    params={
-                        'access_token': access_token,
-                        'upload_phase': 'transfer',
-                        'upload_session_id': upload_session_id,
-                        'start_offset': '0',
-                        'idempotency_key': idem_key,
-                    },
-                    files={'source': f},
-                    timeout=600,
-                )
+            session = {'upload_session_id': upload_session_id, 'video_id': video_id}
 
-            _check_meta_rate_limit(chunk_resp, 'Facebook')
-
-            if chunk_resp.status_code in (401, 403) and not _facebook_refresh_attempted:
+            def _retry_with_new_token():
+                """One-shot token refresh mid-transfer. Returns the new token or None."""
+                nonlocal _facebook_refresh_attempted
+                if _facebook_refresh_attempted:
+                    return None
                 _facebook_refresh_attempted = True
                 refreshed = _refresh_facebook_token()
-                if refreshed:
-                    access_token = refreshed
-                    return _do_upload()
+                if not refreshed:
+                    return None
+                return refreshed
 
-            chunk_body = chunk_resp.json()
-            _raise_fb_api_error(chunk_body, 'resumable upload')
+            _fb_resumable_transfer(
+                upload_path, page_id, access_token, file_size, session, idem_key,
+                _fb_json, _raise_fb_api_error, _check_meta_rate_limit,
+                on_401=_retry_with_new_token,
+                start_offset=init_body.get('start_offset') or 0,
+            )
 
-            video_id = chunk_body.get('id')
-            if not video_id:
-                raise RuntimeError(f'Facebook resumable upload returned no video ID (size={file_size})')
             return {
                 'success': True,
                 'platform': 'facebook',

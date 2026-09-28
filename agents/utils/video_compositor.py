@@ -76,7 +76,28 @@ ASPECT_RATIOS = {
 
 
 OUTPUT_FPS = 24
+# CRF is the final master quality dial. 17 is deliberately generous for shorts
+# (seconds long, every frame is viewer attention). Longs render at CRF_LONG
+# because a 5-minute master at 17 is ~390MB, which is re-encoded by all four
+# platforms anyway -- the extra bits buy nothing visible but cost upload time
+# and push TikTok from 4 chunks to 7.
 CRF = "17"
+CRF_LONG = os.getenv("CRF_LONG", "20")
+
+
+def _final_crf(format_type: str) -> str:
+    """Quality dial for the FINAL master, per format.
+
+    Longs render at CRF_LONG: a 5-minute master at 17 is ~390MB, re-encoded by
+    all four platforms anyway, and it pushes TikTok from 4 upload chunks to 7.
+    Shorts stay at CRF -- they are seconds long, every frame is viewer attention,
+    and the size saving is negligible.
+
+    Named function so this is testable; it used to be an inline expression buried
+    in a 270-line function where nothing could assert it.
+    """
+    return CRF_LONG if format_type == "long" else CRF
+
 
 # Channel logo watermark opacity. 1.0 was a sticker competing with the footage.
 LOGO_ALPHA = 0.6
@@ -960,6 +981,10 @@ def composite_video(clips: list[dict], voice_path: str, music_path: Optional[str
                     force_concat: bool = False, tier: str = "") -> Optional[str]:
     target = ASPECT_RATIOS.get(format_type, ASPECT_RATIOS["long"])
     tw, th = target["w"], target["h"]
+    # Final master quality only. The per-scene encodes above deliberately stay on
+    # CRF: they are re-encoded into this pass, so their quality is transient and
+    # CRF is the safe value going in.
+    final_crf = _final_crf(format_type)
 
     processed = []
     transitions = []
@@ -1021,7 +1046,7 @@ def composite_video(clips: list[dict], voice_path: str, music_path: Optional[str
             _ffmpeg_cmd(), "-y", *inputs, *_sws_flags(),
             "-filter_complex", filter_str,
             "-map", f"[{out_label}]",
-            "-c:v", "libx264", "-preset", PRESET, "-crf", CRF,
+            "-c:v", "libx264", "-preset", PRESET, "-crf", final_crf,
             "-pix_fmt", "yuv420p", combined_video,
         ]
         try:
@@ -1191,7 +1216,7 @@ def composite_video(clips: list[dict], voice_path: str, music_path: Optional[str
     ]
     cmd += ["-vf", vf_filter] if vf_filter else []
     cmd += [
-        "-c:v", "libx264", "-preset", PRESET, "-crf", CRF,
+        "-c:v", "libx264", "-preset", PRESET, "-crf", final_crf,
         "-r", str(OUTPUT_FPS),
         "-af", "acompressor=threshold=-24dB:ratio=2:attack=5:release=50,"
                "loudnorm=I=-14:LRA=11:TP=-1,"

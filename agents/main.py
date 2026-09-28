@@ -1987,26 +1987,36 @@ def generate_short_video(topic: str, category: str, video_id: str, publish_at: s
             log_event("KNOWLEDGE", f"Knowledge registration skipped: {e}", "debug")
 
         failed_step = "pinned_comment"
-        if youtube_id:
+        # Scheduled videos are private until publish_at, so there is no comment
+        # thread yet. Calling anyway returned 403 commentsDisabled on every run
+        # while this code logged success unconditionally.
+        if youtube_id and publish_at:
+            log_event("COMMENT",
+                      f"Engagement deferred for {youtube_id}: scheduled for {publish_at}, "
+                      f"video is private until then", "debug")
+        elif youtube_id:
             try:
                 from utils.youtube_upload import get_youtube_service as _get_yt_service
                 from utils.engagement_manager import post_pinned_comment, auto_reply_to_comments, build_pinned_comment
                 yt_svc = _get_yt_service()
                 if yt_svc:
                     comment_text = build_pinned_comment(topic, format_type="shorts")
-                    post_pinned_comment(youtube_id, comment_text, yt_svc)
-                    auto_reply_to_comments(youtube_id, yt_svc)
-                    log_event("COMMENT", f"Pinned comment + auto-reply set up for {youtube_id}")
-                    try:
-                        from utils.comment_analyzer import analyze_video_comments, flag_negative_comments
-                        sentiment = analyze_video_comments(youtube_id, yt_svc, max_comments=30)
-                        if sentiment["total"] > 0:
-                            log_event("SENTIMENT", f"Comments: {sentiment['total']} total, {sentiment['sentiments']['negative'] + sentiment['sentiments']['toxic']} negative")
-                        flagged = flag_negative_comments(youtube_id, yt_svc)
-                        if flagged:
-                            log_event("SENTIMENT", f"Negative comment alert: {flagged['message']}", "warn")
-                    except Exception as se:
-                        log_event("SENTIMENT", f"Sentiment analysis skipped: {se}", "debug")
+                    if post_pinned_comment(youtube_id, comment_text, yt_svc):
+                        auto_reply_to_comments(youtube_id, yt_svc)
+                        log_event("COMMENT", f"Pinned comment + auto-reply set up for {youtube_id}")
+                        try:
+                            from utils.comment_analyzer import analyze_video_comments, flag_negative_comments
+                            sentiment = analyze_video_comments(youtube_id, yt_svc, max_comments=30)
+                            if sentiment["total"] > 0:
+                                log_event("SENTIMENT", f"Comments: {sentiment['total']} total, {sentiment['sentiments']['negative'] + sentiment['sentiments']['toxic']} negative")
+                            flagged = flag_negative_comments(youtube_id, yt_svc)
+                            if flagged:
+                                log_event("SENTIMENT", f"Negative comment alert: {flagged['message']}", "warn")
+                        except Exception as se:
+                            log_event("SENTIMENT", f"Sentiment analysis skipped: {se}", "debug")
+                    else:
+                        log_event("COMMENT",
+                                  f"Pinned comment NOT posted for {youtube_id}", "warn")
             except Exception as e:
                 log_event("COMMENT", f"Pinned comment skipped: {e}", "debug")
         try:
@@ -2607,26 +2617,33 @@ def generate_long_video(topic: str, category: str, video_id: str, publish_at: st
             log_event("KNOWLEDGE", f"Knowledge registration skipped: {e}", "debug")
 
         failed_step = "pinned_comment"
-        if youtube_id:
+        if youtube_id and publish_at:
+            log_event("COMMENT",
+                      f"Engagement deferred for {youtube_id}: scheduled for {publish_at}, "
+                      f"video is private until then", "debug")
+        elif youtube_id:
             try:
                 from utils.youtube_upload import get_youtube_service as _get_yt_service
                 from utils.engagement_manager import post_pinned_comment, auto_reply_to_comments, build_pinned_comment
                 yt_svc = _get_yt_service()
                 if yt_svc:
                     comment_text = build_pinned_comment(topic, format_type="long")
-                    post_pinned_comment(youtube_id, comment_text, yt_svc)
-                    auto_reply_to_comments(youtube_id, yt_svc)
-                    log_event("COMMENT", f"Pinned comment + auto-reply set up for {youtube_id}")
-                    try:
-                        from utils.comment_analyzer import analyze_video_comments, flag_negative_comments
-                        sentiment = analyze_video_comments(youtube_id, yt_svc, max_comments=30)
-                        if sentiment["total"] > 0:
-                            log_event("SENTIMENT", f"Comments: {sentiment['total']} total, {sentiment['sentiments']['negative'] + sentiment['sentiments']['toxic']} negative")
-                        flagged = flag_negative_comments(youtube_id, yt_svc)
-                        if flagged:
-                            log_event("SENTIMENT", f"Negative comment alert: {flagged['message']}", "warn")
-                    except Exception as se:
-                        log_event("SENTIMENT", f"Sentiment analysis skipped: {se}", "debug")
+                    if post_pinned_comment(youtube_id, comment_text, yt_svc):
+                        auto_reply_to_comments(youtube_id, yt_svc)
+                        log_event("COMMENT", f"Pinned comment + auto-reply set up for {youtube_id}")
+                        try:
+                            from utils.comment_analyzer import analyze_video_comments, flag_negative_comments
+                            sentiment = analyze_video_comments(youtube_id, yt_svc, max_comments=30)
+                            if sentiment["total"] > 0:
+                                log_event("SENTIMENT", f"Comments: {sentiment['total']} total, {sentiment['sentiments']['negative'] + sentiment['sentiments']['toxic']} negative")
+                            flagged = flag_negative_comments(youtube_id, yt_svc)
+                            if flagged:
+                                log_event("SENTIMENT", f"Negative comment alert: {flagged['message']}", "warn")
+                        except Exception as se:
+                            log_event("SENTIMENT", f"Sentiment analysis skipped: {se}", "debug")
+                    else:
+                        log_event("COMMENT",
+                                  f"Pinned comment NOT posted for {youtube_id}", "warn")
             except Exception as e:
                 log_event("COMMENT", f"Pinned comment skipped: {e}", "debug")
         try:

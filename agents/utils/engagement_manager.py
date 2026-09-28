@@ -58,6 +58,23 @@ def build_pinned_comment(topic: str, format_type: str = "shorts") -> str:
     return template.format(question=question)
 
 
+def _comments_unavailable(exc) -> bool:
+    """True when YouTube says comments are off, rather than something breaking.
+
+    A private (scheduled) video and a channel with comments disabled both return
+    `commentsDisabled`. That is the expected state, not a fault, and logging it
+    as ERROR raised a Sentry alert on every single run.
+
+    Deliberately does NOT match a bare "forbidden": a missing OAuth scope looks
+    identical on the wire, and that one is a real fault we want to see.
+    """
+    blob = str(exc)
+    return any(m in blob for m in (
+        "commentsDisabled", "commentDisabled", "commentsNotEnabled",
+        "commentThreadDisabled",
+    ))
+
+
 def post_pinned_comment(video_id: str, comment_text: str, youtube_service=None) -> bool:
     if not youtube_service:
         logger.warning("No YouTube service provided for pinned comment")
@@ -81,7 +98,13 @@ def post_pinned_comment(video_id: str, comment_text: str, youtube_service=None) 
         logger.info(f"Pinned comment posted for {video_id}")
         return True
     except Exception as e:
-        logger.error(f"Failed to post pinned comment: {e}")
+        if _comments_unavailable(e):
+            logger.info(
+                f"Pinned comment skipped for {video_id}: comments are disabled "
+                f"or the video is private (expected while private)"
+            )
+        else:
+            logger.error(f"Failed to post pinned comment: {e}")
         return False
 
 
@@ -126,7 +149,13 @@ def auto_reply_to_comments(video_id: str, youtube_service=None, max_replies: int
 
         logger.info(f"Auto-reply complete: {replies_posted} replies posted for {video_id}")
     except Exception as e:
-        logger.error(f"Auto-reply failed for {video_id}: {e}")
+        if _comments_unavailable(e):
+            logger.info(
+                f"Auto-reply skipped for {video_id}: comments are disabled "
+                f"or the video is private (expected while private)"
+            )
+        else:
+            logger.error(f"Auto-reply failed for {video_id}: {e}")
     return replies_posted
 
 
