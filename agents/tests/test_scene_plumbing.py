@@ -138,3 +138,44 @@ def test_stock_keywords_are_searchable_never_plumbing():
         assert kws, f"{cat} has no stock keywords"
         for kw in kws:
             assert not is_meta_token(kw), f"{cat} keyword {kw!r} is plumbing"
+
+
+def test_diagram_renderer_survives_bare_string_items():
+    """The LLM emits `items: ["Attention", "Feed-forward"]` despite the prompt
+    asking for values. _render_bar used to raise AttributeError on those, and
+    asset_router's catch turned that into a silent fall back to stock -- so every
+    unvalued bar diagram rendered as footage instead. All five types must take
+    strings, or dicts, or a mix."""
+    import os
+    from utils.diagram_renderer import render_diagram
+
+    specs = [
+        {"type": "bar", "title": "Attention", "items": ["Attention", "Feed-forward"]},
+        {"type": "bar", "title": "Cost", "items": [{"label": "A", "value": 3}, {"label": "B", "value": 7}]},
+        {"type": "bar", "title": "Mixed", "items": ["A", {"label": "B", "value": 5}]},
+        {"type": "comparison", "title": "C", "items": ["a", "b", "c"]},
+        {"type": "flow", "title": "F", "items": ["a", "b"]},
+    ]
+    for spec in specs:
+        path = render_diagram(spec, width=800, height=450)
+        assert path and os.path.getsize(path) > 2000, f"{spec['type']} produced nothing: {spec}"
+
+
+def test_unvalued_bar_does_not_invent_bars():
+    """A bar chart with no numbers would draw equal-height bars, because
+    _render_bar floors bar height at 10px. That implies measurements that do not
+    exist, so it must render as the labelled list it actually is."""
+    from utils.diagram_renderer import _normalize_items, _render_bar, _render_flow
+
+    unvalued = _normalize_items(["Attention", "Feed-forward"])
+    assert not any(i.get("value") for i in unvalued)
+
+    valued = _normalize_items([{"label": "A", "value": 3}, {"label": "B", "value": 7}])
+    assert any(i.get("value") for i in valued)
+
+    # The bar renderer must still be reachable for real numbers, or the guard
+    # above has quietly turned every bar chart into a list.
+    from PIL import Image, ImageDraw
+    for items, renderer in ((valued, _render_bar), (unvalued, _render_flow)):
+        im = Image.new("RGB", (800, 450), (0, 0, 0))
+        renderer(ImageDraw.Draw(im), items, 800, 350, 70, (155, 77, 255))

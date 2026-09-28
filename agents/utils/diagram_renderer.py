@@ -98,7 +98,7 @@ def render_diagram(spec: dict, width: int = 1920, height: int = 1080) -> Optiona
     # retired teal #00CCCC, so every diagram that didn't override `color` was
     # drawn in pre-rebrand teal.
     accent = _parse_color(spec.get("color") or DEFAULT_ACCENT)
-    items = spec.get("items", [])
+    items = _normalize_items(spec.get("items", []))
 
     if title:
         tf = _font(32, bold=True, text=title)
@@ -111,7 +111,15 @@ def render_diagram(spec: dict, width: int = 1920, height: int = 1080) -> Optiona
     if diagram_type == "flow":
         _render_flow(draw, items, width, body_h, margin_top, accent)
     elif diagram_type == "bar":
-        _render_bar(draw, items, width, body_h, margin_top, accent)
+        # A bar chart with no numbers is a list wearing a chart's clothes. The
+        # renderer floors every bar at 10px, so unvalued items would draw as
+        # equal-height bars and imply measurements that do not exist. The LLM
+        # routinely emits bare strings, so this is the common case, not an edge
+        # one -- render it as the labelled list it actually is.
+        if any(i.get("value") for i in items):
+            _render_bar(draw, items, width, body_h, margin_top, accent)
+        else:
+            _render_flow(draw, items, width, body_h, margin_top, accent)
     elif diagram_type == "comparison":
         _render_comparison(draw, items, width, body_h, margin_top, accent)
     elif diagram_type == "timeline":
@@ -157,6 +165,33 @@ def _render_flow(draw: ImageDraw.Draw, items: list, width: int,
             ay = y + bh / 2
             draw.line([ax, ay, ax + gap - 5, ay], fill=accent, width=2)
             _draw_arrowhead(draw, ax + gap - 5, ay, accent, "right")
+
+
+def _normalize_items(items: list) -> list:
+    """Coerce every item to a dict before any renderer sees it.
+
+    WHY: the LLM parse prompt asks for labelled items, and with values, but
+    models routinely emit bare strings anyway. The renderers were then
+    internally inconsistent -- flow/timeline/comparison/architecture each had
+    their own `isinstance(item, str)` guard, and _render_bar did not, so a bar
+    chart raised `AttributeError: 'str' object has no attribute 'get'`. Nothing
+    surfaced: asset_router catches the exception and falls back to stock, so
+    every unvalued bar diagram had been silently rendering as stock footage
+    while the log showed one WARNING line and nothing else.
+
+    Normalizing once at the entry point means no renderer has to defend against
+    the producer's real output, and the next diagram type added cannot
+    reintroduce the same split.
+    """
+    out = []
+    for item in items or []:
+        if isinstance(item, str):
+            out.append({"label": item})
+        elif isinstance(item, (int, float)):
+            out.append({"label": str(item), "value": item})
+        else:
+            out.append(item)
+    return out
 
 
 def _render_bar(draw: ImageDraw.Draw, items: list, width: int,
