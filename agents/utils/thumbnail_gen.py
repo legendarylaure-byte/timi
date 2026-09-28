@@ -307,75 +307,89 @@ def _score_thumbnail(variant: dict) -> float:
     return round(score, 2)
 
 
+# --- Concept F: "Lavender Editorial" -- LOCKED by the owner 2026-09-28. ---------
+# Pale lavender ground, violet serif headline, brand ramp rule, orange tick,
+# licorice footer. Replaces the dark scrimmed-photo Concept B.
+#
+# Colour here is arithmetic, not taste. On this ground only LICORICE (18.4:1) and
+# VIOLET (5.6:1) clear AA as text; PURPLE clears only the 3:1 large-text bar, and
+# PINK / ORANGE / LIGHT_ORANGE / AMBER run 1.7-3.1:1 and are decorative. So PURPLE
+# is confined to display type and ORANGE to a mark. The assertion in _draw_light
+# is the guard: a later edit that reaches for a decorative colour as type fails
+# here instead of quietly shipping unreadable text.
+_BODY_SAFE = {LICORICE, VIOLET}
+_DISPLAY_SAFE = _BODY_SAFE | {PURPLE}
+GROUND = lerp(WHITE, PURPLE, 0.07)  # #F8F3FF, a lerp of two brand colours
+KICKER = "AI EXPLAINED"
+FOOTER = "Vyom Ai Cloud"
+
+
+def _soft_blob(img, cx, cy, r, col, t):
+    """A brand-coloured wash. Decorative only -- never behind body text."""
+    base = img.copy()
+    wash = Image.new("RGB", img.size, lerp(WHITE, col, t))
+    mask = Image.new("L", img.size, 0)
+    ImageDraw.Draw(mask).ellipse([cx - r, cy - r, cx + r, cy + r], fill=255)
+    return Image.composite(wash, base, mask.filter(ImageFilter.GaussianBlur(max(2, r // 3))))
+
+
+def _accent_rule(d, x, y, w, h):
+    seg = max(1, w // len(ACCENT_RAMP))
+    for i, hexcol in enumerate(ACCENT_RAMP):
+        x0 = x + i * seg
+        x1 = x + (i + 1) * seg if i < len(ACCENT_RAMP) - 1 else x + w
+        d.rectangle([(x0, y), (x1, y + h)], fill=hex_to_rgb(hexcol))
+
+
+def _draw_light(d, xy, s, font, fill, width=0, display=False):
+    """Text on the light ground, refusing any colour that cannot carry it."""
+    if not s:
+        return
+    allowed = _DISPLAY_SAFE if display else _BODY_SAFE
+    assert fill in allowed, (
+        f"{fill} is not text-safe on the light thumbnail ground "
+        f"(decorative brand colours run 1.7-3.1:1 there) -- use it on a rule or mark"
+    )
+    rgb = hex_to_rgb(fill)
+    for i, line in enumerate(_wrap_text(s, font, width) if width else [s]):
+        d.text((xy[0], xy[1] + i * int(font.size * 1.16)), line, font=font, fill=rgb)
+
+
 def _compose_thumbnail(background: str, title: str, out_path: str,
                        format_type: str = "long", style: str = "abstract") -> str:
-    """Overlay the real title on a real background, cropped to the target aspect.
+    """Compose the locked Concept F card. Returns "" if it fails.
 
-    Keeps the text legible: draws a bottom scrim so white/yellow text reads over any
-    photo. Returns "" if it fails.
+    `background` and `style` are kept so callers are unchanged, but Concept F is a
+    flat palette ground and deliberately does not composite a photo. Putting one
+    back is a different design, not a flag: it needs the scrim, the crop and the
+    contrast re-check that the light ground replaced.
     """
     try:
-        from PIL import ImageEnhance
         target = (1080, 1920) if format_type == "shorts" else (1280, 720)
         tw, th = target
-        with Image.open(background) as src:
-            src = src.convert("RGB")
-            # Centre-crop the generated image to the target aspect (no letterboxing).
-            sw, sh = src.size
-            scale = max(tw / sw, th / sh)
-            nw, nh = max(tw, int(sw * scale + 0.5)), max(th, int(sh * scale + 0.5))
-            src = src.resize((nw, nh), Image.LANCZOS)
-            left, top = (nw - tw) // 2, (nh - th) // 2
-            src = src.crop((left, top, left + tw, top + th))
-            src = ImageEnhance.Color(src).enhance(1.15)
-            src = ImageEnhance.Contrast(src).enhance(1.08)
 
-            scrim_h = int(th * 0.34) if format_type != "shorts" else int(th * 0.26)
-            grad = Image.new("RGBA", (tw, th), (0, 0, 0, 0))
-            gd = ImageDraw.Draw(grad)
-            for i in range(scrim_h):
-                alpha = int(170 * (i / max(1, scrim_h - 1)))
-                gd.rectangle([(0, th - scrim_h + i), (tw, th - scrim_h + i + 1)], fill=(0, 0, 0, alpha))
-            src = src.convert("RGBA")
-            src.alpha_composite(grad)
+        img = _soft_blob(Image.new("RGB", (tw, th), GROUND),
+                         int(tw * 0.86), int(th * 0.80),
+                         int(min(tw, th) * 0.46), VIOLET, 0.30)
+        d = ImageDraw.Draw(img)
+        pad = int(tw * 0.075)
 
-            draw = ImageDraw.Draw(src)
-            if style == "dark":
-                title_color, sub_color = hex_to_rgb(WHITE), hex_to_rgb(LIGHT_ORANGE)
-            else:
-                title_color, sub_color = hex_to_rgb(WHITE), hex_to_rgb(LIGHT_ORANGE)
+        _accent_rule(d, pad, int(th * 0.20), int(tw * 0.26), max(5, th // 150))
+        _draw_light(d, (pad, int(th * 0.25)), KICKER, _find_font(int(th * 0.030)), VIOLET)
+        _draw_light(d, (pad, int(th * 0.33)), title,
+                    _find_font(int(th * 0.082), serif=True), VIOLET,
+                    width=int(tw * 0.78))
+        d.rectangle(
+            [(pad, int(th * 0.86)),
+             (pad + int(tw * 0.10), int(th * 0.86) + max(4, th // 200))],
+            fill=hex_to_rgb(ORANGE),
+        )
+        _draw_light(d, (pad, int(th * 0.89)), FOOTER, _find_font(int(th * 0.028)), LICORICE)
 
-            # Concept B framing: serif display headline over a scrimmed AI image,
-            # with the brand accent ramp as a rule above it. The headline stays
-            # bottom-anchored inside the scrim -- that placement is what the
-            # scrim exists for and it is proven legible; only the voice (serif)
-            # and the frame (accent rule) changed.
-            tf = _find_font(96 if format_type == "shorts" else 76, serif=True)
-            sf = _find_font(40)
-            max_w = int(tw * 0.88)
-            lines = _wrap_text(title, tf, max_w)[:4] if title else []
-            y = th - scrim_h + int(scrim_h * 0.12)
-
-            # Thin accent ramp rule, drawn once across the top of the text block.
-            if lines:
-                rule_w = min(max_w, int(tw * 0.52))
-                rule_x = (tw - rule_w) // 2
-                rule_y = y - int(tf.size * 0.62)
-                rule_h = max(3, tf.size // 18)
-                seg = max(1, rule_w // len(ACCENT_RAMP))
-                for i, hexcol in enumerate(ACCENT_RAMP):
-                    x0 = rule_x + i * seg
-                    x1 = rule_x + (i + 1) * seg if i < len(ACCENT_RAMP) - 1 else rule_x + rule_w
-                    draw.rectangle([(x0, rule_y), (x1, rule_y + rule_h)], fill=hex_to_rgb(hexcol))
-
-            for line in lines:
-                _draw_text_shadow(draw, line, (tw // 2, y), tf, title_color)
-                y += tf.size + 8
-
-            _ensure_thumbnail_dir()
-            os.makedirs(os.path.dirname(out_path) or ".", exist_ok=True)
-            # JPEG: YouTube rejects thumbnails over 2MB and PNG art hits that fast.
-            src.convert("RGB").save(out_path, "JPEG", quality=92, optimize=True)
+        _ensure_thumbnail_dir()
+        os.makedirs(os.path.dirname(out_path) or ".", exist_ok=True)
+        # JPEG: YouTube rejects thumbnails over 2MB and PNG art hits that fast.
+        img.save(out_path, "JPEG", quality=92, optimize=True)
         return out_path if os.path.exists(out_path) and os.path.getsize(out_path) > 2000 else ""
     except Exception as e:
         print(f"[THUMBNAIL] compose failed: {e}")
@@ -410,73 +424,27 @@ def fit_under_2mb(path: str, limit: int = 2 * 1024 * 1024 - 4096) -> str:
 
 
 def generate_thumbnail_variants(topic: str, thumbnail_text: str, format_type: str = "shorts") -> dict:
-    """Generate candidate thumbnails and return the one that actually measures best.
+    """Compose the locked Concept F card.
 
-    Candidates are real generated images (utils.image_gen, Pollinations by default)
-    with the title burned in. Falls back to the procedural art when image gen is
-    unavailable so the pipeline never breaks.
+    Concept F is a flat palette ground, so an image model has nothing to add: the
+    old 3-photo Pollinations round and the measured/scored candidate list are gone
+    rather than left generating images that _compose_thumbnail then discards. One
+    deterministic card per video. The `variants` key stays non-empty because
+    main.py falls back to variants[0].
     """
     text_overlay = extract_text_overlay(thumbnail_text)
     overlay = (text_overlay or " ".join(topic.split()[:4])).strip()
 
     _ensure_thumbnail_dir()
-    from utils.image_gen import generate_variants
-
-    backgrounds = generate_variants(
-        prompt=f"{topic}. {overlay}",
-        out_dir=THUMBNAIL_DIR,
-        count=3,
-        width=1024,   # Pollinations pins output to 1024x576 regardless of request
-        height=576,
-        style="tech editorial photography",
-    )
-
-    variants = []
-    if backgrounds:
-        for i, bg in enumerate(backgrounds):
-            out = os.path.join(THUMBNAIL_DIR, f"thumb_{format_type}_ai_{i}.jpg")
-            if _compose_thumbnail(bg, overlay, out, format_type=format_type, style="photo"):
-                variants.append({
-                    "path": out,
-                    "style": "photo_ai",
-                    "text_length": len(overlay),
-                    "background": bg,
-                })
-        if variants:
-            for v in variants:
-                v["measured"] = _measure_image(v["path"])
-                v["score"] = _score_thumbnail(v)
-            variants.sort(key=lambda x: x["score"], reverse=True)
-            return {
-                "best": variants[0]["path"],
-                "variants": [v["path"] for v in variants],
-                "count": len(variants),
-                "source": "image_gen",
-            }
-        print("[THUMBNAIL] Image gen produced no usable background, using procedural art")
-
-    # Fallback: the original procedural art, now measured instead of hash-scored.
-    styles = ["abstract", "dark", "abstract"]
-    for i in range(3):
-        style = styles[i % len(styles)]
-        out = f"thumb_{format_type}_{_stable_hash(topic + str(i)) % 100000}.png"
-        result = generate_thumbnail_image(topic, thumbnail_text, format_type, out, style=style)
-        if result["success"]:
-            variants.append({
-                "path": result["path"],
-                "style": style,
-                "text_length": len(overlay),
-            })
-    for v in variants:
-        v["measured"] = _measure_image(v["path"])
-        v["score"] = _score_thumbnail(v)
-    variants.sort(key=lambda x: x["score"], reverse=True)
-
+    out = os.path.join(THUMBNAIL_DIR, f"thumb_{format_type}_f.jpg")
+    if not _compose_thumbnail("", overlay, out, format_type=format_type, style="photo"):
+        return {"best": None, "variants": [], "count": 0, "source": "failed"}
     return {
-        "best": variants[0]["path"] if variants else None,
-        "variants": [v["path"] for v in variants],
-        "count": len(variants),
-        "source": "procedural",
+        "best": out,
+        "variants": [out],
+        "count": 1,
+        "source": "concept_f",
+        "measured": _measure_image(out),
     }
 
 
