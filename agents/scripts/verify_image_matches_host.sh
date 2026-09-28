@@ -25,6 +25,14 @@ CONTAINER="${CONTAINER:-timi-pipeline}"
 IMAGE_DIGEST="$(docker inspect "$CONTAINER" --format '{{.Image}}' 2>/dev/null || echo '?')"
 echo "parity target: container=${CONTAINER} image=${IMAGE_DIGEST}"
 
+# `docker exec` needs a RUNNING container, and under `set -e` + `pipefail` the
+# first failed exec aborts the whole script mid-loop -- it exits 1 having printed
+# nothing, which is indistinguishable from a real mismatch. Fail loudly instead.
+if [ "$(docker inspect "$CONTAINER" --format '{{.State.Running}}' 2>/dev/null || echo false)" != "true" ]; then
+  echo "CONTAINER NOT RUNNING: '$CONTAINER' -- this script reads files via docker exec, so a created-but-not-started container can never be checked. Start it, or pass CONTAINER=<running name>." >&2
+  exit 1
+fi
+
 if [ "$#" -gt 0 ]; then
   FILES=("$@")
 else
@@ -47,7 +55,12 @@ for f in "${FILES[@]}"; do
   host="$ROOT/agents/$f"
   [ -f "$host" ] || { echo "MISSING ON HOST: $f"; fail=1; continue; }
   h="$(digest < "$host")"
-  i="$(docker exec "$CONTAINER" sh -c "sha256sum '/app/$f' 2>/dev/null || shasum -a 256 '/app/$f'" 2>/dev/null | awk '{print $1}')"
+  # `|| true` is load-bearing. A file absent from the image makes `docker exec`
+  # exit non-zero; with `pipefail` + `set -e` that aborted the script at the
+  # FIRST missing file, so the one condition this script exists to report
+  # ("NOT IN CONTAINER") was the one thing it could never report -- it just
+  # exited 1 with no output. Swallow the status and let the empty $i test speak.
+  i="$(docker exec "$CONTAINER" sh -c "sha256sum '/app/$f' 2>/dev/null || shasum -a 256 '/app/$f'" 2>/dev/null | awk '{print $1}' || true)"
   if [ -z "$i" ]; then
     printf '  %-46s NOT IN CONTAINER\n' "$f"
     fail=1
