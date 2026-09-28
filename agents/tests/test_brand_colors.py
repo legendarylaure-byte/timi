@@ -527,6 +527,59 @@ def test_no_unreferenced_offbrand_logo_asset_is_left_behind():
     assert (assets / "channel_logo.png").exists(), "the watermark source is missing"
 
 
+# The dirs Dockerfile.overlay COPYs into the image. Anything the runtime needs
+# from these trees has to be in git: the image is built from the working tree, so
+# a gitignored file here means a clean clone silently produces a different image.
+_IMAGE_COPY_DIRS = ("utils", "crew", "models", "scripts")
+
+
+def _git(*args):
+    import subprocess
+    return subprocess.run(
+        ["git", "-C", str(pathlib.Path(__file__).resolve().parents[2]), *args],
+        capture_output=True, text=True, check=True,
+    ).stdout
+
+
+def test_image_build_inputs_are_tracked_by_git():
+    """channel_logo.png was gitignored by a blanket `*.png` rule. The image bakes
+    it in from the working tree, so a clean clone built a container that rendered
+    every video with no watermark, and the test suite was green throughout.
+
+    A test that reads the *working tree* cannot see that class of bug at all --
+    the file is present locally and absent from the clone. This asks git
+    directly, which is the only place the difference is visible."""
+    root = pathlib.Path(__file__).resolve().parents[2]
+    if not (root / ".git").exists():
+        pytest.skip("no .git here (container); the image ships the files, not the history")
+
+    untracked = _git(
+        "ls-files", "--others", "--exclude-standard", "--",
+        *[f"agents/{d}" for d in _IMAGE_COPY_DIRS],
+    ).split()
+    stray = [
+        f for f in untracked
+        if "__pycache__" not in f and not f.endswith((".pyc", ".pyo"))
+    ]
+    assert not stray, (
+        "present in the tree but untracked, so a clean clone would not build them: "
+        + ", ".join(stray[:8])
+    )
+
+
+def test_watermark_source_is_committed_not_just_present():
+    """The specific instance of the above, kept explicit because it is the one
+    that shipped: the watermark is the only binary asset the render path needs."""
+    root = pathlib.Path(__file__).resolve().parents[2]
+    if not (root / ".git").exists():
+        pytest.skip("no .git here (container)")
+    tracked = _git("ls-files", "--", "agents/utils/assets/channel_logo.png").split()
+    assert tracked == ["agents/utils/assets/channel_logo.png"], (
+        "the watermark source is not committed; the image bakes it in from the "
+        "working tree, so a clean clone would render with no watermark"
+    )
+
+
 def _runtime_style_guide():
     """`data/brand/` is gitignored runtime state (see .gitignore), so a bare CI
     checkout has no file. Return None rather than failing: the invariant that

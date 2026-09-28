@@ -100,6 +100,22 @@ print("VERIFY PASSED: all selfchecks + pytest green")
 PY
 rc=$?
 
+# A negative test mutates a source file to prove its guard fires. If the restore
+# silently fails, the mutation gets committed and ships. This also means the suite
+# only ever runs against committed source, which is what the image is built from.
+if git -C "$ROOT" rev-parse --git-dir >/dev/null 2>&1; then
+  drift="$(git -C "$ROOT" status --porcelain -- agents/main.py agents/utils agents/crew agents/models agents/scripts agents/tests 2>/dev/null)"
+  if [[ -n "$drift" ]]; then
+    echo >&2
+    echo "UNCOMMITTED CHANGES IN RUNTIME TREE -- refusing to pass verify:" >&2
+    echo "$drift" | sed 's/^/  /' >&2
+    echo "Commit or stash these first: verify is a pre-DEPLOY gate, and the image" >&2
+    echo "is built from committed source. If a negative test was run, it did not" >&2
+    echo "restore its mutation -- do not commit that." >&2
+    rc=1
+  fi
+fi
+
 if [[ $rc -ne 0 ]]; then
   echo
   echo "verify.sh FAILED (exit $rc)" >&2

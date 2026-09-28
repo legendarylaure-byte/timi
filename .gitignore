@@ -27,20 +27,29 @@ pipeline/temp/
 *.mp4
 *.mp3
 *.wav
-*.png
-*.jpg
-!dashboard/public/*.png
-!dashboard/public/*.jpg
-# The watermark source. The image bakes it in from the working tree, so leaving
-# it untracked means a clean clone silently renders with no watermark, and CI
-# cannot assert the invariant. Same reasoning as the dashboard/public negations.
-!agents/utils/assets/channel_logo.png
+# Images are NOT blanket-ignored. `*.png` used to sit here, and that is exactly
+# how utils/assets/channel_logo.png -- the watermark the image bakes in from the
+# working tree -- stayed untracked: a clean clone built an image with no
+# watermark and nothing failed. Generated art is now ignored by its directory
+# (the same four dirs Dockerfile.overlay already calls dead) instead, so a new
+# source asset is tracked by default and forgetting is loud.
+agents/utils/assets/characters/
+agents/utils/assets/backgrounds/
+agents/utils/assets/effects/
+agents/utils/assets/sfx/
+# Root-level QA debris from frame grabs and page screenshots. Leading slash so
+# this cannot reach a source asset in a subdirectory.
+/*.png
+/*.jpg
 firebase-debug.log
 .vercel
 *.tsbuildinfo
 dashboard/.npm-cache/
 agents/venv/
 agents/tmp/
+# Demo frame grabs at the repo root (sandbox demo renders, not source). Needed
+# explicitly because images are no longer blanket-ignored.
+tmp/
 agents/data/
 agents/*.pid
 youtube_token.json
