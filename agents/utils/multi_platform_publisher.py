@@ -922,8 +922,8 @@ def _upload_facebook(title: str, description: str, video_path: str, thumbnail_pa
             # Meta's 3-phase resumable protocol. The bug this replaces sent the
             # whole file in ONE transfer under the field name 'source' and never
             # called 'finish', so the session was opened and abandoned -> 1363030.
-            # The field is 'video_file_chunk', and the byte window comes from
-            # Meta's response, not from us. video_id arrives on 'start'.
+            # The field is 'video_file_chunk', each transfer response carries the
+            # next offset, and video_id arrives on 'start'.
             init_resp = requests.post(
                 f'https://graph.facebook.com/v25.0/{page_id}/videos',
                 params={
