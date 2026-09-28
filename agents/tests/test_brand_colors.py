@@ -660,6 +660,7 @@ _RENDER_SURFACE_FILES = (
     "utils/shorts_renderer.py",
     "utils/scene_parser.py",
     "utils/asset_router.py",
+    "utils/dub_pipeline.py",
     "utils/manim_renderer.py",
     "utils/blender_renderer.py",
     "utils/thumbnail_gen.py",
@@ -692,6 +693,34 @@ def _string_literals_without_docstrings(source: str) -> list[str]:
     ]
 
 
+def _rgb_tuple_literals(source: str) -> list[tuple]:
+    """Every ``(r, g, b)`` integer tuple written literally in `source`.
+
+    The hex walk above cannot see these: ``(0, 204, 204)`` *is* `#00CCCC`, but it
+    is a tuple of int constants, not a string, so it never matches `LEGACY_HEXES`.
+    That is how the retired teal stayed live in `asset_router.py` (the accent
+    stripe and corner dots on the branded card in the first and last frame of
+    every video) and in `dub_pipeline.py` (which was entirely pre-rebrand: #1E1E1E,
+    #00CCCC and #FF6B35) while the hex test stayed green. Black, white and grey
+    triples are simply not in `LEGACY_HEXES`, so they need no exemption.
+    """
+    import ast
+
+    out = []
+    for node in ast.walk(ast.parse(source)):
+        if (
+            isinstance(node, ast.Tuple)
+            and len(node.elts) == 3
+            and all(
+                isinstance(e, ast.Constant) and isinstance(e.value, int)
+                and 0 <= e.value <= 255
+                for e in node.elts
+            )
+        ):
+            out.append(tuple(e.value for e in node.elts))
+    return out
+
+
 def test_legacy_hexes_are_gone_from_runtime_source():
     """The stored-config test above cannot see this bug class.
 
@@ -713,6 +742,7 @@ def test_legacy_hexes_are_gone_from_runtime_source():
         src = path.read_text(encoding="utf-8", errors="ignore")
         try:
             literals = _string_literals_without_docstrings(src)
+            triples = _rgb_tuple_literals(src)
         except SyntaxError:
             continue
         checked += 1
@@ -724,8 +754,16 @@ def test_legacy_hexes_are_gone_from_runtime_source():
                     f"in a runtime string literal -- read it from "
                     f"utils.brand_palette instead"
                 )
-    # Sanity: the walk must actually cover the files that burned teal.
-    assert checked >= 12, f"source walk only covered {checked} files - is the list wrong?"
+        for triple in triples:
+            as_hex = "#%02x%02x%02x" % triple
+            assert as_hex not in LEGACY_HEXES, (
+                f"{rel} still hardcodes legacy colour {as_hex.upper()} as the RGB "
+                f"tuple {triple} -- a hex grep cannot see this form, so read it "
+                f"from utils.brand_palette instead"
+            )
+    # Sanity: the walk must actually cover the files that burned teal. The floor
+    # rose from 12 to 13 when dub_pipeline.py joined the list.
+    assert checked >= 13, f"source walk only covered {checked} files - is the list wrong?"
 
 
 def test_keyterm_text_overlays_are_gone_from_source():

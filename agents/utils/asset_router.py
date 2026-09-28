@@ -13,7 +13,7 @@ from utils.concurrent_pipeline import run_with_gpu_lock
 from models import get_video_model
 from utils.scene_schema import DEEP_LESSON_CATS as _DEEP_LESSON_CATS
 from utils.manim_renderer import render_manim_scene, render_manim_code_snippet
-from utils.brand_palette import LICORICE
+from utils.brand_palette import LICORICE, PURPLE, hex_to_rgb
 
 logger = logging.getLogger(__name__)
 
@@ -59,7 +59,7 @@ def _generate_static_image(description: str, keyword: str = "", width: int = 192
     bg = LICORICE
     img = Image.new("RGB", (width, height), bg)
     draw = ImageDraw.Draw(img)
-    accent = (0, 204, 204)
+    accent = hex_to_rgb(PURPLE)
     title_text = (keyword or description or "AI Explained").strip()
     if len(title_text) > 60:
         title_text = title_text[:57] + "..."
@@ -67,10 +67,12 @@ def _generate_static_image(description: str, keyword: str = "", width: int = 192
     try:
         font = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf", font_size)
     except (OSError, IOError):
-        try:
-            font = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf", font_size)
-        except (OSError, IOError):
-            font = ImageFont.load_default()
+        # This used to be a second try of the *same* path, so the fallback could
+        # never differ from the primary. ponytail: DejaVu is a container path --
+        # off-container this lands on the bitmap default and the card renders
+        # near-empty (measured: 99.88% background). The container is the render
+        # target, so that is a host-preview limit, not a pipeline fault.
+        font = ImageFont.load_default()
     bbox = draw.textbbox((0, 0), title_text, font=font)
     tw = bbox[2] - bbox[0]
     th = bbox[3] - bbox[1]

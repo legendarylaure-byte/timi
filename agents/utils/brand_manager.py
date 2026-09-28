@@ -41,7 +41,18 @@ DEFAULT_STYLE_GUIDE = {
         # ass() so the BGR flip lives in exactly one place.
         "subtitle_color": ass(AMBER),
         "subtitle_font_size": 24,
-        "thumbnail_style": "bold text on dark background with accent color",
+        # NOT A CONTROL. Nothing reads `thumbnail_style` (the only other
+        # occurrence, thumbnail_gen._get_thumbnail_style_from_path, just
+        # pattern-matches filenames for analytics). Kept as documentation of the
+        # owner's chosen direction; the actual light surfaces are rendered in
+        # thumbnail_gen._compose_thumbnail and must match this text by hand.
+        # Measured contrast on a light ground: LICORICE 18.4:1 and VIOLET 5.6:1
+        # are body-safe, PURPLE 4.3:1 is large-display-only, and PINK/ORANGE/
+        # LIGHT_ORANGE/AMBER are decorative only.
+        "thumbnail_style": (
+            "light surface; LICORICE body, VIOLET readable headline, "
+            "PURPLE for large display type only, ACCENT_RAMP for non-text rules"
+        ),
     },
     "structure": {
         "shorts": ["hook (0-3s)", "explanation", "takeaway", "cta"],

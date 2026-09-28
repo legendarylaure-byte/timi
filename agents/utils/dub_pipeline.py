@@ -21,6 +21,13 @@ import logging
 import os
 import shutil
 
+from utils.brand_palette import (
+    LICORICE,
+    ORANGE as BRAND_ORANGE,
+    PURPLE,
+    WHITE as BRAND_WHITE,
+    hex_to_rgb,
+)
 from utils.fonts import resolve_font_file
 from utils.subprocess_helper import safe_run
 
@@ -44,10 +51,15 @@ CHAR_SPLIT_LANGS = {"hi", "ko", "ja", "ar", "zh"}
 MAX_CUE_WORDS = 8
 MAX_CUE_CHARS = 34
 
-BG = (30, 30, 30)
-TEAL = (0, 204, 204)
-ORANGE = (255, 107, 53)
-WHITE = (245, 245, 245)
+# Card colours come from the palette. These were four hand-written RGB tuples
+# that all predated the rebrand -- #1E1E1E, #00CCCC (retired teal) and
+# #FF6B35 (retired orange) are all in tests.LEGACY_HEXES -- so the desync card
+# shown before every dubbed upload was painted entirely off-brand. The hex test
+# could not see them: it walks *string* literals, and these were three ints.
+BG = hex_to_rgb(LICORICE)
+ACCENT = hex_to_rgb(PURPLE)
+ORANGE = hex_to_rgb(BRAND_ORANGE)
+WHITE = hex_to_rgb(BRAND_WHITE)
 
 
 def _probe(path: str) -> dict:
@@ -202,7 +214,7 @@ def make_intro_card(lang_label: str, out_png: str, width: int = 1080,
         sub_font = ImageFont.load_default()
 
     bar_h = max(4, height // 180)
-    draw.rectangle([0, height // 2 - bar_h, width, height // 2 + bar_h], fill=TEAL)
+    draw.rectangle([0, height // 2 - bar_h, width, height // 2 + bar_h], fill=ACCENT)
 
     def _centered(text, font, y, fill):
         try:
@@ -212,10 +224,10 @@ def make_intro_card(lang_label: str, out_png: str, width: int = 1080,
         draw.text(((width - (r - l)) / 2 - l, y), text, font=font, fill=fill)
 
     _centered(lang_label, title_font, height * 0.40, WHITE)
-    _centered("Vyom Ai Cloud", sub_font, height * 0.56, TEAL)
+    _centered("Vyom Ai Cloud", sub_font, height * 0.56, ACCENT)
 
-    for cx, cy, col in ((0.08, 0.10, ORANGE), (0.92, 0.10, TEAL),
-                        (0.08, 0.90, TEAL), (0.92, 0.90, ORANGE)):
+    for cx, cy, col in ((0.08, 0.10, ORANGE), (0.92, 0.10, ACCENT),
+                        (0.08, 0.90, ACCENT), (0.92, 0.90, ORANGE)):
         r = max(6, int(min(width, height) * 0.018))
         draw.ellipse([cx * width - r, cy * height - r, cx * width + r, cy * height + r], fill=col)
 
