@@ -78,6 +78,9 @@ ASPECT_RATIOS = {
 OUTPUT_FPS = 24
 CRF = "17"
 
+# Channel logo watermark opacity. 1.0 was a sticker competing with the footage.
+LOGO_ALPHA = 0.6
+
 logger = logging.getLogger(__name__)
 PRESET = "medium"
 
@@ -681,15 +684,20 @@ def add_logo_overlay(video_path: str, logo_path: str, output_path: str,
         }.get(position, f"main_w-overlay_w-{m}:{m}")
 
     if scale <= 0:
-        # ~11% of frame width: legible on a phone, small enough not to eat the shot
-        scale = round(width * 0.11)
+        # ~6.5% of frame width at 0.6 alpha. This was 11% and fully opaque, which
+        # the owner reviewed on real output and called a sticker rather than a
+        # watermark — it competed with the shot instead of branding it. A
+        # watermark has to yield to the frame; pass scale= to override.
+        scale = round(width * 0.065)
 
     cmd = [
         _ffmpeg_cmd(), "-y", "-i", video_path, "-i", logo_path, *_sws_flags(),
         "-filter_complex",
         # -1 keeps the logo's own aspect ratio; scaling by width alone would
-        # stretch a square icon into a rectangle.
-        f"[1:v]scale={scale}:-1[logo];[0:v][logo]overlay={pos}",
+        # stretch a square icon into a rectangle. colorchannelmixer=aa scales
+        # alpha so the mark sits behind the footage instead of on top of it.
+        f"[1:v]scale={scale}:-1,format=rgba,colorchannelmixer=aa={LOGO_ALPHA:.2f}[logo];"
+        f"[0:v][logo]overlay={pos}",
         "-c:v", "libx264", "-preset", PRESET, "-crf", CRF,
         "-c:a", "copy", "-pix_fmt", "yuv420p", output_path,
     ]
@@ -945,81 +953,6 @@ def _apply_color_correction(source: str, output: str, target_hist: dict,
         return False
 
 
-def _extract_keyterms(scene: dict) -> list[str]:
-    """Extract key terms from a scene for animated text overlays."""
-    terms = scene.get("asset_keywords", [])
-    if isinstance(terms, str):
-        terms = [terms]
-    terms = list(filter(None, terms[:3]))
-    if not terms:
-        narration = scene.get("narration_text", "") or scene.get("text", "")
-        if isinstance(narration, str):
-            words = narration.split()
-            terms = [w for w in words if len(w) > 5 and w[0].isupper() and w.isalpha()][:2]
-    kw = scene.get("keyword", "")
-    if kw and kw not in terms:
-        terms.insert(0, kw)
-    return terms[:3]
-
-
-def _build_keyterm_filters(scenes: list[dict], clips: list[dict]) -> list[str]:
-    """Build drawtext filters for animated key-term overlays synced to scenes.
-    
-    Each key term appears at the top of the frame with a fade-in animation,
-    matching how 3Blue1Brown and Universal Resilience highlight concepts.
-    The first content scene (hook) gets a larger, more prominent treatment.
-    """
-    filters = []
-    first_content_idx = None
-    for i, s in enumerate(scenes):
-        if i >= len(clips):
-            break
-        terms = _extract_keyterms(s)
-        if not terms:
-            continue
-        if first_content_idx is None:
-            first_content_idx = i
-
-        ts = sum(c.get("duration", 8.0) for c in clips[:i])
-        dur = clips[i].get("duration", 8.0)
-        term_count = min(len(terms), 3)
-        spacing = max(2.5, dur / (term_count + 1))
-
-        is_hook = (i == first_content_idx)
-        font_size = 48 if is_hook else 36
-        # Hook gets the warmer, higher-contrast brand step so it separates from
-        # the purple term overlays that follow it.
-        font_color = LIGHT_ORANGE if is_hook else PURPLE
-        fade_in_dur = 0.8 if is_hook else 0.4
-
-        for j, term in enumerate(terms):
-            escaped = term.replace("'", "\u2019").replace(":", "\\:").replace("-", "\\-")
-            appear = ts + spacing * j
-            hold = max(2.0, spacing - 0.8)
-            disappear = appear + fade_in_dur + hold
-            fade_out = 0.4
-            end = disappear + fade_out
-            x_expr = (
-                f"if(lt(t\\,{appear}+{fade_in_dur})\\,"
-                f"(-text_w-20)+(w+text_w+20)*(t-{appear})/{fade_in_dur}\\,"
-                f"if(lt(t\\,{disappear})\\,"
-                f"(w-text_w)/2\\,"
-                f"if(lt(t\\,{disappear}+{fade_out})\\,"
-                f"(w-text_w)/2*(1-(t-{disappear})/{fade_out})\\,"
-                f"-text_w-20)))"
-            )
-            y_expr = "h*0.10" if is_hook else "h*0.12"
-            from utils.fonts import font_for_text
-            filters.append(
-                f"drawtext=text='{escaped}':fontsize={font_size}:fontcolor={font_color}:"
-                f"x={x_expr}:y={y_expr}:"
-                f"borderw=2:bordercolor={LICORICE}@0.8:"
-                f"enable='between(t\\,{appear}\\,{end})':"
-                f"fontfile={font_for_text(term)}"
-            )
-    return filters
-
-
 def composite_video(clips: list[dict], voice_path: str, music_path: Optional[str] = None,
                     format_type: str = "shorts", video_id: str = "output",
                     subtitle_path: Optional[str] = None, chapters: Optional[list] = None,
@@ -1146,8 +1079,12 @@ def composite_video(clips: list[dict], voice_path: str, music_path: Optional[str
                     f"boxborderw=6:x={x_expr}:y=h-130:enable='between(t\\,{ts}\\,{te})'"
                 )
 
-        # Key-term text overlays — show important terms animated on screen
-        vf_parts.extend(_build_keyterm_filters(scenes, clips))
+        # ponytail: no text overlays in the video body. This plus the
+        # `callout` annotations in scene_parser used to burn extracted keyterms
+        # onto the frame twice (large at top, small teal at bottom-left) and
+        # both collided with the burned subtitle track. Removed 09-28 after the
+        # owner reviewed real output. The only text on screen is now the
+        # subtitle track + the CTA/midroll graphics below.
 
         # Annotations — callouts, steps, definitions, arrows, highlights, counters
         if os.getenv("ENABLE_ANNOTATIONS", "true").lower() == "true":
@@ -1213,11 +1150,15 @@ def composite_video(clips: list[dict], voice_path: str, music_path: Optional[str
             sub_outline = SUBTITLE_OUTLINE_ASS
             has_outline = 1
         else:
-            sub_fs = 24
+            # Long-form default. Was 24 with a hairline outline, which the owner
+            # reviewed on real 1920x1080 output and called not properly
+            # subtitled. 34 + a 2px outline keeps it readable on a phone without
+            # crowding a wider frame.
+            sub_fs = 34
             margin_v = 80
             sub_primary = SUBTITLE_ASS
             sub_outline = SUBTITLE_OUTLINE_ASS
-            has_outline = 1
+            has_outline = 2
         vf_parts.append(
             f"subtitles=filename='{abs_sub}':force_style="
             f"{_subtitle_style_escaped(sub_fs, margin_v, sub_primary, sub_outline, has_outline=has_outline)}"

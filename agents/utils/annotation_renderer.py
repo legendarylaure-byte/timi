@@ -6,13 +6,18 @@ that can be appended to the compositor's filter chain.
 """
 import os
 
-
-
-BRAND_TEAL = "#00CCCC"
-BRAND_ORANGE = "#FF6B35"
-BRAND_PURPLE = "#8a50e8"
-BRAND_DARK = "#1e1e1e"
-BRAND_WHITE = "#FFFFFF"
+# Brand colours come from the single source of truth. These used to be local
+# literals (teal #00CCCC / orange #FF6B35 / purple #8a50e8 / #1e1e1e), so the
+# rebrand missed every annotation: the callout boxes, highlight outlines and
+# counters all still painted in pre-rebrand teal. Aliases kept so the ~12
+# existing call sites below don't each need rewriting.
+from utils.brand_palette import (  # noqa: F401
+    PURPLE as BRAND_PURPLE,
+    ORANGE as BRAND_ORANGE,
+    LICORICE as BRAND_DARK,
+    WHITE as BRAND_WHITE,
+    AMBER as BRAND_TEAL,
+)
 
 FONT = os.getenv("FONT_PATH") or "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf"
 FONT_BOLD = os.getenv("FONT_PATH_BOLD") or "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf"

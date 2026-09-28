@@ -18,12 +18,27 @@ FONT_PATH = os.getenv("FONT_PATH") or "/usr/share/fonts/truetype/dejavu/DejaVuSa
 FONT_BOLD = os.getenv("FONT_PATH_BOLD", FONT_PATH)
 FONT_SIZE = 18
 
-TEAL = (0, 204, 204)
-ORANGE = (255, 107, 53)
-PURPLE = (138, 80, 232)
-DARK = (30, 30, 30)
-WHITE = (255, 255, 255)
+# Brand colours, derived from the single source of truth. These were local RGB
+# tuples pinned to the pre-rebrand palette (teal #00CCCC, orange #FF6B35, purple
+# #8a50e8, dark #1e1e1e), which is why diagrams kept rendering in retired teal
+# after the rebrand landed.
+from utils.brand_palette import (  # noqa: E402
+    PURPLE as _PURPLE_HEX,
+    ORANGE as _ORANGE_HEX,
+    LICORICE as _DARK_HEX,
+    WHITE as _WHITE_HEX,
+    hex_to_rgb,
+)
+
+TEAL = hex_to_rgb(_PURPLE_HEX)   # retired teal slot, now brand purple
+ORANGE = hex_to_rgb(_ORANGE_HEX)
+PURPLE = hex_to_rgb(_PURPLE_HEX)
+DARK = hex_to_rgb(_DARK_HEX)
+WHITE = hex_to_rgb(_WHITE_HEX)
 LIGHT_GRAY = (200, 200, 200)
+
+# Default diagram accent: brand purple, not the retired teal.
+DEFAULT_ACCENT = _PURPLE_HEX
 
 
 _FONT_CANDIDATES = [
@@ -69,7 +84,7 @@ def render_diagram(spec: dict, width: int = 1920, height: int = 1080) -> Optiona
         "type": "flow" | "bar" | "comparison" | "timeline" | "architecture",
         "title": "Optional title",
         "items": [...],    # type-specific
-        "color": "#00CCCC" # accent override
+        "color": "#9B4DFF" # accent override
     }
     """
     if Image is None:
@@ -79,7 +94,10 @@ def render_diagram(spec: dict, width: int = 1920, height: int = 1080) -> Optiona
 
     diagram_type = spec.get("type", "flow")
     title = spec.get("title", "")
-    accent = _parse_color(spec.get("color", "#00CCCC"))
+    # Default accent comes from the brand palette. This was hardcoded to the
+    # retired teal #00CCCC, so every diagram that didn't override `color` was
+    # drawn in pre-rebrand teal.
+    accent = _parse_color(spec.get("color") or DEFAULT_ACCENT)
     items = spec.get("items", [])
 
     if title:

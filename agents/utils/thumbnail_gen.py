@@ -8,7 +8,8 @@ from pathlib import Path
 from PIL import Image, ImageDraw, ImageFont, ImageFilter
 from utils.subprocess_helper import safe_run, safe_run_bool
 from utils.brand_palette import (
-    LICORICE, PURPLE, VIOLET, PINK, ORANGE, LIGHT_ORANGE, WHITE, hex_to_rgb, lerp,
+    LICORICE, PURPLE, VIOLET, PINK, ORANGE, LIGHT_ORANGE, WHITE, ACCENT_RAMP,
+    hex_to_rgb, lerp,
 )
 
 THUMBNAIL_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "tmp", "thumbnails")
@@ -344,11 +345,29 @@ def _compose_thumbnail(background: str, title: str, out_path: str,
             else:
                 title_color, sub_color = hex_to_rgb(WHITE), hex_to_rgb(LIGHT_ORANGE)
 
-            tf = _find_font(96 if format_type == "shorts" else 76)
+            # Concept B framing: serif display headline over a scrimmed AI image,
+            # with the brand accent ramp as a rule above it. The headline stays
+            # bottom-anchored inside the scrim -- that placement is what the
+            # scrim exists for and it is proven legible; only the voice (serif)
+            # and the frame (accent rule) changed.
+            tf = _find_font(96 if format_type == "shorts" else 76, serif=True)
             sf = _find_font(40)
             max_w = int(tw * 0.88)
             lines = _wrap_text(title, tf, max_w)[:4] if title else []
             y = th - scrim_h + int(scrim_h * 0.12)
+
+            # Thin accent ramp rule, drawn once across the top of the text block.
+            if lines:
+                rule_w = min(max_w, int(tw * 0.52))
+                rule_x = (tw - rule_w) // 2
+                rule_y = y - int(tf.size * 0.62)
+                rule_h = max(3, tf.size // 18)
+                seg = max(1, rule_w // len(ACCENT_RAMP))
+                for i, hexcol in enumerate(ACCENT_RAMP):
+                    x0 = rule_x + i * seg
+                    x1 = rule_x + (i + 1) * seg if i < len(ACCENT_RAMP) - 1 else rule_x + rule_w
+                    draw.rectangle([(x0, rule_y), (x1, rule_y + rule_h)], fill=hex_to_rgb(hexcol))
+
             for line in lines:
                 _draw_text_shadow(draw, line, (tw // 2, y), tf, title_color)
                 y += tf.size + 8
@@ -461,8 +480,15 @@ def generate_thumbnail_variants(topic: str, thumbnail_text: str, format_type: st
     }
 
 
-def _find_font(size: int):
+def _find_font(size: int, serif: bool = False):
+    # serif=True gives the Concept B display voice used on thumbnails/cards.
+    # DejaVuSerif is the reliable in-image face (the card renderer already uses
+    # it); the macOS faces are host-only and absent from the container.
     candidates = [
+        "/usr/share/fonts/truetype/dejavu/DejaVuSerif-Bold.ttf",
+        "/usr/share/fonts/truetype/dejavu/DejaVuSerif.ttf",
+        "/Library/Fonts/Georgia Bold.ttf",
+    ] if serif else [
         "/System/Library/Fonts/Supplemental/Arial Bold.ttf",
         "/System/Library/Fonts/Helvetica.ttc",
         "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf",

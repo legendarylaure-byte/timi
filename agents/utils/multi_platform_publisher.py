@@ -926,8 +926,18 @@ def multi_platform_publish(video_id: str, title: str, description: str, video_pa
 
     # Update video record
     update_data = {
-        'published_platforms': list(results['platforms'].keys()),
+        # Success-only. This used to be every *attempted* platform, so a video
+        # that reached 3/4 still recorded `published_platforms: [youtube, tiktok,
+        # facebook, instagram]` and read as a clean 4/4 to anything counting
+        # that list -- which is how a silent TikTok failure (attempted, no URL)
+        # got reported as a full publish. Count what landed, not what was tried.
+        'published_platforms': sorted(p for p, r in results['platforms'].items() if r.get('success')),
         'publish_urls': {p: r.get('url', r.get('video_url', '')) for p, r in results['platforms'].items() if r.get('success')},  # noqa: E501
+        # Raw per-platform outcome, so a later failure can be diagnosed. The
+        # success counters above are lossy: a `success` with no URL and a
+        # hard failure look identical once logged, which is exactly how the
+        # 09-27 TikTok miss became unrecoverable after the log rotated.
+        'platform_publish_results': results['platforms'],
     }
     yt_result = results['platforms'].get('youtube', {})
     if yt_result.get('success') and yt_result.get('video_id'):

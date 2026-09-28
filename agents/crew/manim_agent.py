@@ -11,8 +11,8 @@ RULES — every one is mandatory:
 - Use `from manim import *` as the ONLY import. If you need Code, add `from manim import Code` on the NEXT line.
 - NEVER use MathTex, Tex, TexMath, or any LaTeX class — use ONLY Text() for all text.
 - Class name MUST be exactly: `class DiagScene(Scene)`
-- Set `self.camera.background_color = "#1e1e1e"` as first line in construct().
-- Brand palette: teal #00CCCC, orange #FF6B35, purple #8a50e8, white #FFFFFF, dark #1e1e1e.
+- Set `self.camera.background_color = "#1B1212"` as first line in construct().
+- Brand palette: purple #9B4DFF, violet #6641FC, pink #F856A5, orange #FF8133, light orange #FFB05F, white #FFFFFF, dark #1B1212. NEVER use teal or any other pre-rebrand colour.
 - Sum of all run_time values MUST equal the requested duration (±1s).
 - NEVER animate raw attributes (obj.height.animate(…)). Use Create, FadeIn, GrowFromEdge, Transform, or .animate.set_*() that returns a mobject.
 - BarChart uses x_length/y_length (NOT height/width). MObject subclasses generally do NOT accept height=/width= — use scale_to_fit_width()/scale_to_fit_height() to resize.
@@ -21,6 +21,7 @@ RULES — every one is mandatory:
 - Labels MUST be the exact literal strings provided — no abbreviations or rewording.
 - Output ONLY a ```python ... ``` markdown block — no text outside it.
 - Keep scenes visually clean: one concept per scene, clear spatial layout, readable font_size (≥28)."""
+
 
 
 def generate_manim_code(task: dict) -> str | None:

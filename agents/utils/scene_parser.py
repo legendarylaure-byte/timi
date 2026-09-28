@@ -991,26 +991,20 @@ ANNOTATION_FEATURE_FLAGS = {
 
 
 def enrich_scenes_with_annotations(scenes: list[dict]) -> list[dict]:
-    """Auto-generate annotation metadata on scenes from existing fields.
-    Adds 'annotations' list to scenes that have key terms or visual descriptions.
+    """Auto-generate annotation metadata on scenes that carry a diagram.
+
+    The `callout` annotation type used to be generated here from each scene's
+    extracted key terms, which painted a second copy of that text onto the
+    bottom-left of the frame — on top of the burned subtitle track, in the old
+    teal. It duplicated both the top keyterm overlay (now removed) and the
+    subtitles, so it was removed 09-28. Only the diagram highlight remains; the
+    callout/definition/step/counter renderers still work for any scene that
+    ships explicit annotations.
     """
     enabled_types = [k for k, v in ANNOTATION_FEATURE_FLAGS.items() if v]
-    for i, scene in enumerate(scenes):
+    for scene in scenes:
         annotations = []
-        terms = _extract_keyterms_from_scene(scene)
         dur = scene.get("duration", 8.0)
-        ts = sum(s.get("duration", 8.0) for s in scenes[:i])
-
-        if terms and "callout" in enabled_types:
-            for j, term in enumerate(terms):
-                annotations.append({
-                    "type": "callout",
-                    "text": term,
-                    "timing_offset": j * max(2.5, dur / (len(terms) + 1)),
-                    "duration": 3.0,
-                    "position": "bottom-left",
-                    "fontsize": 18,
-                })
 
         if scene.get("diagram") and "highlight" in enabled_types:
             annotations.append({
@@ -1025,20 +1019,6 @@ def enrich_scenes_with_annotations(scenes: list[dict]) -> list[dict]:
         if annotations:
             scene["annotations"] = annotations
     return scenes
-
-
-def _extract_keyterms_from_scene(scene: dict) -> list[str]:
-    """Extract key terms from scene text, description, or keywords."""
-    terms = []
-    text_entries = scene.get("text", [])
-    for entry in text_entries:
-        if isinstance(entry, dict) and "text" in entry:
-            terms.append(entry["text"])
-
-    kw = scene.get("keyword", "")
-    if kw and kw not in terms:
-        terms.append(kw)
-    return terms[:5]
 
 
 def normalize_scene_durations(scenes: list[dict]) -> None:

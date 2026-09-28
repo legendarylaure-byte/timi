@@ -582,6 +582,118 @@ def test_legacy_teal_is_gone_from_stored_config():
         assert old.lower() not in blob.lower(), f"legacy colour {old} is back in stored config"
 
 
+LEGACY_HEXES = ("#00cccc", "#8a50e8", "#c060d0", "#e07040", "#9040f0", "#7030c0",
+                "#ff6b35", "#1e1e1e")
+
+# The files whose colour literals actually reach a rendered frame or a social
+# card. This is an explicit list on purpose: the dashboard/backend agent-chip
+# palette is a *categorical* multi-hue scale, not a brand claim, and it sits
+# inside a dashboard that still carries an older theme wholesale. Repainting
+# that needs visual review, so it is tracked separately rather than smuggled in
+# here -- and a broad tree walk would only have forced that change prematurely.
+_RENDER_SURFACE_FILES = (
+    "utils/brand_palette.py",
+    "utils/annotation_renderer.py",
+    "utils/diagram_renderer.py",
+    "utils/video_compositor.py",
+    "utils/shorts_renderer.py",
+    "utils/scene_parser.py",
+    "utils/asset_router.py",
+    "utils/manim_renderer.py",
+    "utils/blender_renderer.py",
+    "utils/thumbnail_gen.py",
+    "blender_templates/common.py",
+    "crew/manim_agent.py",
+)
+
+
+def _string_literals_without_docstrings(source: str) -> list[str]:
+    """Every string constant in `source` except module/class/function docstrings.
+
+    Comments are absent from the AST entirely, and docstrings are the one place
+    the codebase is *meant* to name a retired colour (to explain what was
+    replaced). Both are excluded so this test flags real code -- a colour
+    assigned to a constant or interpolated into a filter -- and not the history.
+    """
+    import ast
+
+    tree = ast.parse(source)
+    docstring_nodes = set()
+    for node in ast.walk(tree):
+        if isinstance(node, (ast.Module, ast.ClassDef, ast.FunctionDef, ast.AsyncFunctionDef)):
+            body = getattr(node, "body", None)
+            if body and isinstance(body[0], ast.Expr) and isinstance(body[0].value, ast.Constant):
+                if isinstance(body[0].value.value, str):
+                    docstring_nodes.add(id(body[0].value))
+    return [
+        n.value for n in ast.walk(tree)
+        if isinstance(n, ast.Constant) and isinstance(n.value, str) and id(n) not in docstring_nodes
+    ]
+
+
+def test_legacy_hexes_are_gone_from_runtime_source():
+    """The stored-config test above cannot see this bug class.
+
+    It read `style_guide.json` + `DEFAULT_STYLE_GUIDE` and stayed green while
+    `annotation_renderer.py`, `diagram_renderer.py` and `manim_agent.py` each
+    still hardcoded the retired palette -- the first painted the callout text
+    on every composite, the second the accent on every diagram, the third told
+    the Manim codegen LLM to emit teal. A test that reads config cannot see a
+    constant in source, so this one walks the AST of the trees that reach a
+    rendered frame.
+    """
+    import ast
+
+    root = pathlib.Path(__file__).resolve().parents[1]
+    checked = 0
+    for rel in _RENDER_SURFACE_FILES:
+        path = root / rel
+        assert path.is_file(), f"render-surface file missing, update the list: {rel}"
+        src = path.read_text(encoding="utf-8", errors="ignore")
+        try:
+            literals = _string_literals_without_docstrings(src)
+        except SyntaxError:
+            continue
+        checked += 1
+        for lit in literals:
+            low = lit.lower()
+            for old in LEGACY_HEXES:
+                assert old not in low, (
+                    f"{rel} still hardcodes legacy colour {old} "
+                    f"in a runtime string literal -- read it from "
+                    f"utils.brand_palette instead"
+                )
+    # Sanity: the walk must actually cover the files that burned teal.
+    assert checked >= 12, f"source walk only covered {checked} files - is the list wrong?"
+
+
+def test_keyterm_text_overlays_are_gone_from_source():
+    """Key terms were burned onto every frame twice, on top of the subtitles.
+
+    `_build_keyterm_filters` painted up to three of them large at the top of the
+    frame, and `enrich_scenes_with_annotations` painted the same words again as
+    small teal callouts at the bottom-left, directly under the amber subtitle
+    track. Both were removed after the owner reviewed real output. This asserts
+    the call sites and generators stay gone rather than drifting back.
+    """
+    import ast
+
+    root = pathlib.Path(__file__).resolve().parents[1]
+    for rel in _RENDER_SURFACE_FILES:
+        path = root / rel
+        if not path.is_file():
+            continue
+        src = path.read_text(encoding="utf-8", errors="ignore")
+        assert "_build_keyterm_filters" not in src, (
+            f"{rel} references _build_keyterm_filters; the body key-term overlay "
+            f"was removed 09-28"
+        )
+        assert '"type": "callout"' not in src, (
+            f"{rel} re-generates callout annotations; they duplicated the burned "
+            f"subtitles and were removed 09-28"
+        )
+
+
 # ---------------------------------------------------------------------------
 # Colour grading: the exposure lift
 # ---------------------------------------------------------------------------
