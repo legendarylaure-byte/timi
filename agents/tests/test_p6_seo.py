@@ -260,3 +260,73 @@ def test_the_long_retry_keeps_chapter_timestamps(monkeypatch):
     assert body.count("parse_scenes_from_storyboard(str(storyboard), \"long\")") == 2, (
         "the long SEO retry must be passed scenes, or it drops every chapter stamp"
     )
+
+
+def test_a_lost_retry_is_distinguishable_from_no_retry(monkeypatch):
+    """`seo_retried` must mean "attempted", not "won".
+
+    It originally meant "won": the flag was set on the winning branch only, so a
+    retry that ran and then lost recorded seo_retried=False -- identical to a
+    description that scored clean and never retried at all. That is the case an
+    operator most needs to see, because it is the one saying the retry prompt
+    costs a second LLM call and buys nothing. Reading the field said the
+    opposite.
+
+    All three outcomes are pinned together, because the thing worth protecting is
+    that they stay distinguishable from each other, not that any one is right.
+    """
+    import main
+
+    original = {"full_description": "body", "tags": []}
+    calls = {"n": 0}
+
+    def run(first, retry=None, retry_raises=False):
+        calls["n"] = 0
+
+        def fake_score(desc):
+            calls["n"] += 1
+            if calls["n"] == 1:
+                return first
+            if retry_raises:
+                raise RuntimeError("scorer died")
+            return retry
+
+        def fake_generate(**kwargs):
+            return {"full_description": "rewritten body", "tags": []}
+
+        monkeypatch.setattr(main, "score_description_seo", fake_score)
+        monkeypatch.setattr(main, "suggest_seo_improvements", lambda *a, **k: [])
+        monkeypatch.setattr(main, "generate_description", fake_generate)
+        monkeypatch.setattr(main, "_assemble_description",
+                            lambda d, *a: {"full_description": d["full_description"],
+                                           "tags": d.get("tags") or []})
+        monkeypatch.setattr(main, "get_optimized_tags", lambda *a: ["t"])
+        desc, score = main._seo_polish_description(
+            original, "script", "AI News", "short", "Title", "Topic")
+        return desc, score, calls["n"]
+
+    # (a) Nothing missing -> the retry generator is never reached.
+    desc, score, n = run({"score": 90, "missing": []})
+    assert n == 1 and desc is original
+    assert not score.get("retried") and not score.get("retry_accepted")
+
+    # (b) Missed -> retried -> the retry won.
+    desc, score, n = run({"score": 40, "missing": ["cta"]},
+                         retry={"score": 80, "missing": []})
+    assert n == 2 and desc["full_description"] == "rewritten body"
+    assert score["retried"] is True and score["retry_accepted"] is True
+
+    # (c) Missed -> retried -> the retry was no better -> ORIGINAL KEPT.
+    # This is the case the old field recorded as seo_retried=False.
+    desc, score, n = run({"score": 40, "missing": ["cta"]},
+                         retry={"score": 40, "missing": ["cta"]})
+    assert n == 2 and desc is original
+    assert score["retried"] is True and score["retry_accepted"] is False
+
+    # (d) Missed -> retried -> the scorer itself died on the candidate. It is
+    # still called twice: the try/except inside _seo_polish_description turns
+    # the exception into score -1, which is never better, so the original stays.
+    # A dead scorer must not read as "no retry happened".
+    desc, score, n = run({"score": 40, "missing": ["cta"]}, retry_raises=True)
+    assert n == 2 and desc is original
+    assert score["retried"] is True and score["retry_accepted"] is False

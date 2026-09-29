@@ -903,6 +903,10 @@ def _seo_polish_description(desc_result: dict, script_text: str, category: str,
         )
     except Exception as e:
         log_event("SEO", f"SEO retry failed, keeping original: {e}", "warn")
+        # Attempted, not accepted. Recorded because "we retried and the call
+        # died" is the signal that says the retry path is broken.
+        seo_score["retried"] = True
+        seo_score["retry_accepted"] = False
         return desc_result, seo_score
 
     # A winning retry replaces the whole description, so it must be assembled the
@@ -918,12 +922,18 @@ def _seo_polish_description(desc_result: dict, script_text: str, category: str,
         log_event("SEO", f"Retry improved {seo_score.get('score')} -> {retry_score.get('score')}")
         retry["tags"] = get_optimized_tags(category, format_type, title)
         retry_score["retried"] = True
+        retry_score["retry_accepted"] = True
         return retry, retry_score
 
     # Strictly worse or equal: keep what we already had. An equal-scoring retry
     # costs a second LLM call for no gain, and this is the common case, because
     # the scorer checks structure that the retry prompt already asked for.
     log_event("SEO", f"Retry scored {retry_score.get('score')}, not better than {seo_score.get('score')} - keeping original")
+    # Attempted and rejected. This is the common case, and it is the one that
+    # says the retry prompt is not buying anything -- so it must be visible
+    # rather than looking identical to "no retry happened".
+    seo_score["retried"] = True
+    seo_score["retry_accepted"] = False
     return desc_result, seo_score
 
 
@@ -951,6 +961,7 @@ def _persist_seo_metadata(video_id: str, title: str, desc_result: dict,
             "seo_score": int(seo_score.get("score", 0) or 0),
             "seo_missing": list(seo_score.get("missing") or []),
             "seo_retried": bool(seo_score.get("retried")),
+            "seo_retry_accepted": bool(seo_score.get("retry_accepted")),
         })
     except Exception as e:
         # Metadata only. A failed write must never cost us the video.
