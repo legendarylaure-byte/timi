@@ -95,9 +95,6 @@ def _apply_category_style(scenes: list[dict], category: str) -> list[dict]:
 #   1. asset_router falls back to `", ".join(asset_keywords)` as the LTX prompt
 #      when a scene has no ltx_prompt/description, so a scene keyed on
 #      "intro"/"channel_brand" renders a clip of the word.
-#   2. _infer_diagram pulls capitalised tokens out of scene text, so a block
-#      mentioning the field "Narration" could produce a diagram whose only
-#      visible items are Narration / Visual.
 # One shared set, filtered at both choke points, rather than a wordlist in each.
 META_TOKENS = frozenset({
     # scene schema field names
@@ -137,24 +134,6 @@ def clean_scene_keywords(keywords) -> list[str]:
     return out
 
 
-def first_content_scene(scenes: list[dict]) -> Optional[dict]:
-    """The first scene with something worth showing, skipping the branded
-    intro/outro cards.
-
-    Exists because inject_intro_outro() prepends a branded card, so scenes[0] is
-    never the content -- which is why the D29 hook guarantee was dead code: it
-    checked scenes[0] for render_type == "manim" and the intro card is always
-    "branded_card". main.py imports this rather than re-deriving it, so the test
-    guards the real behaviour instead of a copy of the predicate.
-    """
-    for s in scenes or []:
-        if s.get("render_type") == "branded_card":
-            continue
-        if s.get("narration_text") or s.get("description"):
-            return s
-    return None
-
-
 @dataclass
 class SceneState:
     camera_angle: str = ""
@@ -169,8 +148,8 @@ Return ONLY a valid JSON array of scene objects. Each scene object has this exac
 {
     "background": "solid_black|solid_white|solid_indigo|solid_slate|brand_dark|gradient_dark_tech|gradient_blueprint|gradient_neon|gradient_corporate|gradient_minimal",
   "duration": 8.0,
-  "render_type": "stock|blender|code",
-  "asset_type": "STOCK_FOOTAGE|SCREEN_CAPTURE|DIAGRAM_ANIMATION|CODE_SNIPPET|STATIC_IMAGE",
+  "render_type": "stock|code",
+  "asset_type": "STOCK_FOOTAGE|SCREEN_CAPTURE|CODE_SNIPPET|STATIC_IMAGE",
   "asset_keywords": ["keyword1", "keyword2"],
   "narration_text": "The EXACT spoken narration text that will be read during this scene. Copy it verbatim from the script's NARRATION lines.",
   "ltx_prompt": "Describe the scene in 2-3 vivid sentences optimized for AI video generation. FIRST sentence must name the exact concrete objects from the narration (GPU chip, vector index structure, terminal window, circuit board) - not abstractions like 'technology'. Then camera angle, lighting, composition, colors, and motion.",
@@ -188,20 +167,14 @@ Return ONLY a valid JSON array of scene objects. Each scene object has this exac
     "pan_y": 0
   },
   "music_mood": "focused|energetic|cinematic|ambient|modern|uplifting",
-  "diagram": {                  // OPTIONAL: only for DIAGRAM_ANIMATION scenes
-    "type": "flow|bar|comparison|timeline|architecture",
-    "title": "Short diagram title",
-    "items": ["Label A", "Label B"] | [{"label": "X", "value": 42}]
-  }
 }
 
 RULES:
 - Each scene should be 5-12 seconds
 - Use asset_type to specify what visual content to show
 - asset_keywords should describe what to search for or render
-- render_type: "stock" for cinematic/b-roll, "blender" for 3D diagrams/photorealistic renders/concept animations, "code" for code snippets
+- render_type: "stock" for cinematic/b-roll footage, "code" for code snippets
 - ltx_prompt is CRITICAL: Write a detailed 2-3 sentence visual description optimized for text-to-video AI. Reference SPECIFIC visual elements mentioned in the script's NARRATION — if the narration talks about GPUs, describe GPU chips and data pathways; if it mentions training data, show data streams and processing pipelines. Never use generic descriptions. Include: camera angle (close-up, wide, tracking, dolly, over-the-shoulder, top-down), lighting (neon glow, soft diffused, dramatic side, volumetric, rim light), composition (subject placement, depth layers), colors, and motion. Example: "Close-up of futuristic circuit board with glowing purple neon pathways, dramatic side lighting casting long shadows, camera slowly pulling back to reveal a glowing central processor chip, sparks of light traveling along the circuits, deep violet to magenta gradient color palette, cinematic 24fps quality"
-- When asset_type is DIAGRAM_ANIMATION or render_type is "manim", MUST include a "diagram" object with concrete labels/numbers from the narration — every diagram concept MUST produce exact items with labels or values from the spoken text, never placeholder text
 - Text should be short phrases (3-8 words), not full sentences
 - Background should match the scene mood
 - camera.zoom of 1.0 means no zoom, >1 zooms in
@@ -209,9 +182,8 @@ RULES:
 - Match asset_type to the technical content:
   - STOCK_FOOTAGE for general concepts/demonstrations
   - SCREEN_CAPTURE for tool tutorials and code walkthroughs
-  - DIAGRAM_ANIMATION for explaining architectures and processes
   - CODE_SNIPPET for showing code examples
-  - STATIC_IMAGE for reference images and diagrams
+  - STATIC_IMAGE for reference images
 
 Generate scenes that follow the narrative arc of the script. Maintain visual continuity across consecutive scenes."""  # noqa: E501
 
@@ -221,7 +193,7 @@ def _ensure_visual_variety(scenes: list[dict]) -> list[dict]:
         return scenes
 
     variety_indicators = {
-        "render_type": {"stock", "blender", "code", "static"},
+        "render_type": {"stock", "code", "static"},
         "music_mood": {"focused", "uplifting", "energetic", "calm", "serious", "suspenseful", "hopeful", "curious"},
         "background": None,
     }
@@ -298,11 +270,9 @@ def _llm_scene_parse(
   - "narration_text": EXACT spoken narration for that scene (copy verbatim from NARRATION lines)
   - "description": A 10-15 word summary of what this scene visually IS (e.g. "neural network diagram with animated forward pass", "GPU chip closeup with data flow arrows"). This field is used to select the BEST animation template — be specific about the visual concept.
   - "ltx_prompt": A vivid 2-3 sentence visual description for AI text-to-video generation. Include camera angle, lighting, composition, colors, and motion. CRITICAL: The PRIMARY source for ltx_prompt is the STORYBOARD's VISUAL/CAMERA/LIGHTING fields — copy their specific visual elements (camera angle, lighting, colors, objects, motion) into the ltx_prompt. The narration_text provides context only. Never use generic descriptions.
-  - "render_type": "stock" for cinematic/b-roll footage, "blender" for 3D diagrams and photorealistic renders, "manim" for animated diagrams/code animations, "code" for static code snippets.
+  - "render_type": "stock" for cinematic/b-roll footage, "code" for code snippets.
 
-Read the VISUAL lines from the script/storyboard — they contain [BLENDER], [MANIM], [LTX], or [CODE] tags. Use these to set render_type: [BLENDER] → "blender", [MANIM] → "manim", [CODE] → "code", [LTX] or no tag → "stock".
-
-When render_type is "manim" or "blender", MUST include a "diagram" object in the scene JSON with exact labels and values from the narration text — never leave diagram items as placeholders.
+Read the VISUAL lines from the script/storyboard — they contain [LTX], or [CODE] tags. Use these to set render_type: [CODE] → "code", [LTX] or no tag → "stock".
 
 Title: {title}
 Category: {category}
@@ -351,13 +321,6 @@ Return ONLY valid JSON array of scene objects."""
 
         if validated:
             print(f"[SCENE_PARSER] LLM parsed {len(validated)} scenes successfully")
-            for s in validated:
-                if s.get("render_type") in ("manim", "blender") and not s.get("diagram"):
-                    seed = f"{s.get('narration_text', '')} {s.get('description', '')}"
-                    if seed.strip():
-                        hint = _infer_diagram(seed)
-                        if hint:
-                            s["diagram"] = hint
             return _adjust_scenes_for_format(validated, format_type, max_duration)
 
     except Exception as e:
@@ -409,14 +372,13 @@ def _rule_based_parse(script_text: str, storyboard_text: str, format_type: str, 
 
         desc = block.strip()[:80] if not narration_text else narration_text[:80]
         rt = _infer_render_type(block)
-        diagram = _infer_diagram(block) if rt == "stock" else None
 
         scene = {
             "background": background,
             "duration": duration,
             "description": desc,
-            "render_type": "manim" if diagram else rt,
-            "asset_type": "DIAGRAM_ANIMATION" if diagram else asset_type,
+            "render_type": rt,
+            "asset_type": asset_type,
             "asset_keywords": asset_keywords,
             "ltx_prompt": ltx_prompt,
             "text": text,
@@ -426,8 +388,6 @@ def _rule_based_parse(script_text: str, storyboard_text: str, format_type: str, 
             "music_mood": _infer_mood(block),
             "narration_text": narration_text,
         }
-        if diagram:
-            scene["diagram"] = diagram
 
         try:
             from utils.scene_schema import validate_scene
@@ -664,48 +624,10 @@ def _pick_lighting_by_content(text_lower: str, mood: str, scene_index: int) -> s
 
 
 def _infer_render_type(text: str) -> str:
-    m = re.search(r'\[(BLENDER|MANIM|CODE|LTX)\]', text, re.IGNORECASE)
-    if m:
-        tag = m.group(1).upper()
-        if tag == "BLENDER":
-            return "blender"
-        elif tag == "MANIM":
-            return "manim"
-        elif tag == "CODE":
-            return "code"
+    m = re.search(r'\[(CODE|LTX)\]', text, re.IGNORECASE)
+    if m and m.group(1).upper() == "CODE":
+        return "code"
     return "stock"
-
-
-def _infer_diagram(text: str) -> dict | None:
-    """Heuristic diagram spec from a scene block (rule-based parse only)."""
-    tl = text.lower()
-    dtype = None
-    if any(w in tl for w in ("architecture", "stack", "layers", "layer", "block diagram")):
-        dtype = "architecture"
-    elif any(w in tl for w in ("pipeline", "process", "flow")):
-        dtype = "flow"
-    elif any(w in tl for w in ("history", "evolution", "version", "generation", "era")):
-        dtype = "timeline"
-    elif any(w in tl for w in ("vs", "compare", "versus", "difference")):
-        dtype = "comparison"
-    elif any(w in tl for w in ("grew", "rose", "hit record", "percent", "increase", "growth", "benchmark")):
-        dtype = "bar"
-    else:
-        return None
-    matches = re.findall(r'\b([A-Z][A-Za-z]{2,15})\b', text)
-    stopwords = {"The", "This", "That", "With", "From", "They", "What", "When", "How", "Are", "Was", "Were", "Has", "Have", "Our", "You", "Can", "Its", "Now", "Just", "Over"}
-    real = [m for m in matches if m not in stopwords]
-    if real:
-        # A diagram whose only visible items are the pipeline's own field names
-        # reads as leaked plumbing on screen -- worse than no diagram at all.
-        items = [m for m in real if not is_meta_token(m)][:6]
-        if not items:
-            return None
-    else:
-        # No capitalised tokens at all: the generic step fallback is real
-        # content, so keep the pre-existing behaviour here.
-        items = ["Step 1", "Step 2", "Step 3"] if dtype in ("flow", "architecture") else ["A", "B"]
-    return {"type": dtype, "title": items[0], "items": items}
 
 
 def _infer_ltx_prompt(text: str, title: str = "", scene_index: int = 0, scene: dict = None, prev_state: Optional[SceneState] = None) -> tuple[str, SceneState]:
@@ -741,9 +663,7 @@ def _infer_ltx_prompt(text: str, title: str = "", scene_index: int = 0, scene: d
     asset_hint = ""
     if scene:
         at = scene.get("asset_type", "")
-        if at == "DIAGRAM_ANIMATION":
-            asset_hint = "animated diagram elements with glowing connections, "
-        elif at == "CODE_SNIPPET":
+        if at == "CODE_SNIPPET":
             asset_hint = "syntax-highlighted code on screen, "
 
     text_hint = ""
@@ -822,7 +742,7 @@ def _infer_asset_type(text: str) -> str:
     m = re.search(r'ASSET_TYPE\s*:\s*(\w+)', text, re.IGNORECASE)
     if m:
         at = m.group(1).upper()
-        if at in ("STOCK_FOOTAGE", "SCREEN_CAPTURE", "DIAGRAM_ANIMATION", "CODE_SNIPPET", "STATIC_IMAGE"):
+        if at in ("STOCK_FOOTAGE", "SCREEN_CAPTURE", "CODE_SNIPPET", "STATIC_IMAGE"):
             return at
     return "STOCK_FOOTAGE"
 
@@ -994,10 +914,10 @@ def _get_suggested_assets(category: str) -> str:
     category = normalize_category(category)
     mapping = {
         "AI News": "STOCK_FOOTAGE (news style, AI visuals), STATIC_IMAGE (logos, products, headlines)",
-        "Science & Technology": "DIAGRAM_ANIMATION (technical diagrams, science visuals), STOCK_FOOTAGE (research labs, tech innovations)",
+        "Science & Technology": "STOCK_FOOTAGE (research labs, tech innovations, data centers)",
         "Programming & Software": "CODE_SNIPPET (code, terminal), SCREEN_CAPTURE (IDE, tools), STOCK_FOOTAGE (developer workspace)",
     }
-    return mapping.get(category, "STOCK_FOOTAGE (tech visuals), DIAGRAM_ANIMATION (explainers)")
+    return mapping.get(category, "STOCK_FOOTAGE (tech visuals)")
 
 
 def _default_scene(index: int) -> dict:
@@ -1062,47 +982,6 @@ def add_end_scene(scenes: list[dict]) -> list[dict]:
 
 
 
-
-
-ANNOTATION_FEATURE_FLAGS = {
-    "callout": os.getenv("ENABLE_ANNOTATIONS_CALLOUT", "true").lower() == "true",
-    "step": os.getenv("ENABLE_ANNOTATIONS_STEP", "true").lower() == "true",
-    "definition": os.getenv("ENABLE_ANNOTATIONS_DEFINITION", "true").lower() == "true",
-    "arrow": os.getenv("ENABLE_ANNOTATIONS_ARROW", "false").lower() == "true",
-    "highlight": os.getenv("ENABLE_ANNOTATIONS_HIGHLIGHT", "true").lower() == "true",
-    "counter": os.getenv("ENABLE_ANNOTATIONS_COUNTER", "false").lower() == "true",
-}
-
-
-def enrich_scenes_with_annotations(scenes: list[dict]) -> list[dict]:
-    """Auto-generate annotation metadata on scenes that carry a diagram.
-
-    The `callout` annotation type used to be generated here from each scene's
-    extracted key terms, which painted a second copy of that text onto the
-    bottom-left of the frame — on top of the burned subtitle track, in the old
-    teal. It duplicated both the top keyterm overlay (now removed) and the
-    subtitles, so it was removed 09-28. Only the diagram highlight remains; the
-    callout/definition/step/counter renderers still work for any scene that
-    ships explicit annotations.
-    """
-    enabled_types = [k for k, v in ANNOTATION_FEATURE_FLAGS.items() if v]
-    for scene in scenes:
-        annotations = []
-        dur = scene.get("duration", 8.0)
-
-        if scene.get("diagram") and "highlight" in enabled_types:
-            annotations.append({
-                "type": "highlight",
-                "timing_offset": 1.0,
-                "duration": min(4.0, dur - 1.0),
-                "position": "center",
-                "width_pct": 0.35,
-                "height_pct": 0.25,
-            })
-
-        if annotations:
-            scene["annotations"] = annotations
-    return scenes
 
 
 def normalize_scene_durations(scenes: list[dict]) -> None:

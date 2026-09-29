@@ -308,6 +308,27 @@ def upload_to_platform(platform: str, title: str, description: str, video_path: 
         return {'success': False, 'error': safe_log(str(e))}
 
 
+def _fit_tags(tags: list, budget: int = 480) -> list:
+    """Fit a tag list under YouTube's 500-char total / 100-per-tag hard limits.
+
+    Tags that exceed the API limit make the whole upload fail with a 400, so the
+    list is trimmed by cumulative length in order (early tags are the caller's
+    most valuable SEO keywords), never just sliced by count.
+    """
+    out = []
+    used = 0
+    for tag in tags:
+        t = str(tag).strip().strip("#")[:100]
+        if not t:
+            continue
+        sep = 1 if out else 0
+        if used + sep + len(t) > budget:
+            continue
+        out.append(t)
+        used += sep + len(t)
+    return out
+
+
 def _upload_youtube(title: str, description: str, video_path: str, thumbnail_path: str, format_type: str, publish_at: str = None, subtitle_path: str = None, tags: list = None, default_language: str = None) -> dict:  # noqa: E501
     try:
         from utils.youtube_upload import upload_video_to_youtube
@@ -325,7 +346,7 @@ def _upload_youtube(title: str, description: str, video_path: str, thumbnail_pat
             video_file=video_path,
             title=title,
             description=description,
-            tags=combined_tags[:15],
+            tags=_fit_tags(combined_tags),
             thumbnail_file=thumbnail_path,
             category_id=tech_meta["categoryId"],
             is_shorts=(format_type == "shorts"),

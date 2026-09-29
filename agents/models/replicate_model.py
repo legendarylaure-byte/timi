@@ -27,15 +27,15 @@ class ReplicateVideoModel(BaseVideoModel):
 
     This is a PAID provider. The pipeline runs zero-cost by leaving it disabled:
     with no LTX (MLX is Apple-only, absent in the Linux container) there is no AI
-    video model, and every scene falls through to Manim / Blender / stock /
-    branded-card. See AGENTS.md "Render Chain & Zero-Cost Constraint".
+    video model, and every scene falls through to stock footage or the
+    branded title card. See AGENTS.md "Render Chain & Zero-Cost Constraint".
     """
 
     def __init__(self):
         # "none" is the safe default: this project is zero-cost, and a bare
         # CLOUD_VIDEO_PROVIDER must never imply a paid backend. Matches neither
         # "replicate" nor "fal", so is_available() is False -> scenes fall through
-        # to Manim/Blender/stock/branded-card. Set the var explicitly to opt in.
+        # to stock footage or the branded title card. Set the var explicitly to opt in.
         self.provider = os.getenv("CLOUD_VIDEO_PROVIDER", "none")
         self.replicate_key = os.getenv("REPLICATE_API_KEY", "")
         self.fal_key = os.getenv("FAL_KEY", "")
@@ -54,7 +54,7 @@ class ReplicateVideoModel(BaseVideoModel):
                 logger.warning(
                     "[Replicate] DISABLED — MODEL_VERSION must be a pinned "
                     "owner/name:<64-hex-version> string; got %d chars ('%s'). "
-                    "Scenes will fall back to Manim/Blender/stock. Fix: set a real "
+                    "Scenes will fall back to stock footage. Fix: set a real "
                     "64-char version hash, or leave unset to stay zero-cost.",
                     len(MODEL_VERSION or ""), MODEL_VERSION,
                 )
@@ -66,7 +66,7 @@ class ReplicateVideoModel(BaseVideoModel):
             if not version_is_valid(MODEL_VERSION):
                 logger.warning(
                     "[Replicate] DISABLED — MODEL_VERSION invalid for fal provider "
-                    "(%d chars: '%s'); falling back to Manim/Blender/stock.",
+                    "(%d chars: '%s'); falling back to stock footage.",
                     len(MODEL_VERSION or ""), MODEL_VERSION,
                 )
                 self._available = False

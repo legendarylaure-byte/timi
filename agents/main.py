@@ -84,13 +84,13 @@ from crew.affiliate_manager import build_affiliate_section
 from datetime import datetime, timedelta
 from apscheduler.schedulers.blocking import BlockingScheduler
 from dotenv import load_dotenv
-from utils.scene_parser import normalize_scene_durations, first_content_scene
+from utils.scene_parser import normalize_scene_durations
 from utils.scene_architect import audit_scenes, SceneArchitectError
 
 os.environ["GRPC_VERBOSITY"] = "ERROR"
 os.environ["GLOG_minloglevel"] = "2"
 
-SHORTS_MAX_DURATION = int(os.getenv("SHORTS_MAX_DURATION", "180"))
+SHORTS_MAX_DURATION = int(os.getenv("SHORTS_MAX_DURATION", "120"))
 MIN_VIDEO_SIZE = 500 * 1024
 
 ENABLE_VISUAL_QA = os.getenv("ENABLE_VISUAL_QA", "true").lower() == "true"
@@ -422,7 +422,7 @@ for _key in ("SHORTS_MAX_DURATION", "MIN_VIRALITY_SCORE", "MIN_VIRALITY_SCORE_LO
     _val = os.getenv(_key)
     if _val:
         os.environ[_key] = _val
-SHORTS_MAX_DURATION = int(os.getenv("SHORTS_MAX_DURATION", "180"))
+SHORTS_MAX_DURATION = int(os.getenv("SHORTS_MAX_DURATION", "120"))
 
 # Override env vars from Firestore env_vars collection (dashboard-managed)
 sync_env_from_firestore()
@@ -1011,14 +1011,11 @@ def _run_stock_footage_pipeline(script_text: str, storyboard_text: str, category
 
 
 def _parse_scenes_for_asset_router(script_text: str, storyboard_text: str, category: str, format_type: str, video_id: str, max_duration: int = None) -> list[dict]:  # noqa: E501
-    from utils.scene_parser import (parse_script_to_scenes, normalize_scene_durations,
-                                     enrich_scenes_with_annotations)
+    from utils.scene_parser import (parse_script_to_scenes, normalize_scene_durations)
     from utils.series_router import inject_intro_outro
     scenes = parse_script_to_scenes(script_text, title=video_id, category=category, format_type=format_type, storyboard_text=str(storyboard_text), max_duration=max_duration)
     scenes = inject_intro_outro(scenes, category, format_type)
     normalize_scene_durations(scenes)
-    if os.getenv("ENABLE_ANNOTATIONS", "true").lower() == "true":
-        scenes = enrich_scenes_with_annotations(scenes)
     log_event("PIPELINE", f"Asset Router: {len(scenes)} scenes")
     if SCENE_ARCHITECT_MODE != "off":
         try:
@@ -1192,26 +1189,6 @@ def run_video_pipeline(script_text: str, storyboard_text: str, category: str, fo
     update_agent_status("voice", "working", "Generating narration audio")
     is_long = format_type == "long"
     is_deep_lesson = True if format_type == "long" else (category in DEEP_LESSON_CATEGORIES)
-
-    # Hook-scene guarantee: deep-lesson pillar videos force the opening CONTENT
-    # scene to a manim diagram attempt. Runs before _align_scenes_to_audio
-    # (which fixes durations) so the manim cap + dispatch see the tag.
-    #
-    # This used to look at scenes[0], but inject_intro_outro runs earlier
-    # (main.py:1018) so scenes[0] is always the branded intro card, whose
-    # render_type is "branded_card" -- the old `== "manim"` condition could
-    # therefore never be true, and the guarantee documented in D29 had never
-    # once fired on any video. first_content_scene() skips the cards; the intro
-    # and outro are left alone.
-    if scenes and len(scenes) > 0 and is_deep_lesson and os.getenv("ENABLE_MANIM", "true").lower() == "true":
-        hook = first_content_scene(scenes)
-        if hook is not None and hook.get("render_type") == "manim":
-            hook.setdefault("asset_type", "DIAGRAM_ANIMATION")
-            if not hook.get("diagram"):
-                from utils.scene_parser import _infer_diagram
-                hook["diagram"] = _infer_diagram(hook.get("narration_text", "") + " " + hook.get("keyword", ""))
-            hook.setdefault("text", [{"text": hook.get("keyword", "")[:60]}])
-            log_event("SCENE", f"Hook scene → manim attempt (topic={hook.get('keyword', '')[:40]})")
 
     from utils.voice_gen import extract_narration_text
     narration_text = extract_narration_text(script_text, is_long_form=is_long)
@@ -1961,7 +1938,7 @@ def generate_short_video(topic: str, category: str, video_id: str, publish_at: s
             try:
                 from utils.youtube_upload import update_youtube_video_title
                 tester = TitleTester(youtube_api_update_func=update_youtube_video_title)
-                full_title = topic
+                full_title = best_title
                 tester.start_test(video_id, full_title, title_variants)
                 log_event("TITLE", f"Title A/B test started for {video_id}")
             except Exception as e:
@@ -2027,7 +2004,7 @@ def generate_short_video(topic: str, category: str, video_id: str, publish_at: s
             from utils.hook_engine import detect_hook_formula
             from utils.hook_tester import record_hook_result
             hook_formula = detect_hook_formula(script_text)
-            record_hook_result(video_id, category, hook_formula)
+            record_hook_result(video_id, category, hook_formula, youtube_id=youtube_id)
             log_event("HOOK", f"Recorded hook formula: {hook_formula} for {category}")
         except Exception as e:
             log_event("HOOK", f"Hook recording skipped: {e}", "debug")
@@ -2591,7 +2568,7 @@ def generate_long_video(topic: str, category: str, video_id: str, publish_at: st
             try:
                 from utils.youtube_upload import update_youtube_video_title
                 tester = TitleTester(youtube_api_update_func=update_youtube_video_title)
-                full_title = topic
+                full_title = best_title
                 tester.start_test(video_id, full_title, title_variants)
                 log_event("TITLE", f"Title A/B test started for {video_id}")
             except Exception as e:
@@ -2654,7 +2631,7 @@ def generate_long_video(topic: str, category: str, video_id: str, publish_at: st
             from utils.hook_engine import detect_hook_formula
             from utils.hook_tester import record_hook_result
             hook_formula = detect_hook_formula(script_text)
-            record_hook_result(video_id, category, hook_formula)
+            record_hook_result(video_id, category, hook_formula, youtube_id=youtube_id)
             log_event("HOOK", f"Recorded hook formula: {hook_formula} for {category}")
         except Exception as e:
             log_event("HOOK", f"Hook recording skipped: {e}", "debug")

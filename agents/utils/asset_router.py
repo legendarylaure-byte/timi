@@ -6,13 +6,10 @@ import logging
 from PIL import Image, ImageDraw
 from datetime import datetime
 
-from utils.blender_renderer import render_blender_scene, render_blender_block
 from utils.screen_capture import render_terminal, render_ide, render_browser, render_code_snippet
 from utils.stock_video import search_videos_for_scenes as _search_stock
 from utils.concurrent_pipeline import run_with_gpu_lock
 from models import get_video_model
-from utils.scene_schema import DEEP_LESSON_CATS as _DEEP_LESSON_CATS
-from utils.manim_renderer import render_manim_scene, render_manim_code_snippet
 from utils.brand_palette import LICORICE, PURPLE, hex_to_rgb
 
 logger = logging.getLogger(__name__)
@@ -23,9 +20,6 @@ os.makedirs(OUTPUT_DIR, exist_ok=True)
 CACHE = {}
 
 MAX_STOCK_FOOTAGE_RATIO = 0.6
-
-_manim_used: dict[str, int] = {}
-_manim_cap = int(os.getenv("MANIM_MAX_SCENES_PER_VIDEO", "6"))
 
 
 def _build_ltx_prompt(scene: dict, visual: str) -> str:
@@ -113,7 +107,7 @@ def _enforce_asset_diversity(scenes: list[dict]) -> list[dict]:
     if total < 3 or stock_count / total <= MAX_STOCK_FOOTAGE_RATIO:
         return scenes
     overage = stock_count - int(total * MAX_STOCK_FOOTAGE_RATIO)
-    alternatives = ["DIAGRAM_ANIMATION", "SCREEN_CAPTURE", "CODE_SNIPPET"]
+    alternatives = ["STATIC_IMAGE", "SCREEN_CAPTURE", "CODE_SNIPPET"]
     changed = 0
     for s in scenes:
         if s.get("asset_type", "STOCK_FOOTAGE") == "STOCK_FOOTAGE" and changed < overage:
@@ -161,57 +155,7 @@ def _render_scene_inner(scene: dict, video_id: str, scene_idx: int,
     if isinstance(kw_list, str):
         kw_list = [kw_list]
 
-    if render_type == "manim" and os.getenv("ENABLE_MANIM", "true").lower() == "true":
-        cap_key = f"{video_id}|{format_type}"
-        if _manim_used.get(cap_key, 0) < _manim_cap:
-            path = render_manim_scene(
-                scene, video_id, scene_idx, format_type,
-                narration=scene.get("narration_text", ""),
-                topic=scene.get("keyword", ""),
-            )
-            if path:
-                _manim_used[cap_key] = _manim_used.get(cap_key, 0) + 1
-                logger.info(f"[AssetRouter] Scene {scene_idx}: manim OK ({os.path.basename(path)})")
-                return {"path": path, "duration": duration, "asset_type": "DIAGRAM_ANIMATION", "source": "manim"}
-            logger.warning(f"[AssetRouter] Manim failed for scene {scene_idx}, falling back")
-        else:
-            logger.info(f"[AssetRouter] Manim cap ({_manim_cap}) hit for {video_id}, skipping scene {scene_idx}")
-
-    if render_type == "blender":
-        path = render_blender_scene(scene, video_id, scene_idx, format_type)
-        if path:
-            logger.info(f"[AssetRouter] Scene {scene_idx}: blender OK ({os.path.basename(path)})")
-            return {"path": path, "duration": duration, "asset_type": "DIAGRAM_ANIMATION", "source": "blender"}
-        logger.warning(f"[AssetRouter] Blender not available for scene {scene_idx}, falling back")
-
-    if scene.get("diagram"):
-        try:
-            from utils.diagram_renderer import render_diagram
-            spec = scene["diagram"] if isinstance(scene["diagram"], dict) else {"type": scene["diagram"], "items": []}
-            diag_path = render_diagram(spec, width=1920, height=1080)
-            if diag_path:
-                diag_clip = os.path.join(tempfile.gettempdir(), f"diag_{uuid.uuid4().hex[:8]}.mp4")
-                cmd = ["ffmpeg", "-y", "-loop", "1", "-i", diag_path, "-c:v", "libx264",
-                       "-t", str(duration), "-pix_fmt", "yuv420p", "-r", "24", "-vf",
-                       "scale=1920:1080:flags=lanczos", diag_clip]
-                from utils.subprocess_helper import safe_run
-                safe_run(cmd, timeout=30)
-                if os.path.exists(diag_clip) and os.path.getsize(diag_clip) > 0:
-                    logger.info(f"[AssetRouter] Scene {scene_idx}: diagram OK")
-                    return {"path": diag_clip, "duration": duration, "asset_type": "DIAGRAM", "source": "diagram"}
-        except Exception as e:
-            logger.warning(f"[AssetRouter] Scene {scene_idx}: diagram render failed: {e}")
-
     if render_type == "code" or asset_type in ("CODE_SNIPPET", "SCREEN_CAPTURE"):
-        if os.getenv("ENABLE_MANIM", "true").lower() == "true":
-            code_text = description.split("\n") if description else ["# code example", f"# {kw}"]
-            path = render_manim_code_snippet(
-                code_text, video_id, scene_idx, format_type,
-                title=scene.get("text", [{}])[0].get("text", "") if scene.get("text") else "",
-            )
-            if path:
-                logger.info(f"[AssetRouter] Scene {scene_idx}: manim code OK")
-                return {"path": path, "duration": duration, "asset_type": "CODE_SNIPPET", "source": "manim_code"}
         code = description.split("\n") if description else ["# code example", f"# {kw}"]
         path = render_code_snippet(code, width=1920, height=1080)
         if path:
@@ -260,7 +204,6 @@ def dispatch_scene(scene: dict, video_id: str, scene_idx: int = 0,
         or clean_scene_keywords([scene.get("keyword", "technology")])
         or ["technology"]
     )
-    _try_blender_for_scene(scene, category)
     duration = scene.get("target_duration", scene.get("duration", 8.0))
     orientation = "portrait" if format_type == "shorts" else "landscape"
     source = None
@@ -362,25 +305,6 @@ def describe_render_chain() -> list[tuple[str, str, str]]:
     """
     out = []
 
-    manim = os.getenv("ENABLE_MANIM", "true").lower() == "true"
-    out.append(("manim", "on" if manim else "off", "" if manim else
-                "set ENABLE_MANIM=true to re-enable"))
-
-    try:
-        from utils.blender_renderer import BLENDER_BIN
-    except Exception as e:
-        out.append(("blender", "unavailable",
-                    f"import failed ({e}); blender scenes fall back to manim/diagram"))
-    else:
-        if BLENDER_BIN:
-            out.append(("blender", f"on ({BLENDER_BIN})", ""))
-        else:
-            out.append(("blender", "unavailable",
-                        "Blender binary is missing or not executable in this image. "
-                        "Scenes routed to blender fall back to manim/diagram/stock. "
-                        "Fix: install Blender in the image or set BLENDER_BIN to a "
-                        "runnable linux binary."))
-
     try:
         model = get_video_model()
     except Exception:
@@ -390,100 +314,30 @@ def describe_render_chain() -> list[tuple[str, str, str]]:
     else:
         out.append(("ai_video", "none (zero-cost)",
                     "intentional: LTX needs MLX (Apple-only) and the cloud model is "
-                    "disabled; all visuals come from manim/blender/stock/branded-card"))
+                    "disabled; all visuals come from stock/code/branded-card"))
 
     out.append(("stock", "on", ""))
+    out.append(("code_snippets", "on (PIL terminal/ide/browser panels)", ""))
     out.append(("branded_card", "on (last-resort floor)", ""))
     return out
 
 
-def _try_blender_for_scene(scene: dict, category: str = "") -> bool:
-    """Check if a Blender template can handle this scene based on keyword matching.
-
-    Any category can use Blender — the template keyword system decides.
-    Returns True if scene was converted to render_type='blender'.
-    """
-    rt = scene.get("render_type", "stock")
-    if rt == "manim":
-        return False
-    if rt == "blender":
-        return True
-    # Only hijack the scene if Blender can actually render here. Otherwise these
-    # diagram scenes used to fail instantly and fall all the way through to generic
-    # stock footage, even though Manim handles diagrams and does work.
-    from utils.blender_renderer import BLENDER_BIN
-    if not BLENDER_BIN:
-        return False
-    from blender_templates import TEMPLATE_KEYWORDS
-    desc = (scene.get("description") or "") + " " + " ".join(scene.get("asset_keywords", []))
-    desc_lower = desc.lower()
-    for tmpl_name, keywords in TEMPLATE_KEYWORDS.items():
-        if any(kw in desc_lower for kw in keywords):
-            scene["render_type"] = "blender"
-            scene["asset_type"] = "DIAGRAM_ANIMATION"
-            logger.info(f"[AssetRouter] Routed scene to Blender template '{tmpl_name}'")
-            return True
-    return False
-
-
 def dispatch_scenes(scenes: list[dict], video_id: str, format_type: str = "long", category: str = "") -> list[dict]:
     clips_map = {}
-    blender_scenes = []
-    manim_scenes = []
     ltx_batch = []
 
     _enforce_asset_diversity(scenes)
     model = get_video_model()
     use_ltx = model and model.is_available()
-    manim_enabled = os.getenv("ENABLE_MANIM", "true").lower() == "true"
 
     for idx, scene in enumerate(scenes):
         rt = scene.get("render_type", "stock")
-        at = scene.get("asset_type", "STOCK_FOOTAGE")
-
-        # Manim route: explicit tag, or diagram-heuristic from scene parser.
-        # Allow any category — MANIM_MAX_SCENES_PER_VIDEO enforces volume.
-        if manim_enabled and (
-            rt == "manim"
-            or (at == "DIAGRAM_ANIMATION" and scene.get("diagram"))
-        ):
-            if len(manim_scenes) < _manim_cap:
-                manim_scenes.append((idx, scene))
-            else:
-                logger.info(f"[AssetRouter] Manim cap hit, scene {idx} → fallback")
-                scene["render_type"] = "stock"
-                scene.pop("diagram", None)
-                scene.pop("asset_type", None)
-                result = dispatch_scene(scene, video_id, idx, format_type, category)
-                if result:
-                    clips_map[idx] = result
-        elif rt == "blender" or at == "DIAGRAM_ANIMATION":
-            if category not in _DEEP_LESSON_CATS:
-                scene["render_type"] = "stock"
-                scene.pop("asset_type", None)
-                result = dispatch_scene(scene, video_id, idx, format_type, category)
-                if result:
-                    clips_map[idx] = result
-            else:
-                blender_scenes.append(scene)
-        elif rt == "stock" and use_ltx:
-            if _try_blender_for_scene(scene, category):
-                blender_scenes.append(scene)
-            else:
-                ltx_batch.append((idx, scene))
+        if rt == "stock" and use_ltx:
+            ltx_batch.append((idx, scene))
         else:
-            if _try_blender_for_scene(scene, category):
-                blender_scenes.append(scene)
-            else:
-                result = dispatch_scene(scene, video_id, idx, format_type, category)
-                if result:
-                    clips_map[idx] = result
-
-    # --- Manim scenes (individual dispatch, graceful fallback) ---
-    for m_idx, m_scene in manim_scenes:
-        result = dispatch_scene(m_scene, video_id, m_idx, format_type, category)
-        if result:
-            clips_map[m_idx] = result
+            result = dispatch_scene(scene, video_id, idx, format_type, category)
+            if result:
+                clips_map[idx] = result
 
     # --- LTX batch ---
     if ltx_batch and use_ltx:
@@ -499,59 +353,6 @@ def dispatch_scenes(scenes: list[dict], video_id: str, format_type: str = "long"
                     clips_map[idx] = result
 
     clips = [clips_map[i] for i in range(len(scenes)) if i in clips_map]
-
-    if blender_scenes:
-        individual_success = 0
-        for bs in blender_scenes:
-            bs_idx = next(i for i, s in enumerate(scenes) if s is bs)
-            result = dispatch_scene(bs, video_id, bs_idx, format_type, category)
-            if result:
-                clips_map[bs_idx] = result
-                individual_success += 1
-
-        if individual_success < len(blender_scenes) * 0.3:
-            failed_scenes = [
-                bs for bs in blender_scenes
-                if next(i for i, s in enumerate(scenes) if s is bs) not in clips_map
-            ]
-            logger.warning(
-                f"[AssetRouter] Only {individual_success}/{len(blender_scenes)} Blender scenes rendered individually, "
-                f"trying render_blender_block for {len(failed_scenes)} remaining"
-            )
-            blender_path = render_blender_block(failed_scenes, video_id, format_type)
-            if blender_path:
-                total_dur = sum(s.get("target_duration", s.get("duration", 8.0)) for s in failed_scenes)
-                insert_pos = min(
-                    (next(i for i, s in enumerate(scenes) if s is bs) for bs in failed_scenes),
-                    default=len(clips)
-                )
-                clips.insert(insert_pos, {"path": blender_path, "duration": total_dur,
-                             "asset_type": "DIAGRAM_ANIMATION", "source": "blender_block"})
-            else:
-                img_w, img_h = (1080, 1920) if format_type == "shorts" else (1920, 1080)
-                for bs in failed_scenes:
-                    bs_idx = next(i for i, s in enumerate(scenes) if s is bs)
-                    bs_desc = bs.get("description", bs.get("keyword", "technology"))
-                    bs_orientation = "portrait" if format_type == "shorts" else "landscape"
-                    bs_dur = bs.get("target_duration", bs.get("duration", 8.0))
-                    stock_path = _get_stock_clip(bs_desc, bs_orientation, bs_dur, video_id=video_id)
-                    if stock_path and os.path.exists(stock_path):
-                        clips_map[bs_idx] = {"path": stock_path, "duration": bs_dur,
-                            "asset_type": "STOCK_FOOTAGE", "source": "stock"}
-                    else:
-                        static = _generate_static_image(
-                            bs.get("description", ""), bs.get("keyword", "technology"),
-                            width=img_w, height=img_h,
-                            video_id=video_id, scene_idx=bs_idx)
-                        if static:
-                            clips_map[bs_idx] = {"path": static, "duration": bs_dur,
-                                "asset_type": "STATIC_IMAGE", "source": "static_image"}
-        else:
-            logger.info(
-                f"[AssetRouter] Rendered {individual_success}/{len(blender_scenes)} Blender scenes individually"
-            )
-
-        clips = [clips_map[i] for i in range(len(scenes)) if i in clips_map]
 
     succeeded = len(clips)
     total = len(scenes)

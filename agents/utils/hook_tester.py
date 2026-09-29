@@ -99,6 +99,7 @@ def record_hook_result(
     views: int = 0,
     retention: float = 0.0,
     likes: int = 0,
+    youtube_id: str = "",
 ):
     """Record a hook formula's performance for a video."""
     data = _load_results()
@@ -109,6 +110,7 @@ def record_hook_result(
 
     data[category][formula].append({
         "video_id": video_id,
+        "youtube_id": youtube_id or "",
         "views": views,
         "retention": retention,
         "likes": likes,
@@ -159,7 +161,10 @@ def sync_hook_stats_from_youtube(max_videos: int = 50) -> int:
         for formula in list(data.get(category, {}).keys()):
             entries = data[category][formula]
             for entry in entries:
-                vid = entry.get("video_id", "")
+                # The entry is keyed on the internal pipeline video_id; the
+                # fetch needs the 11-char YouTube id. Prefer the explicit
+                # youtube_id we now record, never guess from the internal id.
+                vid = entry.get("youtube_id") or entry.get("video_id", "")
                 if not vid:
                     continue
                 # Skip if already synced recently (< 1 hour ago)

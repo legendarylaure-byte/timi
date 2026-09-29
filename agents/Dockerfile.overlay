@@ -2,12 +2,11 @@
 # Avoids re-downloading the 3GB torch/CUDA stack (floating python:3.11-slim base tag invalidation).
 FROM timi-pipeline:latest
 
-# manim 0.21.0, texlive-latex-*, lmodern, dvisvgm and ghostscript are ALREADY in
-# the base image (verified in-container). They used to be installed here, which
-# re-ran a multi-minute apt/pip on every build and pushed the instruction count
-# past this builder's limit -- 2 RUN + 5 COPY died with "mount options is too
-# long" at COPY models/. A real dependency change needs `docker compose build`
-# against the full Dockerfile, not this overlay.
+# manim, texlive-laTeX, blender and friends are still in the committed-base image
+# (D39 removes the code paths and requirements, but the image is not being
+# flattened tonight -- see AGENTS D39). They are zero-cost once unreferenced.
+# A real dependency change needs `docker compose build` against the full
+# Dockerfile, not this overlay.
 #
 # Thin overlay: sync the whole source tree instead of ~45 per-file COPY lines.
 # The per-file list kept growing with every change and eventually tripped

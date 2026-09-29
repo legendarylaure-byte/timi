@@ -175,7 +175,7 @@ def test_onframe_renderers_carry_no_legacy_brand_literals():
     is one un-branded teal box on a purple video.
     """
     legacy = ("00CCCC", "8a50e8", "e07040", "1e1e1e", "1a1a2e")
-    for name in ("video_compositor.py", "manim_renderer.py", "visual_profiles.py",
+    for name in ("video_compositor.py", "visual_profiles.py",
                  "shorts_renderer.py", "shorts_pipeline.py", "hook_engine.py",
                  "asset_router.py", "scene_parser.py"):
         text = (UTILS / name).read_text()
@@ -185,77 +185,9 @@ def test_onframe_renderers_carry_no_legacy_brand_literals():
 
 def test_onframe_renderers_import_the_palette():
     """A constant can be right and still unused if the import is missing."""
-    for name in ("video_compositor.py", "manim_renderer.py", "asset_router.py",
+    for name in ("video_compositor.py", "asset_router.py",
                  "shorts_renderer.py", "scene_parser.py"):
         assert "brand_palette import" in (UTILS / name).read_text(), name
-
-
-# The 10 deterministic diagram types documented on _data_viz_scene.
-_DIAGRAMS = [
-    {"type": "bar_chart", "items": [("Alpha", 8), ("Beta", 5)]},
-    {"type": "comparison", "items": ["A wins", "B loses"]},
-    {"type": "architecture", "items": ["Client", "API", "DB"]},
-    {"type": "layers", "items": ["L1", "L2", "L3"]},
-    {"type": "stack", "items": ["S1", "S2"]},
-    {"type": "layer_explosion", "items": ["X", "Y"]},
-    {"type": "flow", "items": ["One", "Two", "Three"]},
-    {"type": "pipeline", "items": ["In", "Out"]},
-    {"type": "process", "items": ["P1", "P2"]},
-    {"type": "timeline", "items": ["2024", "2025", "2026"]},
-]
-
-
-def test_generated_manim_source_is_valid_python():
-    """Interpolating a colour into GENERATED source must stay quoted.
-
-    `color={PURPLE}` inside a generated f-string emits `color=#9B4DFF`, which is
-    a SyntaxError in the manim file. It surfaces only at render time and only for
-    whichever scenes happen to get picked, so without this check an unquoted
-    colour passes every import and every string assertion.
-    """
-    from utils.manim_renderer import _data_viz_scene
-
-    checked = 0
-    for d in _DIAGRAMS:
-        src = _data_viz_scene({"diagram": d, "duration": 6.0})
-        if src is None:
-            continue
-        compile(src, f"<{d['type']}>", "exec")
-        # An unquoted interpolation would leave a bare # before the hex.
-        assert not re.search(r"color=(?![\"'])[#0-9A-Fa-f]", src), d["type"]
-        checked += 1
-    assert checked >= 9, f"only {checked}/{len(_DIAGRAMS)} types produced source; guard is thin"
-
-
-def test_no_unquoted_colour_interpolation_in_manim_generator():
-    """Static guard covering every generated-source builder at once.
-
-    The data-viz test above only reaches the builders it can call. This reads the
-    generator source, so it also covers the inline `f'''` code-snippet scene,
-    which renders immediately and so is awkward to unit test. A bare
-    `color={PURPLE}` there emits `color=#9B4DFF` -> SyntaxError at render time.
-    """
-    src = (UTILS / "manim_renderer.py").read_text()
-    bad = re.findall(r"color=\{[A-Z_]+\}", src)
-    assert not bad, f"unquoted colour interpolation: {bad}"
-
-
-def test_generated_manim_source_carries_brand_accents():
-    """The deterministic scenes must actually emit brand colours.
-
-    Without this, replacing a colour with a constant that is never referenced
-    would still pass every other check.
-    """
-    from utils.manim_renderer import _data_viz_scene
-
-    brand = {PURPLE, VIOLET, PINK, ORANGE, LIGHT_ORANGE, LICORICE}
-    seen = set()
-    for d in _DIAGRAMS:
-        src = _data_viz_scene({"diagram": d, "duration": 6.0})
-        if not src:
-            continue
-        seen |= {c for c in brand if c in src}
-    assert len(seen) >= 4, f"only {sorted(seen)} reached the generated source"
 
 
 # --------------------------------------------------------------------------
@@ -718,17 +650,12 @@ LEGACY_HEXES = ("#00cccc", "#8a50e8", "#c060d0", "#e07040", "#9040f0", "#7030c0"
 _RENDER_SURFACE_FILES = (
     "utils/brand_palette.py",
     "utils/annotation_renderer.py",
-    "utils/diagram_renderer.py",
     "utils/video_compositor.py",
     "utils/shorts_renderer.py",
     "utils/scene_parser.py",
     "utils/asset_router.py",
     "utils/dub_pipeline.py",
-    "utils/manim_renderer.py",
-    "utils/blender_renderer.py",
     "utils/thumbnail_gen.py",
-    "blender_templates/common.py",
-    "crew/manim_agent.py",
 )
 
 
@@ -788,10 +715,8 @@ def test_legacy_hexes_are_gone_from_runtime_source():
     """The stored-config test above cannot see this bug class.
 
     It read `style_guide.json` + `DEFAULT_STYLE_GUIDE` and stayed green while
-    `annotation_renderer.py`, `diagram_renderer.py` and `manim_agent.py` each
-    still hardcoded the retired palette -- the first painted the callout text
-    on every composite, the second the accent on every diagram, the third told
-    the Manim codegen LLM to emit teal. A test that reads config cannot see a
+    `annotation_renderer.py` still hardcoded the retired palette -- it painted
+    the callout text on every composite. A test that reads config cannot see a
     constant in source, so this one walks the AST of the trees that reach a
     rendered frame.
     """
@@ -825,8 +750,8 @@ def test_legacy_hexes_are_gone_from_runtime_source():
                 f"from utils.brand_palette instead"
             )
     # Sanity: the walk must actually cover the files that burned teal. The floor
-    # rose from 12 to 13 when dub_pipeline.py joined the list.
-    assert checked >= 13, f"source walk only covered {checked} files - is the list wrong?"
+    # dropped from 13 to 8 when the manim/blender/diagram renderers were deleted.
+    assert checked >= 8, f"source walk only covered {checked} files - is the list wrong?"
 
 
 def test_keyterm_text_overlays_are_gone_from_source():

@@ -6,9 +6,9 @@ the module, and each one sat inside a bare `except Exception`, so the job it
 broke logged a plausible-looking warning and carried on.
 
   1. `asset_router._render_scene_inner` built a temp path with `Path(...)` but
-     only ever imported `os.path`. The whole diagram branch is wrapped in
-     `except Exception`, so every diagram scene silently fell through to
-     manim/stock instead of rendering a diagram. The renderer was dead code.
+     only ever imported `os.path`. Every scene in that branch was wrapped in
+     `except Exception`, so they silently fell through to stock. The renderer
+     was dead code.
   2. `weekly_monetization_job` called `update_platform_metrics` without
      importing it, so the real YouTube stats were fetched and then thrown away.
      The warning said "Could not fetch real YouTube stats" — the fetch worked.
@@ -34,9 +34,8 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 
 AGENTS = Path(__file__).parent.parent
 
-# Directories that make up the pipeline. tests/ and blender_templates/ are
-# excluded: tests intentionally reference undefined names, and the Blender
-# templates run inside Blender's own Python with its own imports.
+# Directories that make up the pipeline. tests/ is excluded: tests
+# intentionally reference undefined names.
 SCAN_DIRS = ("utils", "crew", "models", "scripts")
 SCAN_FILES = ("main.py",)
 
@@ -106,11 +105,11 @@ def test_no_module_references_an_unbound_name():
 
 
 def test_asset_router_has_no_bare_Path_reference():
-    """Named separately so the failure points at the dead diagram branch."""
+    """Named separately so the failure points at the dead render branch."""
     src = (AGENTS / "utils" / "asset_router.py").read_text()
     tree = ast.parse(src)
     assert "Path" in _bound_names(tree) or "Path(" not in src, (
-        "asset_router uses Path(...) but never imports it; the diagram branch "
+        "asset_router uses Path(...) but never imports it; the render branch "
         "swallows it as a warning and the renderer never runs"
     )
 

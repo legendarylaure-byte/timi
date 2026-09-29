@@ -66,8 +66,8 @@ def test_clamp_survives_junk_without_raising():
 def test_normalize_clamps_the_over_long_durations_that_caused_the_bug():
     """This is the exact payload shape from the incident: two runaway scenes.
 
-    Before the fix, `target_duration` inherited 400 and 625 verbatim, and
-    `render_manim_scene`/`render_manim_scene` sized the render from that value.
+    Before the fix, `target_duration` inherited 400 and 625 verbatim, and the
+    renderer sized the render from that value.
     """
     scenes = [{"duration": 400.0, "narration": "a"}] + [
         {"duration": 18.0, "narration": f"b{i}"} for i in range(5)

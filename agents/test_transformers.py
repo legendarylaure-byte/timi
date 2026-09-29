@@ -59,14 +59,14 @@ SCENES = [
         "transition": "dissolve",
     },
     {
-        "asset_type": "DIAGRAM_ANIMATION",
+        "asset_type": "SCREEN_CAPTURE",
         "keyword": "attention mechanism",
         "target_duration": 12.0,
         "description": "Self-attention visualization - QKV computation",
         "transition": "dissolve",
     },
     {
-        "asset_type": "DIAGRAM_ANIMATION",
+        "asset_type": "SCREEN_CAPTURE",
         "keyword": "transformer architecture",
         "target_duration": 14.0,
         "description": "Encoder-decoder transformer block diagram",
@@ -80,7 +80,7 @@ SCENES = [
         "transition": "slide_left",
     },
     {
-        "asset_type": "DIAGRAM_ANIMATION",
+        "asset_type": "SCREEN_CAPTURE",
         "keyword": "multi-head attention",
         "target_duration": 10.0,
         "description": "Attention mechanism breakdown: QKV matrices, scaled dot-product",
@@ -113,7 +113,7 @@ SCENES = [
         "transition": "fade",
     },
     {
-        "asset_type": "DIAGRAM_ANIMATION",
+        "asset_type": "SCREEN_CAPTURE",
         "keyword": "neural network layers",
         "target_duration": 12.0,
         "description": "Feed-forward network inside transformer - MLP layers",
@@ -144,7 +144,7 @@ SCENES = [
         "transition": "slide_right",
     },
     {
-        "asset_type": "DIAGRAM_ANIMATION",
+        "asset_type": "SCREEN_CAPTURE",
         "keyword": "bar chart comparison",
         "target_duration": 10.0,
         "description": "Transformer model comparison - BERT, GPT, T5 performance",

@@ -74,6 +74,7 @@ export default function PublishingPage() {
   const [compBrandToggle, setCompBrandToggle] = useState(false);
   const [compBrandOrganic, setCompBrandOrganic] = useState(false);
   const [compBrandContent, setCompBrandContent] = useState(false);
+  const compBrandDisabled = compBrandToggle && !compBrandOrganic && !compBrandContent;
   const [compConsent, setCompConsent] = useState(false);
   const [compIntentId, setCompIntentId] = useState('');
   const [compIntent, setCompIntent] = useState<any>(null);
@@ -750,6 +751,9 @@ export default function PublishingPage() {
                 {compBrandToggle && !compBrandOrganic && !compBrandContent && (
                   <p className="text-xs text-amber-500">You need to indicate if your content promotes yourself, a third party, or both.</p>
                 )}
+                {compBrandToggle && compBrandOrganic && compBrandContent && (
+                  <p className="text-xs text-light-muted dark:text-dark-muted">&quot;Your photo/video will be labeled as &apos;Paid partnership&apos;&quot;.</p>
+                )}
               </div>
             )}
           </div>
@@ -791,8 +795,9 @@ export default function PublishingPage() {
 
           <button
             onClick={submitCompose}
-            disabled={compSubmitting || (!!compCreator?.max_duration && compDuration > compCreator.max_duration)}
+            disabled={compSubmitting || compBrandDisabled || (!!compCreator?.max_duration && compDuration > compCreator.max_duration)}
             className="w-full py-3 rounded-2xl text-white font-semibold text-sm bg-gradient-to-r from-light-primary to-purple-600 hover:shadow-lg transition-shadow disabled:opacity-50"
+            title={compBrandDisabled ? 'You need to indicate if your content promotes yourself, a third party, or both.' : undefined}
           >
             {compSubmitting ? 'Queuing…' : 'Queue TikTok Post'}
           </button>

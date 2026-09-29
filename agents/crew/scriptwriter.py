@@ -92,7 +92,7 @@ VISUAL: [RENDER_TYPE: description]
 RULES (STRICT):
 1. NARRATION lines contain ONLY text to be spoken aloud. No scene numbers, no timings, no descriptions.
 2. VISUAL lines contain ONLY visual directions. Never spoken aloud. Start with the render type tag in brackets.
-3. RENDER_TYPE must be: [BLENDER] for 3D photorealistic renders, chip cross-sections, data flow animations, architectural diagrams; [MANIM] for animated diagrams, code animations, flow charts, bar charts, comparisons, timelines; [LTX] for cinematic/scene footage; [CODE] for static code snippets on screen.
+3. RENDER_TYPE must be: [LTX] for cinematic footage matching the narration (the default for most scenes); [CODE] for static code snippets on screen.
 4. CRITICAL — Every VISUAL line MUST include ALL of: camera angle (close-up/wide/dolly/tracking/top-down/over-the-shoulder), lighting (neon glow/soft diffused/dramatic side/volumetric/rim), colors, specific objects visible, and motion. Example good: "[LTX] Close-up dolly shot of glowing processor chip with neon circuit pathways, dramatic side lighting casting long shadows, deep violet and magenta color palette, particles flowing along circuits" Example bad (NEVER write): "[LTX] Animated visualization of AI processing data" or "[LTX] Technology concept" — these are too vague to generate anything specific.
 5. NEVER include text like "Scene 1:" or "(0-30 seconds)" or "###" inside NARRATION.
 6. Every NARRATION line WILL be read by the voice-over — so it must be complete, natural sentences.
@@ -145,7 +145,7 @@ def create_deep_lesson_crew(topic: str = "", category: str = "", series_title: s
     - One running example throughout
     - WHY before WHAT structure
     - Progressive complexity (start simple, build up)
-    - Blender-first visual approach
+    - Footage-led visual approach
     - Recap + bonus section
     - Series-aware context
     """
@@ -269,8 +269,8 @@ VISUAL: [RENDER_TYPE: description]
 
 DEEP LESSON RULES:
 1. NARRATION lines contain ONLY text to be spoken aloud. Write complete, natural sentences.
-2. VISUAL lines start with RENDER_TYPE in brackets: [BLENDER] for all 3D renders, chip cross-sections, data flow animations, architectural diagrams → this is PREFERRED. [MANIM] for animated diagrams, code animations, flow charts, bar charts, comparisons, timelines. [LTX] only for atmospheric establishing shots between major sections. [CODE] for static code snippets.
-3. [BLENDER] is your PRIMARY visual tool. Every explanation should have a corresponding Blender 3D visualization. Describe the scene in 3D detail: camera angle, components, materials, lighting, depth, motion. Be specific about the 3D structure — what the viewer sees from what angle.
+2. VISUAL lines start with RENDER_TYPE in brackets: [LTX] for cinematic footage matching the narration (the default for most scenes). [CODE] for static code snippets.
+3. [LTX] is your PRIMARY visual tool. Every explanation should have a corresponding cinematic visualization. Describe the scene vividly: camera angle, components, lighting, depth, motion. Be specific about what the viewer sees from what angle.
 4. ONE RUNNING EXAMPLE: Choose ONE concrete scenario at the start and use it throughout. Every concept should be explained in terms of this example.
 5. WHY BEFORE WHAT: Before introducing any concept, first explain WHY it's needed. "But why do we need layers? Let's look at edge detection..."
 6. PROGRESSIVE REVEAL: Start with the simplest version. Add complexity gradually. Never show a complete equation or diagram upfront — build it piece by piece.
@@ -278,9 +278,9 @@ DEEP LESSON RULES:
 8. ACKNOWLEDGE LIMITATIONS: "This is a simplification, but it helps build intuition" or "Admittedly, this is an arbitrary choice" — honesty builds trust.
 9. EVERY technical term is preceded by an intuitive explanation. Never use jargon without defining it in context first.
 10. END EVERY SECTION with a natural pause or summary before moving to the next.
-11. CRITICAL — VISUAL-NARRATION COUPLING: The NARRATION and VISUAL must describe the SAME thing simultaneously. Every NARRATION sentence corresponds to a visible change on screen. The Blender 3D render IS the explanation, not a decoration. Write narration that walks the viewer through what they're seeing: "Notice the glowing orange tensor cores as data flows through — that's where the matrix multiplication happens."
-12. NARRATION TIMES VISUAL: Time your narration to animation steps. "First the input vector slides in from the left [PAUSE], then the weight matrix rotates into view [PAUSE], and now watch them multiply..." Each bracketed pause corresponds to an animation step completing.
-13. PROGRESSIVE VISUAL BUILDING: Never reveal the full diagram at once. Each scene adds ONE new visual element. The narration arrives at the same moment as the visual. "Now we need one more piece — the bias term" → At this exact moment, the bias term fades in on screen.
+11. CRITICAL — VISUAL-NARRATION COUPLING: The NARRATION and VISUAL must describe the SAME thing simultaneously. Every NARRATION sentence corresponds to a visible change on screen. The footage IS the explanation, not a decoration. Write narration that walks the viewer through what they're seeing: "Notice the glowing orange tensor cores as data flows through — that's where the matrix multiplication happens."
+12. NARRATION TIMES VISUAL: Time your narration to motion on screen. "First the input vector slides in from the left [PAUSE], then the weight matrix rotates into view [PAUSE], and now watch them multiply..." Each bracketed pause corresponds to a visual change completing.
+13. PROGRESSIVE VISUAL BUILDING: Never reveal the full picture at once. Each scene adds ONE new visual element. The narration arrives at the same moment as the visual. "Now we need one more piece — the bias term" → At this exact moment, the bias term appears on screen.
 
 At the end include:
 - 3 key takeaways in a numbered recap
@@ -289,11 +289,11 @@ At the end include:
         expected_output="""A complete deep lesson script with 20-60 scenes in EXACT format:
 --SCENE 1--
 NARRATION: [spoken text only]
-VISUAL: [BLENDER: description of animation]
+VISUAL: [LTX: description of footage]
 
 --SCENE 2--
 NARRATION: [spoken text only]
-VISUAL: [BLENDER: description of animation]
+VISUAL: [LTX: description of footage]
 
 [20-60 scenes total with recap and bonus]""",
         agent=scriptwriter,

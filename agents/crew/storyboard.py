@@ -30,12 +30,12 @@ For each scene, specify the RENDER_TYPE and VISUAL ASSET TYPE to use."""
         backstory="""You are a professional visual director specializing in educational technology content.
 You translate scripts into detailed visual plans that the video pipeline can execute.
 Your storyboards specify which asset type to use per scene: stock footage for atmosphere,
-screen captures for tool demonstrations, diagram animations for conceptual explanations,
+screen captures for tool demonstrations,
 and code snippets for technical deep-dives. You match visual style to content type.
 You specify camera angles, lighting, and composition to ensure each scene is visually engaging.
 
 IMPORTANT: Vary your asset types across scenes. Do not use STOCK_FOOTAGE for more than 60% of scenes.
-Mix in SCREEN_CAPTURE, DIAGRAM_ANIMATION, CODE_SNIPPET, and STATIC_IMAGE to keep the video visually diverse.""",
+Mix in SCREEN_CAPTURE, CODE_SNIPPET, and STATIC_IMAGE to keep the video visually diverse.""",
         llm=llm,
         verbose=True,
         allow_delegation=False,
@@ -47,12 +47,12 @@ Mix in SCREEN_CAPTURE, DIAGRAM_ANIMATION, CODE_SNIPPET, and STATIC_IMAGE to keep
 
 {scene_instruction}
 
-PRESERVE the RENDER_TYPE tags from the script's VISUAL lines: [BLENDER] for 3D renders/diagrams/cross-sections, [LTX] for cinematic/b-roll, [CODE] for code snippets. If no tag is present, infer the best one.
+PRESERVE the RENDER_TYPE tags from the script's VISUAL lines: [LTX] for cinematic/b-roll, [CODE] for code snippets. If no tag is present, infer the best one.
 
 For EACH scene output:
 1. Scene number and timing (e.g., "Scene 1: 0-12s")
-2. RENDER_TYPE: [BLENDER | LTX | CODE]
-3. ASSET TYPE: one of [STOCK_FOOTAGE, SCREEN_CAPTURE, DIAGRAM_ANIMATION, CODE_SNIPPET, STATIC_IMAGE]
+2. RENDER_TYPE: [LTX | CODE]
+3. ASSET TYPE: one of [STOCK_FOOTAGE, SCREEN_CAPTURE, CODE_SNIPPET, STATIC_IMAGE]
 4. Visual description: what the viewer sees — screen content, diagram elements, footage subject
 5. Camera angle: specify the shot type (e.g., close-up on hands typing, wide shot of server room, over-the-shoulder at monitor, top-down of circuit board, dolly-in on neural network visualization, smooth pan across architecture diagram, macro shot of chip components)
 6. Lighting: specify lighting style (e.g., dramatic side lighting, soft diffused overhead, neon glow from screens, warm key light with cool fill, volumetric god rays through server vents, rim lighting on subject, cinematic low-key for mystery)
@@ -61,8 +61,8 @@ For EACH scene output:
 
 OUTPUT FORMAT — one block per scene:
 --SCENE 1 (0-12s)--
-RENDER_TYPE: [BLENDER | LTX | CODE]
-ASSET_TYPE: [STOCK_FOOTAGE | SCREEN_CAPTURE | DIAGRAM_ANIMATION | CODE_SNIPPET | STATIC_IMAGE]
+RENDER_TYPE: [LTX | CODE]
+ASSET_TYPE: [STOCK_FOOTAGE | SCREEN_CAPTURE | CODE_SNIPPET | STATIC_IMAGE]
 VISUAL: [what the viewer sees]
 CAMERA: [shot type, camera movement]
 LIGHTING: [lighting style]

@@ -7,7 +7,7 @@ Isolation guarantees (does NOT affect the running pipeline):
   - Uses its own temp dir: tmp/viral_news/ (separate from compositor TEMP_DIR)
   - Uses its own Firestore collection: viral_news_posts
   - Does NOT call generate_short_video/generate_long_video or any video render
-  - Does NOT touch GPU/LTX/Blender/rendering infrastructure
+  - Does NOT touch the GPU/LTX or video rendering path
   - Runs on its own scheduler entries in main.py
 """
 import json

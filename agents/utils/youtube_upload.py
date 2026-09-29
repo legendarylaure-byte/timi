@@ -419,10 +419,12 @@ def fetch_video_stats(video_id: str) -> dict:
         # NOTE: impressions / CTR are deliberately NOT faked here. This channel has no
         # Brand Account, so YouTube Analytics rejects the impression metrics outright
         # ("Unknown identifier (impressions)") and `annotationImpressions` returns 0 for
-        # every day. `dimensions=video` is also unsupported, so per-video Analytics does
-        # not exist for us. Writing ctr=0.0 would be worse than absent — the feedback
-        # loop would rank every category on a fabricated 0% CTR. See
-        # fetch_channel_daily_views() for the analytics data that IS available.
+        # every day. Per-video `dimensions=video` analytics returns EMPTY rows (not an
+        # error, verified 09-29), so per-video averageViewDuration is not a real
+        # measurement for this channel — the channel/day report IS (see
+        # fetch_channel_daily_views + fetch_video_avd in youtube_analytics.py).
+        # Writing ctr=0.0 would be worse than absent — the feedback loop would rank
+        # every category on a fabricated 0% CTR.
         # To unlock real CTR: create a Brand Account for this channel in YouTube Studio.
         return result
     except HttpError as e:
