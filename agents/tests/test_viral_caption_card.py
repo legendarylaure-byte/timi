@@ -210,26 +210,25 @@ def test_drawn_divider_matches_the_layout_prediction(tmp_path, monkeypatch):
                             "government and two universities.")
 
     probe = ImageDraw.Draw(Image.new("RGB", (size, size)))
-    # The headline is measured in the SERIF face, not the sans one. Getting this
-    # wrong is invisible on the host, where every path collapses to the same
-    # load_default() fallback, and only the container's real fonts expose it.
-    def _load(path, px):
-        try:
-            return ImageFont.truetype(path, px)
-        except Exception:
-            return ImageFont.load_default()
-
     # The type scale is read from the module, never restated here. This test
     # hardcoded 0.058/0.026 once and silently kept predicting a pre-redesign
     # divider after the scale moved -- the same duplicate-source bug as the
     # _FONT_PATH/_SERIF_FONT_PATH mixup below, one level up.
     margin = int(size * 0.075)
     max_w = size - margin * 2
-    # The renderer fits the headline scale down rather than cutting a long
-    # title, so the prediction has to fit it the same way.
+    # Use the renderer's OWN font loader rather than reimplementing it. The
+    # previous version loaded the serif face and the sans face independently,
+    # each falling back to load_default() on its own. The renderer instead
+    # falls back for ALL faces together, so on any machine missing FreeSerif
+    # but having DejaVu -- which is every GitHub Actions runner -- the test
+    # predicted the summary in real DejaVu while the renderer drew it in
+    # load_default(). Different line counts, so the divider landed elsewhere and
+    # the test failed on CI for three consecutive commits while passing in the
+    # container, which has both faces. The bug was the duplicate loader, not the
+    # layout: one loader, so the two cannot disagree.
     scale = vna._title_scale_for(probe, article["title"], size, size, margin)
-    font = _load(vna._SERIF_FONT_PATH, int(size * scale))
-    font_body = _load(vna._FONT_PATH, int(size * vna._CARD_SCALE["body"]))
+    _, font, font_body, _, _, _, scale = vna._load_card_fonts(
+        vna._CARD_SCALE, size, scale)
 
     n_headline = len(vna._wrap_text(probe, article["title"], font, max_w))
     n_summary = len(vna._wrap_text(
@@ -409,3 +408,52 @@ def test_long_headline_still_renders_and_keeps_its_panel(tmp_path, monkeypatch):
     out = vna.generate_image(_article(title=long_title), index=0)
     assert out and os.path.exists(out)
     assert os.path.getsize(out) > 5000
+
+
+def test_a_missing_face_falls_back_for_every_face_together(monkeypatch):
+    """A card must not mix a real headline face with a bitmap body.
+
+    This is the invariant the divider test CANNOT see, and that is worth stating
+    plainly: now that the divider test and the renderer share one loader, they
+    agree by construction, so the test stays green whether the fallback is
+    all-or-nothing or per-font. Verified by mutating the loader back to per-font
+    and re-running the suite: 17/17 still passed. The divergence was only ever
+    visible when the test reimplemented the loader differently from the
+    renderer, which is what it used to do -- and that made CI red for three
+    commits while the container stayed green.
+
+    So the rule is pinned here, against the real loader, in the font
+    environment that triggered it.
+    """
+    from PIL import ImageFont
+    # Needs at least one REAL face. With no font at all, load_default() cannot
+    # load either (it calls truetype() internally), so "which faces fell back"
+    # is not a meaningful question -- measured: the committed baseline already
+    # fails 6 tests in that state, and this one would have been a 7th for a
+    # reason unrelated to the rule it pins. The container and the CI runner both
+    # have DejaVu, which is the environment this test is about.
+    try:
+        ImageFont.truetype(vna._FONT_PATH, 40)
+    except Exception:
+        pytest.skip("no real font on this host; fallback rules are unobservable")
+    real_truetype = ImageFont.truetype
+    missing = "/nonexistent/FreeSerif.ttf"
+
+    def fake(path, size, *a, **kw):
+        # **kwargs is required: ImageFont.load_default() itself calls truetype(),
+        # so a two-arg patch breaks the very fallback under test.
+        if path == missing:
+            raise OSError("cannot open resource")
+        return real_truetype(path, size, *a, **kw)
+
+    monkeypatch.setattr(ImageFont, "truetype", fake)
+    monkeypatch.setattr(vna, "_SERIF_FONT_PATH", missing)
+    faces = vna._load_card_fonts(vna._CARD_SCALE, 1080, 0.085)
+
+    eyebrow, title, body, src, cta, url, scale = faces
+    assert all(f is title for f in (eyebrow, body, src, cta, url)), (
+        "a missing face must downgrade every face, not just the one that failed"
+    )
+    assert scale == vna._CARD_SCALE["title"], (
+        "the headline scale must reset when the fitted face is not in use"
+    )

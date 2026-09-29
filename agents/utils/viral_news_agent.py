@@ -595,16 +595,8 @@ def generate_image(article: dict, index: int = 0) -> str:
     margin = int(W * 0.075)
     max_line_w = W - margin * 2
     title_scale = _title_scale_for(draw, title, H, W, margin)
-    try:
-        font_eyebrow = ImageFont.truetype(_FONT_PATH, int(H * s["eyebrow"]))
-        font_title = ImageFont.truetype(_SERIF_FONT_PATH, int(H * title_scale))
-        font_body = ImageFont.truetype(_FONT_PATH, int(H * s["body"]))
-        font_src = ImageFont.truetype(_FONT_PATH, int(H * s["src"]))
-        font_cta = ImageFont.truetype(_FONT_PATH, int(H * s["cta"]))
-        font_url = ImageFont.truetype(_FONT_PATH, int(H * s["url"]))
-    except Exception:
-        font_eyebrow = font_title = font_body = font_src = font_cta = font_url = ImageFont.load_default()
-        title_scale = s["title"]
+    (font_eyebrow, font_title, font_body,
+     font_src, font_cta, font_url, title_scale) = _load_card_fonts(s, H, title_scale)
 
     # Headline: the article's own title, verbatim. Never reworded -- a headline the
     # publisher did not write is a misattribution, and never sliced either: the
@@ -701,6 +693,35 @@ def _title_scale_for(draw, title: str, H: int, W: int, margin: int) -> float:
         if scale <= _CARD_TITLE_MIN_SCALE:
             return _CARD_TITLE_MIN_SCALE
         scale = round(scale - 0.005, 4)
+
+
+def _load_card_fonts(s: dict, H: int, title_scale: float):
+    """Load every card face, or fall back for EVERY one of them together.
+
+    The all-or-nothing behaviour is deliberate and predates this function: a
+    headline that renders in a real serif face above a body in a bitmap fallback
+    looks broken, so a missing face downgrades the whole card. It is also why
+    this is a shared function rather than inline in the renderer.
+
+    ponytail: it lives here because a test has to reproduce the renderer's exact
+    font set to predict the divider. A per-font fallback in the test passed
+    locally (both faces present) and failed on CI (FreeSerif absent, DejaVu
+    present), predicting a summary wrap the renderer never drew. If you change
+    the fallback rule, change it here only.
+    """
+    try:
+        return (
+            ImageFont.truetype(_FONT_PATH, int(H * s["eyebrow"])),
+            ImageFont.truetype(_SERIF_FONT_PATH, int(H * title_scale)),
+            ImageFont.truetype(_FONT_PATH, int(H * s["body"])),
+            ImageFont.truetype(_FONT_PATH, int(H * s["src"])),
+            ImageFont.truetype(_FONT_PATH, int(H * s["cta"])),
+            ImageFont.truetype(_FONT_PATH, int(H * s["url"])),
+            title_scale,
+        )
+    except Exception:
+        d = ImageFont.load_default()
+        return (d, d, d, d, d, d, s["title"])
 
 
 def _card_layout(n_headline: int, n_summary: int, H: int,
