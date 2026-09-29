@@ -37,7 +37,7 @@ sys.path.insert(0, "/app")
 from PIL import Image, ImageDraw, ImageFont
 
 from utils.scene_parser import clean_scene_keywords, _apply_category_style
-from utils.stock_video import search_and_download, _keyword_expand
+from utils import asset_router
 
 OUT_DIR = Path("/app/output/footage_audit")
 OUT_DIR.mkdir(parents=True, exist_ok=True)
@@ -138,19 +138,31 @@ def audit_scene(idx: int, spec: dict) -> dict:
     kw_list = scene["asset_keywords"]
     joined = ", ".join(kw_list)
 
-    # The exact primary query asset_router tries first.
-    primary = search_and_download(joined, orientation="landscape", scene_idx=idx,
-                                 video_id=f"audit{idx}", narration_text=spec["narration"])
-    # And the per-keyword fallback, only if the join produced nothing -- otherwise
-    # a second download would cost API calls and tell us nothing new.
-    winner = primary
-    if not winner:
-        for k in kw_list:
-            winner = search_and_download(k, orientation="landscape", scene_idx=idx,
-                                         video_id=f"audit{idx}", narration_text=spec["narration"])
-            if winner:
-                break
+    # Dispatch through the REAL decision point. This audit originally called
+    # search_and_download() itself with the joined blob, which meant it kept
+    # reporting via=joined_query after asset_router had been fixed to lead with
+    # the scene's words -- the sheet contradicted the code. An audit that does not
+    # go through the thing it audits measures itself, not the pipeline.
+    #
+    # LTX is disabled so this measures the stock path in isolation (the container
+    # is zero-cost anyway, per D34). _get_stock_clip is wrapped, not replaced, so
+    # the real search and download still run; we only record which query won.
+    tried: list[str] = []
+    real_get_stock_clip = asset_router._get_stock_clip
 
+    def _recording(query, orientation="landscape", duration=8.0, video_id=""):
+        tried.append(query)
+        return real_get_stock_clip(query, orientation, duration, video_id=video_id)
+
+    asset_router._get_stock_clip = _recording
+    asset_router.get_video_model = lambda: None
+    try:
+        got = asset_router._render_scene_inner(scene, f"audit{idx}", idx, "long", 5.0)
+    finally:
+        asset_router._get_stock_clip = real_get_stock_clip
+
+    path = (got or {}).get("path")
+    winner = tried[0] if tried else None
     row = {
         "idx": idx,
         "category": spec["category"],
@@ -158,23 +170,24 @@ def audit_scene(idx: int, spec: dict) -> dict:
         "keywords": kw_list,
         "joined_query": joined,
         "joined_query_chars": len(joined),
-        "expanded_queries": _keyword_expand(joined)[:6],
-        "primary_join_returned": bool(primary),
-        "won_via": "joined_query" if primary else ("per_keyword" if winner else "nothing"),
-        "winning_keyword": (winner or {}).get("keyword"),
-        "source": (winner or {}).get("source"),
-        "width": (winner or {}).get("width"),
-        "height": (winner or {}).get("height"),
-        "duration": round((winner or {}).get("duration", 0), 2),
-        "path": (winner or {}).get("path"),
+        "queries_tried": tried,
+        "won_via": ("scene_words" if winner == kw_list[0]
+                    else "category_join" if winner == joined
+                    else "other_keyword" if winner else "nothing"),
+        "winning_query": winner,
+        "source": (got or {}).get("source"),
+        "path": path,
     }
-    img = _frame(row["path"]) if row["path"] else None
+    # One ffmpeg call, reused. There was an Image.open(path) "sanity check" here
+    # that raised on every .mp4 -- PIL cannot open a video, so it flagged 5/5
+    # healthy downloads as errors and the sheet showed NO FOOTAGE RETURNED.
+    img = _frame(path) if path else None
     row["frame_ok"] = img is not None
     if img is not None:
         img.save(OUT_DIR / f"scene_{idx:02d}.jpg", quality=90)
         row["frame_path"] = f"scene_{idx:02d}.jpg"
-    print(f"  [{idx}] {spec['category']:<26} via={row['won_via']:<13} "
-          f"src={row['source']} {row['width']}x{row['height']} {row['duration']}s")
+    print(f"  [{idx}] {spec['category']:<26} via={row['won_via']:<15} "
+          f"tried={len(tried)} src={row['source']}")
     return row
 
 
@@ -202,8 +215,10 @@ def contact_sheet(rows: list[dict]) -> Path:
     for i, r in enumerate(rows):
         cx = pad + (i % COLS) * (TW + pad)
         cy = 58 + pad + (i // COLS) * (TH + CAP + pad)
-        fp = OUT_DIR / r.get("frame_path", "")
-        if fp.exists():
+        # Guard on the name, not the path: OUT_DIR / "" is OUT_DIR, and
+        # Image.open() on a directory raises rather than returning falsy.
+        fp = OUT_DIR / r["frame_path"] if r.get("frame_path") else None
+        if fp and fp.exists():
             tile = Image.open(fp).convert("RGB")
             tile.thumbnail((TW, TH), Image.LANCZOS)
             sheet.paste(tile, (cx + (TW - tile.width) // 2, cy + (TH - tile.height) // 2))
@@ -213,13 +228,12 @@ def contact_sheet(rows: list[dict]) -> Path:
 
         d.text((cx, cy + TH + 6), r["category"], font=f_l, fill=(232, 226, 244))
         d.text((cx, cy + TH + 26), f"via {r['won_via']}", font=f_s, fill=(190, 170, 220))
-        if r["winning_keyword"]:
-            q = r["winning_keyword"]
+        if r.get("winning_query"):
+            q = r["winning_query"]
             q = q if len(q) <= 44 else q[:41] + "..."
             d.text((cx, cy + TH + 44), f"“{q}”", font=f_s, fill=(160, 190, 255))
-        d.text((cx, cy + TH + 64),
-               f"{r['source'] or '-'} {r['width'] or '?'}x{r['height'] or '?'} "
-               f"{r['duration'] or 0:.1f}s", font=f_s, fill=(150, 140, 165))
+        d.text((cx, cy + TH + 64), f"{r['source'] or '-'}", font=f_s,
+               fill=(150, 140, 165))
 
     out = OUT_DIR / "contact_sheet.png"
     sheet.save(out)
@@ -243,8 +257,8 @@ def main() -> int:
     got = [r for r in rows if r["won_via"] != "nothing"]
     print(f"\n[audit] contact sheet -> {sheet}")
     print(f"[audit] footage returned for {len(got)}/{len(rows)} scenes")
-    print(f"[audit] joined query returned for "
-          f"{sum(1 for r in rows if r.get('primary_join_returned'))}/{len(rows)}")
+    from collections import Counter
+    print(f"[audit] winners: {dict(Counter(r['won_via'] for r in rows))}")
     return 0
 
 
