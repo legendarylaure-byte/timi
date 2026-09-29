@@ -149,7 +149,10 @@ def test_card_summary_is_actually_drawn(tmp_path, monkeypatch):
     bbox = diff.getbbox()
     assert bbox is not None, "the card is byte-identical with and without article text"
 
-    changed = sum(1 for px in diff.get_flattened_data() if px > 12)
+    # tobytes(), not get_flattened_data(): the latter does not exist in the
+    # container's Pillow, and this suite is only trustworthy if it runs in BOTH
+    # places -- that is how the wrap-cap bug below was found.
+    changed = sum(1 for px in diff.tobytes() if px > 12)
     assert changed > 500, f"only {changed} px differ -- the summary block is not drawn"
 
 
@@ -204,16 +207,25 @@ def test_drawn_divider_matches_the_layout_prediction(tmp_path, monkeypatch):
                             "government and two universities.")
 
     probe = ImageDraw.Draw(Image.new("RGB", (size, size)))
-    try:
-        font = ImageFont.truetype(vna._FONT_PATH, int(size * 0.058))
-        font_body = ImageFont.truetype(vna._FONT_PATH, int(size * 0.026))
-    except Exception:
-        # Host has no container font; the renderer falls back the same way.
-        font = font_body = ImageFont.load_default()
+    # The headline is measured in the SERIF face, not the sans one. Getting this
+    # wrong is invisible on the host, where every path collapses to the same
+    # load_default() fallback, and only the container's real fonts expose it.
+    def _load(path, px):
+        try:
+            return ImageFont.truetype(path, px)
+        except Exception:
+            return ImageFont.load_default()
+
+    font = _load(vna._SERIF_FONT_PATH, int(size * 0.058))
+    font_body = _load(vna._FONT_PATH, int(size * 0.026))
 
     margin = int(size * 0.075)
     max_w = size - margin * 2
-    n_headline = len(vna._wrap_text(probe, article["title"], font, max_w))
+    # The 5-line cap must be applied HERE too. The container's real font wraps
+    # this title to 6 lines, the renderer caps at 5, and without the cap the
+    # prediction lands exactly one line_spacing (78px) below the real divider --
+    # which is what the host-only run could not see.
+    n_headline = min(len(vna._wrap_text(probe, article["title"], font, max_w)), 5)
     n_summary = len(vna._wrap_text(
         probe, vna._caption_body_summary(article, limit=vna._CARD_SUMMARY_CHARS),
         font_body, max_w))
