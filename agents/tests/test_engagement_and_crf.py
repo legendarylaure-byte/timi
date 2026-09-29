@@ -220,6 +220,8 @@ def test_only_the_final_encode_uses_the_format_aware_value():
     """
     vc = pytest.importorskip("utils.video_compositor", reason="needs container deps")
     src = open(vc.__file__).read()
-    assert src.count('"-crf", final_crf') == 2, \
-        "exactly the two final encodes should use final_crf"
+    # Was 2: the xfade assembly encode + the final mux. D39 removed the xfade
+    # path, so the final mux is the only format-aware encode left.
+    assert src.count('"-crf", final_crf') == 1, \
+        "only the final mux should use final_crf"
     assert 'final_crf = _final_crf(format_type)' in src

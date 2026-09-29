@@ -1333,9 +1333,9 @@ def run_video_pipeline(script_text: str, storyboard_text: str, category: str, fo
     if not final_path:
         log_event("EDITOR", "Composite failed, retrying with concat-only fallback")
         if use_asset_router:
-            final_path = composite_video(clips=clips, voice_path=voice_result["path"], music_path=music_path, format_type=format_type, video_id=video_id, subtitle_path=subs_for_composite, chapters=chapters, category=category, scenes=scenes, force_concat=True, tier=_tier_param)
+            final_path = composite_video(clips=clips, voice_path=voice_result["path"], music_path=music_path, format_type=format_type, video_id=video_id, subtitle_path=subs_for_composite, chapters=chapters, category=category, scenes=scenes, tier=_tier_param)
         else:
-            final_path = composite_video(clips=clips, voice_path=voice_result["path"], music_path=music_path, format_type=format_type, video_id=video_id, subtitle_path=subs_for_composite, chapters=chapters, category=category, scenes=scenes, force_concat=True, tier=_tier_param)
+            final_path = composite_video(clips=clips, voice_path=voice_result["path"], music_path=music_path, format_type=format_type, video_id=video_id, subtitle_path=subs_for_composite, chapters=chapters, category=category, scenes=scenes, tier=_tier_param)
 
     if ENABLE_MULTI_LANG_DUB and final_path and subtitle_path:
         clean_master = final_path

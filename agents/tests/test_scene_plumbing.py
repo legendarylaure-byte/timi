@@ -70,16 +70,17 @@ def test_plumbing_never_becomes_the_ltx_prompt():
 
 
 def test_series_router_does_not_inject_plumbing_keywords():
+    """D39 removed the intro card, so only the outro card remains to check."""
     scenes = inject_intro_outro(
         [{"render_type": "stock", "description": "d", "narration_text": "n"}],
         "AI News", "long",
     )
-    for s in (scenes[0], scenes[-1]):  # intro card + outro card
+    for s in scenes:
         assert not [k for k in s.get("asset_keywords", []) if is_meta_token(k)], (
             f"card injects plumbing: {s.get('asset_keywords')}"
         )
-    # the card's real text still comes from description -- we did not break it
-    assert scenes[0].get("description") == "Vyom Ai Cloud"
+    # the outro card's real text still comes from description -- we did not break it
+    assert scenes[-1].get("description") == "Subscribe to Vyom Ai Cloud"
 
 
 def test_stock_keywords_are_searchable_never_plumbing():

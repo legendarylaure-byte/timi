@@ -270,7 +270,11 @@ PEXELS_KEYWORD_MAP = {
     "travel": ["travel destinations", "tourist", "landmark", "adventure travel", "exploration"],
 
     # ── Arts & Media ─────────────────────────────────────────────
-    "animation": ["motion graphics", "2d animation", "3d animation", "animated explainer"],
+    # D39: the "animation" entry (motion graphics / 2d animation / animated
+    # explainer) is gone. Every one of those terms returns rendered motion
+    # graphics, never footage, and it was pulled in whenever a scene's own words
+    # happened to contain "animation". Aliases are fallback-only (see
+    # _keyword_expand), so removing them loses nothing but the bad fallback.
     "design": ["graphic design", "industrial design", "product design", "ui design"],
     "writing": ["writer typing", "author", "creative writing", "typewriter", "journal"],
     "publishing": ["printing press", "book publishing", "editorial", "magazine"],
@@ -280,7 +284,7 @@ PEXELS_KEYWORD_MAP = {
     "geography": ["world map", "globe", "topography", "cartography", "satellite imagery"],
     "exploration": ["explorer", "expedition", "discovery", "adventure", "voyage"],
     "aerial": ["drone landscape", "birds eye view", "aerial photography", "helicopter view"],
-    "map": ["world map animation", "historical map", "navigation", "cartography"],
+    "map": ["historical map", "navigation", "cartography"],
     "timelapse": ["time lapse", "hyperlapse", "city timelapse", "nature timelapse"],
 
     # ── Short documentary / character ────────────────────────────
@@ -297,15 +301,14 @@ PEXELS_KEYWORD_MAP = {
     "sound": ["sound waves", "audio frequency", "acoustic", "sound visualization"],
     "audio production": ["recording studio", "mixing console", "music producer", "audio engineer"],
 
-    # ── Abstract & Visualization ─────────────────────────────────
-    "diagram": ["diagram animation", "flowchart", "technical illustration"],
-    "visualization": ["data visualization", "3d visualization", "molecular visualization"],
-    "simulation": ["scientific simulation", "particle simulation", "physics simulation"],
-    "model": ["3d model", "architecture model", "mathematical model"],
-    "chart": ["animated chart", "graph animation", "data chart"],
-    "infographic": ["animated infographic", "data graphic", "information design"],
-    "3d rendering": ["3d render", "product rendering", "architectural visualization"],
-    "particle system": ["particle effect", "particle animation", "abstract particles"],
+    # D39: the whole "Abstract & Visualization" block (diagram animation, 3d
+    # visualization, animated chart, animated infographic, 3d render, particle
+    # animation, ...) is deleted. Stock sites have no footage for these words --
+    # they return exactly the motion-graphics/render look we removed the
+    # renderers for, and a stock search for "infographic" returning an animated
+    # infographic is the same failure as a card render falling back to a search
+    # for "intro". Scenes that want a diagram get a real graphic path, not a
+    # stock clip of one.
 
     # ── Specific Documentary Topics ──────────────────────────────
     "cybersecurity documentary": ["hacker", "cyber attack", "security breach", "encryption"],

@@ -558,69 +558,6 @@ def _apply_camera_motion(input_path: str, output_path: str, target_w: int, targe
     return safe_run_bool(cmd, timeout=120)
 
 
-XFADE_MAP = {
-    "dissolve": "dissolve",
-    "fade": "fade",
-    "fade_gradual": "fadeslow",
-    "wipe_left": "wipeleft",
-    "wipe_right": "wiperight",
-    "slide_left": "slideleft",
-    "slide_right": "slideright",
-    "smooth_left": "smoothleft",
-    "smooth_right": "smoothright",
-    "zoom": "zoomin",
-    "circle_open": "circleopen",
-    "circle_close": "circleclose",
-    "pixelize": "pixelize",
-    "radial": "radial",
-    "squeeze": "squeezeh",
-    "cover": "coverright",
-    "reveal": "revealright",
-}
-
-
-def _build_xfade_transition(processed: list[str], durations: list[float],
-                            transitions: list[str],
-                            target_w: int = 1920, target_h: int = 1080,
-                            xfade_dur: float = 0.4) -> tuple[str, str]:
-    n = len(processed)
-    if n == 0:
-        return "", ""
-    if n == 1:
-        return (f"[0:v]fps=24,scale={target_w}:{target_h}:flags=lanczos,"
-                f"format=yuv420p,setparams=color_primaries=bt709:color_trc=bt709:colorspace=bt709,"
-                f"setsar=1[out]"), "out"
-
-    filter_parts = []
-    for i in range(n):
-        # ponytail: fps=24 forces CFR + normalizes PTS (xfade requirement).
-        # setpts=PTS-STARTPTS REMOVED — it breaks xfade chained timebase (rate of 1/0).
-        # scale/format/setparams for consistent resolution and color space.
-        filter_parts.append(
-            f"[{i}:v]fps=24,scale={target_w}:{target_h}:flags=lanczos,"
-            f"format=yuv420p,setparams=color_primaries=bt709:color_trc=bt709:colorspace=bt709,"
-            f"setsar=1[raw{i}]"
-        )
-
-    cum_dur = [sum(durations[:i]) for i in range(n + 1)]
-    prev_label = f"raw0"
-    out_label = prev_label
-
-    for i in range(1, n):
-        raw_type = transitions[i - 1] if i - 1 < len(transitions) else "dissolve"
-        xf_type = XFADE_MAP.get(raw_type, "dissolve")
-        # ponytail: 50ms safety margin absorbs frame-level drift from setpts normalization
-        offset = max(0.0, cum_dur[i] - i * xfade_dur - 0.05)
-        out_label = f"x{i}"
-        filter_parts.append(
-            f"[{prev_label}][raw{i}]xfade=transition={xf_type}"
-            f":duration={xfade_dur}:offset={offset}[{out_label}]"
-        )
-        prev_label = out_label
-
-    return ";".join(filter_parts), out_label
-
-
 def add_text_overlay(video_path: str, text: str, output_path: str,
                      fontsize: int = 48, color: str = "white",
                      position: str = "center", start_time: float = 0,
@@ -978,7 +915,7 @@ def composite_video(clips: list[dict], voice_path: str, music_path: Optional[str
                     format_type: str = "shorts", video_id: str = "output",
                     subtitle_path: Optional[str] = None, chapters: Optional[list] = None,
                     category: str = "", scenes: Optional[list] = None,
-                    force_concat: bool = False, tier: str = "") -> Optional[str]:
+                    tier: str = "") -> Optional[str]:
     target = ASPECT_RATIOS.get(format_type, ASPECT_RATIOS["long"])
     tw, th = target["w"], target["h"]
     # Final master quality only. The per-scene encodes above deliberately stay on
@@ -987,8 +924,6 @@ def composite_video(clips: list[dict], voice_path: str, music_path: Optional[str
     final_crf = _final_crf(format_type)
 
     processed = []
-    transitions = []
-    durations = []
     for i, clip in enumerate(clips):
         out = _process_clip(clip, tw, th, i, format_type, video_id)
         if out is None:
@@ -1015,8 +950,6 @@ def composite_video(clips: list[dict], voice_path: str, music_path: Optional[str
                     i, actual_dur, requested_dur)
                 actual_dur = requested_dur
         clip["duration"] = actual_dur
-        transitions.append(clip.get("transition", "dissolve"))
-        durations.append(actual_dur)
 
     if not processed:
         print("[compositor] No clips to composite")
@@ -1032,35 +965,13 @@ def composite_video(clips: list[dict], voice_path: str, music_path: Optional[str
     combined_video = str(TEMP_DIR / f"combined_{video_id}.mp4")
     if len(processed) == 1:
         combined_video = processed[0]
-    elif force_concat:
-        print("[compositor] force_concat=True, skipping fade transition")
+    else:
+        # Hard cuts. D39 removed the xfade path: every call site already passed
+        # force_concat=True (the xfade else-branch was dead), the cross-dissolve
+        # washed out every scene change, and concat is the cheaper, proven filter.
         combined_video = _concat_only(processed, video_id)
         if not combined_video:
             return None
-    else:
-        filter_str, out_label = _build_xfade_transition(processed, durations, transitions, tw, th)
-        inputs = []
-        for p in processed:
-            inputs.extend(["-i", p])
-        cmd = [
-            _ffmpeg_cmd(), "-y", *inputs, *_sws_flags(),
-            "-filter_complex", filter_str,
-            "-map", f"[{out_label}]",
-            "-c:v", "libx264", "-preset", PRESET, "-crf", final_crf,
-            "-pix_fmt", "yuv420p", combined_video,
-        ]
-        try:
-            result = safe_run(cmd, timeout=600)
-            if result.returncode != 0 or not os.path.exists(combined_video):
-                logger.error(f"xfade transition failed (rc={result.returncode}), full stderr: {result.stderr[-500:]}")
-                combined_video = _concat_only(processed, video_id)
-                if not combined_video:
-                    return None
-        except Exception as e:
-            logger.error(f"xfade transition error: {e}, falling back to concat")
-            combined_video = _concat_only(processed, video_id)
-            if not combined_video:
-                return None
 
     if not os.path.exists(combined_video):
         return None
