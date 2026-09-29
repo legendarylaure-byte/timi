@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import { Film, Eye, Users, DollarSign, BarChart3, TrendingUp, Target, Activity } from 'lucide-react';
+import { Film, Eye, Users, DollarSign, BarChart3, TrendingUp, Target, Activity, Clock, MousePointerClick } from 'lucide-react';
 import { KpiCard } from './KpiCard';
 import { auth } from '@/lib/firebase';
 
@@ -28,6 +28,13 @@ interface SummaryData {
   };
   todayCount: { shorts: number; long: number };
   formatBreakdown: { shorts: number; long: number };
+  // Channel/day average view duration in seconds. 0 means "not measured" -- see
+  // the note in the route: per-video AVD returns no rows for this channel, so
+  // this is the only genuine retention signal, and a 0 here is missing data,
+  // not a retention collapse. Do not render it as a red/down metric.
+  avgViewDurationSeconds: number;
+  avgViewDurationFrom: string | null;
+  ctrAvailable: boolean;
 }
 
 export function ExecutiveSummary() {
@@ -69,7 +76,7 @@ export function ExecutiveSummary() {
   if (!data) {
     return (
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 animate-pulse">
-        {Array.from({ length: 8 }).map((_, i) => (
+        {Array.from({ length: 10 }).map((_, i) => (
           <div key={i} className="h-28 glass rounded-xl p-4">
             <div className="h-4 w-20 bg-light-border dark:bg-dark-border rounded mb-3" />
             <div className="h-8 w-24 bg-light-border dark:bg-dark-border rounded mb-2" />
@@ -148,9 +155,33 @@ export function ExecutiveSummary() {
           icon={<Target className="w-4 h-4" />}
           color="purple"
         />
+        <KpiCard
+          title="Avg View Duration"
+          value={data.avgViewDurationSeconds > 0 ? formatDuration(data.avgViewDurationSeconds) : 'No data'}
+          subtitle={data.avgViewDurationFrom
+            ? `Channel/day, weighted by views · from ${data.avgViewDurationFrom}`
+            : 'No views recorded in the last 7 days'}
+          icon={<Clock className="w-4 h-4" />}
+          color="teal"
+        />
+        <KpiCard
+          title="Search CTR"
+          value={data.ctrAvailable ? 'Available' : 'Unavailable'}
+          subtitle={data.ctrAvailable
+            ? 'Impressions and clicks are being reported'
+            : 'Needs a YouTube Brand Account — not available on this channel'}
+          icon={<MousePointerClick className="w-4 h-4" />}
+          color="blue"
+        />
       </div>
     </div>
   );
+}
+
+function formatDuration(seconds: number): string {
+  const m = Math.floor(seconds / 60);
+  const s = Math.round(seconds % 60);
+  return m > 0 ? `${m}m ${String(s).padStart(2, '0')}s` : `${s}s`;
 }
 
 function formatNum(n: number): string {

@@ -23,6 +23,7 @@ def generate_description(
     merch_links: dict = None,
     affiliate_links: list = None,
     channel_name: str = "Vyom Ai Cloud",
+    seo_fixes: list = None,
 ) -> dict:
     hook = script[:200] if len(script) > 200 else script
 
@@ -50,6 +51,19 @@ def generate_description(
 
     ai_disclaimer = get_disclosure_text("youtube")
 
+    # P6: a bounded retry. score_description_seo() reports what is missing; the
+    # caller passes those findings back here so the second attempt is told
+    # exactly what failed. Without this the scorer was a dead log line -- it
+    # reported "missing: hashtags" on every video and nothing acted on it.
+    fix_block = ""
+    if seo_fixes:
+        fix_block = """
+YOUR PREVIOUS ATTEMPT WAS SCORED AND FAILED THESE CHECKS. Fix them:
+""" + "".join(f"- {f}\n" for f in seo_fixes) + """
+Do not pad with filler to satisfy a check. If a check cannot be satisfied
+without inventing a fact, say so in one short line and move on.
+"""
+
     prompt = f"""Generate a YouTube video description for this tech educational content:
 
 Title: {title}
@@ -74,7 +88,7 @@ Generate a description that:
 
 Do NOT invent links, sources, citations, or statistics. Only reference material
 that actually appears in the content preview above.
-
+{fix_block}
 Return ONLY a JSON object:
 {{
   "description": "full description text",

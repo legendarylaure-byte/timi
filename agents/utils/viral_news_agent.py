@@ -83,12 +83,48 @@ VIRAL_CHECK_INTERVAL = int(os.getenv("VIRAL_CHECK_INTERVAL", "5"))
 _IMAGE_WIDTH = int(os.getenv("VIRAL_IMAGE_WIDTH", "1080"))
 _IMAGE_HEIGHT = int(os.getenv("VIRAL_IMAGE_HEIGHT", "1080"))
 
-# Two different budgets, on purpose. The card is 1080px square: past ~140 chars
-# the headline is pushed into the "Read the full story" panel and the panel starts
-# falling off the bottom edge. The caption is a text surface with room for 2-4
-# sentences, so it carries the fuller summary and the card carries the short one.
-_CARD_SUMMARY_CHARS = 140
+# Two different budgets, on purpose. The caption is a text surface with room for
+# 2-4 sentences; the card has a fixed panel and a structural clamp on how many
+# summary lines fit, so it cannot be pushed off the bottom edge any more (it
+# could while the panel floated under the divider). They are now sized
+# independently rather than by the same accident.
+_CARD_SUMMARY_CHARS = 200
 _CAPTION_SUMMARY_CHARS = 400
+
+# Card type scale, as a fraction of card height. One dict rather than six inline
+# literals so the sizes are assertable and so scripts/viral_card_review.py can
+# render competing scales without duplicating the drawing code.
+#
+# The previous scale (title 0.058, body 0.026, url 0.020) was tuned for a
+# top-weighted layout and left 21-39% of the card empty (measured across real
+# article shapes -- see the bottom-anchoring note in _card_layout). A phone
+# renders this card at roughly 500px wide, so 0.026 -> ~13pt of body text.
+_CARD_SCALE = {
+    "eyebrow": 0.030,
+    # Headline-led (owner choice, 09-29, from the A/B sheet): the headline is
+    # what makes someone tap, so it gets the space and the body pays for it.
+    # Measured over real article shapes, this is the option with the tighter
+    # sparsest case (15.5% vs 21.5% on a 2-line headline) at the cost of 3px of
+    # body and 30 characters of summary. See scripts/viral_card_review.py.
+    "title": 0.085,
+    # Line spacing is derived from the title scale rather than set independently,
+    # so a bigger headline cannot silently overlap the summary below it.
+    "line": 0.085 * 1.20,
+    "body": 0.037,
+    "body_line": 0.036,
+    "src": 0.036,
+    "cta": 0.030,
+    "url": 0.026,
+}
+# Hard ceiling on headline lines, and on summary lines. The headline cap is a
+# locked rule: a >5-line title loses its tail to the wrap and the card still
+# lays out correctly. The summary cap is soft -- _card_layout lowers it further
+# when the headline left no room.
+_CARD_MAX_HEADLINE_LINES = 5
+_CARD_MAX_SUMMARY_LINES = 5
+# Floor for the auto-fit below. Below this the type stops being readable, and
+# unreadably small type is a worse failure than a long headline losing its tail.
+_CARD_TITLE_MIN_SCALE = 0.055
 
 try:
     from PIL import Image, ImageDraw, ImageFont
@@ -551,42 +587,54 @@ def generate_image(article: dict, index: int = 0) -> str:
         draw.line([(col, 0), (col, bar_h)],
                   fill=(*_mix(ramp[i], ramp[i + 1], pos - i), 255))
 
-    # Fonts: display serif for the headline, sans for everything else.
-    try:
-        font_eyebrow = ImageFont.truetype(_FONT_PATH, int(H * 0.026))
-        font_title = ImageFont.truetype(_SERIF_FONT_PATH, int(H * 0.058))
-        font_body = ImageFont.truetype(_FONT_PATH, int(H * 0.026))
-        font_src = ImageFont.truetype(_FONT_PATH, int(H * 0.030))
-        font_cta = ImageFont.truetype(_FONT_PATH, int(H * 0.026))
-        font_url = ImageFont.truetype(_FONT_PATH, int(H * 0.020))
-    except Exception:
-        font_eyebrow = font_title = font_body = font_src = font_cta = font_url = ImageFont.load_default()
-
+    # Fonts: display serif for the headline, sans for everything else. Sizes come
+    # from _CARD_SCALE so the review renderer can compare competing scales. The
+    # headline scale is fitted first, because a headline that will not fit is made
+    # smaller rather than cut -- see _title_scale_for.
+    s = _CARD_SCALE
     margin = int(W * 0.075)
     max_line_w = W - margin * 2
-
-    # Eyebrow: the SOURCE, not the category. This card exists to send people to a
-    # specific publisher, so the first thing on it is who is reporting it. The
-    # category was a topic label the reader already knows from the feed.
-    y = bar_h + int(H * 0.050)
-    draw.text((margin, y), source.upper(), fill=LIGHT_ORANGE, font=font_eyebrow)
+    title_scale = _title_scale_for(draw, title, H, W, margin)
+    try:
+        font_eyebrow = ImageFont.truetype(_FONT_PATH, int(H * s["eyebrow"]))
+        font_title = ImageFont.truetype(_SERIF_FONT_PATH, int(H * title_scale))
+        font_body = ImageFont.truetype(_FONT_PATH, int(H * s["body"]))
+        font_src = ImageFont.truetype(_FONT_PATH, int(H * s["src"]))
+        font_cta = ImageFont.truetype(_FONT_PATH, int(H * s["cta"]))
+        font_url = ImageFont.truetype(_FONT_PATH, int(H * s["url"]))
+    except Exception:
+        font_eyebrow = font_title = font_body = font_src = font_cta = font_url = ImageFont.load_default()
+        title_scale = s["title"]
 
     # Headline: the article's own title, verbatim. Never reworded -- a headline the
-    # publisher did not write is a misattribution. Bounded by the 5-line wrap.
+    # publisher did not write is a misattribution, and never sliced either: the
+    # scale is fitted instead. Only the line count is capped.
     headline_lines = _wrap_text(draw, title, font_title, max_line_w)
     # The article's own summary, between the headline and the divider. This is
     # what makes the card worth a second of looking: a headline alone makes the
     # reader tap through to learn what happened. Only ever the article's own
     # words -- no generated detail (see generate_caption).
     summary_text = _caption_body_summary(article, limit=_CARD_SUMMARY_CHARS)
-    summary_lines = _wrap_text(draw, summary_text, font_body, max_line_w)[:4] if summary_text else []
-    lay = _card_layout(len(headline_lines), len(summary_lines), H)
+    summary_lines = _wrap_text(draw, summary_text, font_body, max_line_w) if summary_text else []
+    # Every y on the card comes from here, including the eyebrow. The eyebrow
+    # used to be drawn at its own inline `bar_h + 0.05H` while the headline took
+    # the centred value, so centring moved the headline down and left the
+    # eyebrow stranded above it -- caught by the review script's top-gap
+    # measurement reporting a constant 5.6% on every card.
+    lay = _card_layout(len(headline_lines), len(summary_lines), H,
+                       line_spacing=int(H * title_scale * 1.20))
 
-    for i, line in enumerate(headline_lines[:5]):
+    # Eyebrow: the SOURCE, not the category. This card exists to send people to a
+    # specific publisher, so the first thing on it is who is reporting it. The
+    # category was a topic label the reader already knows from the feed.
+    draw.text((margin, lay["eyebrow_y"]), source.upper(),
+              fill=LIGHT_ORANGE, font=font_eyebrow)
+
+    for i, line in enumerate(headline_lines[:lay["n_headline"]]):
         draw.text((margin, lay["headline_y"] + i * lay["line_spacing"]),
                   line, fill=WHITE, font=font_title)
 
-    for i, line in enumerate(summary_lines):
+    for i, line in enumerate(summary_lines[:lay["n_summary"]]):
         draw.text((margin, lay["summary_y"] + i * lay["body_line_h"]),
                   line, fill=(255, 255, 255, 205), font=font_body)
 
@@ -594,32 +642,31 @@ def generate_image(article: dict, index: int = 0) -> str:
     div_y = lay["div_y"]
     draw.line([(margin, div_y), (W - margin, div_y)], fill=ORANGE, width=4)
 
-    # "Read the full story" panel — the click-through cue.
+    # "Read the full story" panel — the click-through cue. Bottom-anchored, so it
+    # lands in the same place on every card regardless of headline length.
     panel_y, panel_h = lay["panel_y"], lay["panel_h"]
-    if lay["panel_fits"]:
-        draw.rounded_rectangle(
-            [margin, panel_y, W - margin, panel_y + panel_h],
-            radius=int(H * 0.014), fill=(255, 255, 255, 22),
-            outline=(*_mix(PURPLE, VIOLET, 0.5), 200), width=3,
-        )
-        pad = int(H * 0.018)
-        draw.text((margin + pad, panel_y + pad),
-                  "Read the full story", fill=WHITE, font=font_src)
-        draw.text((margin + pad, panel_y + pad + int(H * 0.036)),
-                  f"at {source}", fill=LIGHT_ORANGE, font=font_cta)
-        # Arrow, so it reads as an affordance rather than a caption.
-        ax = W - margin - pad
-        ay = panel_y + panel_h // 2
-        for dx, dy in ((-int(H * 0.022), -int(H * 0.022)),
-                       (0, 0),
-                       (-int(H * 0.022), int(H * 0.022))):
-            draw.line([(ax, ay), (ax + dx, ay + dy)], fill=PURPLE, width=5)
+    draw.rounded_rectangle(
+        [margin, panel_y, W - margin, panel_y + panel_h],
+        radius=int(H * 0.014), fill=(255, 255, 255, 22),
+        outline=(*_mix(PURPLE, VIOLET, 0.5), 200), width=3,
+    )
+    pad = int(H * 0.018)
+    draw.text((margin + pad, panel_y + pad),
+              "Read the full story", fill=WHITE, font=font_src)
+    draw.text((margin + pad, panel_y + pad + int(H * 0.042)),
+              f"at {source}", fill=LIGHT_ORANGE, font=font_cta)
+    # Arrow, so it reads as an affordance rather than a caption.
+    ax = W - margin - pad
+    ay = panel_y + panel_h // 2
+    for dx, dy in ((-int(H * 0.022), -int(H * 0.022)),
+                   (0, 0),
+                   (-int(H * 0.022), int(H * 0.022))):
+        draw.line([(ax, ay), (ax + dx, ay + dy)], fill=PURPLE, width=5)
 
     # The URL itself, small, for anyone reading the image.
     if link:
         host = link.split("//", 1)[-1].split("/", 1)[0].removeprefix("www.")
-        url_y = H - int(H * 0.038)
-        draw.text((margin, url_y), host, fill=(255, 255, 255, 150), font=font_url)
+        draw.text((margin, lay["url_y"]), host, fill=(255, 255, 255, 150), font=font_url)
 
     out_path = str(_TEMP_DIR / f"viral_post_{int(time.time())}_{index}.png")
     img.save(out_path, "PNG", optimize=True)
@@ -627,7 +674,37 @@ def generate_image(article: dict, index: int = 0) -> str:
     return out_path
 
 
-def _card_layout(n_headline: int, n_summary: int, H: int) -> dict:
+def _title_scale_for(draw, title: str, H: int, W: int, margin: int) -> float:
+    """Largest title scale whose wrap still fits `_CARD_MAX_HEADLINE_LINES`.
+
+    This exists because raising the title scale made a locked invariant fail for
+    real: at 0.075 a 149-character headline wraps to 6 lines, so the 5-line cap
+    dropped its tail -- the card was showing a headline the publisher did not
+    write in that form. The 0.058 scale this replaced happened to fit that title
+    in 5 lines, which is exactly why the defect was invisible until the type got
+    bigger.
+
+    A headline is a publisher's own words, so a title that will not fit is made
+    smaller rather than cut. Below `_CARD_TITLE_MIN_SCALE` we stop shrinking and
+    accept the cap, because a 5-line card is a worse outcome than a 6-line one
+    with the last line dropped.
+    """
+    max_w = W - margin * 2
+    scale = _CARD_SCALE["title"]
+    while True:
+        try:
+            f = ImageFont.truetype(_SERIF_FONT_PATH, max(1, int(H * scale)))
+        except Exception:
+            return scale
+        if len(_wrap_text(draw, title, f, max_w)) <= _CARD_MAX_HEADLINE_LINES:
+            return scale
+        if scale <= _CARD_TITLE_MIN_SCALE:
+            return _CARD_TITLE_MIN_SCALE
+        scale = round(scale - 0.005, 4)
+
+
+def _card_layout(n_headline: int, n_summary: int, H: int,
+                 line_spacing: int | None = None) -> dict:
     """Y positions for the card's blocks, given how many lines each wrapped to.
 
     Extracted from the drawing code because the ordering (headline, then summary,
@@ -637,36 +714,77 @@ def _card_layout(n_headline: int, n_summary: int, H: int) -> dict:
     reports the divider, not the summary -- a fixed-y summary and a correct one
     produced identical diffs (measured, not assumed).
 
-    Returns a dict of y positions. Pure arithmetic on ints, so it is testable
-    without PIL, fonts, or a real image.
+    The panel and the URL are BOTTOM-ANCHORED. They used to float at
+    `div_y + pad`, which meant the card's dead space was whatever the headline
+    happened to leave: 39% of a 1080px card on a 2-line headline, 21% on a
+    4-line one (measured across real article shapes). Anchoring them to fixed
+    offsets from the bottom edge means a 2-line and a 5-line headline both fill
+    the frame, and the click-through cue sits in the same place on every card.
+
+    Overlap is impossible by construction, not by clamp: the summary is allowed
+    only as many lines as physically fit between the headline and the divider,
+    and the headline likewise. A longer input draws fewer lines; it never draws
+    on top of the panel. That replaced `panel_fits`, which became vacuous once
+    the panel stopped moving (a test that cannot fail is worse than no test --
+    the same lesson as the dead duplicate-query test in test_stock_query_order).
+
+    Returns a dict of y positions plus the line counts that are actually safe to
+    draw. Pure arithmetic on ints, so it is testable without PIL or fonts.
     """
     bar_h = int(H * 0.035)
-    line_spacing = int(H * 0.072)
-    body_line_h = int(H * 0.038)
+    if line_spacing is None:
+        line_spacing = int(H * _CARD_SCALE["line"])
+    body_line_h = int(H * _CARD_SCALE["body_line"])
 
-    headline_y = bar_h + int(H * 0.050) + int(H * 0.062)
-    headline_h = min(n_headline, 5) * line_spacing
-    summary_y = headline_y + headline_h + int(H * 0.030)
-    # The 4-line cap lives HERE, not only at the call site, so the no-overlap
-    # invariant below holds for any input. With the cap at the call site alone the
-    # divider clamp silently covered an overlap if a longer summary ever arrived.
-    summary_h = min(n_summary, 4) * body_line_h
-    div_y = min(summary_y + summary_h + (int(H * 0.028) if n_summary else 0),
-                H - int(H * 0.30))
-    panel_y = div_y + int(H * 0.045)
+    # Bottom-anchored blocks, fixed for every card.
     panel_h = int(H * 0.105)
+    panel_y = H - int(H * 0.075) - panel_h
+    url_y = H - int(H * 0.038)
+
+    eyebrow_y = bar_h + int(H * 0.050)
+    headline_y = eyebrow_y + int(H * 0.062)
+
+    gap = int(H * 0.030)
+    # The divider is the ceiling for the summary, and the panel is the ceiling
+    # for the divider.
+    div_max = panel_y - int(H * 0.045)
+
+    n_headline = max(0, min(n_headline, _CARD_MAX_HEADLINE_LINES))
+    n_summary = max(0, min(n_summary, _CARD_MAX_SUMMARY_LINES))
+    # The headline is a locked rule, so it is never cut -- if it genuinely cannot
+    # fit, the summary is what gives way, and below that the summary goes away
+    # entirely rather than overlapping.
+    n_headline = min(n_headline, max(0, (div_max - headline_y) // line_spacing))
+    summary_y = headline_y + n_headline * line_spacing + gap
+    room = div_max - summary_y - int(H * 0.028)
+    n_summary = min(n_summary, max(0, room // body_line_h))
+
+    summary_h = n_summary * body_line_h
+    div_y = summary_y + summary_h + (int(H * 0.028) if n_summary else 0)
+
+    # Centre the text block in the slack above the panel. Bottom-anchoring alone
+    # fixed the panel but left a hole on a short card: a 2-line headline with a
+    # 1-line summary still measured 36% dead. Splitting the slack above and below
+    # the block turns that hole into balanced padding. The panel stays put -- it
+    # is the constant, the text is the variable.
+    shift = max(0, div_max - div_y) // 2
+    eyebrow_y += shift
+    headline_y += shift
+    summary_y += shift
+    div_y += shift
+
     return {
+        "eyebrow_y": eyebrow_y,
         "headline_y": headline_y,
         "line_spacing": line_spacing,
+        "n_headline": n_headline,
         "summary_y": summary_y,
         "body_line_h": body_line_h,
+        "n_summary": n_summary,
         "div_y": div_y,
         "panel_y": panel_y,
         "panel_h": panel_h,
-        # Does the click-through panel still fit on the card? This is the
-        # invariant the whole layout exists to protect: a summary that crowds
-        # out the panel costs the tap the card was built for.
-        "panel_fits": panel_y + panel_h < H - int(H * 0.06),
+        "url_y": url_y,
     }
 
 

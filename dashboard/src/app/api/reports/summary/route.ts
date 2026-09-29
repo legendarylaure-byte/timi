@@ -40,12 +40,19 @@ export async function GET(request: Request) {
     const thirtyDaysAgo = new Date(now.getTime() - 30 * 86400000);
     const sixtyDaysAgo = new Date(now.getTime() - 60 * 86400000);
 
-    const [videosSnap, channelSnap, revenueSnap, insightsSnap, metricsSnap] = await Promise.all([
+    // P6: channel_analytics_daily already carries the ONLY real retention
+    // signal for this channel -- per-video AVD returns no rows (no Brand
+    // Account, and dimensions=video is rejected), so channel/day average
+    // view duration is what we have. It was being written every analytics pull
+    // and never read by anything, which is the same dead-pipe shape as the
+    // inert SEO scorer: real data, no consumer.
+    const [videosSnap, channelSnap, revenueSnap, insightsSnap, metricsSnap, dailySnap] = await Promise.all([
       db.collection('videos').orderBy('created_at', 'desc').limit(200).get(),
       db.collection('system').doc('channel_stats').get(),
       db.collection('monetization').doc('revenue').get(),
       db.collection('analytics').doc('insights').get(),
       db.collection('pipeline_metrics').orderBy('created_at', 'desc').limit(100).get(),
+      db.collection('system').doc('channel_analytics_daily').get(),
     ]);
 
     const today = new Date();
@@ -153,6 +160,18 @@ export async function GET(request: Request) {
     }
     const pipelineSuccessRate = totalPipelineRuns > 0 ? Math.round((successCount / totalPipelineRuns) * 100) : 0;
 
+    // Channel/day AVD, averaged over the 7 days that actually have views.
+    // Unweighted-per-day vs views-weighted matters: a simple mean over 7 days
+    // treats a 0-view day the same as a 200-view day, so weight by views and
+    // report the window we used alongside it.
+    const dailyData = dailySnap.exists ? (dailySnap.data()?.daily as any[]) || [] : [];
+    const recentDaily = dailyData.filter((d) => d && d.views > 0).slice(-7);
+    const weightedViews = recentDaily.reduce((a, d) => a + (d.views || 0), 0);
+    const avgViewDuration = weightedViews > 0
+      ? Math.round(recentDaily.reduce((a, d) => a + (d.avg_view_duration_seconds || 0) * (d.views || 0), 0) / weightedViews)
+      : 0;
+    const avdFrom = recentDaily.length ? recentDaily[0].date : null;
+
     return NextResponse.json({
       totalVideos,
       publishedVideos,
@@ -176,6 +195,11 @@ export async function GET(request: Request) {
       },
       todayCount: { shorts: todayShorts, long: todayLong },
       formatBreakdown: { shorts, long: longs },
+      // Seconds. 0 means "not measured", NOT "nobody watched" -- per-video AVD
+      // returns no rows for this channel, so this is the real retention signal.
+      avgViewDurationSeconds: avgViewDuration,
+      avgViewDurationFrom: avdFrom,
+      ctrAvailable: dailySnap.exists ? (dailySnap.data()?.ctr_available ?? false) : false,
     });
   } catch (error: any) {
     console.error('[REPORTS SUMMARY] Error:', error);

@@ -9,6 +9,7 @@ import os
 import re
 
 import pytest
+from PIL import ImageFont
 
 from utils import viral_news_agent as vna
 
@@ -194,9 +195,11 @@ def test_drawn_divider_matches_the_layout_prediction(tmp_path, monkeypatch):
     of the function alone cannot see that. So: find the orange divider in the
     rendered pixels and require it to sit exactly where the layout said.
 
-    Measured on the host render: predicted 337, drawn at rows 336-339 (the rule
-    is 4px tall). The real container font wraps the same title differently, so the
-    prediction is recomputed from the font actually in use rather than hardcoded.
+    The rule is 4px tall, so the drawn rows are a small band around the
+    prediction. The real container font wraps the same title differently from the
+    host's, so the prediction is recomputed from the font actually in use --
+    including the fitted headline scale, since the renderer shrinks a long title
+    rather than cutting it.
     """
     from PIL import Image, ImageDraw, ImageFont
     from utils.brand_palette import ORANGE
@@ -216,20 +219,24 @@ def test_drawn_divider_matches_the_layout_prediction(tmp_path, monkeypatch):
         except Exception:
             return ImageFont.load_default()
 
-    font = _load(vna._SERIF_FONT_PATH, int(size * 0.058))
-    font_body = _load(vna._FONT_PATH, int(size * 0.026))
-
+    # The type scale is read from the module, never restated here. This test
+    # hardcoded 0.058/0.026 once and silently kept predicting a pre-redesign
+    # divider after the scale moved -- the same duplicate-source bug as the
+    # _FONT_PATH/_SERIF_FONT_PATH mixup below, one level up.
     margin = int(size * 0.075)
     max_w = size - margin * 2
-    # The 5-line cap must be applied HERE too. The container's real font wraps
-    # this title to 6 lines, the renderer caps at 5, and without the cap the
-    # prediction lands exactly one line_spacing (78px) below the real divider --
-    # which is what the host-only run could not see.
-    n_headline = min(len(vna._wrap_text(probe, article["title"], font, max_w)), 5)
+    # The renderer fits the headline scale down rather than cutting a long
+    # title, so the prediction has to fit it the same way.
+    scale = vna._title_scale_for(probe, article["title"], size, size, margin)
+    font = _load(vna._SERIF_FONT_PATH, int(size * scale))
+    font_body = _load(vna._FONT_PATH, int(size * vna._CARD_SCALE["body"]))
+
+    n_headline = len(vna._wrap_text(probe, article["title"], font, max_w))
     n_summary = len(vna._wrap_text(
         probe, vna._caption_body_summary(article, limit=vna._CARD_SUMMARY_CHARS),
         font_body, max_w))
-    predicted = vna._card_layout(n_headline, n_summary, size)["div_y"]
+    predicted = vna._card_layout(n_headline, n_summary, size,
+                                 line_spacing=int(size * scale * 1.20))["div_y"]
 
     monkeypatch.setattr(vna, "_TEMP_DIR", tmp_path)
     monkeypatch.setattr(vna, "_IMAGE_WIDTH", size)
@@ -250,28 +257,127 @@ def test_drawn_divider_matches_the_layout_prediction(tmp_path, monkeypatch):
     )
 
 
-def test_card_summary_budget_is_what_actually_bounds_the_text(tmp_path, monkeypatch):
-    """The 140-char budget is the real constraint on the card, not the 4-line cap.
+def test_summary_line_clamp_binds_before_the_character_budget(tmp_path, monkeypatch):
+    """The 5-line clamp, not the char budget, is what bounds the summary.
 
-    Measured, not assumed: at 1080x1080 with the body font, 140 characters wrap to
-    3 lines. So the `[:4]` slice in generate_image and `min(n_summary, 4)` in the
-    layout are unreachable belt-and-braces -- and untestable, since I removed both
-    and the suite stayed green. The binding limit is the character budget, so that
-    is what gets tested: a body longer than the budget must render identically to
-    the budget-truncated body.
+    This replaces a test that had become unable to fail. It compared an
+    over-budget body against a body trimmed to `_CARD_SUMMARY_CHARS` and
+    demanded identical pixels, on the theory that the char budget was the binding
+    limit. That was true at 140 chars and a 0.026 body (140 wrapped to 3 lines,
+    under the old 4-line cap). At the new scale 230 chars wraps to 7 lines, so
+    BOTH sides now clamp to 5 and the test would pass with the char budget
+    deleted -- a green test reading as coverage while proving nothing. So the
+    invariant is stated directly instead: the clamp is load-bearing, and the
+    budget is a real but looser ceiling.
     """
-    from PIL import ImageChops
-    long_body = ("laboratory research quantum computing superconducting qubits "
-                 "calibration dilution " * 20)
-    over = _article(body=long_body)
-    at_budget = _article(body=vna._trim_to(long_body, vna._CARD_SUMMARY_CHARS))
-    assert len(long_body) > vna._CARD_SUMMARY_CHARS, "the body must exceed the budget"
-    a = _render(monkeypatch, tmp_path, over, index=0)
-    b = _render(monkeypatch, tmp_path, at_budget, index=1)
-    assert ImageChops.difference(a, b).getbbox() is None, (
-        "an over-budget body renders differently from the truncated one -- the "
-        f"{vna._CARD_SUMMARY_CHARS}-char budget is not being applied"
+    H = 1080
+    # Words chosen so the 200-char budget lands on 6 lines, one past the cap.
+    # Line COUNT is set by word length, not character count, so a fixture can
+    # sit inside the budget and still not exercise the clamp. Both earlier
+    # fixtures did exactly that -- the post-retune one trimmed to 194 chars and
+    # wrapped to precisely 5, making this test pass without testing anything.
+    # The precondition assert below is what caught it and is why it stays.
+    long_body = "superconducting quantum dilution " * 20
+    # 1. The budget really is reached past the clamp, or the test is vacuous.
+    from PIL import Image, ImageDraw
+    img = Image.new("RGB", (vna._IMAGE_WIDTH, H))
+    d = ImageDraw.Draw(img, "RGBA")
+    body_font = ImageFont.truetype(vna._FONT_PATH, int(H * vna._CARD_SCALE["body"]))
+    margin = int(vna._IMAGE_WIDTH * 0.075)
+    wrapped = vna._wrap_text(
+        d, vna._trim_to(long_body, vna._CARD_SUMMARY_CHARS), body_font,
+        vna._IMAGE_WIDTH - margin * 2)
+    assert len(wrapped) > vna._CARD_MAX_SUMMARY_LINES, (
+        f"the budget now wraps to {len(wrapped)} lines, which no longer exceeds "
+        f"the {vna._CARD_MAX_SUMMARY_LINES}-line clamp -- this test is vacuous and "
+        "the char budget needs re-measuring"
     )
+    # 2. The clamp is what stops it: exactly the cap is drawn, never more.
+    for n_summary in range(0, 14):
+        lay = vna._card_layout(3, n_summary, H)
+        assert lay["n_summary"] <= vna._CARD_MAX_SUMMARY_LINES, (
+            f"n_summary={n_summary} -> {lay['n_summary']} lines drawn, cap is "
+            f"{vna._CARD_MAX_SUMMARY_LINES}"
+        )
+    # 3. And the rendered card really only has that many summary lines: the
+    #    divider sits exactly one gap below the last drawn one.
+    lay = vna._card_layout(3, vna._CARD_MAX_SUMMARY_LINES, H)
+    assert lay["div_y"] == lay["summary_y"] + vna._CARD_MAX_SUMMARY_LINES * lay["body_line_h"] \
+        + int(H * 0.028), "the divider is not placed below exactly the drawn lines"
+
+
+def test_panel_and_url_are_bottom_anchored():
+    """The layout fix: the panel and URL hold fixed offsets from the bottom edge.
+
+    They used to float at `div_y + pad`, which is what left 21-39% of the card
+    empty (measured across real article shapes). Anchoring is the whole point of
+    the redesign, and it is trivially assertable without rendering: panel_y and
+    url_y must not vary with content length.
+    """
+    H = 1080
+    for n_headline in range(0, 8):
+        for n_summary in range(0, 10):
+            lay = vna._card_layout(n_headline=n_headline, n_summary=n_summary, H=H)
+            where = f"{n_headline} headline / {n_summary} summary"
+            assert lay["panel_y"] == H - int(H * 0.075) - int(H * 0.105), \
+                f"{where}: panel_y {lay['panel_y']} is not the bottom-anchored value"
+            assert lay["url_y"] == H - int(H * 0.038), \
+                f"{where}: url_y {lay['url_y']} is not the bottom-anchored value"
+
+
+def test_text_block_is_centred_above_the_panel():
+    """A short card must read as balanced padding, not as a hole.
+
+    Bottom-anchoring alone moved the hole rather than removing it: a 2-line
+    headline with a 1-line summary still measured 20% of empty card, all of it
+    between the divider and the panel. The layout centres the block in that
+    slack, so the two empty bands end up within a line of each other.
+    """
+    H = 1080
+    for n_headline in range(1, 6):
+        for n_summary in range(0, 8):
+            lay = vna._card_layout(n_headline=n_headline, n_summary=n_summary, H=H)
+            # Slack above the block (from below the gradient strip) and below it
+            # (down to the panel top) should be within ~1.5 body lines of equal.
+            top = lay["eyebrow_y"] - int(H * 0.035)
+            bottom = lay["panel_y"] - lay["div_y"]
+            assert abs(top - bottom) <= int(1.5 * lay["body_line_h"]), (
+                f"{n_headline}H/{n_summary}S: top gap {top} vs bottom gap {bottom} "
+                "is not centred"
+            )
+
+
+def test_a_five_line_headline_does_not_eat_the_click_through_panel():
+    """The invariant the layout exists for: the panel is the tap the card buys.
+
+    Asserting the returned `panel_fits` flag was a tautology -- I measured it: it
+    is True for every input, because the divider clamp reserves 0.30H and the
+    panel only needs 0.21H, so the flag was a dead branch. Two negative tests
+    confirmed it (lowering the reserve, and hardcoding the flag True, both stayed
+    green). The flag is gone now that the panel does not move, and the geometry
+    it stood for is asserted directly: overlap is impossible because the layout
+    caps how many lines may be drawn rather than clamping a y.
+    """
+    H = 1080
+    for n_headline in range(1, 6):
+        for n_summary in range(0, 13):
+            lay = vna._card_layout(n_headline=n_headline, n_summary=n_summary, H=H)
+            where = f"{n_headline}-line headline + {n_summary}-line summary"
+            # The panel, the thing that earns the tap, is fully on the card.
+            assert lay["panel_y"] + lay["panel_h"] < H - int(H * 0.06), \
+                f"{where}: panel falls off the card"
+            # Order: headline, then summary, then divider, then panel. Asserted
+            # against the lines the layout says it will DRAW, which is the point:
+            # an input asking for 12 lines must not push the divider down.
+            drawn_h = lay["n_headline"] * lay["line_spacing"]
+            drawn_s = lay["n_summary"] * lay["body_line_h"]
+            assert lay["headline_y"] + drawn_h <= lay["summary_y"] + 1, \
+                f"{where}: headline overruns the summary"
+            assert lay["div_y"] >= lay["summary_y"] + drawn_s, \
+                f"{where}: divider cuts through the drawn summary"
+            assert lay["panel_y"] > lay["div_y"], f"{where}: panel overlaps the divider"
+            assert lay["url_y"] > lay["panel_y"] + lay["panel_h"], \
+                f"{where}: URL overlaps the panel"
 
 
 def test_summary_position_tracks_headline_length():
@@ -294,32 +400,6 @@ def test_summary_position_tracks_headline_length():
         f"a 9-line headline moved the summary to {capped}, expected the 5-line cap "
         f"to hold it at {short[-1]}"
     )
-
-
-def test_a_five_line_headline_does_not_eat_the_click_through_panel():
-    """The invariant the layout exists for: the panel is the tap the card buys.
-
-    Asserting the returned `panel_fits` flag is a tautology -- I measured it: it is
-    True for every input, because the divider clamp reserves 0.30H and the panel
-    only needs 0.21H, so the flag is a dead branch. Two negative tests confirmed it
-    (lowering the reserve, and hardcoding the flag True, both stayed green). So
-    assert the GEOMETRY the flag is supposed to stand for, and let the clamp be
-    what earns it.
-    """
-    H = 1080
-    for n_headline in range(1, 6):
-        for n_summary in range(0, 13):
-            lay = vna._card_layout(n_headline=n_headline, n_summary=n_summary, H=H)
-            where = f"{n_headline}-line headline + {n_summary}-line summary"
-            # The panel, the thing that earns the tap, is fully on the card.
-            assert lay["panel_y"] + lay["panel_h"] < H - int(H * 0.06), \
-                f"{where}: panel falls off the card"
-            # Order: headline, then summary, then divider, then panel.
-            # With no summary the divider legitimately lands where the summary
-            # would have started, so this is >=, not >.
-            assert lay["div_y"] >= lay["summary_y"] + lay["body_line_h"] * min(n_summary, 4), \
-                f"{where}: divider cuts through the summary"
-            assert lay["panel_y"] > lay["div_y"], f"{where}: panel overlaps the divider"
 
 
 def test_long_headline_still_renders_and_keeps_its_panel(tmp_path, monkeypatch):

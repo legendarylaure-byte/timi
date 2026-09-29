@@ -37,7 +37,11 @@ from utils.subtitle_gen import generate_subtitles_for_video
 from utils.translate import translate_script, register_dub_cleanup as register_dub_cleanup_func
 from utils.comment_analyzer import analyze_sentiment, flag_negative_comments
 from utils.pillar_manager import track_pillar_video, suggest_next_pillar, validate_plan_balance
-from utils.seo_optimizer import get_optimized_tags, score_description_seo
+from utils.seo_optimizer import (
+    get_optimized_tags,
+    score_description_seo,
+    suggest_seo_improvements,
+)
 from utils.alert_manager import process_alerts, send_alert
 from utils.viral_news_agent import run_viral_check, run_scheduled_post
 from utils.viral_news_agent import VIRAL_CHECK_INTERVAL, VIRAL_SCHEDULE_TIMES
@@ -843,6 +847,114 @@ def _pick_best_title(variants, topic: str, category: str = "", fmt: str = "") ->
     return best
 
 
+
+
+# Assemble a description for publishing: body, then the affiliate section, then
+# sanitize. This is a function rather than inline code at each call site because
+# the SEO retry produces a SECOND description that must go through exactly the
+# same steps. When the retry was inlined it silently skipped both, so a winning
+# retry dropped the FTC affiliate disclosure and shipped unsanitized text --
+# which is what YouTube rejects with 400 invalidDescription (D20).
+def _assemble_description(desc_result: dict, script_text: str, category: str) -> dict:
+    from utils.platform_captions import sanitize_description
+    full_desc = desc_result.get("full_description", "") or ""
+    affiliate_text = build_affiliate_section(script_text, category)
+    if affiliate_text and affiliate_text not in full_desc:
+        full_desc += affiliate_text
+    desc_result["full_description"] = sanitize_description(full_desc)
+    return desc_result
+
+
+# P6: one bounded SEO retry. score_description_seo() has always been a dead log
+# line -- it reported "missing: hashtags" on essentially every video and nothing
+# acted on it. This turns the finding into a single second attempt whose prompt
+# is told exactly what failed, and it never replaces a good description with a
+# worse one: the retry only wins if it scores strictly higher.
+#
+# Bounded to ONE retry on purpose. Two LLM calls per video is already a real
+# cost, and a description that still misses a check after a second attempt is
+# not a publishing blocker -- the description is not the video.
+def _seo_polish_description(desc_result: dict, script_text: str, category: str,
+                            format_type: str, title: str, topic: str,
+                            scenes: list = None) -> tuple[dict, dict]:
+    """Returns (desc_result, seo_score). Never raises."""
+    seo_score = {}
+    try:
+        seo_score = score_description_seo(desc_result.get("full_description", ""))
+    except Exception as e:
+        log_event("SEO", f"Scorer failed, keeping description as-is: {e}", "debug")
+        seo_score = {}
+
+    missing = seo_score.get("missing") or []
+    if not missing:
+        return desc_result, seo_score
+
+    log_event("SEO", f"Description missing {', '.join(missing)} - one retry with feedback")
+    fixes = list(missing) + suggest_seo_improvements(category, format_type)
+    try:
+        retry = generate_description(
+            title=title,
+            script=script_text,
+            category=category,
+            format_type=format_type,
+            scenes=scenes,
+            channel_name="Vyom Ai Cloud",
+            seo_fixes=fixes,
+        )
+    except Exception as e:
+        log_event("SEO", f"SEO retry failed, keeping original: {e}", "warn")
+        return desc_result, seo_score
+
+    # A winning retry replaces the whole description, so it must be assembled the
+    # same way the first one was -- affiliate section appended, then sanitized.
+    retry = _assemble_description(retry, script_text, category)
+    candidate = retry.get("full_description", "")
+    try:
+        retry_score = score_description_seo(candidate)
+    except Exception:
+        retry_score = {"score": -1, "missing": ["unscorable"]}
+
+    if retry_score.get("score", -1) > seo_score.get("score", 0):
+        log_event("SEO", f"Retry improved {seo_score.get('score')} -> {retry_score.get('score')}")
+        retry["tags"] = get_optimized_tags(category, format_type, title)
+        retry_score["retried"] = True
+        return retry, retry_score
+
+    # Strictly worse or equal: keep what we already had. An equal-scoring retry
+    # costs a second LLM call for no gain, and this is the common case, because
+    # the scorer checks structure that the retry prompt already asked for.
+    log_event("SEO", f"Retry scored {retry_score.get('score')}, not better than {seo_score.get('score')} - keeping original")
+    return desc_result, seo_score
+
+
+# P6: persist the description, its tags, and the SEO score.
+#
+# Why this exists: description and tags lived only in the finished process's
+# memory, and only `title` was ever written to Firestore. So after a publish
+# there was no way to answer the only question that matters for this lever --
+# "did the description we shipped actually get clicks?" A title/description pair
+# cannot be A/B'd or diagnosed after the fact if half of it was never stored.
+#
+# `description_first_150` is the field that matters. YouTube shows exactly the
+# first ~150 characters above "Show more", so that slice is what a search
+# visitor reads, and it is the thing to compare against impressions/CTR later.
+def _persist_seo_metadata(video_id: str, title: str, desc_result: dict,
+                          seo_score: dict, category: str, fmt: str) -> None:
+    description = desc_result.get("full_description", "") or ""
+    tags = desc_result.get("tags") or []
+    try:
+        update_video_record(video_id, {
+            "title": title,
+            "description": description,
+            "description_first_150": description[:150],
+            "tags": list(tags),
+            "seo_score": int(seo_score.get("score", 0) or 0),
+            "seo_missing": list(seo_score.get("missing") or []),
+            "seo_retried": bool(seo_score.get("retried")),
+        })
+    except Exception as e:
+        # Metadata only. A failed write must never cost us the video.
+        log_event("SEO", f"Could not persist description/tags: {e}", "warn")
 
 
 def run_agent_step(agent_id: str, agent_name: str, action: str, crew_factory, inputs: dict, max_retries: int = None, timeout_minutes: int = 15):
@@ -1766,30 +1878,11 @@ def generate_short_video(topic: str, category: str, video_id: str, publish_at: s
         else:
             log_event("THUMBNAIL", f"Generated {thumb_result['count']} thumbnail variants, selected: {thumbnail_path}")
 
-        failed_step = "description"
-        desc_result = generate_description(
-            title=topic,
-            script=script_text,
-            category=category,
-            format_type="shorts",
-            channel_name="Vyom Ai Cloud",
-        )
-        affiliate_text = build_affiliate_section(script_text, category)
-        full_desc = desc_result.get("full_description", "")
-        if affiliate_text and affiliate_text not in full_desc:
-            full_desc += affiliate_text
-        from utils.platform_captions import sanitize_description
-        full_desc = sanitize_description(full_desc)
-        desc_result["full_description"] = full_desc
-        try:
-            seo_tags = get_optimized_tags(category, "shorts", topic)
-            seo_score = score_description_seo(full_desc)
-            if seo_score["missing"]:
-                log_event("SEO", f"Description missing: {', '.join(seo_score['missing'])}")
-            desc_result["tags"] = seo_tags
-        except Exception:
-            pass
-
+        # P6: the title is chosen BEFORE the description is written. This used to
+        # run the other way round -- the description was written for the raw topic
+        # and only then was the title replaced. YouTube shows the description's
+        # first ~150 chars above "Show more", so the visible hook could contradict
+        # the title the video actually published under.
         failed_step = "title_optimization"
         title_variants = []
         try:
@@ -1805,6 +1898,31 @@ def generate_short_video(topic: str, category: str, video_id: str, publish_at: s
                 log_event("TITLE", f"Fallback title generated: '{title_variants[0]}'")
             except Exception as fallback_err:
                 log_event("TITLE", f"Fallback title gen failed: {fallback_err}", "debug")
+        best_title = _pick_best_title(title_variants, topic, category, "short")
+
+        failed_step = "description"
+        desc_result = generate_description(
+            title=best_title,
+            script=script_text,
+            category=category,
+            format_type="shorts",
+            channel_name="Vyom Ai Cloud",
+        )
+        desc_result = _assemble_description(desc_result, script_text, category)
+        # P6: score it, and if something is actually missing, try once more with
+        # the finding fed back. The old block wrapped all of this in
+        # `except Exception: pass`, so a scorer crash and a "nothing to fix" both
+        # looked identical to the log -- silence was the only signal.
+        desc_result, seo_score = _seo_polish_description(
+            desc_result, script_text, category, "shorts", best_title, topic)
+        full_desc = desc_result.get("full_description", full_desc)
+        try:
+            desc_result["tags"] = get_optimized_tags(category, "shorts", best_title)
+        except Exception as e:
+            log_event("SEO", f"Tag generation failed: {e}", "warn")
+            desc_result.setdefault("tags", [])
+        _persist_seo_metadata(video_id, best_title, desc_result, seo_score, category, "shorts")
+
 
         failed_step = "thumbnail_video_frame"
         if video_result.get("video_path") and thumbnail_path:
@@ -1827,7 +1945,6 @@ def generate_short_video(topic: str, category: str, video_id: str, publish_at: s
         failed_step = "publishing"
         with _track_step(video_id, "publishing"):
             platforms_to_publish = _platforms_to_publish()
-            best_title = _pick_best_title(title_variants, topic, category, "short")
             publish_result = multi_platform_publish(
                 video_id=video_id,
                 title=best_title,
@@ -2393,31 +2510,11 @@ def generate_long_video(topic: str, category: str, video_id: str, publish_at: st
         else:
             log_event("THUMBNAIL", f"Generated {thumb_result['count']} thumbnail variants, selected: {thumbnail_path}")
 
-        failed_step = "description"
-        desc_result = generate_description(
-            title=topic,
-            script=script_text,
-            category=category,
-            format_type="long",
-            scenes=parse_scenes_from_storyboard(str(storyboard), "long"),
-            channel_name="Vyom Ai Cloud",
-        )
-        affiliate_text = build_affiliate_section(script_text, category)
-        full_desc = desc_result.get("full_description", "")
-        if affiliate_text and affiliate_text not in full_desc:
-            full_desc += affiliate_text
-        from utils.platform_captions import sanitize_description
-        full_desc = sanitize_description(full_desc)
-        desc_result["full_description"] = full_desc
-        try:
-            seo_tags = get_optimized_tags(category, "long", topic)
-            seo_score = score_description_seo(full_desc)
-            if seo_score["missing"]:
-                log_event("SEO", f"Description missing: {', '.join(seo_score['missing'])}")
-            desc_result["tags"] = seo_tags
-        except Exception:
-            pass
-
+        # P6: the title is chosen BEFORE the description is written. This used to
+        # run the other way round -- the description was written for the raw topic
+        # and only then was the title replaced. YouTube shows the description's
+        # first ~150 chars above "Show more", so the visible hook could contradict
+        # the title the video actually published under.
         failed_step = "title_optimization"
         title_variants = []
         try:
@@ -2433,6 +2530,33 @@ def generate_long_video(topic: str, category: str, video_id: str, publish_at: st
                 log_event("TITLE", f"Fallback title generated: '{title_variants[0]}'")
             except Exception as fallback_err:
                 log_event("TITLE", f"Fallback title gen failed: {fallback_err}", "debug")
+        best_title = _pick_best_title(title_variants, topic, category, "long")
+
+        failed_step = "description"
+        desc_result = generate_description(
+            title=best_title,
+            script=script_text,
+            category=category,
+            format_type="long",
+            scenes=parse_scenes_from_storyboard(str(storyboard), "long"),
+            channel_name="Vyom Ai Cloud",
+        )
+        desc_result = _assemble_description(desc_result, script_text, category)
+        # P6: score it, and if something is actually missing, try once more with
+        # the finding fed back. The old block wrapped all of this in
+        # `except Exception: pass`, so a scorer crash and a "nothing to fix" both
+        # looked identical to the log -- silence was the only signal.
+        desc_result, seo_score = _seo_polish_description(
+            desc_result, script_text, category, "long", best_title, topic,
+            scenes=parse_scenes_from_storyboard(str(storyboard), "long"))
+        full_desc = desc_result.get("full_description", full_desc)
+        try:
+            desc_result["tags"] = get_optimized_tags(category, "long", best_title)
+        except Exception as e:
+            log_event("SEO", f"Tag generation failed: {e}", "warn")
+            desc_result.setdefault("tags", [])
+        _persist_seo_metadata(video_id, best_title, desc_result, seo_score, category, "long")
+
 
         failed_step = "thumbnail_video_frame"
         if video_result.get("video_path") and thumbnail_path:
@@ -2455,7 +2579,6 @@ def generate_long_video(topic: str, category: str, video_id: str, publish_at: st
         failed_step = "publishing"
         with _track_step(video_id, "publishing"):
             platforms_to_publish = _platforms_to_publish()
-            best_title = _pick_best_title(title_variants, topic, category, "long")
             publish_result = multi_platform_publish(
                 video_id=video_id,
                 title=best_title,
