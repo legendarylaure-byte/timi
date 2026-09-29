@@ -8,7 +8,7 @@ from pathlib import Path
 from PIL import Image, ImageDraw, ImageFont, ImageFilter
 from utils.subprocess_helper import safe_run, safe_run_bool
 from utils.brand_palette import (
-    LICORICE, PURPLE, VIOLET, PINK, ORANGE, LIGHT_ORANGE, WHITE, ACCENT_RAMP,
+    LICORICE, PURPLE, VIOLET, PINK, ORANGE, LIGHT_ORANGE, WHITE, AMBER, ACCENT_RAMP,
     hex_to_rgb, lerp,
 )
 
@@ -279,6 +279,110 @@ def _measure_image(path: str) -> dict:
     return out
 
 
+def _headline(text: str, max_words: int = 3) -> str:
+    """A thumbnail headline is 3 words. YouTube renders it ~160px wide on mobile."""
+    words = [w for w in re.split(r"\s+", str(text or "").strip()) if w]
+    return " ".join(words[:max_words]).strip(" -:,.!?")
+
+
+def _crop_fill(img: Image.Image, tw: int, th: int) -> Image.Image:
+    """Scale to cover, then centre-crop. No letterbox bars on a thumbnail."""
+    scale = max(tw / img.width, th / img.height)
+    nw, nh = max(tw, int(img.width * scale + 0.5)), max(th, int(img.height * scale + 0.5))
+    img = img.resize((nw, nh), Image.LANCZOS)
+    left, top = (nw - tw) // 2, (nh - th) // 2
+    return img.crop((left, top, left + tw, top + th))
+
+
+def _scrim(img: Image.Image, top_frac: float = 0.34, strength: int = 235) -> Image.Image:
+    """Darken the lower band so light text has a ground to sit on.
+
+    A hard step edge is visible on a photo, so the band is feathered: full
+    strength at the bottom, ramping to 0 at top_frac. Built as an L mask and
+    composited, which is the only way to get per-pixel opacity in PIL.
+    """
+    w, h = img.size
+    mask = Image.new("L", (1, h), 0)
+    px = mask.load()
+    for y in range(h):
+        t = (y / h - top_frac) / max(1e-6, 1 - top_frac)
+        px[0, y] = int(strength * min(1.0, max(0.0, t)) ** 0.7)
+    mask = mask.resize((w, h))
+    return Image.composite(Image.new("RGB", (w, h), hex_to_rgb(LICORICE)), img, mask)
+
+
+def _mobile_legible(path: str, band: tuple = (0.66, 0.94)) -> bool:
+    """Can the headline be read at 160px wide? Measured, not assumed.
+
+    Downscales to the width a mobile feed actually shows, then asks how much of
+    the headline band is *brightly* lit. A band-mean delta is too forgiving --
+    a 1px-tall smudge of white moves a mean plenty, which is how a headline too
+    small to read passed. Counting pixels well above the band's own median is
+    what "there is legible text here" actually means. On the scrim the text is
+    the only bright thing, so this cannot be faked by a busy photo.
+
+    ponytail: 0.5% of the band and median+60 luma. Raise the fraction if real
+    headlines start getting rejected; the gate is a floor, not a quality bar.
+    """
+    try:
+        with Image.open(path) as im:
+            small = im.convert("L").resize((160, max(1, int(160 * im.height / im.width))), Image.BILINEAR)
+            h = small.height
+            crop = small.crop((0, int(h * band[0]), 160, int(h * band[1])))
+            hist = crop.histogram()
+            px = crop.width * crop.height
+            if px <= 0:
+                return False
+            med, acc = 0, 0
+            while acc < px / 2:
+                acc += hist[med]
+                med += 1
+            bright = sum(hist[med + 60:]) if med + 60 < 256 else 0
+            return (bright / px) >= 0.005
+    except Exception:
+        return False
+
+
+def _compose_photo(photo_path: str, title: str, out_path: str,
+                   format_type: str = "long") -> str:
+    """Compose the P5 thumbnail: a real subject, dark scrim, yellow/black type.
+
+    Yellow/black rather than the Concept F purple ground because the ground is
+    now a photograph: AMBER on LICORICE is the palette's own yellow/dark pair
+    and holds up against arbitrary photo content, where a light-purple ground
+    with purple text would not. Returns "" if it fails.
+    """
+    try:
+        target = (1080, 1920) if format_type == "shorts" else (1280, 720)
+        tw, th = target
+        with Image.open(photo_path) as src:
+            img = _crop_fill(src.convert("RGB"), tw, th)
+
+        img = _scrim(img)
+        d = ImageDraw.Draw(img)
+        pad = int(tw * 0.075)
+        y = int(th * 0.70)
+
+        d.rectangle([(pad, y), (pad + int(tw * 0.10), y + max(4, th // 200))],
+                    fill=hex_to_rgb(AMBER))
+        y += int(th * 0.035)
+        font = _find_font(int(th * 0.085), serif=True)
+        for line in _wrap_text(title, font, int(tw * 0.82)):
+            d.text((pad, y), line, font=font, fill=hex_to_rgb(WHITE))
+            y += int(font.size * 1.14)
+
+        d.text((pad, int(th * 0.93)), FOOTER, font=_find_font(int(th * 0.028)),
+               fill=hex_to_rgb(AMBER))
+
+        _ensure_thumbnail_dir()
+        os.makedirs(os.path.dirname(out_path) or ".", exist_ok=True)
+        img.save(out_path, "JPEG", quality=92, optimize=True)
+        return out_path if os.path.exists(out_path) and os.path.getsize(out_path) > 2000 else ""
+    except Exception as e:
+        print(f"[THUMBNAIL] photo compose failed: {e}")
+        return ""
+
+
 def _score_thumbnail(variant: dict) -> float:
     """Score a thumbnail on measured properties. Higher is better."""
     m = variant.get("measured") or {}
@@ -423,28 +527,78 @@ def fit_under_2mb(path: str, limit: int = 2 * 1024 * 1024 - 4096) -> str:
     return path
 
 
-def generate_thumbnail_variants(topic: str, thumbnail_text: str, format_type: str = "shorts") -> dict:
-    """Compose the locked Concept F card.
+def _thumbnail_prompt(topic: str, headline: str) -> str:
+    """A person, mid-gesture, looking at the camera. Not a diagram, not a render.
 
-    Concept F is a flat palette ground, so an image model has nothing to add: the
-    old 3-photo Pollinations round and the measured/scored candidate list are gone
-    rather than left generating images that _compose_thumbnail then discards. One
-    deterministic card per video. The `variants` key stays non-empty because
-    main.py falls back to variants[0].
+    D39: the video body is stock footage and the thumbnail is the only surface
+    that still shows a generated image, so it has to look like a person made it.
+    The old prompts were object/abstract ("quantum", "circuit") and came back as
+    renderings -- the exact look P1 removed from the video.
+    """
+    return (
+        f"Cinematic portrait photograph of an expressive person mid-gesture, "
+        f"looking at the camera, one hand raised as if explaining a big idea. "
+        f"Topic: {topic}. Headline: {headline}. "
+        f"Shallow depth of field, dark neutral background, dramatic side light, "
+        f"empty space in the lower third for text. Photorealistic, no text, "
+        f"no graphics, no diagrams."
+    )
+
+
+def generate_thumbnail_variants(topic: str, thumbnail_text: str, format_type: str = "shorts") -> dict:
+    """P5 thumbnail: 3 generated portraits, each legibility-checked at 160px.
+
+    Falls back to the Concept F card when the image round yields nothing
+    usable, because a missing thumbnail is worse than a flat one. The
+    `variants` key stays non-empty for main.py's variants[0] fallback.
     """
     text_overlay = extract_text_overlay(thumbnail_text)
-    overlay = (text_overlay or " ".join(topic.split()[:4])).strip()
+    overlay = _headline(text_overlay or " ".join(topic.split()[:4]))
+    if not overlay:
+        overlay = _headline(topic)
 
     _ensure_thumbnail_dir()
     out = os.path.join(THUMBNAIL_DIR, f"thumb_{format_type}_f.jpg")
-    if not _compose_thumbnail("", overlay, out, format_type=format_type, style="photo"):
-        return {"best": None, "variants": [], "count": 0, "source": "failed"}
+
+    composed, rejected = [], 0
+    try:
+        from utils.image_gen import generate_variants
+        target = (1080, 1920) if format_type == "shorts" else (1280, 720)
+        # seed=0 lets generate_variants derive a stable seed from a sha256 of the
+        # prompt. Never seed this with hash(topic): str hashes are salted per
+        # process, so the same topic would get a different image every restart.
+        photos = generate_variants(
+            _thumbnail_prompt(topic, overlay), THUMBNAIL_DIR, count=3,
+            width=target[0], height=target[1], seed=0,
+        )
+        for i, photo in enumerate(photos):
+            cand = os.path.join(THUMBNAIL_DIR, f"thumb_{format_type}_p{i + 1}.jpg")
+            if not _compose_photo(photo, overlay, cand, format_type=format_type):
+                continue
+            if not _mobile_legible(cand):
+                rejected += 1
+                continue
+            composed.append({"path": cand, "measured": _measure_image(cand)})
+    except Exception as e:
+        print(f"[THUMBNAIL] image round failed, falling back to Concept F: {e}")
+
+    if not composed:
+        if not _compose_thumbnail("", overlay, out, format_type=format_type, style="photo"):
+            return {"best": None, "variants": [], "count": 0, "source": "failed"}
+        return {
+            "best": out, "variants": [out], "count": 1, "source": "concept_f",
+            "measured": _measure_image(out),
+        }
+
+    best = max(composed, key=lambda v: _score_thumbnail(v))
+    paths = [v["path"] for v in composed]
     return {
-        "best": out,
-        "variants": [out],
-        "count": 1,
-        "source": "concept_f",
-        "measured": _measure_image(out),
+        "best": best["path"],
+        "variants": paths,
+        "count": len(paths),
+        "source": "ai_photo",
+        "measured": best["measured"],
+        "rejected_unreadable_at_160px": rejected,
     }
 
 
@@ -470,6 +624,12 @@ def _find_font(size: int, serif: bool = False):
                 return ImageFont.truetype(path, size)
             except Exception:
                 continue
+    if serif:
+        # No serif face on this box. Falling through to load_default() is what
+        # silently drew headlines at 10px on a 61px budget (the macOS host has no
+        # DejaVuSerif and no Georgia Bold); retry with the sans list so the
+        # headline is at least the right size in the wrong voice.
+        return _find_font(size, serif=False)
     return ImageFont.load_default()
 
 
