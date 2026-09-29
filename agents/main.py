@@ -949,20 +949,33 @@ def _seo_polish_description(desc_result: dict, script_text: str, category: str,
 # first ~150 characters above "Show more", so that slice is what a search
 # visitor reads, and it is the thing to compare against impressions/CTR later.
 def _persist_seo_metadata(video_id: str, title: str, desc_result: dict,
-                          seo_score: dict, category: str, fmt: str) -> None:
+                          seo_score: dict, category: str, fmt: str,
+                          video_result: dict = None) -> None:
     description = desc_result.get("full_description", "") or ""
     tags = desc_result.get("tags") or []
-    try:
-        update_video_record(video_id, {
-            "title": title,
-            "description": description,
-            "description_first_150": description[:150],
-            "tags": list(tags),
-            "seo_score": int(seo_score.get("score", 0) or 0),
-            "seo_missing": list(seo_score.get("missing") or []),
-            "seo_retried": bool(seo_score.get("retried")),
-            "seo_retry_accepted": bool(seo_score.get("retry_accepted")),
+    payload = {
+        "title": title,
+        "description": description,
+        "description_first_150": description[:150],
+        "tags": list(tags),
+        "seo_score": int(seo_score.get("score", 0) or 0),
+        "seo_missing": list(seo_score.get("missing") or []),
+        "seo_retried": bool(seo_score.get("retried")),
+        "seo_retry_accepted": bool(seo_score.get("retry_accepted")),
+    }
+    # Narration health rides along in the same write rather than a second one.
+    # Optional so the existing call signature keeps working; absent means an older
+    # caller, which is NOT the same as "clean narration" and must not be recorded
+    # as such.
+    if video_result is not None:
+        payload.update({
+            "narration_truncated": bool(video_result.get("narration_truncated")),
+            "narration_segments": video_result.get("narration_segments", 0),
+            "truncated_segments": video_result.get("truncated_segments", 0),
+            "truncated_detail": list(video_result.get("truncated_detail") or []),
         })
+    try:
+        update_video_record(video_id, payload)
     except Exception as e:
         # Metadata only. A failed write must never cost us the video.
         log_event("SEO", f"Could not persist description/tags: {e}", "warn")
@@ -1512,6 +1525,13 @@ def run_video_pipeline(script_text: str, storyboard_text: str, category: str, fo
         "timing_file": voice_result.get("timing_file"),
         "phrase_timings": voice_result.get("phrase_timings", []),
         "scenes": scenes,
+        # Narration health, carried out of the voice step so the short and long
+        # publish paths can persist it. A truncated TTS segment composites and
+        # uploads as a normal video -- nothing downstream would ever say otherwise.
+        "narration_truncated": bool(voice_result.get("narration_truncated")),
+        "narration_segments": voice_result.get("segments", 0),
+        "truncated_segments": voice_result.get("truncated_segments", 0),
+        "truncated_detail": voice_result.get("truncated_detail", []),
     }
 
 
@@ -1931,7 +1951,7 @@ def generate_short_video(topic: str, category: str, video_id: str, publish_at: s
         except Exception as e:
             log_event("SEO", f"Tag generation failed: {e}", "warn")
             desc_result.setdefault("tags", [])
-        _persist_seo_metadata(video_id, best_title, desc_result, seo_score, category, "shorts")
+        _persist_seo_metadata(video_id, best_title, desc_result, seo_score, category, "shorts", video_result)
 
 
         failed_step = "thumbnail_video_frame"
@@ -2564,7 +2584,7 @@ def generate_long_video(topic: str, category: str, video_id: str, publish_at: st
         except Exception as e:
             log_event("SEO", f"Tag generation failed: {e}", "warn")
             desc_result.setdefault("tags", [])
-        _persist_seo_metadata(video_id, best_title, desc_result, seo_score, category, "long")
+        _persist_seo_metadata(video_id, best_title, desc_result, seo_score, category, "long", video_result)
 
 
         failed_step = "thumbnail_video_frame"

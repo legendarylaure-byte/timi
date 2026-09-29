@@ -573,6 +573,59 @@ def concatenate_audio(segment_files: list[str], output_path: str, gap_ms: list[i
         return False
 
 
+# --- Truncated-narration guard ------------------------------------------------
+# Edge TTS returned 1.26s of audio for a ~10s Hindi sentence during a verify.sh
+# run on 2026-09-29 (measured 1-in-7 over 7 selfcheck runs). 1.26s is ~10KB, so
+# the only size guard on the whole narration path (`getsize > 100` in
+# voice_provider.EdgeTTSProvider.generate) waved it straight through.
+#
+# The dub path caught this: its 25% duration-drift ladder measured 691% and
+# refused to publish. The MAIN pipeline has no such ladder, so a truncated
+# segment gets composited and published as a normal video. That is the gap.
+#
+# ponytail: 50%, not the dub path's 25%. This is a smoke alarm, not a quality
+# gate -- the brief failure is 12% of expected, so anything under half is
+# unambiguously broken while ordinary boundary/synthesis variance is nowhere
+# near it. Raising the digger does not need a new ladder; dub_pipeline.py already
+# has one and should stay the authority for dubs.
+NARRATION_TRUNCATION_RATIO = 0.5
+# D28 estimates speech at words/2.5s, so a *complete* read lands ~2.4x above this
+# floor. Deliberately loose: it only has to catch a catastrophic cut, and a tight
+# floor would fail videos on slow/deliberate delivery.
+MIN_WORDS_PER_SECOND_FLOOR = 6.0
+
+
+def narration_floor_ms(text: str, sentence_times: list = None) -> float:
+    """Smallest duration that still counts as a complete read of `text`.
+
+    Takes the MORE demanding of the two available signals rather than preferring
+    one. Edge's own boundary metadata cannot be trusted alone here: if the
+    provider truncated the response, the boundaries it reports for that same
+    response may be truncated too, which would make the audio look self-consistent
+    and hide the fault. The word-count floor is independent of the provider, so
+    the pair covers each other.
+    """
+    signals = []
+    if sentence_times:
+        ends = [
+            e.get("offset_ms", 0) + e.get("duration_ms", 0)
+            for e in sentence_times
+            if e.get("type") == "SentenceBoundary" and e.get("duration_ms")
+        ]
+        if ends:
+            signals.append(float(max(ends)))
+    words = len((text or "").split())
+    if words:
+        signals.append(words / MIN_WORDS_PER_SECOND_FLOOR * 1000.0)
+    return max(signals) if signals else 0.0
+
+
+def narration_is_truncated(actual_ms: float, floor_ms: float) -> bool:
+    if floor_ms <= 0:
+        return False  # nothing to compare against -- do not invent a verdict
+    return actual_ms < floor_ms * NARRATION_TRUNCATION_RATIO
+
+
 async def generate_voiceover(script: str, voice: str = DEFAULT_VOICE, output_filename: str = "voiceover.wav", content_type: str = "general", is_long_form: bool = False, is_deep_lesson: bool = False, is_documentary: bool = False, video_id: str = "") -> dict:  # noqa: E501
     VOICE_DIR.mkdir(parents=True, exist_ok=True)
 
@@ -616,6 +669,8 @@ async def generate_voiceover(script: str, voice: str = DEFAULT_VOICE, output_fil
     all_phrase_timings = []
     cumulative_offset = 0.0
     gap_ms = _detect_section_transition(segments)
+    truncated_segments = 0
+    truncated_detail = []
 
     for i, seg_text in enumerate(segments):
         seg_path = str(VOICE_DIR / f"seg_{i+1:03d}.wav")
@@ -637,10 +692,40 @@ async def generate_voiceover(script: str, voice: str = DEFAULT_VOICE, output_fil
         this_gap = gap_ms[i] if i < len(gap_ms) else 300
         try:
             seg_audio = AudioSegment.from_file(seg_path)
+            actual_ms = float(len(seg_audio))
             cumulative_offset += len(seg_audio) + this_gap
         except Exception as e:
             print(f"[voice_gen] Failed to load seg_{i+1:03d} audio, guessing 5s offset: {e}")
             cumulative_offset += 5000
+            continue
+
+        # Both numbers above already exist (sentence_times from the Edge call, and
+        # the decoded length), so this check costs no extra TTS call and no extra
+        # decode. Retry once, then publish the gap rather than dropping the segment:
+        # the scene still needs its audio slot, and a silent scene is worse than a
+        # short one. The verdict is persisted so the next run can see the rate.
+        floor = narration_floor_ms(seg_text, sentence_times)
+        if narration_is_truncated(actual_ms, floor):
+            for attempt in (1, 2):
+                ok = await generate_segment_audio(seg_text, seg_path, voice=voice, rate=seg_rates[i], pitch=pitch, is_deep_lesson=is_deep_lesson, is_documentary=is_documentary)
+                try:
+                    actual_ms = float(len(AudioSegment.from_file(seg_path))) if ok else actual_ms
+                except Exception:
+                    ok = False
+                floor = narration_floor_ms(seg_text, sentence_times)
+                if not narration_is_truncated(actual_ms, floor):
+                    print(f"[voice_gen] seg_{i+1:03d}: recovered on retry {attempt} ({actual_ms:.0f}ms vs floor {floor:.0f}ms)")
+                    break
+            if narration_is_truncated(actual_ms, floor):
+                truncated_segments += 1
+                truncated_detail.append({
+                    "segment": i + 1,
+                    "actual_ms": round(actual_ms),
+                    "floor_ms": round(floor),
+                    "words": len(seg_text.split()),
+                })
+                print(f"[voice_gen] TRUNCATED seg_{i+1:03d}: {actual_ms:.0f}ms actual vs {floor:.0f}ms floor "
+                      f"({actual_ms / floor:.0%}) -- publishing the gap, NOT dropping the segment")
 
     output_path = str(VOICE_DIR / output_filename)
     concat_success = concatenate_audio(segment_files, output_path, gap_ms=gap_ms)
@@ -667,6 +752,12 @@ async def generate_voiceover(script: str, voice: str = DEFAULT_VOICE, output_fil
         "phrase_timings": all_phrase_timings,
         "spoken_text": narration_text,
         "success": concat_success,
+        # Narration health. `truncated_segments` is the number, not a bool, so a
+        # run with 3 bad segments is distinguishable from one with 1 -- and from a
+        # clean run, which is 0. A bool would collapse all three.
+        "truncated_segments": truncated_segments,
+        "narration_truncated": truncated_segments > 0,
+        "truncated_detail": truncated_detail,
     }
 
 
