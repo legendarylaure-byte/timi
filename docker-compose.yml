@@ -21,6 +21,11 @@ services:
       - ./agents/youtube_token.json:/app/youtube_token.json
       - ./agents/output:/app/output
       - ./agents/data:/app/data
+      # ponytail: the 2026-09-29 0/5 outage had to be diagnosed from Firestore +
+      # the live channel because /app/logs was container-ephemeral and vanished on
+      # every recreate. Host agents/logs/pipeline.log was stale from July. One line
+      # so "what did the pipeline do last night" is answerable directly.
+      - ./agents/logs:/app/logs
       - ./keys/:/app/keys/:ro
       - ./agents/tmp/community_cookies/:/app/tmp/community_cookies/
       - ./agents/tmp/ltx_cache/:/app/tmp/ltx_cache/

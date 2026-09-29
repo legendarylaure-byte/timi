@@ -1926,7 +1926,6 @@ def generate_short_video(topic: str, category: str, video_id: str, publish_at: s
         # looked identical to the log -- silence was the only signal.
         desc_result, seo_score = _seo_polish_description(
             desc_result, script_text, category, "shorts", best_title, topic)
-        full_desc = desc_result.get("full_description", full_desc)
         try:
             desc_result["tags"] = get_optimized_tags(category, "shorts", best_title)
         except Exception as e:
@@ -2560,7 +2559,6 @@ def generate_long_video(topic: str, category: str, video_id: str, publish_at: st
         desc_result, seo_score = _seo_polish_description(
             desc_result, script_text, category, "long", best_title, topic,
             scenes=parse_scenes_from_storyboard(str(storyboard), "long"))
-        full_desc = desc_result.get("full_description", full_desc)
         try:
             desc_result["tags"] = get_optimized_tags(category, "long", best_title)
         except Exception as e:
