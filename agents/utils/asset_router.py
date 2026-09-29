@@ -174,15 +174,27 @@ def _render_scene_inner(scene: dict, video_id: str, scene_idx: int,
             return {"path": clip_path, "duration": duration, "asset_type": "STOCK_FOOTAGE", "source": "ltx"}
 
     if os.getenv("ENABLE_STOCK_FOOTAGE", "true").lower() == "true":
-        search_query = ", ".join(kw_list) or description
-        path = _get_stock_clip(search_query, orientation, duration, video_id=video_id)
-        if path and os.path.exists(path):
-            logger.info(f"[AssetRouter] Scene {scene_idx}: stock OK (query={search_query[:60]})")
-            return {"path": path, "duration": duration, "asset_type": "STOCK_FOOTAGE", "source": "stock"}
-        for k in kw_list:
-            path = _get_stock_clip(k, orientation, duration, video_id=video_id)
+        # Order is measured, not guessed. This used to send ", ".join(kw_list)
+        # FIRST: a ~10-word blob mixing the scene's own title with the category
+        # vocabulary. Pexels answers for the dominant theme and drops the
+        # specifics, so the scene topic was discarded. Live 5-scene audit
+        # (scripts/footage_relevance_probe.py): the focused title query and the
+        # joined query shared ZERO clips on 3 of 5 scenes (Jaccard 0.0, focused
+        # clips lost 5/5), and the join matched the CATEGORY vocabulary instead
+        # (J=1.0 on AI News) -- i.e. every scene in a category got near-identical
+        # footage. _score_stock_relevance cannot catch this: it scored all five
+        # candidates from one query IDENTICALLY (spread 0.0), because it compares
+        # a candidate's query against the very keyword we just sent.
+        #
+        # So the scene's own words lead, the join remains the category-look
+        # fallback, then the remaining keywords. CATEGORY_VISUAL_KEYWORDS is
+        # owner-approved as the LOOK and is kept -- it just must not outrank the
+        # topic. Same number of API calls in the common case.
+        attempts = [kw_list[0], ", ".join(kw_list) or description, *kw_list[1:]]
+        for query in dict.fromkeys(q for q in attempts if q):
+            path = _get_stock_clip(query, orientation, duration, video_id=video_id)
             if path and os.path.exists(path):
-                logger.info(f"[AssetRouter] Scene {scene_idx}: stock OK (keyword={k})")
+                logger.info(f"[AssetRouter] Scene {scene_idx}: stock OK (query={query[:60]})")
                 return {"path": path, "duration": duration, "asset_type": "STOCK_FOOTAGE", "source": "stock"}
     logger.warning(f"[AssetRouter] Scene {scene_idx}: ALL render methods exhausted "
                    f"(render_type={render_type}, asset_type={asset_type}, keywords={kw_list})")
