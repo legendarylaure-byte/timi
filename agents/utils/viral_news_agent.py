@@ -83,6 +83,13 @@ VIRAL_CHECK_INTERVAL = int(os.getenv("VIRAL_CHECK_INTERVAL", "5"))
 _IMAGE_WIDTH = int(os.getenv("VIRAL_IMAGE_WIDTH", "1080"))
 _IMAGE_HEIGHT = int(os.getenv("VIRAL_IMAGE_HEIGHT", "1080"))
 
+# Two different budgets, on purpose. The card is 1080px square: past ~140 chars
+# the headline is pushed into the "Read the full story" panel and the panel starts
+# falling off the bottom edge. The caption is a text surface with room for 2-4
+# sentences, so it carries the fuller summary and the card carries the short one.
+_CARD_SUMMARY_CHARS = 140
+_CAPTION_SUMMARY_CHARS = 400
+
 try:
     from PIL import Image, ImageDraw, ImageFont
     HAS_PIL = True
@@ -315,69 +322,145 @@ def score_virality(article: dict) -> dict:
 # ═══════════════════════════════════════════════════════════════════════════
 # Post generation (caption + image)
 # ═══════════════════════════════════════════════════════════════════════════
-def generate_caption(article: dict) -> str:
-    """Generate a social media caption from the article using LLM.
+_VIRAL_CTA = "What's your take? Comment below"
+_STOPWORDS = {
+    "the", "a", "an", "and", "or", "but", "for", "of", "to", "in", "on", "at",
+    "is", "are", "was", "were", "be", "as", "by", "with", "from", "that", "this",
+    "it", "its", "has", "have", "will", "would", "can", "could", "after", "over",
+    "new", "says", "say", "said", "amid", "into",
+}
 
-    Tries Ollama/Gemini. Falls back to a template-based caption on failure.
+
+def _hashtags(article: dict, limit: int = 5) -> str:
+    """Hashtags derived from the headline, not from the LLM.
+
+    Letting the model place hashtags inside the caption body meant the fixed
+    order (title, hook, body, CTA, hashtags, link) could not be enforced -- the
+    hashtags arrived wherever it felt like putting them. Built here instead, so
+    the structure holds and there is exactly one place to tune the count.
     """
-    title = article.get("title", "Untitled")
-    source = article.get("source", "Verified Source")
+    tags: list[str] = []
+    for word in (article.get("title") or "").split():
+        w = re.sub(r"[^0-9A-Za-z]+", "", word)
+        if len(w) > 3 and w.lower() not in _STOPWORDS and w.lower() not in {t.lower() for t in tags}:
+            tags.append(w)
+    for cat_word in (article.get("category") or "").replace("&", " ").split():
+        w = re.sub(r"[^0-9A-Za-z]+", "", cat_word)
+        if len(w) > 2 and w.lower() not in {t.lower() for t in tags}:
+            tags.append(w)
+    if not tags:
+        tags = ["News"]
+    return " ".join(f"#{t}" for t in tags[:limit])
+
+
+def _article_text(article: dict) -> str:
+    raw = (article.get("body") or article.get("description") or "").strip()
+    return re.sub(r"\s+", " ", raw)
+
+
+def _trim_to(raw: str, limit: int) -> str:
+    """Trim to `limit` on a word boundary. Anything else leaves a half word."""
+    if not raw or len(raw) <= limit:
+        return raw
+    cut = raw[:limit].rsplit(" ", 1)[0]
+    return (cut or raw[:limit]).rstrip(",;:- ") + "…"
+
+
+def _caption_body_summary(article: dict, limit: int = _CAPTION_SUMMARY_CHARS) -> str:
+    """The article's own text, trimmed to what the surface can hold."""
+    return _trim_to(_article_text(article), limit)
+
+
+def generate_caption(article: dict) -> str:
+    """V0 caption: title first, then hook, then the facts, then CTA, tags, link.
+
+    The order is the point. The old caption led with a generated hook, so the
+    post opened with a paraphrase of a headline the reader could already see on
+    the card, and the article's own claim never appeared at all. Leading with the
+    verbatim headline makes the caption self-contained in the feed text, where a
+    photo post is often read without the image.
+
+    Tries Ollama/Gemini for the hook + summary. Falls back to a deterministic
+    template on any failure -- the structure is never abandoned for content.
+    """
+    title = (article.get("title") or "Untitled").strip()
+    source = article.get("source") or "Verified Source"
     link = (article.get("link") or "").strip()
-    body = (article.get("body") or article.get("description") or "")[:300]
-    category = article.get("category", "")
+    category = article.get("category") or ""
+    body = _caption_body_summary(article)
 
     # The card image draws a "Read the full story at <source>" panel, but an
     # IMAGE CANNOT BE A HYPERLINK. The caption is the only clickable surface on
     # a Facebook/Instagram/TikTok photo post, so the link must be here -- the
     # card is the visual cue, this is the destination.
-    if link:
-        link_line = f"\nRead the full story at {source}: {link}"
-    else:
-        # No article link means no destination to point at. Never fabricate one.
-        link_line = "\nRead the full story in the comments."
+    link_line = f"\n\nRead the full story at {source}: {link}" if link else \
+                "\n\nRead the full story in the comments."
 
-    # Try LLM-generated caption first
+    hook = summary = ""
+
+    # No article text: there is nothing to summarise, and inventing a summary
+    # would be the "unsupported detail" this function exists to avoid. Title and
+    # link only -- no hook, no CTA pretending there is something to discuss.
+    if not body:
+        return f"{title}{link_line}"
+
     try:
         from utils.llm_helper import get_llm
-        llm = get_llm(temperature=0.4, max_tokens=500, agent_id="viral_caption")
-        prompt = f"""Write a viral social media post (for Facebook/Instagram) about this news article.
-Rules:
-1. Start with a HOOK (bold claim or question) — first line must grab attention
-2. Summarize key fact in 1-2 sentences
-3. End with a CTA: "What's your take? Comment below 👇" or "Share if you agree"
-4. Max 150 words total
-5. No emojis except 👇 and 🔥 at CTA — NO other emojis
-6. Write NO links or URLs yourself. The link is appended separately and automatically.
-7. Brand tone: smart, curious, educational
-8. Include 3-5 relevant hashtags at the end
+        llm = get_llm(temperature=0.4, max_tokens=400, agent_id="viral_caption")
+        prompt = f"""Write two parts for a social media post about this news article.
 
-Article title: {title}
+HOOK: one line, under 12 words, that makes someone want to read on. No clickbait
+that the article does not support.
+BODY: 2-4 sentences stating what the article actually says. Under 400 characters.
+
+Rules:
+- Use ONLY facts present in the summary below. Do not add names, numbers, dates,
+  causes or consequences that are not written there.
+- No links, URLs or hashtags. Those are added separately.
+- Plain text, no markdown.
+
+Article headline: {title}
 Source: {source}
 Category: {category}
-Summary: {body}
+Article summary: {body}
 
-Return ONLY the caption text (no markdown, no quotes around it):"""
-        messages = [{"role": "user", "content": prompt}]
-        resp = llm.call(messages)
+Return exactly two lines:
+HOOK: <your hook>
+BODY: <your summary>"""
+        resp = llm.call([{"role": "user", "content": prompt}])
         if resp and len(str(resp).strip()) > 20:
-            # Append the source link AFTER the hashtags, so it is the last
-            # clickable thing in the caption on every platform.
-            return f"{str(resp).strip()}{link_line}"
-
+            raw = str(resp).strip()
+            m = re.search(r"HOOK\s*:\s*(.+?)\s*(?:\n\s*BODY\s*:|\Z)", raw, re.S | re.I)
+            b = re.search(r"BODY\s*:\s*(.+)\Z", raw, re.S | re.I)
+            if m and b:
+                hook = " ".join(m.group(1).split())[:140]
+                summary = " ".join(b.group(1).split())[:_CAPTION_SUMMARY_CHARS + 60]
+            else:
+                logger.warning("[viral] caption LLM reply missing HOOK/BODY markers")
     except Exception as e:
         logger.warning("[viral] LLM caption failed, using template: %s", e)
 
-    # Fallback template caption
-    return (
-        f"🔥 {title}\n"
-        f"\n"
-        f"{body[:200]}...\n"
-        f"\n"
-        f"Source: {source}\n"
-        f"What's your take? Comment below 👇\n"
-        f"#News #Breaking #AI #Technology #Nepal"
-        f"{link_line}"
-    )
+    # A hook that only restates the headline makes the caption open with the same
+    # sentence twice. The title already did that job -- drop it. Compared on
+    # word sets, not equality: "Quantum lab opens in Nepal" is not the same string
+    # as the headline but is just as redundant next to it.
+    if hook:
+        def _keyset(s):
+            return {w.lower() for w in re.findall(r"[a-z0-9]+", s.lower()) if len(w) > 3}
+        ht, hk = _keyset(title), _keyset(hook)
+        if hk and (hk <= ht or hk & ht) and len(hk & ht) >= max(1, len(hk) - 1):
+            hook = ""
+
+    # Without a usable summary, the article's own text is the summary.
+    if not summary:
+        summary = body
+    parts = [title]
+    if hook:
+        parts.append(hook)
+    parts.append(summary)
+    parts.append(_VIRAL_CTA)
+    parts.append(_hashtags(article))
+    return "\n\n".join(parts) + link_line
 
 
 def _spotlight_background(W: int, H: int) -> Image.Image:
@@ -419,7 +502,12 @@ def generate_image(article: dict, index: int = 0) -> str:
     Layout:
       - Licorice base with a spotlight bloom behind the headline
       - Full-width gradient accent strip at the top
-      - Category + date eyebrow, then the wrapped headline
+      - SOURCE eyebrow (D39: was category + date -- this card exists to send
+        people to a specific publisher, so the publisher goes first)
+      - The article's own headline, verbatim
+      - The article's own summary, wrapped, between the headline and the divider.
+        A headline alone makes the reader tap through to learn what happened;
+        the summary is what earns the second of attention. Article words only.
       - Orange divider
       - A "Read the full story" panel naming the SOURCE, which is the visual
         half of the click-through; the other half is the link the post caption
@@ -438,11 +526,17 @@ def generate_image(article: dict, index: int = 0) -> str:
     from utils.brand_palette import (LICORICE, LIGHT_ORANGE, ORANGE, PINK, PURPLE,
                                      VIOLET, WHITE)
 
-    title = (article.get("title") or "Breaking News")[:120]
+    # Verbatim, no slice. The wrap (max 5 lines) is what bounds the headline; a
+    # character cut here would silently edit a publisher's words, which is the one
+    # thing this card must never do. A >5-line title loses its tail to the wrap
+    # and the card still lays out correctly -- proven by
+    # test_long_headline_still_renders_and_keeps_its_panel.
+    title = (article.get("title") or "Breaking News").strip()
     source = article.get("source", "Verified Source")
     link = (article.get("link") or "").strip()
-    category = article.get("category", "News")
-    ts = datetime.now(timezone.utc).strftime("%b %d, %Y")
+    # D39: the card eyebrow is the source, so `category` and the date stamp left
+    # generate_image entirely. The category is still carried on the caption and
+    # in Firestore, where it filters and sorts.
 
     W, H = _IMAGE_WIDTH, _IMAGE_HEIGHT
     img = _spotlight_background(W, H)
@@ -459,37 +553,50 @@ def generate_image(article: dict, index: int = 0) -> str:
 
     # Fonts: display serif for the headline, sans for everything else.
     try:
-        font_eyebrow = ImageFont.truetype(_FONT_PATH, int(H * 0.028))
-        font_title = ImageFont.truetype(_SERIF_FONT_PATH, int(H * 0.062))
+        font_eyebrow = ImageFont.truetype(_FONT_PATH, int(H * 0.026))
+        font_title = ImageFont.truetype(_SERIF_FONT_PATH, int(H * 0.058))
+        font_body = ImageFont.truetype(_FONT_PATH, int(H * 0.026))
         font_src = ImageFont.truetype(_FONT_PATH, int(H * 0.030))
         font_cta = ImageFont.truetype(_FONT_PATH, int(H * 0.026))
         font_url = ImageFont.truetype(_FONT_PATH, int(H * 0.020))
     except Exception:
-        font_eyebrow = font_title = font_src = font_cta = font_url = ImageFont.load_default()
+        font_eyebrow = font_title = font_body = font_src = font_cta = font_url = ImageFont.load_default()
 
     margin = int(W * 0.075)
-
-    # Eyebrow: category + date
-    y = bar_h + int(H * 0.055)
-    draw.text((margin, y), f"{category.upper()}   •   {ts}", fill=LIGHT_ORANGE, font=font_eyebrow)
-
-    # Headline
-    y += int(H * 0.075)
     max_line_w = W - margin * 2
-    lines = _wrap_text(draw, title, font_title, max_line_w)
-    line_spacing = int(H * 0.078)
-    for i, line in enumerate(lines[:5]):
-        draw.text((margin, y + i * line_spacing), line, fill=WHITE, font=font_title)
-    y += len(lines[:5]) * line_spacing + int(H * 0.035)
+
+    # Eyebrow: the SOURCE, not the category. This card exists to send people to a
+    # specific publisher, so the first thing on it is who is reporting it. The
+    # category was a topic label the reader already knows from the feed.
+    y = bar_h + int(H * 0.050)
+    draw.text((margin, y), source.upper(), fill=LIGHT_ORANGE, font=font_eyebrow)
+
+    # Headline: the article's own title, verbatim. Never reworded -- a headline the
+    # publisher did not write is a misattribution. Bounded by the 5-line wrap.
+    headline_lines = _wrap_text(draw, title, font_title, max_line_w)
+    # The article's own summary, between the headline and the divider. This is
+    # what makes the card worth a second of looking: a headline alone makes the
+    # reader tap through to learn what happened. Only ever the article's own
+    # words -- no generated detail (see generate_caption).
+    summary_text = _caption_body_summary(article, limit=_CARD_SUMMARY_CHARS)
+    summary_lines = _wrap_text(draw, summary_text, font_body, max_line_w)[:4] if summary_text else []
+    lay = _card_layout(len(headline_lines), len(summary_lines), H)
+
+    for i, line in enumerate(headline_lines[:5]):
+        draw.text((margin, lay["headline_y"] + i * lay["line_spacing"]),
+                  line, fill=WHITE, font=font_title)
+
+    for i, line in enumerate(summary_lines):
+        draw.text((margin, lay["summary_y"] + i * lay["body_line_h"]),
+                  line, fill=(255, 255, 255, 205), font=font_body)
 
     # Divider
-    div_y = min(y, H - int(H * 0.30))
+    div_y = lay["div_y"]
     draw.line([(margin, div_y), (W - margin, div_y)], fill=ORANGE, width=4)
 
     # "Read the full story" panel — the click-through cue.
-    panel_y = div_y + int(H * 0.045)
-    panel_h = int(H * 0.105)
-    if panel_y + panel_h < H - int(H * 0.06):
+    panel_y, panel_h = lay["panel_y"], lay["panel_h"]
+    if lay["panel_fits"]:
         draw.rounded_rectangle(
             [margin, panel_y, W - margin, panel_y + panel_h],
             radius=int(H * 0.014), fill=(255, 255, 255, 22),
@@ -518,6 +625,49 @@ def generate_image(article: dict, index: int = 0) -> str:
     img.save(out_path, "PNG", optimize=True)
     logger.info("[viral] Generated image: %s (source=%s)", out_path, source)
     return out_path
+
+
+def _card_layout(n_headline: int, n_summary: int, H: int) -> dict:
+    """Y positions for the card's blocks, given how many lines each wrapped to.
+
+    Extracted from the drawing code because the ordering (headline, then summary,
+    then divider, then panel) was previously only implicit in a running `y`.
+    That made the invariant untestable: a pixel diff between "card with a body"
+    and "card without" moves the DIVIDER as well as the summary, so the diff top
+    reports the divider, not the summary -- a fixed-y summary and a correct one
+    produced identical diffs (measured, not assumed).
+
+    Returns a dict of y positions. Pure arithmetic on ints, so it is testable
+    without PIL, fonts, or a real image.
+    """
+    bar_h = int(H * 0.035)
+    line_spacing = int(H * 0.072)
+    body_line_h = int(H * 0.038)
+
+    headline_y = bar_h + int(H * 0.050) + int(H * 0.062)
+    headline_h = min(n_headline, 5) * line_spacing
+    summary_y = headline_y + headline_h + int(H * 0.030)
+    # The 4-line cap lives HERE, not only at the call site, so the no-overlap
+    # invariant below holds for any input. With the cap at the call site alone the
+    # divider clamp silently covered an overlap if a longer summary ever arrived.
+    summary_h = min(n_summary, 4) * body_line_h
+    div_y = min(summary_y + summary_h + (int(H * 0.028) if n_summary else 0),
+                H - int(H * 0.30))
+    panel_y = div_y + int(H * 0.045)
+    panel_h = int(H * 0.105)
+    return {
+        "headline_y": headline_y,
+        "line_spacing": line_spacing,
+        "summary_y": summary_y,
+        "body_line_h": body_line_h,
+        "div_y": div_y,
+        "panel_y": panel_y,
+        "panel_h": panel_h,
+        # Does the click-through panel still fit on the card? This is the
+        # invariant the whole layout exists to protect: a summary that crowds
+        # out the panel costs the tap the card was built for.
+        "panel_fits": panel_y + panel_h < H - int(H * 0.06),
+    }
 
 
 def _mix(a: str, b: str, t: float) -> tuple:
