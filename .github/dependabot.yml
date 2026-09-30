@@ -6,6 +6,14 @@ updates:
       interval: "weekly"
       day: "monday"
     open-pull-requests-limit: 10
+    # Exact pins only. Without this, Dependabot's pip updater proposes widening
+    # version RANGES (>=0.4.0 -> >=0.6.2 etc) instead of bumping a pin, which
+    # produced 8 of the 39 open PRs. A widened range resolves to whatever is
+    # newest at build time, so the container stops being reproducible -- and D23
+    # explicitly tuned behaviour against specific versions (qwen2.5:7b routing,
+    # empty_response_fallback provider rotation, force_fallback on TimeoutError).
+    # A silent range bump can change all three with no diff in our repo.
+    pin_dependencies: true
     labels:
       - "dependencies"
       - "python"
@@ -40,6 +48,8 @@ updates:
       interval: "weekly"
       day: "monday"
     open-pull-requests-limit: 10
+    # Same reasoning as /agents: exact pins keep the build reproducible.
+    pin_dependencies: true
     labels:
       - "dependencies"
       - "python"
