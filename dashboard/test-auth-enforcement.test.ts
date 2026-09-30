@@ -59,6 +59,17 @@ for (const file of walk('src/app/api')) {
   }
 }
 
+// /api/auth is public by design, so it carries no requireUser() call and the
+// structural pass skips it. That made it the one route whose error handling was
+// unguarded: a malformed body or an expired token fell into a generic catch and
+// answered 500, so "you are not logged in" looked like "the app is broken".
+const authRoute = readFileSync(join(__dirname, 'src', 'app', 'api', 'auth', 'route.ts'), 'utf8');
+if (/status:\s*500/.test(authRoute)) {
+  failures.push('api/auth: still answers 500 — a bad token must be 401, a bad body 400');
+} else {
+  console.log('  ok api/auth answers 400/401, never 500');
+}
+
 if (failures.length) {
   console.error(`\nFAIL — ${failures.length} ungated handler(s):\n`);
   for (const f of failures) console.error('  x ' + f);

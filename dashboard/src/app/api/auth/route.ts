@@ -1,31 +1,38 @@
 import { NextResponse } from 'next/server';
 import { getAdminAuth } from '@/lib/firebase-admin';
+import { isAllowedEmail } from '@/lib/allowed-emails';
 
 export async function POST(request: Request) {
+  // A malformed body and a bad token are the caller's fault, not a server
+  // fault. Both used to fall through to a 500, which reads as "the app is
+  // broken" when the truth is "you are not logged in".
+  let action: string | undefined;
+  let idToken: string | undefined;
   try {
-    const { action, idToken } = await request.json();
+    ({ action, idToken } = await request.json());
+  } catch {
+    return NextResponse.json({ success: false, message: 'Invalid JSON body' }, { status: 400 });
+  }
 
-    if (action === 'verify') {
-      if (!idToken) {
-        return NextResponse.json({ success: false, message: 'Missing idToken' }, { status: 400 });
-      }
-       const decoded = await getAdminAuth().verifyIdToken(idToken);
-       // ALLOWLIST
-       const { isAllowedEmail } = await import('@/lib/allowed-emails');
-       if (!isAllowedEmail(decoded.email)) {
-         return NextResponse.json({ success: false, message: 'Not authorized', email: decoded.email || null }, { status: 403 });
-       }
-       return NextResponse.json({ success: true, uid: decoded.uid, email: decoded.email });
-    }
+  if (action !== 'verify') {
+    return NextResponse.json({ success: false, message: 'Unsupported action' }, { status: 400 });
+  }
+  if (!idToken) {
+    return NextResponse.json({ success: false, message: 'Missing idToken' }, { status: 400 });
+  }
 
-    return NextResponse.json({
-      success: true,
-      message: `Auth action "${action}" processed`,
-    });
-  } catch (error: any) {
+  let decoded;
+  try {
+    decoded = await getAdminAuth().verifyIdToken(idToken);
+  } catch {
+    return NextResponse.json({ success: false, message: 'Invalid or expired token' }, { status: 401 });
+  }
+
+  if (!isAllowedEmail(decoded.email)) {
     return NextResponse.json(
-      { success: false, message: error.message || 'Authentication error' },
-      { status: 500 }
+      { success: false, message: 'Not authorized', email: decoded.email || null },
+      { status: 403 }
     );
   }
+  return NextResponse.json({ success: true, uid: decoded.uid, email: decoded.email });
 }
