@@ -73,6 +73,15 @@ if (/status:\s*500/.test(authRoute)) {
 if (failures.length) {
   console.error(`\nFAIL — ${failures.length} ungated handler(s):\n`);
   for (const f of failures) console.error('  x ' + f);
-  process.exit(1);
+} else {
+  console.log(`OK — all ${checked} handlers across the protected API surface call requireUser()`);
 }
-console.log(`OK — all ${checked} handlers across the protected API surface call requireUser()`);
+
+// jest claims this file because of the .test.ts name, but everything above runs
+// at import. Calling process.exit() from a worker killed the worker, so jest
+// reported "Test suite failed to run" — a red suite that asserted nothing, and a
+// green run that executed zero assertions. Asserting in a real test is what
+// makes this a gate. `failures` holds the ungated handlers; empty means gated.
+test('every protected API handler is gated by requireUser()', () => {
+  expect(failures).toEqual([]);
+});
