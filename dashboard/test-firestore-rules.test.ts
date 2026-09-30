@@ -145,6 +145,23 @@ console.log('\n8. storage.rules agrees with firestore.rules, and nothing is publ
   else bad('no catch-all deny in storage.rules');
 }
 
+console.log('\n9. all three copies of the owner email agree');
+{
+  // The rules files are the two CI-visible copies. The third copy lives in the
+  // Vercel Production env, which no test can read, so it is checked at boot by
+  // allowed-emails.ts. This assertion is what stops CI passing while the live
+  // allowlist is a different address.
+  const { OWNER_EMAIL } = require('./src/lib/allowed-emails');
+  const ff = src.match(/function ownerEmail\(\)\s*\{\s*return\s+"([^"]*)"/)?.[1];
+  const sf = readFileSync(join(__dirname, '..', 'firebase', 'storage.rules'), 'utf8')
+    .match(/function ownerEmail\(\)\s*\{\s*return\s+"([^"]*)"/)?.[1];
+
+  if (ff !== OWNER_EMAIL) bad(`firestore.rules ownerEmail != dashboard OWNER_EMAIL`);
+  else ok('firestore.rules matches dashboard constant');
+  if (sf !== OWNER_EMAIL) bad(`storage.rules ownerEmail != dashboard OWNER_EMAIL`);
+  else ok('storage.rules matches dashboard constant');
+}
+
 console.log(failed ? `\n${failed} FAILED` : '\nOK — firestore + storage rules invariants hold');
 
 // jest claims this file because of the .test.ts name, but everything above runs
