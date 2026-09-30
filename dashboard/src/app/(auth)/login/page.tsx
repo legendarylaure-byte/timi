@@ -2,7 +2,8 @@
 
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { auth } from '@/lib/firebase';
-import { isAllowedUser } from '@/lib/api-fetch';
+import { apiFetch, isAllowedUser } from '@/lib/api-fetch';
+import { signInErrorMessage } from '@/lib/auth-errors';
 import { safeNext } from '@/lib/auth-nav';
 import { signInWithPopup, signInWithEmailAndPassword, GoogleAuthProvider } from 'firebase/auth';
 import { useRouter } from 'next/navigation';
@@ -97,8 +98,11 @@ export default function LoginPage() {
       const result = await signInWithPopup(auth, provider);
       if (result.user) {
         if (!(await isAllowedUser())) {
+          // Report the real cause -- see signInErrorMessage().
+          const res = await apiFetch('/api/auth', { method: 'POST' });
+          const { message } = await res.json().catch(() => ({ message: null }));
           try { await auth.signOut(); } catch {}
-          setError("Your email is not on the allowlist. Contact the administrator.");
+          setError(signInErrorMessage(res.status, message, result.user.email));
           setLoading(false);
           return;
         }
