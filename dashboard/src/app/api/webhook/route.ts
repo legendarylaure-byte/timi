@@ -1,13 +1,22 @@
 import { NextResponse } from 'next/server';
+import { timingSafeEqual } from 'crypto';
 import { getAdminFirestore } from '@/lib/firebase-admin';
 
 const WEBHOOK_SECRET = process.env.WEBHOOK_SECRET || '';
 
 function verifySignature(request: Request): boolean {
+  // Fail CLOSED: an unset secret means nobody can authenticate, which is the
+  // safe reading. The previous `if (!WEBHOOK_SECRET) return true` let anyone
+  // POST forged webhook_events rows.
+  if (!WEBHOOK_SECRET) {
+    console.error('[WEBHOOK] WEBHOOK_SECRET is not configured — rejecting all inbound webhooks');
+    return false;
+  }
   const signature = request.headers.get('x-webhook-signature');
-  if (!WEBHOOK_SECRET) return true; // no secret configured — allow
   if (!signature) return false;
-  return signature === WEBHOOK_SECRET;
+  const a = Buffer.from(signature);
+  const b = Buffer.from(WEBHOOK_SECRET);
+  return a.length === b.length && timingSafeEqual(a, b);
 }
 
 export async function POST(request: Request) {

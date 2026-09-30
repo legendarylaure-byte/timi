@@ -5,6 +5,7 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { db } from '@/lib/firebase';
 import { collection, query, orderBy, limit, onSnapshot, doc, getDoc, setDoc } from 'firebase/firestore';
 import { AGENT_ROLES } from '@/lib/constants';
+import { apiFetch } from '@/lib/api-fetch';
 
 interface Notification {
   id: string;
@@ -67,7 +68,7 @@ export function NotificationCenter() {
     newRead.add(id);
     setReadIds(newRead);
     try {
-      await fetch('/api/notifications/read', {
+      await apiFetch('/api/notifications/read', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ read_ids: Array.from(newRead) }),
@@ -79,7 +80,7 @@ export function NotificationCenter() {
     const allIds = notifications.map((n) => n.id);
     setReadIds(new Set(allIds));
     try {
-      await fetch('/api/notifications/read', {
+      await apiFetch('/api/notifications/read', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ all_ids: allIds }),

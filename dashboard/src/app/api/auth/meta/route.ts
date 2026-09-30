@@ -1,5 +1,6 @@
 import { randomBytes } from 'crypto';
 import { NextRequest, NextResponse } from 'next/server';
+import { setOAuthState } from '@/lib/oauth-state';
 
 const FB_APP_ID = process.env.FACEBOOK_APP_ID || '';
 const FB_REDIRECT_URI =
@@ -24,7 +25,7 @@ export async function GET(request: NextRequest) {
     // In demo mode the state carries a marker so the callback performs the
     // OAuth exchange WITHOUT persisting tokens (keeps the live pipeline's
     // production token untouched — created for Meta App Review reviewers).
-    const state = demo ? `demo-${randomBytes(16).toString('hex')}` : randomBytes(16).toString('hex');
+    const state = demo ? `demo-${await setOAuthState()}` : await setOAuthState();
 
     const authUrl = new URL('https://www.facebook.com/v25.0/dialog/oauth');
     authUrl.searchParams.set('client_id', FB_APP_ID);

@@ -13,6 +13,7 @@ import { GrowthView } from '@/components/monitor/GrowthView';
 import { ForecastRisks } from '@/components/monitor/ForecastRisks';
 import { AdvisorPanel } from '@/components/monitor/AdvisorPanel';
 import { ToastProvider } from '@/components/ui/Toast';
+import { apiFetch } from '@/lib/api-fetch';
 
 const tabs = [
   { id: 'live', label: 'Live', icon: Activity },
@@ -38,14 +39,14 @@ export default function MonitorPage() {
 
   const loadLive = useCallback(async () => {
     try {
-      const res = await fetch('/api/monitor/live', { headers: await authHeaders() });
+      const res = await apiFetch('/api/monitor/live', { headers: await authHeaders() });
       if (res.ok) setLive((await res.json()) as LivePayload);
     } catch { /* transient */ }
   }, []);
 
   const loadReview = useCallback(async () => {
     try {
-      const res = await fetch('/api/monitor/review', { headers: await authHeaders() });
+      const res = await apiFetch('/api/monitor/review', { headers: await authHeaders() });
       if (res.ok) setReview((await res.json()) as ReviewPayload);
     } finally {
       setReviewLoading(false);

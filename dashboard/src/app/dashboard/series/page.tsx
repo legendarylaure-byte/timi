@@ -7,6 +7,7 @@ import { collection, onSnapshot, doc, deleteDoc } from 'firebase/firestore';
 import { CONTENT_CATEGORIES } from '@/lib/constants';
 import { GradientCard } from '@/components/ui/GradientCard';
 import { Clapperboard, Plus, ExternalLink, Sparkles, Trash2, Edit3, Layers, CheckCircle, ChevronDown, ChevronUp, X } from 'lucide-react';
+import { apiFetch } from '@/lib/api-fetch';
 
 interface Series {
   id: string;
@@ -67,7 +68,7 @@ export default function SeriesPage() {
     setLoading(true);
     try {
       const token = auth.currentUser ? await auth.currentUser.getIdToken() : '';
-      const res = await fetch('/api/series', { headers: { Authorization: `Bearer ${token}` } });
+      const res = await apiFetch('/api/series', { headers: { Authorization: `Bearer ${token}` } });
       const data = await res.json();
       if (data.success) setSeries(data.series);
     } catch (e) { console.error(e); }
@@ -115,12 +116,12 @@ export default function SeriesPage() {
       const headers = { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` };
 
       if (editing) {
-        await fetch('/api/series', {
+        await apiFetch('/api/series', {
           method: 'PUT', headers,
           body: JSON.stringify({ id: editing.id, ...form }),
         });
       } else {
-        await fetch('/api/series', {
+        await apiFetch('/api/series', {
           method: 'POST', headers,
           body: JSON.stringify(form),
         });
@@ -136,7 +137,7 @@ export default function SeriesPage() {
     if (!confirm('Delete this series?')) return;
     try {
       const token = auth.currentUser ? await auth.currentUser.getIdToken() : '';
-      await fetch(`/api/series?id=${id}`, {
+      await apiFetch(`/api/series?id=${id}`, {
         method: 'DELETE', headers: { Authorization: `Bearer ${token}` },
       });
       await loadSeries();
@@ -155,13 +156,13 @@ export default function SeriesPage() {
           auto_generated: true,
         };
         const token = auth.currentUser ? await auth.currentUser.getIdToken() : '';
-        await fetch('/api/series', {
+        await apiFetch('/api/series', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
           body: JSON.stringify(seriesData),
         });
       }
-      await fetch(`/api/series-plans/${plan.id}`, { method: 'DELETE' });
+      await apiFetch(`/api/series-plans/${plan.id}`, { method: 'DELETE' });
       await loadSeries();
     } catch (e) { console.error(e); }
     finally { setPromoting(null); }
@@ -170,7 +171,7 @@ export default function SeriesPage() {
   const deletePlan = async (id: string) => {
     if (!confirm('Delete this auto-generated plan?')) return;
     try {
-      await fetch(`/api/series-plans/${id}`, { method: 'DELETE' });
+      await apiFetch(`/api/series-plans/${id}`, { method: 'DELETE' });
     } catch (e) { console.error(e); }
   };
 

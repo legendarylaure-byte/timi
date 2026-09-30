@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from 'react';
 import { Calendar as CalendarIcon, Clock, Film, Video, BookOpen, Loader2, ChevronLeft, ChevronRight } from 'lucide-react';
+import { apiFetch } from '@/lib/api-fetch';
 
 interface CalendarEvent {
   id: string;
@@ -33,7 +34,7 @@ export function ContentCalendar() {
 
   useEffect(() => {
     setLoading(true);
-    fetch('/api/reports/content-calendar')
+    apiFetch('/api/reports/content-calendar')
       .then(r => r.json())
       .then(data => {
         setEvents(data.events || []);

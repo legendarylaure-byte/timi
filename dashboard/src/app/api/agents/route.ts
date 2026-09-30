@@ -2,17 +2,7 @@ import { NextResponse } from 'next/server';
 import { getAdminFirestore, getAdminAuth } from '@/lib/firebase-admin';
 import { rateLimitMiddleware } from '@/lib/rate-limit';
 
-async function verifyAuth(request: Request): Promise<{ uid: string } | null> {
-  const authHeader = request.headers.get('authorization');
-  if (!authHeader?.startsWith('Bearer ')) return null;
-  try {
-    const token = authHeader.slice(7);
-    const decoded = await getAdminAuth().verifyIdToken(token);
-    return { uid: decoded.uid };
-  } catch {
-    return null;
-  }
-}
+import { requireUser } from '@/lib/api-auth';
 
 const AGENT_LABELS: Record<string, string> = {
   scriptwriter: 'Scriptwriter',
@@ -26,8 +16,10 @@ const AGENT_LABELS: Record<string, string> = {
   publisher: 'Publisher',
 };
 
-export async function GET() {
+export async function GET(request: Request) {
   try {
+    const auth = await requireUser(request);
+    if (!auth.ok) return auth.response;
     const db = getAdminFirestore();
     const snapshot = await db.collection('agent_status').get();
     const agents = AGENT_LABELS;
@@ -51,10 +43,8 @@ export async function POST(request: Request) {
   if (rateLimitResponse) return rateLimitResponse;
 
   try {
-    const user = await verifyAuth(request);
-    if (!user) {
-      return NextResponse.json({ success: false, error: 'Unauthorized' }, { status: 401 });
-    }
+    const auth = await requireUser(request);
+    if (!auth.ok) return auth.response;
     const { agentId, action } = await request.json();
     if (!agentId || !action) {
       return NextResponse.json({ success: false, message: 'Missing agentId or action' }, { status: 400 });

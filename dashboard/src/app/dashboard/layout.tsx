@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import { auth } from '@/lib/firebase';
+import { isAllowedUser } from '@/lib/api-fetch';
 import { onAuthStateChanged, User } from 'firebase/auth';
 import { useRouter, usePathname } from 'next/navigation';
 import { motion, AnimatePresence } from 'framer-motion';
@@ -100,9 +101,20 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
   }, [isMobile]);
 
   useEffect(() => {
-    const unsubscribe = onAuthStateChanged(auth, (u) => {
-      if (!u) router.push('/login');
-      else setUser(u);
+    const unsubscribe = onAuthStateChanged(auth, async (u) => {
+      if (!u) {
+        router.push('/login');
+        return;
+      }
+      // Signed in, but possibly not on the allowlist. The API is the real gate
+      // (requireUser); this only avoids stranding someone on a dashboard whose
+      // every panel 403s.
+      if (!(await isAllowedUser())) {
+        await auth.signOut();
+        router.push('/login?error=not_allowed');
+        return;
+      }
+      setUser(u);
     });
     return () => unsubscribe();
   }, [router]);

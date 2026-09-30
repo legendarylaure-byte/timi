@@ -77,3 +77,7 @@ com.timi.docker.plist
 landing-check.yml
 agents/scripts/tiktok_demo_publish.py
 agents/scripts/set_tiktok_prod.py
+
+# Rendered video output + audit artefacts. Evidence, not source: never commit.
+# Incident evidence lives in agents/logs/incident-*/ (committed on purpose, *.log gitignored).
+agents/output/

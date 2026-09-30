@@ -3,11 +3,12 @@
 import { useState, useEffect } from 'react';
 import { motion } from 'framer-motion';
 import { db, auth } from '@/lib/firebase';
-import { doc, updateDoc, getDoc, setDoc, collection, onSnapshot } from 'firebase/firestore';
+import { doc, getDoc } from 'firebase/firestore';
 import { useToast } from '@/components/ui/Toast';
 import { GradientCard } from '@/components/ui/GradientCard';
 import { toggleTheme as toggleAppTheme } from '@/lib/theme';
 import { CONTENT_CATEGORIES, PLATFORMS, DAILY_SCHEDULE, PUBLISH_SLOTS } from '@/lib/constants';
+import { apiFetch } from '@/lib/api-fetch';
 
 export default function SettingsPage() {
   const { addToast } = useToast();
@@ -78,7 +79,7 @@ export default function SettingsPage() {
       const token = auth.currentUser ? await auth.currentUser.getIdToken() : '';
       const h: Record<string, string> = {};
       if (token) h['Authorization'] = `Bearer ${token}`;
-      const res = await fetch('/api/env-vars', { headers: h });
+      const res = await apiFetch('/api/env-vars', { headers: h });
       const data = await res.json();
       if (data.success) {
         setEnvVars(data.vars);
@@ -108,7 +109,7 @@ export default function SettingsPage() {
         const token = auth.currentUser ? await auth.currentUser.getIdToken() : '';
         const h: Record<string, string> = { 'Content-Type': 'application/json' };
         if (token) h['Authorization'] = `Bearer ${token}`;
-        await fetch(`/api/platform-settings/${platformId}`, {
+        await apiFetch(`/api/platform-settings/${platformId}`, {
           method: 'PUT',
           headers: h,
           body: JSON.stringify({ connected: true }),
@@ -122,7 +123,7 @@ export default function SettingsPage() {
     } else {
       if (!confirm(`Disconnect ${platformName}? OAuth tokens will be removed.`)) return;
       try {
-        await fetch(`/api/platform-settings/${platformId}`, {
+        await apiFetch(`/api/platform-settings/${platformId}`, {
           method: 'PUT',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ connected: false, access_token: '', refresh_token: '', open_id: '' }),
@@ -186,24 +187,19 @@ export default function SettingsPage() {
   }, []);
 
   useEffect(() => {
-    const unsub = onSnapshot(collection(db, 'platform_settings'),
-      (snap) => {
-        const connections: Record<string, { connected: boolean; followers: number; scope?: string }> = {};
-        snap.forEach(doc => {
-          const d = doc.data();
-          connections[doc.id] = {
-            connected: d.connected || false,
-            followers: d.followers || 0,
-            scope: typeof d.scope === 'string' ? d.scope : '',
-          };
-        });
+    let cancelled = false;
+    apiFetch('/api/platform-settings')
+      .then((r) => (r.ok ? r.json() : Promise.reject(new Error(`HTTP ${r.status}`))))
+      .then((d) => {
+        if (cancelled) return;
+        const connections: Record<string, any> = {};
+        for (const p of d.platforms || []) {
+          connections[p.id] = { connected: p.connected || false, followers: p.followers || 0, scope: p.scope || '' };
+        }
         setPlatformConnections(connections);
-      },
-      (error) => {
-        console.error('[Settings] platform_settings:', error);
-      }
-    );
-    return () => unsub();
+      })
+      .catch((e) => console.error('[Settings] platform_settings:', e));
+    return () => { cancelled = true; };
   }, []);
 
   const toggleTheme = () => {
@@ -223,7 +219,7 @@ export default function SettingsPage() {
       const token = auth.currentUser ? await auth.currentUser.getIdToken() : '';
       const h: Record<string, string> = { 'Content-Type': 'application/json' };
       if (token) h['Authorization'] = `Bearer ${token}`;
-      const res = await fetch('/api/settings', {
+      const res = await apiFetch('/api/settings', {
         method: 'PUT',
         headers: h,
         body: JSON.stringify({
@@ -583,7 +579,7 @@ export default function SettingsPage() {
                                         const token = auth.currentUser ? await auth.currentUser.getIdToken() : '';
                                         const h: Record<string, string> = { 'Content-Type': 'application/json' };
                                         if (token) h['Authorization'] = `Bearer ${token}`;
-                                        const res = await fetch(`/api/env-vars/${key}`, {
+                                        const res = await apiFetch(`/api/env-vars/${key}`, {
                                           method: 'PUT',
                                           headers: h,
                                           body: JSON.stringify({ value: editVal.trim() }),

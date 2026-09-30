@@ -1,4 +1,5 @@
 import { NextResponse } from 'next/server';
+import { requireUser } from '@/lib/api-auth';
 import { getAdminFirestore } from '@/lib/firebase-admin';
 import { S3Client, DeleteObjectCommand } from '@aws-sdk/client-s3';
 
@@ -27,6 +28,9 @@ async function deleteFromR2(key: string): Promise<boolean> {
 }
 
 export async function POST(request: Request) {
+  const auth = await requireUser(request);
+  if (!auth.ok) return auth.response;
+
   try {
     const { ids } = await request.json();
     if (!Array.isArray(ids) || ids.length === 0) {

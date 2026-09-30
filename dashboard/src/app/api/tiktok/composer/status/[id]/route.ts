@@ -1,10 +1,14 @@
 import { NextResponse } from 'next/server';
+import { requireUser } from '@/lib/api-auth';
 import { getAdminFirestore } from '@/lib/firebase-admin';
 
 export async function GET(
-  _request: Request,
+  request: Request,
   { params }: { params: Promise<{ id: string }> }
 ) {
+  const auth = await requireUser(request);
+  if (!auth.ok) return auth.response;
+
   try {
     const { id } = await params;
     const db = getAdminFirestore();

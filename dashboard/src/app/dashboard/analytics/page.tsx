@@ -6,6 +6,7 @@ import { db, auth } from '@/lib/firebase';
 import { CONTENT_CATEGORIES } from '@/lib/constants';
 import { collection, query, orderBy, limit, getDocs, doc, setDoc, addDoc, serverTimestamp } from 'firebase/firestore';
 import { BarChart3, ThumbsUp, MessageSquare, Film, Rocket, Eye } from 'lucide-react';
+import { apiFetch } from '@/lib/api-fetch';
 
 interface PredictionResult {
   predicted_views_7d: number;
@@ -89,8 +90,8 @@ export default function AnalyticsPage() {
       if (token) headers['Authorization'] = `Bearer ${token}`;
 
       const [analyticsRes, channelRes] = await Promise.all([
-        fetch('/api/youtube/analytics?limit=50', { headers }),
-        fetch('/api/youtube/channel', { headers }),
+        apiFetch('/api/youtube/analytics?limit=50', { headers }),
+        apiFetch('/api/youtube/channel', { headers }),
       ]);
       const analyticsData = await analyticsRes.json();
       if (analyticsData.success) {
@@ -128,7 +129,7 @@ export default function AnalyticsPage() {
       const headers: Record<string, string> = { 'Content-Type': 'application/json' };
       if (token) headers['Authorization'] = `Bearer ${token}`;
 
-      const res = await fetch('/api/predict', {
+      const res = await apiFetch('/api/predict', {
         method: 'POST',
         headers,
         body: JSON.stringify({ title, category: selectedCategory, format, script: scriptPreview }),

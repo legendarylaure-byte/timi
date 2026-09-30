@@ -4,6 +4,7 @@ import { useState, useEffect } from 'react';
 import { motion } from 'framer-motion';
 import { Target, Plus, Trash2, Loader2, TrendingUp, Calendar, CheckCircle } from 'lucide-react';
 import { auth } from '@/lib/firebase';
+import { apiFetch } from '@/lib/api-fetch';
 
 interface Goal {
   id: string;
@@ -51,7 +52,7 @@ export function GoalsPanel() {
       const user = auth.currentUser;
       if (!user) return;
       const token = await user.getIdToken();
-      const res = await fetch('/api/reports/goals', {
+      const res = await apiFetch('/api/reports/goals', {
         headers: { authorization: `Bearer ${token}` },
       });
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
@@ -73,7 +74,7 @@ export function GoalsPanel() {
       const user = auth.currentUser;
       if (!user) return;
       const token = await user.getIdToken();
-      const res = await fetch('/api/reports/goals', {
+      const res = await apiFetch('/api/reports/goals', {
         method: 'POST',
         headers: { authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
         body: JSON.stringify({ metric: formMetric, target: Number(formTarget), deadline: formDeadline }),
@@ -95,7 +96,7 @@ export function GoalsPanel() {
       const user = auth.currentUser;
       if (!user) return;
       const token = await user.getIdToken();
-      await fetch(`/api/reports/goals?id=${id}`, {
+      await apiFetch(`/api/reports/goals?id=${id}`, {
         method: 'DELETE',
         headers: { authorization: `Bearer ${token}` },
       });

@@ -4,6 +4,7 @@ import { useState, useEffect } from 'react';
 import { Film, Eye, Users, DollarSign, BarChart3, TrendingUp, Target, Activity, Clock, MousePointerClick } from 'lucide-react';
 import { KpiCard } from './KpiCard';
 import { auth } from '@/lib/firebase';
+import { apiFetch } from '@/lib/api-fetch';
 
 interface SummaryData {
   totalVideos: number;
@@ -48,7 +49,7 @@ export function ExecutiveSummary() {
         const user = auth.currentUser;
         if (!user) return;
         const token = await user.getIdToken();
-        const res = await fetch('/api/reports/summary', {
+        const res = await apiFetch('/api/reports/summary', {
           headers: { authorization: `Bearer ${token}` },
         });
         if (!res.ok) throw new Error(`HTTP ${res.status}`);

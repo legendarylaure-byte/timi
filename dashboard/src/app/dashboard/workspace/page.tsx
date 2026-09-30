@@ -8,6 +8,7 @@ import { AGENT_ROLES } from '@/lib/constants';
 import { useToast } from '@/components/ui/Toast';
 import Tooltip from '@/components/ui/Tooltip';
 import Image from 'next/image';
+import { apiFetch } from '@/lib/api-fetch';
 
 function getContrastTextColor(hex: string): string {
   const r = parseInt(hex.slice(1, 3), 16);
@@ -66,7 +67,7 @@ export default function WorkspacePage() {
 
   const toggleAgent = useCallback(async (agentId: string, currentEnabled: boolean) => {
     try {
-      const res = await fetch(`/api/agents/${agentId}/toggle`, { method: 'PATCH' });
+      const res = await apiFetch(`/api/agents/${agentId}/toggle`, { method: 'PATCH' });
       if (!res.ok) throw new Error('Failed to toggle');
       addToast(
         `${AGENT_ROLES.find((a) => a.id === agentId)?.name || agentId} ${!currentEnabled ? 'resumed' : 'paused'}`,
@@ -84,7 +85,7 @@ export default function WorkspacePage() {
       const token = auth.currentUser ? await auth.currentUser.getIdToken() : '';
       const h: Record<string, string> = {};
       if (token) h['Authorization'] = `Bearer ${token}`;
-      const res = await fetch('/api/pipeline/reset', { method: 'POST', headers: h });
+      const res = await apiFetch('/api/pipeline/reset', { method: 'POST', headers: h });
       const data = await res.json();
       if (data.success) {
         addToast(`Reset ${data.resetCount || 0} agent statuses`, 'success');

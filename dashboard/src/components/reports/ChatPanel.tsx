@@ -4,6 +4,7 @@ import { useState, useEffect, useRef } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Bot, Send, Loader2, Sparkles, ExternalLink, Trash2, RefreshCw } from 'lucide-react';
 import { auth } from '@/lib/firebase';
+import { apiFetch } from '@/lib/api-fetch';
 
 interface ChatAction {
   label: string;
@@ -86,7 +87,7 @@ export function ChatPanel() {
       if (!user) throw new Error('Not authenticated');
       const token = await user.getIdToken();
 
-      const res = await fetch('/api/reports/chat', {
+      const res = await apiFetch('/api/reports/chat', {
         method: 'POST',
         headers: {
           authorization: `Bearer ${token}`,

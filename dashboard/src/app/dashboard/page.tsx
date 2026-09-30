@@ -19,6 +19,7 @@ import { Rocket, Calendar, Lightbulb, TrendingUp, BarChart3, Newspaper } from 'l
 import Link from 'next/link';
 import { AgentWorkflow } from '@/components/pipeline/AgentWorkflow';
 import Image from 'next/image';
+import { apiFetch } from '@/lib/api-fetch';
 
 interface PipelineTrigger {
   id: string;
@@ -121,7 +122,7 @@ export default function DashboardPage() {
       const token = auth.currentUser ? await auth.currentUser.getIdToken() : '';
       const h: Record<string, string> = { 'Content-Type': 'application/json' };
       if (token) h['Authorization'] = `Bearer ${token}`;
-      const res = await fetch('/api/pipeline-triggers', {
+      const res = await apiFetch('/api/pipeline-triggers', {
         method: 'POST',
         headers: h,
         body: JSON.stringify({

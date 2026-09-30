@@ -4,6 +4,7 @@ import { useState, useEffect } from 'react';
 import { motion } from 'framer-motion';
 import { Sparkles, TrendingUp, TrendingDown, Loader2, AlertTriangle, CheckCircle, Eye } from 'lucide-react';
 import { auth } from '@/lib/firebase';
+import { apiFetch } from '@/lib/api-fetch';
 import {
   ScatterChart, Scatter, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid, Cell,
   BarChart, Bar,
@@ -46,8 +47,8 @@ export function QualityInsights() {
         const headers = { authorization: `Bearer ${token}` };
 
         const [corrRes, qualRes] = await Promise.all([
-          fetch('/api/reports/correlations', { headers }),
-          fetch('/api/reports/quality-trends', { headers }),
+          apiFetch('/api/reports/correlations', { headers }),
+          apiFetch('/api/reports/quality-trends', { headers }),
         ]);
 
         if (!cancelled) {

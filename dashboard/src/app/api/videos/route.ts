@@ -1,24 +1,11 @@
 import { NextResponse } from 'next/server';
-import { getAdminFirestore, getAdminAuth } from '@/lib/firebase-admin';
-
-async function verifyAuth(request: Request): Promise<{ uid: string } | null> {
-  const authHeader = request.headers.get('authorization');
-  if (!authHeader?.startsWith('Bearer ')) return null;
-  try {
-    const token = authHeader.slice(7);
-    const decoded = await getAdminAuth().verifyIdToken(token);
-    return { uid: decoded.uid };
-  } catch {
-    return null;
-  }
-}
+import { getAdminFirestore } from '@/lib/firebase-admin';
+import { requireUser } from '@/lib/api-auth';
 
 export async function GET(request: Request) {
   try {
-    const user = await verifyAuth(request);
-    if (!user) {
-      return NextResponse.json({ success: false, error: 'Unauthorized' }, { status: 401 });
-    }
+    const auth = await requireUser(request);
+    if (!auth.ok) return auth.response;
 
     const db = getAdminFirestore();
     const snapshot = await db.collection('videos').orderBy('created_at', 'desc').limit(50).get();
@@ -63,10 +50,8 @@ export async function GET(request: Request) {
 
 export async function POST(request: Request) {
   try {
-    const user = await verifyAuth(request);
-    if (!user) {
-      return NextResponse.json({ success: false, error: 'Unauthorized' }, { status: 401 });
-    }
+    const auth = await requireUser(request);
+    if (!auth.ok) return auth.response;
     const body = await request.json();
     return NextResponse.json({ success: true, videoId: Date.now().toString(), ...body });
   } catch {

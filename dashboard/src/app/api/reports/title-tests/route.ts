@@ -1,25 +1,11 @@
 import { NextResponse } from 'next/server';
 import { getAdminFirestore } from '@/lib/firebase-admin';
-
-async function verifyAuth(request: Request): Promise<{ uid: string } | null> {
-  const authHeader = request.headers.get('authorization');
-  if (!authHeader?.startsWith('Bearer ')) return null;
-  try {
-    const token = authHeader.slice(7);
-    const { getAdminAuth } = await import('@/lib/firebase-admin');
-    const decoded = await getAdminAuth().verifyIdToken(token);
-    return { uid: decoded.uid };
-  } catch {
-    return null;
-  }
-}
+import { requireUser } from '@/lib/api-auth';
 
 export async function GET(request: Request) {
   try {
-    const user = await verifyAuth(request);
-    if (!user) {
-      return NextResponse.json({ success: false, error: 'Unauthorized' }, { status: 401 });
-    }
+    const auth = await requireUser(request);
+    if (!auth.ok) return auth.response;
 
     const db = getAdminFirestore();
     const videosSnap = await db.collection('videos')
@@ -82,10 +68,8 @@ export async function GET(request: Request) {
 
 export async function POST(request: Request) {
   try {
-    const user = await verifyAuth(request);
-    if (!user) {
-      return NextResponse.json({ success: false, error: 'Unauthorized' }, { status: 401 });
-    }
+    const auth = await requireUser(request);
+    if (!auth.ok) return auth.response;
 
     const body = await request.json();
     const { videoId, action } = body;

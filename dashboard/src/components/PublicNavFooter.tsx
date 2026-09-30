@@ -6,9 +6,11 @@ import { onAuthStateChanged } from 'firebase/auth';
 import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { auth } from '@/lib/firebase';
+import { useGoToDashboard } from '@/lib/auth-nav';
 
 export default function PublicNavFooter({ children }: { children: React.ReactNode }) {
   const router = useRouter();
+  const goToDashboard = useGoToDashboard();
   const [user, setUser] = useState<any>(null);
   const [authChecked, setAuthChecked] = useState(false);
 
@@ -48,9 +50,11 @@ export default function PublicNavFooter({ children }: { children: React.ReactNod
           <a href="mailto:support@vyomai.cloud" className="hover:text-white transition-colors">Contact</a>
         </div>
         <div className="flex items-center gap-3">
-          {user ? (
+          {!authChecked ? (
+            <div className="px-5 py-2 rounded-xl bg-white/10 animate-pulse" aria-hidden />
+          ) : user ? (
             <button
-              onClick={() => router.push('/dashboard')}
+              onClick={goToDashboard}
               className="px-5 py-2 rounded-xl font-semibold text-sm text-white transition-all duration-300"
               style={{
                 background: 'linear-gradient(135deg, #FF6969, #C80036)',

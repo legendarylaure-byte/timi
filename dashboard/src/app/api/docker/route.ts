@@ -1,4 +1,5 @@
 import { NextResponse } from 'next/server';
+import { requireUser } from '@/lib/api-auth';
 import { execSync } from 'child_process';
 
 interface ContainerInfo {
@@ -16,7 +17,10 @@ function isVercel(): boolean {
   return process.env.VERCEL === '1' || process.env.VERCEL_URL !== undefined;
 }
 
-export async function GET() {
+export async function GET(request: Request) {
+  const auth = await requireUser(request);
+  if (!auth.ok) return auth.response;
+
   if (isVercel()) {
     return NextResponse.json({
       available: false,

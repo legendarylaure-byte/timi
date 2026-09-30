@@ -10,6 +10,7 @@ import Image from 'next/image';
 import PlatformBadge from '@/components/platforms/PlatformBadge';
 import VideoPreview from '@/components/ui/VideoPreview';
 import { LayoutGrid, List, Trash2 } from 'lucide-react';
+import { apiFetch } from '@/lib/api-fetch';
 
 interface VideoDoc {
   id: string;
@@ -145,7 +146,7 @@ export default function ArchivePage() {
   const handleBatchDelete = async () => {
     setBatchDeleting(true);
     try {
-      const res = await fetch('/api/videos/batch-delete', {
+      const res = await apiFetch('/api/videos/batch-delete', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ ids: Array.from(selectedIds) }),

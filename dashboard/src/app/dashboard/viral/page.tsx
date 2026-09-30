@@ -8,6 +8,7 @@ import {
   Share2, ExternalLink, CheckCircle, XCircle, BarChart3, Globe,
 } from 'lucide-react';
 import Image from 'next/image';
+import { apiFetch } from '@/lib/api-fetch';
 
 interface ViralStatus {
   active: boolean;
@@ -135,10 +136,10 @@ export default function SocialMediaPostPage() {
   const loadAll = useCallback(async () => {
     try {
       const [sRes, aRes, pRes, iRes] = await Promise.all([
-        fetch('/api/viral/status'),
-        fetch('/api/viral/activity'),
-        fetch('/api/viral/posts'),
-        fetch('/api/viral/insights'),
+        apiFetch('/api/viral/status'),
+        apiFetch('/api/viral/activity'),
+        apiFetch('/api/viral/posts'),
+        apiFetch('/api/viral/insights'),
       ]);
       if (sRes.ok) {
         const s = await sRes.json();
@@ -171,7 +172,7 @@ export default function SocialMediaPostPage() {
     if (!status) return;
     setToggling(true);
     try {
-      const res = await fetch('/api/viral/toggle', {
+      const res = await apiFetch('/api/viral/toggle', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ active: !status.active }),
@@ -186,7 +187,7 @@ export default function SocialMediaPostPage() {
   const handleTestNow = async () => {
     setTesting(true); setTestMsg(null); setTestErr(null);
     try {
-      const res = await fetch('/api/viral/test-now', { method: 'POST' });
+      const res = await apiFetch('/api/viral/test-now', { method: 'POST' });
       const data = await res.json();
       if (res.ok) setTestMsg(data.message || `Triggered (${data.trigger_id})`);
       else setTestErr(data.error || 'Failed to trigger');
@@ -198,7 +199,7 @@ export default function SocialMediaPostPage() {
   const handleSaveThreshold = async () => {
     setSavingThr(true); setTestErr(null); setTestMsg(null);
     try {
-      const res = await fetch('/api/viral/config', {
+      const res = await apiFetch('/api/viral/config', {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(thr),

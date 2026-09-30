@@ -7,6 +7,7 @@ import { collection, doc, onSnapshot, query, orderBy, limit, Timestamp } from 'f
 import { PIPELINE_STEPS, AGENT_ROLES } from '@/lib/constants';
 import { useToast } from '@/components/ui/Toast';
 import Tooltip from '@/components/ui/Tooltip';
+import { apiFetch } from '@/lib/api-fetch';
 
 interface PipelineStatus {
   running: boolean;
@@ -58,7 +59,7 @@ export function ActivePipeline() {
       const token = auth.currentUser ? await auth.currentUser.getIdToken() : '';
       const h: Record<string, string> = {};
       if (token) h['Authorization'] = `Bearer ${token}`;
-      const res = await fetch('/api/pipeline/reset', { method: 'POST', headers: h });
+      const res = await apiFetch('/api/pipeline/reset', { method: 'POST', headers: h });
       const data = await res.json();
       if (data.success) {
         addToast(`Reset ${data.resetCount || 0} agent statuses`, 'success');

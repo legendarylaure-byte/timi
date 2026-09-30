@@ -9,8 +9,13 @@ export async function POST(request: Request) {
       if (!idToken) {
         return NextResponse.json({ success: false, message: 'Missing idToken' }, { status: 400 });
       }
-      const decoded = await getAdminAuth().verifyIdToken(idToken);
-      return NextResponse.json({ success: true, uid: decoded.uid, email: decoded.email });
+       const decoded = await getAdminAuth().verifyIdToken(idToken);
+       // ALLOWLIST
+       const { isAllowedEmail } = await import('@/lib/allowed-emails');
+       if (!isAllowedEmail(decoded.email)) {
+         return NextResponse.json({ success: false, message: 'Not authorized', email: decoded.email || null }, { status: 403 });
+       }
+       return NextResponse.json({ success: true, uid: decoded.uid, email: decoded.email });
     }
 
     return NextResponse.json({

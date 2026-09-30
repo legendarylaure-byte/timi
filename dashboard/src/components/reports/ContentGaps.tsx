@@ -4,6 +4,7 @@ import { useState, useEffect } from 'react';
 import { motion } from 'framer-motion';
 import { Flame, Clock, Eye, Loader2, AlertTriangle, CheckCircle } from 'lucide-react';
 import { auth } from '@/lib/firebase';
+import { apiFetch } from '@/lib/api-fetch';
 
 interface GapItem {
   category: string;
@@ -28,7 +29,7 @@ export function ContentGaps() {
         const user = auth.currentUser;
         if (!user) return;
         const token = await user.getIdToken();
-        const res = await fetch('/api/reports/content-gaps', {
+        const res = await apiFetch('/api/reports/content-gaps', {
           headers: { authorization: `Bearer ${token}` },
         });
         if (!res.ok) throw new Error(`HTTP ${res.status}`);

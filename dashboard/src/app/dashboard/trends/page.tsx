@@ -7,6 +7,7 @@ import { collection, getDocs, addDoc, serverTimestamp, orderBy, query, limit, on
 import { CONTENT_CATEGORIES } from '@/lib/constants';
 import Image from 'next/image';
 import { Flame, TrendingUp, Search, Target, Star, Eye, BarChart3, Loader2 } from 'lucide-react';
+import { apiFetch } from '@/lib/api-fetch';
 
 interface TrendItem {
   id: string;
@@ -69,7 +70,7 @@ export default function TrendsPage() {
   const discoverTrends = async () => {
     setRefreshing(true);
     try {
-      const response = await fetch('/api/agents', {
+      const response = await apiFetch('/api/agents', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ action: 'discover_trends' }),

@@ -4,6 +4,7 @@ import { useState, useEffect } from 'react';
 import { motion } from 'framer-motion';
 import { TrendingUp, Eye, Users, DollarSign, Loader2 } from 'lucide-react';
 import { auth } from '@/lib/firebase';
+import { apiFetch } from '@/lib/api-fetch';
 import {
   AreaChart, Area, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid,
 } from 'recharts';
@@ -37,8 +38,8 @@ export function PerformanceTrends() {
         const headers = { authorization: `Bearer ${token}` };
 
         const [growthRes, qualityRes] = await Promise.all([
-          fetch('/api/reports/growth-forecast', { headers }),
-          fetch('/api/reports/quality-trends', { headers }),
+          apiFetch('/api/reports/growth-forecast', { headers }),
+          apiFetch('/api/reports/quality-trends', { headers }),
         ]);
 
         if (!cancelled) {

@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { setOAuthState } from '@/lib/oauth-state';
 
 const YOUTUBE_CLIENT_ID = process.env.YOUTUBE_CLIENT_ID || '';
 const YOUTUBE_REDIRECT_URI = process.env.YOUTUBE_REDIRECT_URI || 'http://localhost:3000/api/auth/youtube/callback';
@@ -22,6 +23,7 @@ export async function GET(request: NextRequest) {
     ].join(' '));
     authUrl.searchParams.set('access_type', 'offline');
     authUrl.searchParams.set('prompt', 'consent');
+    authUrl.searchParams.set('state', await setOAuthState());
 
     return NextResponse.redirect(authUrl.toString());
   }

@@ -1,4 +1,5 @@
 import { NextResponse } from 'next/server';
+import { requireUser } from '@/lib/api-auth';
 
 // Verified news sources — mirrors the back-end VERIFIED_HOSTS in news_scraper.py
 // so the dashboard shows the same allowlist the scraper uses.
@@ -18,6 +19,9 @@ const SOURCES = [
   { name: 'MoHA Nepal', category: 'Nepal News', lang: 'en', url: 'https://www.moha.gov.np/rss' },
 ];
 
-export async function GET() {
+export async function GET(request: Request) {
+  const auth = await requireUser(request);
+  if (!auth.ok) return auth.response;
+
   return NextResponse.json({ sources: SOURCES });
 }

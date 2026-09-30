@@ -3,6 +3,7 @@
 import { useEffect, useState } from 'react';
 import { useSearchParams } from 'next/navigation';
 import { Suspense } from 'react';
+import { apiFetch } from '@/lib/api-fetch';
 
 function ReviewContent() {
   const searchParams = useSearchParams();
@@ -28,7 +29,7 @@ function ReviewContent() {
     setResult(null);
     setErrorMsg(null);
     try {
-      const res = await fetch('/api/review/publish', { method: 'POST' });
+      const res = await apiFetch('/api/review/publish', { method: 'POST' });
       const data = await res.json();
       if (data.success) {
         setResult({ ok: true, message: `Published successfully. Post ID: ${data.post_id}` });

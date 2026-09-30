@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { auth } from '@/lib/firebase';
+import { isAllowedUser } from '@/lib/api-fetch';
 import { signInWithPopup, GoogleAuthProvider } from 'firebase/auth';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
@@ -86,6 +87,12 @@ export default function SignupPage() {
       const provider = new GoogleAuthProvider();
       const result = await signInWithPopup(auth, provider);
       if (result.user) {
+        if (!(await isAllowedUser())) {
+          try { await auth.signOut(); } catch {}
+          setError("Your email is not on the allowlist. Contact the administrator.");
+          setLoading(false);
+          return;
+        }
         router.push('/dashboard');
       }
     } catch (err: any) {

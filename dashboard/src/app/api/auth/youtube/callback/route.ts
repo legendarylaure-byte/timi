@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { verifyOAuthState } from '@/lib/oauth-state';
 import { APP_URL } from '@/lib/constants';
 import { getAdminFirestore } from '@/lib/firebase-admin';
 
@@ -27,6 +28,17 @@ export async function GET(request: NextRequest) {
   if (!state) {
     return NextResponse.redirect(
       `${APP_URL}/dashboard/settings?error=missing_state`
+    );
+  }
+
+  // ponytail: this flow is currently dead (no caller ever passed a userId, so
+  // state used to be absent and the handler bailed on missing_state). We only
+  // close the forgery hole here — an unauthenticated write of tokens keyed by an
+  // attacker-chosen userId — rather than rebuilding the flow.
+  if (!(await verifyOAuthState(state))) {
+    console.error('[YOUTUBE CALLBACK] rejected: state mismatch (possible CSRF)');
+    return NextResponse.redirect(
+      `${APP_URL}/dashboard/settings?error=bad_state`
     );
   }
 

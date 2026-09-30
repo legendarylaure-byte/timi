@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import { auth } from '@/lib/firebase';
+import { useGoToDashboard } from '@/lib/auth-nav';
 import { onAuthStateChanged } from 'firebase/auth';
 import { useRouter } from 'next/navigation';
 import { motion } from 'framer-motion';
@@ -32,6 +33,7 @@ const STATS = [
 
 export default function Home() {
   const router = useRouter();
+  const goToDashboard = useGoToDashboard();
   const [user, setUser] = useState<any>(null);
   const [authChecked, setAuthChecked] = useState(false);
 
@@ -69,9 +71,11 @@ export default function Home() {
           <Link href="/faq" className="hover:text-white transition-colors">FAQ</Link>
         </div>
         <div className="flex items-center gap-3">
-          {user ? (
+          {!authChecked ? (
+            <div className="px-5 py-2 rounded-xl bg-white/10 animate-pulse" aria-hidden />
+          ) : user ? (
             <button
-              onClick={() => router.push('/dashboard')}
+              onClick={goToDashboard}
               className="px-5 py-2 rounded-xl font-semibold text-sm text-white transition-all duration-300"
               style={{
                 background: 'linear-gradient(135deg, #FF6969, #C80036)',
@@ -136,9 +140,11 @@ export default function Home() {
           </p>
 
           <div className="flex items-center justify-center gap-4 flex-wrap">
-            {user ? (
+            {!authChecked ? (
+              <div className="px-8 py-4 rounded-2xl bg-white/10 animate-pulse" aria-hidden />
+            ) : user ? (
               <button
-                onClick={() => router.push('/dashboard')}
+                onClick={goToDashboard}
                 className="px-8 py-4 rounded-2xl font-bold text-white text-lg transition-all duration-300 flex items-center gap-2"
                 style={{
                   background: 'linear-gradient(135deg, #FF6969, #C80036)',
@@ -302,9 +308,11 @@ export default function Home() {
           <p className="text-gray-400 mb-8 max-w-md mx-auto">
             Join 500+ creators using Vyom Ai Cloud to publish daily without lifting a finger.
           </p>
-          {user ? (
+          {!authChecked ? (
+            <div className="px-8 py-4 rounded-2xl bg-white/10 animate-pulse" aria-hidden />
+          ) : user ? (
             <button
-              onClick={() => router.push('/dashboard')}
+              onClick={goToDashboard}
               className="px-8 py-4 rounded-2xl font-bold text-white text-lg transition-all duration-300"
               style={{
                 background: 'linear-gradient(135deg, #FF6969, #C80036)',

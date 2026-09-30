@@ -1,25 +1,12 @@
 import { NextResponse } from 'next/server';
-import { getAdminFirestore, getAdminAuth } from '@/lib/firebase-admin';
+import { getAdminFirestore } from '@/lib/firebase-admin';
+import { requireUser } from '@/lib/api-auth';
 import { FieldValue } from 'firebase-admin/firestore';
-
-async function verifyAuth(request: Request): Promise<{ uid: string } | null> {
-  const authHeader = request.headers.get('authorization');
-  if (!authHeader?.startsWith('Bearer ')) return null;
-  try {
-    const token = authHeader.slice(7);
-    const decoded = await getAdminAuth().verifyIdToken(token);
-    return { uid: decoded.uid };
-  } catch {
-    return null;
-  }
-}
 
 export async function GET(request: Request) {
   try {
-    const user = await verifyAuth(request);
-    if (!user) {
-      return NextResponse.json({ success: false, error: 'Unauthorized' }, { status: 401 });
-    }
+    const auth = await requireUser(request);
+    if (!auth.ok) return auth.response;
 
     const db = getAdminFirestore();
 
@@ -76,10 +63,8 @@ export async function GET(request: Request) {
 
 export async function POST(request: Request) {
   try {
-    const user = await verifyAuth(request);
-    if (!user) {
-      return NextResponse.json({ success: false, error: 'Unauthorized' }, { status: 401 });
-    }
+    const auth = await requireUser(request);
+    if (!auth.ok) return auth.response;
 
     const body = await request.json();
     const { action } = body;
@@ -155,10 +140,8 @@ export async function POST(request: Request) {
 
 export async function PUT(request: Request) {
   try {
-    const user = await verifyAuth(request);
-    if (!user) {
-      return NextResponse.json({ success: false, error: 'Unauthorized' }, { status: 401 });
-    }
+    const auth = await requireUser(request);
+    if (!auth.ok) return auth.response;
 
     const body = await request.json();
     const { id, title, category, format, scheduled_at, status } = body;
@@ -185,10 +168,8 @@ export async function PUT(request: Request) {
 
 export async function DELETE(request: Request) {
   try {
-    const user = await verifyAuth(request);
-    if (!user) {
-      return NextResponse.json({ success: false, error: 'Unauthorized' }, { status: 401 });
-    }
+    const auth = await requireUser(request);
+    if (!auth.ok) return auth.response;
 
     const { searchParams } = new URL(request.url);
     const id = searchParams.get('id');

@@ -1,10 +1,14 @@
 import { NextResponse } from 'next/server';
+import { requireUser } from '@/lib/api-auth';
 import { getAdminFirestore } from '@/lib/firebase-admin';
 import { Timestamp } from 'firebase-admin/firestore';
 
 // Audit-compliance: reject when no privacy level is selected (no implicit default),
 // matching the backend hard-fail. Comment/duet/stitch default to off.
 export async function POST(request: Request) {
+  const auth = await requireUser(request);
+  if (!auth.ok) return auth.response;
+
   try {
     const body = await request.json();
     const { video_id, title, description, format, category, privacy_level, comment_disabled, duet_disabled, stitch_disabled, brand_organic, brand_content, express_consent, music_usage_confirmed } = body;

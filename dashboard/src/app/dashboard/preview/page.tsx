@@ -4,6 +4,7 @@ import { useState } from 'react';
 import { motion } from 'framer-motion';
 import { auth } from '@/lib/firebase';
 import { Palette, Loader2 } from 'lucide-react';
+import { apiFetch } from '@/lib/api-fetch';
 
 const BACKGROUNDS = [
   'solid_black', 'solid_white', 'solid_indigo', 'solid_slate',
@@ -46,7 +47,7 @@ export default function PreviewPage() {
         music_mood: mood,
       };
 
-      const res = await fetch('/api/preview/scene', {
+      const res = await apiFetch('/api/preview/scene', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
         body: JSON.stringify({ scene, format_type: format }),

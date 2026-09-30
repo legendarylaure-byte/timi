@@ -1,7 +1,11 @@
 import { NextResponse } from 'next/server';
+import { requireUser } from '@/lib/api-auth';
 import { getAdminFirestore } from '@/lib/firebase-admin';
 
-export async function POST() {
+export async function POST(request: Request) {
+  const auth = await requireUser(request);
+  if (!auth.ok) return auth.response;
+
   try {
     const db = getAdminFirestore();
     const trigger = await db.collection('viral_news_triggers').add({

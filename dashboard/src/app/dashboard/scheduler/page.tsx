@@ -4,6 +4,7 @@ import { useState, useEffect } from 'react';
 import { motion } from 'framer-motion';
 import { auth } from '@/lib/firebase';
 import { Clock, Play, Pause, Calendar, Layers, ChevronLeft, ChevronRight, Edit3, Trash2, Check, X, Loader2 } from 'lucide-react';
+import { apiFetch } from '@/lib/api-fetch';
 
 interface SchedulerStatus {
   running: boolean;
@@ -80,7 +81,7 @@ export default function SchedulerPage() {
       const headers: Record<string, string> = {};
       if (token) headers['Authorization'] = `Bearer ${token}`;
 
-      const res = await fetch('/api/scheduler', { headers });
+      const res = await apiFetch('/api/scheduler', { headers });
       const data = await res.json();
 
       if (data.success) {
@@ -119,7 +120,7 @@ export default function SchedulerPage() {
         if (category) body.category = category;
       }
 
-      const res = await fetch('/api/scheduler', {
+      const res = await apiFetch('/api/scheduler', {
         method: 'POST',
         headers,
         body: JSON.stringify(body),
@@ -147,7 +148,7 @@ export default function SchedulerPage() {
     if (!confirm('Delete this plan item?')) return;
     try {
       const token = auth.currentUser ? await auth.currentUser.getIdToken() : '';
-      await fetch(`/api/scheduler?id=${id}`, {
+      await apiFetch(`/api/scheduler?id=${id}`, {
         method: 'DELETE',
         headers: { Authorization: `Bearer ${token}` },
       });
@@ -172,7 +173,7 @@ export default function SchedulerPage() {
     if (!editingId) return;
     try {
       const token = auth.currentUser ? await auth.currentUser.getIdToken() : '';
-      await fetch('/api/scheduler', {
+      await apiFetch('/api/scheduler', {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
         body: JSON.stringify({ id: editingId, ...editForm }),
@@ -189,7 +190,7 @@ export default function SchedulerPage() {
     setSeriesScheduling(true);
     try {
       const token = auth.currentUser ? await auth.currentUser.getIdToken() : '';
-      await fetch('/api/scheduler', {
+      await apiFetch('/api/scheduler', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
         body: JSON.stringify({

@@ -1,18 +1,7 @@
 import { NextResponse } from 'next/server';
-import { getAdminFirestore, getAdminAuth } from '@/lib/firebase-admin';
+import { getAdminFirestore } from '@/lib/firebase-admin';
+import { requireUser } from '@/lib/api-auth';
 import { rateLimitMiddleware } from '@/lib/rate-limit';
-
-async function verifyAuth(request: Request): Promise<{ uid: string } | null> {
-  const authHeader = request.headers.get('authorization');
-  if (!authHeader?.startsWith('Bearer ')) return null;
-  try {
-    const token = authHeader.slice(7);
-    const decoded = await getAdminAuth().verifyIdToken(token);
-    return { uid: decoded.uid };
-  } catch {
-    return null;
-  }
-}
 
 const SYSTEM_PROMPT = `You are Vyom, an AI content strategist for a tech education YouTube channel called "Timi". You analyze content performance data and provide actionable recommendations.
 
@@ -250,10 +239,8 @@ export async function POST(request: Request) {
   if (rateLimitResponse) return rateLimitResponse;
 
   try {
-    const user = await verifyAuth(request);
-    if (!user) {
-      return NextResponse.json({ success: false, error: 'Unauthorized' }, { status: 401 });
-    }
+    const auth = await requireUser(request);
+    if (!auth.ok) return auth.response;
 
     const body = await request.json();
     const { message, sessionId: existingSessionId } = body;
@@ -262,6 +249,7 @@ export async function POST(request: Request) {
     }
 
     const db = getAdminFirestore();
+    const { user } = auth;
     const sessionId = existingSessionId || `session_${user.uid}_${Date.now()}`;
     const apiKey = process.env.GEMINI_API_KEY || '';
 

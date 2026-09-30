@@ -14,6 +14,7 @@ import { GoalsPanel } from '@/components/reports/GoalsPanel';
 import { ChatPanel } from '@/components/reports/ChatPanel';
 import { TitleTesting } from '@/components/reports/TitleTesting';
 import { ContentCalendar } from '@/components/reports/ContentCalendar';
+import { apiFetch } from '@/lib/api-fetch';
 
 const tabs = [
   { id: 'summary', label: 'Executive Summary', icon: BarChart3 },
@@ -47,7 +48,7 @@ export default function ReportsPage() {
     let filename = 'report';
 
     try {
-      const res = await fetch('/api/reports/summary');
+      const res = await apiFetch('/api/reports/summary');
       if (res.ok) {
         const json = await res.json();
         data = [json];

@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { verifyOAuthState } from '@/lib/oauth-state';
 import { getAdminFirestore } from '@/lib/firebase-admin';
 
 const FB_APP_ID = process.env.FACEBOOK_APP_ID || '';
@@ -32,6 +33,12 @@ export async function GET(request: NextRequest) {
 
   if (!code) {
     return NextResponse.redirect(demo ? REDIRECT_ERR_DEMO('missing_code') : REDIRECT_ERR('missing_code'));
+  }
+
+  // The cookie holds the raw hex; the demo variant prefixes it.
+  if (!(await verifyOAuthState(state.replace(/^demo-/, '')))) {
+    console.error('[META CALLBACK] rejected: state mismatch (possible CSRF)');
+    return NextResponse.redirect(demo ? REDIRECT_ERR_DEMO('bad_state') : REDIRECT_ERR('bad_state'));
   }
 
   if (!FB_APP_ID || !FB_APP_SECRET) {

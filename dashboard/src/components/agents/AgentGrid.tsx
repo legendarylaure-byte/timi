@@ -6,6 +6,7 @@ import { db } from '@/lib/firebase';
 import { collection, onSnapshot, query, orderBy, limit, Timestamp, where, getDocs, doc } from 'firebase/firestore';
 import { AgentCard } from './AgentCard';
 import { IdleAgentExplainer } from './IdleAgentExplainer';
+import { apiFetch } from '@/lib/api-fetch';
 
 interface AgentStatus {
   agent_id: string;
@@ -99,7 +100,7 @@ export function AgentGrid() {
 
   const handleToggle = useCallback(async (agentId: string, currentEnabled: boolean) => {
     try {
-      const res = await fetch(`/api/agents/${agentId}/toggle`, {
+      const res = await apiFetch(`/api/agents/${agentId}/toggle`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ enabled: !currentEnabled }),

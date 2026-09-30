@@ -2,6 +2,8 @@
 
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { auth } from '@/lib/firebase';
+import { isAllowedUser } from '@/lib/api-fetch';
+import { safeNext } from '@/lib/auth-nav';
 import { signInWithPopup, signInWithEmailAndPassword, GoogleAuthProvider } from 'firebase/auth';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
@@ -40,6 +42,11 @@ export default function LoginPage() {
 
   useEffect(() => {
     setMounted(true);
+    // The dashboard sends non-owners back here with a reason; say it out loud
+    // instead of dropping them on a bare sign-in form.
+    if (new URLSearchParams(window.location.search).get('error') === 'not_allowed') {
+      setError('This account is not authorised for the dashboard. Contact the administrator.');
+    }
   }, []);
 
   useEffect(() => {
@@ -89,7 +96,13 @@ export default function LoginPage() {
       const provider = new GoogleAuthProvider();
       const result = await signInWithPopup(auth, provider);
       if (result.user) {
-        router.replace('/dashboard');
+        if (!(await isAllowedUser())) {
+          try { await auth.signOut(); } catch {}
+          setError("Your email is not on the allowlist. Contact the administrator.");
+          setLoading(false);
+          return;
+        }
+        router.replace(safeNext(new URLSearchParams(window.location.search).get('next')));
       }
     } catch (err: any) {
       if (err.code !== 'auth/popup-closed-by-user') {

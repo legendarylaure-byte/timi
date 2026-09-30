@@ -1,29 +1,52 @@
 rules_version = '2';
 service firebase.storage {
   match /b/{bucket}/o {
-    
-    // User profile images
+
+    // Storage rules CANNOT read an env var, so the owner email is declared
+    // here. It MUST match ownerEmail() in firestore.rules and ALLOWED_EMAILS
+    // on Vercel — three places, one value.
+    function ownerEmail() { return "legendarylaure@gmail.com"; }
+
+    function isOwner() {
+      return request.auth != null
+        && request.auth.token.email != null
+        && request.auth.token.email.lower() == ownerEmail();
+    }
+
+    // User profile images — own avatar only
     match /users/{userId}/avatar/{fileName} {
-      allow read: if request.auth != null;
-      allow write: if request.auth != null && request.auth.uid == userId
+      allow read: if isOwner() && request.auth.uid == userId;
+      allow write: if isOwner() && request.auth.uid == userId
                    && request.resource.size < 5 * 1024 * 1024;
     }
-    
-    // Video outputs
+
+    // Video outputs — owner only.
+    // Was `request.auth != null`, i.e. ANY signed-in user could read every
+    // rendered video. Note /signup still creates accounts, so "signed in" was
+    // not a meaningful boundary.
     match /videos/{videoId}/{fileName} {
-      allow read: if request.auth != null;
+      allow read: if isOwner();
       allow write: if false; // Only backend agents can upload
     }
-    
-    // Thumbnails
+
+    // Thumbnails — was PUBLIC (allow read: if true), so anyone who guessed or
+    // enumerated a video id could pull the image. Real assets live in
+    // Cloudflare R2 behind /api/storage/*, which is gated by requireUser();
+    // nothing in the browser reads Firebase Storage.
     match /thumbnails/{videoId}/{fileName} {
-      allow read: if true; // Public for video playback
+      allow read: if isOwner();
       allow write: if false; // Only backend agents can upload
     }
-    
+
     // Agent assets (temp files)
     match /assets/{agentId}/{fileName} {
       allow read, write: if false; // Internal only
+    }
+
+    // Anything not listed above is closed. Without this, a new client-side
+    // path is open by default until someone remembers to add a rule.
+    match /{allPaths=**} {
+      allow read, write: if false;
     }
   }
 }

@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { APP_URL } from '@/lib/constants';
+import { verifyOAuthState } from '@/lib/oauth-state';
 import { getAdminFirestore } from '@/lib/firebase-admin';
 
 const TIKTOK_CLIENT_KEY = process.env.TIKTOK_CLIENT_KEY || '';
@@ -20,6 +21,13 @@ export async function GET(request: NextRequest) {
   if (!code) {
     return NextResponse.redirect(
       `${APP_URL}/dashboard/settings?error=tiktok_missing_code`
+    );
+  }
+
+  if (!(await verifyOAuthState(searchParams.get('state')))) {
+    console.error('[TIKTOK CALLBACK] rejected: state mismatch (possible CSRF)');
+    return NextResponse.redirect(
+      `${APP_URL}/dashboard/settings?error=tiktok_bad_state`
     );
   }
 

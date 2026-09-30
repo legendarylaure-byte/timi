@@ -1,4 +1,5 @@
 import { NextResponse } from 'next/server';
+import { requireUser } from '@/lib/api-auth';
 import { S3Client, ListObjectsV2Command } from '@aws-sdk/client-s3';
 
 const R2_ACCOUNT_ID = process.env.CLOUDFLARE_ACCOUNT_ID || '';
@@ -17,7 +18,10 @@ function getR2Client(): S3Client {
   });
 }
 
-export async function GET() {
+export async function GET(request: Request) {
+  const auth = await requireUser(request);
+  if (!auth.ok) return auth.response;
+
   try {
     if (!R2_ACCOUNT_ID || !R2_ACCESS_KEY || !R2_SECRET_KEY) {
       return NextResponse.json({

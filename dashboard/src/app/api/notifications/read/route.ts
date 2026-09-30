@@ -1,7 +1,11 @@
 import { NextResponse } from 'next/server';
+import { requireUser } from '@/lib/api-auth';
 import { getAdminFirestore } from '@/lib/firebase-admin';
 
 export async function POST(request: Request) {
+  const auth = await requireUser(request);
+  if (!auth.ok) return auth.response;
+
   try {
     const body = await request.json();
     const { read_ids, all_ids } = body;

@@ -4,6 +4,7 @@ import { useState, useEffect } from 'react';
 import { motion } from 'framer-motion';
 import { Activity, CheckCircle, XCircle, Clock, DollarSign, TrendingUp, Loader2, AlertTriangle, Video, Music2, Camera, Globe } from 'lucide-react';
 import { auth } from '@/lib/firebase';
+import { apiFetch } from '@/lib/api-fetch';
 import {
   BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid, Cell,
 } from 'recharts';
@@ -37,7 +38,7 @@ export function PipelineHealth() {
         const user = auth.currentUser;
         if (!user) return;
         const token = await user.getIdToken();
-        const res = await fetch('/api/reports/pipeline-health', {
+        const res = await apiFetch('/api/reports/pipeline-health', {
           headers: { authorization: `Bearer ${token}` },
         });
         if (!res.ok) throw new Error(`HTTP ${res.status}`);

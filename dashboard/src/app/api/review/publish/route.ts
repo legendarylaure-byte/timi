@@ -1,9 +1,13 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { requireUser } from '@/lib/api-auth';
 import { getAdminFirestore } from '@/lib/firebase-admin';
 
 const GRAPH_BASE = 'https://graph.facebook.com/v25.0';
 
 export async function POST(request: NextRequest) {
+  const auth = await requireUser(request);
+  if (!auth.ok) return auth.response;
+
   try {
     // Read the stored production token server-side (never returned to the
     // browser). This demo intentionally uses the app's own authorized Page

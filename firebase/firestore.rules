@@ -2,130 +2,131 @@ rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
 
-    // Users collection — owner access only
+    // ---------------------------------------------------------------------
+    // OWNER GATE
+    //
+    // The server-side gate is `requireUser()` (dashboard/src/lib/api-auth.ts),
+    // which checks ALLOWED_EMAILS. Firestore rules CANNOT read an env var, so
+    // the owner email is declared here. KEEP THESE IN SYNC.
+    //
+    // This placeholder denies EVERYONE on purpose: an unconfigured rule set
+    // must fail closed, never open. A gate that defaults to "allow" is not a
+    // gate — the same reason /api/webhook no longer accepts when
+    // WEBHOOK_SECRET is unset.
+    //
+    // CONFIGURED: legendarylaure@gmail.com
+    // ---------------------------------------------------------------------
+    function ownerEmail() { return "legendarylaure@gmail.com"; }
+
+    function isOwner() {
+      return request.auth != null
+        && request.auth.token.email != null
+        && request.auth.token.email.lower() == ownerEmail();
+    }
+
+    // ---------------------------------------------------------------------
+    // WHY isBackend() IS GONE
+    //
+    // It used to be `request.auth == null`, which granted write access to
+    // agents, logs, analytics, system, config, scheduled_posts, agent_status,
+    // activity_logs, monetization, upload_queue, content_plan and series to
+    // ANYONE who simply did not sign in. Those writers are the Docker pipeline
+    // using the Admin SDK, and the Admin SDK BYPASSES security rules entirely —
+    // so it never needed an exemption. The rule only ever widened the hole.
+    //
+    // Writes now come from the Admin SDK (unaffected) or from the allowlisted
+    // owner via the client SDK.
+    // ---------------------------------------------------------------------
+
+    // Own account
     match /users/{userId} {
-      allow read, write: if request.auth != null && request.auth.uid == userId;
+      allow read, write: if isOwner() && request.auth.uid == userId;
     }
 
-    // Channels — read by all auth'd, write by owner
-    match /channels/{channelId} {
-      allow read: if request.auth != null;
-      allow write: if request.auth != null && resource.data.ownerId == request.auth.uid;
-      allow create: if request.auth != null;
-    }
-
-    // Videos — read by all auth'd, create/update by any auth'd, delete by creator
+    // The dashboard only ever reads these; writes are the pipeline's job.
     match /videos/{videoId} {
-      allow read: if request.auth != null;
-      allow create, update: if request.auth != null;
-      allow delete: if request.auth != null && resource.data.createdBy == request.auth.uid;
+      allow read: if isOwner();
+      allow create, update, delete: if isOwner();
     }
 
-    // Backend-only collections — dashboard can read, only backend (unauthed) can write
-    function isBackend() { return request.auth == null; }
-
-    match /agents/{agentId} {
-      allow read: if request.auth != null;
-      allow write: if isBackend();
+    match /channels/{channelId} {
+      allow read: if isOwner();
+      allow create: if isOwner();
+      allow update, delete: if isOwner() && resource.data.ownerId == request.auth.uid;
     }
 
-    match /logs/{logId} {
-      allow read: if request.auth != null;
-      allow write: if isBackend();
-    }
-
-    match /analytics/{docId} {
-      allow read: if request.auth != null;
-      allow write: if isBackend();
-    }
-
-    match /series_plans/{docId} {
-      allow read: if request.auth != null;
-      allow write: if isBackend();
-    }
-
-    match /system/{docId} {
-      allow read: if request.auth != null;
-      allow write: if isBackend();
-    }
-
-    match /config/{docId} {
-      allow read: if request.auth != null;
-      allow write: if isBackend();
-    }
-
-    match /scheduled_posts/{docId} {
-      allow read: if request.auth != null;
-      allow write: if isBackend();
-    }
-
-    // User-facing collections — read/write by auth'd users
-    match /settings/{docId} {
-      allow read, write: if request.auth != null;
-    }
-
-    match /platform_settings/{docId} {
-      allow read, write: if request.auth != null;
-    }
-
-    match /predictions/{docId} {
-      allow read, write: if request.auth != null;
-    }
-
-    match /pipeline_triggers/{docId} {
-      allow read: if request.auth != null;
-      allow create: if request.auth != null;
-      allow update, delete: if isBackend();
+    // Owner may write their own UI preferences.
+    match /notif_preferences/{docId} {
+      allow read, write: if isOwner() && request.auth.uid == docId;
     }
 
     match /notifications/{docId} {
-      allow read, write: if request.auth != null && request.auth.uid == resource.data.userId;
-      allow create: if request.auth != null;
+      allow read: if isOwner() && resource.data.userId == request.auth.uid;
+      allow update: if isOwner() && resource.data.userId == request.auth.uid;
+      allow create: if isOwner();
     }
 
-    match /notif_preferences/{docId} {
-      allow read, write: if request.auth != null && request.auth.uid == docId;
-    }
-
-    // Dashboard collections — read by auth'd users, write by backend
-    match /agent_status/{docId} {
-      allow read: if request.auth != null;
-      allow write: if isBackend();
-    }
-
-    match /activity_logs/{docId} {
-      allow read: if request.auth != null;
-      allow write: if isBackend();
-    }
-
-    match /trends/{docId} {
-      allow read: if request.auth != null;
-      allow write: if isBackend();
-    }
-
-    match /monetization/{docId} {
-      allow read: if request.auth != null;
-      allow write: if isBackend();
-    }
-
+    // Jobs the owner explicitly creates from the dashboard.
     match /repurpose_jobs/{docId} {
-      allow read, create: if request.auth != null;
-      allow update, delete: if request.auth != null && resource.data.createdBy == request.auth.uid;
+      allow read: if isOwner();
+      allow create: if isOwner();
+      allow update, delete: if isOwner() && resource.data.createdBy == request.auth.uid;
     }
 
-    match /upload_queue/{docId} {
-      allow read: if request.auth != null;
-      allow write: if isBackend();
+    match /pipeline_triggers/{docId} {
+      allow read: if isOwner();
+      allow create: if isOwner();
     }
 
-    match /content_plan/{docId} {
-      allow read: if request.auth != null;
-      allow write: if isBackend();
+    // Read-only for the owner; the pipeline writes these.
+    match /agents/{docId} { allow read: if isOwner(); }
+    match /agent_status/{docId} { allow read: if isOwner(); }
+    match /logs/{docId} { allow read: if isOwner(); }
+    match /activity_logs/{docId} { allow read: if isOwner(); }
+    match /analytics/{docId} { allow read: if isOwner(); }
+    match /system/{docId} { allow read: if isOwner(); }
+    match /monetization/{docId} { allow read: if isOwner(); }
+    match /trends/{docId} { allow read: if isOwner(); }
+    match /news_articles/{docId} { allow read: if isOwner(); }
+    match /content_plan/{docId} { allow read: if isOwner(); }
+    match /series/{docId} { allow read: if isOwner(); }
+    match /series_plans/{docId} { allow read: if isOwner(); }
+    match /scheduled_posts/{docId} { allow read: if isOwner(); }
+    match /upload_queue/{docId} { allow read: if isOwner(); }
+    match /tiktok_composer/{docId} { allow read: if isOwner(); }
+    match /viral_news/{docId} { allow read: if isOwner(); }
+    match /viral_news_posts/{docId} { allow read: if isOwner(); }
+    match /viral_runs/{docId} { allow read: if isOwner(); }
+    match /pipeline_checkpoints/{docId} { allow read: if isOwner(); }
+    match /channel_stats/{docId} { allow read: if isOwner(); }
+    match /pipeline_metrics/{docId} { allow read: if isOwner(); }
+    match /env_vars/{docId} {
+      // Secrets. The owner reads them through /api/env-vars, which is gated by
+      // requireUser() and uses the Admin SDK. Direct client reads are denied so
+      // a token can never be lifted out of Firestore by a browser session.
+      allow read, write: if false;
     }
-
-    match /series/{docId} {
-      allow read: if request.auth != null;
-      allow write: if isBackend();
+    match /platform_settings/{docId} {
+      // Holds OAuth access/refresh tokens. Same reasoning: reachable only via
+      // the gated API. Previously `request.auth != null`, i.e. ANY signed-in
+      // user could read and overwrite every platform credential.
+      allow read, write: if false;
+    }
+    match /config/{docId} {
+      // /config/thresholds is read by the browser (src/lib/thresholds.ts).
+      allow read: if isOwner();
+      allow write: if false;
+    }
+    match /settings/{docId} {
+      // /settings/general is read by the browser; writes go through
+      // /api/settings, which uses the Admin SDK and is gated by requireUser().
+      allow read: if isOwner();
+      allow write: if false;
+    }
+    match /predictions/{docId} {
+      // The owner records their own predictions in the Analytics page.
+      allow read, create: if isOwner();
+      allow update, delete: if false;
     }
 
     // Deny everything else

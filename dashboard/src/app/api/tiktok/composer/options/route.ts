@@ -1,10 +1,14 @@
 import { NextResponse } from 'next/server';
+import { requireUser } from '@/lib/api-auth';
 import { getAdminFirestore } from '@/lib/firebase-admin';
 
 // Audit-compliance: fetch the creator's allowed publish options (privacy levels,
 // comment/duet/stitch availability) from /v2/post/publish/creator_info/query/.
 // The UI must NOT preselect a default privacy level.
-export async function GET() {
+export async function GET(request: Request) {
+  const auth = await requireUser(request);
+  if (!auth.ok) return auth.response;
+
   const db = getAdminFirestore();
 
   async function loadToken() {

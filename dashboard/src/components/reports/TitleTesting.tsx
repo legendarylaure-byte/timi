@@ -3,6 +3,7 @@
 import { useState, useEffect } from 'react';
 import { auth } from '@/lib/firebase';
 import { motion } from 'framer-motion';
+import { apiFetch } from '@/lib/api-fetch';
 import {
   FlaskConical, Play, Square, RefreshCw, CheckCircle2,
   XCircle, Clock, ChevronRight, BarChart3,
@@ -51,7 +52,7 @@ export function TitleTesting() {
     if (!token) return;
     try {
       setLoading(true);
-      const res = await fetch('/api/reports/title-tests', {
+      const res = await apiFetch('/api/reports/title-tests', {
         headers: { authorization: `Bearer ${token}` },
       });
       const json = await res.json();
@@ -88,7 +89,7 @@ export function TitleTesting() {
     setAdvancing(videoId);
     try {
       const headers = await authHeaders();
-      await fetch('/api/reports/title-tests', {
+      await apiFetch('/api/reports/title-tests', {
         method: 'POST',
         headers: { ...headers, 'Content-Type': 'application/json' },
         body: JSON.stringify({ videoId, action: 'advance' }),
@@ -101,7 +102,7 @@ export function TitleTesting() {
   const handleStop = async (videoId: string) => {
     try {
       const headers = await authHeaders();
-      await fetch('/api/reports/title-tests', {
+      await apiFetch('/api/reports/title-tests', {
         method: 'POST',
         headers: { ...headers, 'Content-Type': 'application/json' },
         body: JSON.stringify({ videoId, action: 'stop' }),

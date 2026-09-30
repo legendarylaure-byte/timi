@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { requireUser } from '@/lib/api-auth';
 import { rateLimitMiddleware } from '@/lib/rate-limit';
 
 interface PredictionResult {
@@ -96,6 +97,9 @@ function generatePrediction(title: string, category: string, format: string): Pr
 }
 
 export async function POST(request: NextRequest) {
+  const auth = await requireUser(request);
+  if (!auth.ok) return auth.response;
+
   const rateLimitResponse = rateLimitMiddleware(request, 10);
   if (rateLimitResponse) return rateLimitResponse;
 

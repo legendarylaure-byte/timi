@@ -1,9 +1,13 @@
 import { NextResponse } from 'next/server';
+import { requireUser } from '@/lib/api-auth';
 
 const COST_DIR = process.env.AGENTS_DIR || '';
 const COST_LOG = COST_DIR ? `${COST_DIR}/data/costs/cost_log.csv` : '';
 
-export async function GET() {
+export async function GET(request: Request) {
+  const auth = await requireUser(request);
+  if (!auth.ok) return auth.response;
+
   try {
     if (!COST_LOG) {
       return NextResponse.json({

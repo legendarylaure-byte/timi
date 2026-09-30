@@ -3,8 +3,9 @@
 import { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { db } from '@/lib/firebase';
-import { collection, getDocs, addDoc, serverTimestamp, query, orderBy, limit, onSnapshot, doc, updateDoc, getDoc, setDoc } from 'firebase/firestore';
+import { collection, query, orderBy, limit, onSnapshot } from 'firebase/firestore';
 import Image from 'next/image';
+import { apiFetch } from '@/lib/api-fetch';
 
 interface PlatformConfig {
   id: string;
@@ -81,19 +82,13 @@ export default function PublishingPage() {
   const [compMsgs, setCompMsgs] = useState<string[]>([]);
 
   useEffect(() => {
-    const unsub = onSnapshot(collection(db, 'platform_settings'),
-      (snap) => {
-        if (!snap.empty) {
-          setPlatforms(snap.docs.map(d => ({ id: d.id, ...d.data() } as PlatformConfig)));
-        }
-        setLoading(false);
-      },
-      (error) => {
-        console.error('[Publishing] platform_settings:', error);
-        setLoading(false);
-      }
-    );
-    return () => unsub();
+    let cancelled = false;
+    apiFetch('/api/platform-settings')
+      .then((r) => (r.ok ? r.json() : Promise.reject(new Error(`HTTP ${r.status}`))))
+      .then((d) => { if (!cancelled && d.platforms) setPlatforms(d.platforms as PlatformConfig[]); })
+      .catch((e) => { console.error('[Publishing] platform_settings:', e); })
+      .finally(() => { if (!cancelled) setLoading(false); });
+    return () => { cancelled = true; };
   }, []);
 
   useEffect(() => {
@@ -134,7 +129,7 @@ export default function PublishingPage() {
   const loadComposerOptions = async () => {
     setCompOptionsLoading(true);
     try {
-      const res = await fetch('/api/tiktok/composer/options');
+      const res = await apiFetch('/api/tiktok/composer/options');
       const data = await res.json();
       if (data.success) {
         setPrivacyOptions(Array.isArray(data.privacy_level_options) ? data.privacy_level_options : []);
@@ -169,7 +164,7 @@ export default function PublishingPage() {
     let src = v?.video_url || v?.youtube_url || '';
     const r2Key = v?.r2_key || '';
     if (!src && r2Key) {
-      const res = await fetch(`/api/storage/sign?key=${encodeURIComponent(r2Key)}`);
+      const res = await apiFetch(`/api/storage/sign?key=${encodeURIComponent(r2Key)}`);
       const data = await res.json();
       if (!data.success) {
         compPushMsg(`Preview unavailable: ${data.error}`);
@@ -195,7 +190,7 @@ export default function PublishingPage() {
     if (!compConsent) return alert('Confirm the consent declaration to continue.');
     setCompSubmitting(true);
     try {
-      const res = await fetch('/api/tiktok/composer/publish', {
+      const res = await apiFetch('/api/tiktok/composer/publish', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -235,7 +230,7 @@ export default function PublishingPage() {
     if (!compIntentId) return;
     const timer = setInterval(async () => {
       try {
-        const res = await fetch(`/api/tiktok/composer/status/${compIntentId}`);
+        const res = await apiFetch(`/api/tiktok/composer/status/${compIntentId}`);
         const data = await res.json();
         if (data.success) {
           const st = data.status || 'unknown';
@@ -272,7 +267,7 @@ export default function PublishingPage() {
 
   const savePlatformSetting = async (platformId: string, updated: any) => {
     try {
-      const res = await fetch(`/api/platform-settings/${platformId}`, {
+      const res = await apiFetch(`/api/platform-settings/${platformId}`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(updated),

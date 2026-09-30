@@ -1,5 +1,5 @@
 import { initializeApp, getApps, getApp, type FirebaseApp } from 'firebase/app';
-import { getAuth, signInAnonymously, type Auth } from 'firebase/auth';
+import { getAuth, type Auth } from 'firebase/auth';
 import { getFirestore, type Firestore } from 'firebase/firestore';
 
 const firebaseConfig = {
@@ -21,9 +21,6 @@ function initFirebase() {
     _app = getApps().length === 0 ? initializeApp(firebaseConfig) : getApp();
     _auth = getAuth(_app);
     _db = getFirestore(_app);
-    signInAnonymously(_auth).catch(() => {
-      /* Anonymous auth unavailable — user must sign in via Google */
-    });
   }
 }
 
