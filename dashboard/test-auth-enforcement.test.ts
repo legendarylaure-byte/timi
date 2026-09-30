@@ -59,9 +59,29 @@ for (const file of walk('src/app/api')) {
   }
 }
 
+// /api/auth is public by design, so it carries no requireUser() call and the
+// structural pass skips it. That made it the one route whose error handling was
+// unguarded: a malformed body or an expired token fell into a generic catch and
+// answered 500, so "you are not logged in" looked like "the app is broken".
+const authRoute = readFileSync(join(__dirname, 'src', 'app', 'api', 'auth', 'route.ts'), 'utf8');
+if (/status:\s*500/.test(authRoute)) {
+  failures.push('api/auth: still answers 500 — a bad token must be 401, a bad body 400');
+} else {
+  console.log('  ok api/auth answers 400/401, never 500');
+}
+
 if (failures.length) {
   console.error(`\nFAIL — ${failures.length} ungated handler(s):\n`);
   for (const f of failures) console.error('  x ' + f);
-  process.exit(1);
+} else {
+  console.log(`OK — all ${checked} handlers across the protected API surface call requireUser()`);
 }
-console.log(`OK — all ${checked} handlers across the protected API surface call requireUser()`);
+
+// jest claims this file because of the .test.ts name, but everything above runs
+// at import. Calling process.exit() from a worker killed the worker, so jest
+// reported "Test suite failed to run" — a red suite that asserted nothing, and a
+// green run that executed zero assertions. Asserting in a real test is what
+// makes this a gate. `failures` holds the ungated handlers; empty means gated.
+test('every protected API handler is gated by requireUser()', () => {
+  expect(failures).toEqual([]);
+});
