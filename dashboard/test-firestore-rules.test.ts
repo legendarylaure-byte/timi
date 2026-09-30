@@ -8,7 +8,7 @@
  * DOES read is still owner-readable, and that an unconfigured owner email
  * fails closed. Verified against the shipped file, not the intent.
  */
-import { readFileSync } from 'fs';
+import { readFileSync, existsSync } from 'fs';
 import { join } from 'path';
 
 const RULES = join(__dirname, '..', 'firebase', 'firestore.rules');
@@ -160,6 +160,26 @@ console.log('\n9. all three copies of the owner email agree');
   else ok('firestore.rules matches dashboard constant');
   if (sf !== OWNER_EMAIL) bad(`storage.rules ownerEmail != dashboard OWNER_EMAIL`);
   else ok('storage.rules matches dashboard constant');
+}
+
+// A config that omits a rules file deploys the OTHER rules silently. That is
+// how the root firebase.json shipped with indexes but no `rules` key: the CI
+// deploy job ran green from the repo root and published nothing, so nobody
+// could tell that a rules edit never reached production.
+console.log('\n10. firebase.json actually targets both rules files');
+{
+  const cfg = JSON.parse(readFileSync(join(__dirname, '..', 'firebase.json'), 'utf8'));
+  const targets: Array<[string, string | undefined]> = [
+    ['firestore.rules', cfg.firestore?.rules],
+    ['storage.rules', cfg.storage?.rules],
+  ];
+  for (const [label, path] of targets) {
+    if (!path) { bad(`firebase.json has no target for ${label}`); continue; }
+    const abs = join(__dirname, '..', path);
+    if (!existsSync(abs)) { bad(`firebase.json points at ${path}, which does not exist`); continue; }
+    ok(`${label} -> ${path} (exists)`);
+  }
+  if (!cfg.firestore?.indexes) bad('firebase.json has no firestore.indexes target');
 }
 
 console.log(failed ? `\n${failed} FAILED` : '\nOK — firestore + storage rules invariants hold');

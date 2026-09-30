@@ -6,6 +6,7 @@ on:
     paths:
       - 'firebase/firestore.indexes.json'
       - 'firebase/firestore.rules'
+      - 'firebase/storage.rules'
       - 'firebase/firebase.json'
       - 'firestore.indexes.json'
       - 'firebase.json'
@@ -16,18 +17,25 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - name: Deploy Firestore indexes and rules
+      # The token is REQUIRED, not optional. With it unset this used to skip the
+      # deploy and still report success -- a green job that published nothing,
+      # which is how a rules file could be wrong in production while CI was
+      # green. Fail loudly instead.
+      - name: Require FIREBASE_TOKEN
         env:
           FIREBASE_TOKEN: ${{ secrets.FIREBASE_TOKEN }}
-        if: env.FIREBASE_TOKEN != ''
+        run: |
+          if [ -z "$FIREBASE_TOKEN" ]; then
+            echo "::error::FIREBASE_TOKEN not set — refusing to report a deploy that did not happen"
+            echo "Generate one: npx firebase-tools login:ci"
+            echo "Add to repo secrets: FIREBASE_TOKEN"
+            exit 1
+          fi
+      - name: Deploy Firestore + Storage rules and indexes
+        env:
+          FIREBASE_TOKEN: ${{ secrets.FIREBASE_TOKEN }}
         run: |
           npx firebase-tools deploy \
-            --only firestore:indexes,firestore:rules \
+            --only firestore:indexes,firestore:rules,storage:rules \
             --project timi-childern-stories \
             --token "$FIREBASE_TOKEN"
-      - name: Notify missing token
-        if: env.FIREBASE_TOKEN == ''
-        run: |
-          echo "::warning::FIREBASE_TOKEN not set — skipping Firebase deploy"
-          echo "Generate one: npx firebase-tools login:ci"
-          echo "Add to repo secrets: FIREBASE_TOKEN"
