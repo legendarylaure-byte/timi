@@ -1,38 +1,22 @@
 import { NextResponse } from 'next/server';
-import { getAdminAuth } from '@/lib/firebase-admin';
-import { isAllowedEmail } from '@/lib/allowed-emails';
+import { requireUser } from '@/lib/api-auth';
 
+/**
+ * Is the signed-in account on the allowlist?
+ *
+ * This used to parse `{action, idToken}` out of a JSON body while the client
+ * sent NO body and put the token in the `Authorization` header -- so it answered
+ * `400 Invalid JSON body` to every single login, and the UI rendered that as
+ * "your email is not on the allowlist". Nobody could log in; the allowlist and
+ * the account were both correct the whole time.
+ *
+ * Delegating to requireUser() removes the body entirely and reads the token from
+ * the header, which is the contract every other route already uses. It also
+ * retires the only hand-rolled verifyIdToken() in the API, so the check the
+ * login page makes and the check the data routes make can no longer disagree.
+ */
 export async function POST(request: Request) {
-  // A malformed body and a bad token are the caller's fault, not a server
-  // fault. Both used to fall through to a 500, which reads as "the app is
-  // broken" when the truth is "you are not logged in".
-  let action: string | undefined;
-  let idToken: string | undefined;
-  try {
-    ({ action, idToken } = await request.json());
-  } catch {
-    return NextResponse.json({ success: false, message: 'Invalid JSON body' }, { status: 400 });
-  }
-
-  if (action !== 'verify') {
-    return NextResponse.json({ success: false, message: 'Unsupported action' }, { status: 400 });
-  }
-  if (!idToken) {
-    return NextResponse.json({ success: false, message: 'Missing idToken' }, { status: 400 });
-  }
-
-  let decoded;
-  try {
-    decoded = await getAdminAuth().verifyIdToken(idToken);
-  } catch {
-    return NextResponse.json({ success: false, message: 'Invalid or expired token' }, { status: 401 });
-  }
-
-  if (!isAllowedEmail(decoded.email)) {
-    return NextResponse.json(
-      { success: false, message: 'Not authorized', email: decoded.email || null },
-      { status: 403 }
-    );
-  }
-  return NextResponse.json({ success: true, uid: decoded.uid, email: decoded.email });
+  const auth = await requireUser(request);
+  if (!auth.ok) return auth.response;
+  return NextResponse.json({ success: true, uid: auth.user.uid, email: auth.user.email });
 }

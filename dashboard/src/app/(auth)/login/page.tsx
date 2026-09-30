@@ -2,8 +2,8 @@
 
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { auth } from '@/lib/firebase';
-import { apiFetch, isAllowedUser } from '@/lib/api-fetch';
-import { signInErrorMessage } from '@/lib/auth-errors';
+import { verifyAllowlist } from '@/lib/api-fetch';
+import { isDefinitiveDenial, signInErrorMessage } from '@/lib/auth-errors';
 import { safeNext } from '@/lib/auth-nav';
 import { signInWithPopup, signInWithEmailAndPassword, GoogleAuthProvider } from 'firebase/auth';
 import { useRouter } from 'next/navigation';
@@ -100,12 +100,19 @@ export default function LoginPage() {
       const provider = new GoogleAuthProvider();
       const result = await signInWithPopup(auth, provider);
       if (result.user) {
-        if (!(await isAllowedUser())) {
-          // Report the real cause -- see signInErrorMessage().
-          const res = await apiFetch('/api/auth', { method: 'POST' });
-          const { message } = await res.json().catch(() => ({ message: null }));
-          try { await auth.signOut(); } catch {}
-          setError(signInErrorMessage(res.status, message, result.user.email));
+        // One request, not two: a bare `.ok` check and a separate fetch each
+        // asked the same question, so a failure cost two round-trips that could
+        // disagree with each other. Read the reason off the one Response.
+        const res = await verifyAllowlist();
+        if (!res.ok) {
+          const { error } = await res.json().catch(() => ({ error: null }));
+          // Only a refusal ends the session. A 401/500/blip is the check failing,
+          // not a verdict on this account, and throwing away a real sign-in over
+          // it is how a temporary outage looked like a permissions problem.
+          if (isDefinitiveDenial(res.status, error)) {
+            try { await auth.signOut(); } catch {}
+          }
+          setError(signInErrorMessage(res.status, error, result.user.email));
           setLoading(false);
           return;
         }

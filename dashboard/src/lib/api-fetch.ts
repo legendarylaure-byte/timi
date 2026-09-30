@@ -18,22 +18,20 @@ export async function apiFetch(path: string, init: RequestInit = {}): Promise<Re
 }
 
 /**
- * Is the signed-in user on the allowlist? Asks the server, which owns the list —
- * we deliberately do NOT ship a NEXT_PUBLIC_ copy of the addresses: that would
- * publish them in the JS bundle and give us a second list to drift out of sync.
- */
-/**
  * Ask the server whether this account is on the allowlist.
  *
  * Returns the raw Response so a caller that reports the failure to a human can
- * read the real reason -- `isAllowedUser()` collapses it to a boolean, which is
- * fine for a plain yes/no gate but not for an error message.
+ * read the real reason. A bare `.ok` is fine for a plain yes/no gate but throws
+ * away the only thing that tells 403 (not allowed) apart from 500 (not working).
+ *
+ * No body: the route authenticates the `Authorization` header like every other
+ * route in the API. It used to read `{action, idToken}` from a JSON body that
+ * this never sent, which made it 400 on every login.
+ *
+ * The server owns the list — we deliberately do NOT ship a NEXT_PUBLIC_ copy of
+ * the addresses: that would publish them in the JS bundle and give us a second
+ * list to drift out of sync.
  */
 export async function verifyAllowlist(): Promise<Response> {
   return apiFetch('/api/auth', { method: 'POST' });
-}
-
-export async function isAllowedUser(): Promise<boolean> {
-  if (!auth?.currentUser) return false;
-  return (await verifyAllowlist()).ok;
 }
