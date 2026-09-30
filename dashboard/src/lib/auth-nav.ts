@@ -2,7 +2,7 @@
 
 import { useRouter } from 'next/navigation';
 import { auth } from '@/lib/firebase';
-import { isAllowedUser } from '@/lib/api-fetch';
+import { verifyAllowlist } from '@/lib/api-fetch';
 
 /**
  * Land on /dashboard, or on the page that explains why you can't.
@@ -21,9 +21,17 @@ export function useGoToDashboard() {
       router.push('/login?next=/dashboard');
       return;
     }
-    if (!(await isAllowedUser())) {
+    const res = await verifyAllowlist();
+    if (!res.ok) {
+      // Carry the real reason across, so the login page can say what actually
+      // happened instead of always claiming the address was rejected.
+      const { message } = await res.json().catch(() => ({ message: null }));
       await auth.signOut();
-      router.push('/login?error=not_allowed');
+      router.push(
+        message === 'Not authorized'
+          ? '/login?error=not_allowed'
+          : `/login?error=check_failed&status=${res.status}`
+      );
       return;
     }
     router.push('/dashboard');

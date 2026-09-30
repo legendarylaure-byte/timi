@@ -22,7 +22,18 @@ export async function apiFetch(path: string, init: RequestInit = {}): Promise<Re
  * we deliberately do NOT ship a NEXT_PUBLIC_ copy of the addresses: that would
  * publish them in the JS bundle and give us a second list to drift out of sync.
  */
+/**
+ * Ask the server whether this account is on the allowlist.
+ *
+ * Returns the raw Response so a caller that reports the failure to a human can
+ * read the real reason -- `isAllowedUser()` collapses it to a boolean, which is
+ * fine for a plain yes/no gate but not for an error message.
+ */
+export async function verifyAllowlist(): Promise<Response> {
+  return apiFetch('/api/auth', { method: 'POST' });
+}
+
 export async function isAllowedUser(): Promise<boolean> {
   if (!auth?.currentUser) return false;
-  return (await apiFetch('/api/auth', { method: 'POST' })).ok;
+  return (await verifyAllowlist()).ok;
 }

@@ -45,8 +45,11 @@ export default function LoginPage() {
     setMounted(true);
     // The dashboard sends non-owners back here with a reason; say it out loud
     // instead of dropping them on a bare sign-in form.
-    if (new URLSearchParams(window.location.search).get('error') === 'not_allowed') {
-      setError('This account is not authorised for the dashboard. Contact the administrator.');
+    const params = new URLSearchParams(window.location.search);
+    if (params.get('error') === 'not_allowed') {
+      setError(signInErrorMessage(403, 'Not authorized', null));
+    } else if (params.get('error') === 'check_failed') {
+      setError(signInErrorMessage(Number(params.get('status')) || 0, null, null));
     }
   }, []);
 
