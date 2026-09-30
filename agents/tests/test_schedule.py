@@ -1,12 +1,25 @@
 from datetime import datetime
 
+# Import the real function instead of copying it. This file used to carry its own
+# copy of _next_schedule_time with the pre-D27-2 `replace(day=day+1)` bug, so
+# production was correct while the test was wrong — and the test only failed on
+# the 30th of a 30-day month (2026-09-30 in CI), passing every other day.
+from main import _add_days, _next_schedule_time
 
-def _next_schedule_time(hour: int) -> str:
-    now = datetime.utcnow()
-    scheduled = now.replace(hour=hour, minute=0, second=0, microsecond=0)
-    if scheduled <= now:
-        scheduled = scheduled.replace(day=scheduled.day + 1)
-    return scheduled.strftime("%Y-%m-%dT%H:%M:%SZ")
+
+def test_month_end_rollover_does_not_overflow():
+    """A 30-day month plus one day is a real date; replace(day=31) was not.
+
+    Pins the exact failure CI hit on 2026-09-30, plus the other short months
+    and a leap day, so this cannot silently regress back to replace(day=...).
+    """
+    for last_day, expected in (
+        (datetime(2026, 9, 30), datetime(2026, 10, 1)),
+        (datetime(2026, 4, 30), datetime(2026, 5, 1)),
+        (datetime(2026, 6, 30), datetime(2026, 7, 1)),
+        (datetime(2024, 2, 29), datetime(2024, 3, 1)),
+    ):
+        assert _add_days(last_day, 1) == expected
 
 
 def test_slot_already_past_returns_tomorrow():

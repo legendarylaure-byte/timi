@@ -146,4 +146,12 @@ console.log('\n8. storage.rules agrees with firestore.rules, and nothing is publ
 }
 
 console.log(failed ? `\n${failed} FAILED` : '\nOK — firestore + storage rules invariants hold');
-process.exit(failed ? 1 : 0);
+
+// jest claims this file because of the .test.ts name, but everything above runs
+// at import. Calling process.exit() from a worker killed the worker, so jest
+// reported "Test suite failed to run" — a red suite that asserted nothing, and a
+// green run that executed zero assertions. Asserting in a real test is what
+// makes this a gate. `failed` is the count from bad(); 0 means every invariant held.
+test('firestore and storage rules invariants hold', () => {
+  expect(failed).toBe(0);
+});
