@@ -2,7 +2,7 @@ import os
 import json
 import logging
 import time
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import Dict, List
 
 CALENDAR_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "data", "calendar")
@@ -192,28 +192,38 @@ def is_blacklisted(topic: str) -> bool:
 
 
 def get_calendar_summary(days: int = 7) -> Dict:
-    calendar = load_calendar()
-    today = datetime.now()
+    """7-day production summary.
 
-    scheduled = 0
+    completed/failed come from the Firestore `videos` collection, which is the
+    only place the pipeline records real outcomes. The local calendar file
+    could NEVER report a completion: mark_topic_completed() is called with a
+    video_id but matches on the entry's `topic_<timestamp>` id, so every entry
+    stayed "scheduled" forever and this summary always said 0 completed
+    while 5 videos were uploading. That is a report disagreeing with reality,
+    which in this project has always been a query bug until proven otherwise.
+    """
     completed = 0
     failed = 0
+    try:
+        from utils.firebase_status import get_firestore_client
+        cutoff = datetime.now(timezone.utc) - timedelta(days=days)
+        db = get_firestore_client()
+        if db is not None:
+            for doc in db.collection('videos').where('created_at', '>=', cutoff).stream():
+                status = doc.get('status') or ''
+                if status in ('uploaded', 'scheduled'):
+                    completed += 1
+                elif status == 'failed' or status.startswith(('failed', 'upload_failed', 'blocked_')):
+                    failed += 1
+    except Exception as e:
+        # Never fail the nightly run over a summary line.
+        logger.warning(f"[CONTENT_CALENDAR] video summary unavailable: {e}")
 
-    for entry in calendar["schedule"]:
-        entry_date = datetime.strptime(entry["scheduled_date"], "%Y-%m-%d")
-        if (today - entry_date).days <= days:
-            if entry["status"] == "scheduled":
-                scheduled += 1
-            elif entry["status"] == "completed":
-                completed += 1
-            elif entry["status"] == "failed":
-                failed += 1
-
+    calendar = load_calendar()
     return {
         "period_days": days,
-        "scheduled": scheduled,
         "completed": completed,
         "failed": failed,
         "retry_queue_size": len(load_retry_queue()["queue"]),
-        "blacklist_size": len(calendar["blacklist"])
+        "blacklist_size": len(calendar["blacklist"]),
     }

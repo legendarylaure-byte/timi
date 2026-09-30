@@ -104,8 +104,20 @@ QA_BLUR_THRESHOLD = float(os.getenv("QA_BLUR_THRESHOLD", "100.0"))
 QA_MAX_RETRIES = int(os.getenv("QA_MAX_RETRIES", "2"))
 
 
+# Returned whenever crew output cannot be parsed. Callers read a low score as
+# "gate failed", so a parse failure must BLOCK. Module-level so the
+# fallthrough from the no-brace path can reach it.
+_PARSE_FAIL_DEFAULT = {
+    "decision": "block",
+    "score": 0,
+    "issues": [{"severity": "high", "detail": "Crew output parse failed"}],
+    "feedback": "Auto-blocked (parse failure)",
+    "breakdown": {"script_quality": 0, "visual_effectiveness": 0, "engagement": 0, "technical": 0},
+}
+
+
 def _extract_json(data):
-    import json, re
+    import copy, json, re
     if isinstance(data, dict):
         return data
     json_dict = getattr(data, 'json_dict', None)
@@ -118,12 +130,18 @@ def _extract_json(data):
         text = m.group(1)
     first = text.find('{')
     if first < 0:
-        first_q = text.find('"')
-        if first_q >= 0:
-            text = '{' + text[first_q:] + '}'
-        else:
-            text = '{' + text + '}'
-        return json.loads(text)
+        # ponytail: this was the only unguarded json.loads() in this function.
+        # Crew output that is prose containing a quote but no brace fabricates
+        # invalid JSON here, raised, and made the safe default below
+        # UNREACHABLE. The caller logged "CRASHED" and continued, so the
+        # virality gate was SKIPPED rather than blocked. Fall through instead.
+        try:
+            first_q = text.find('"')
+            text = ('{' + text[first_q:] + '}') if first_q >= 0 else ('{' + text + '}')
+            return json.loads(text)
+        except json.JSONDecodeError:
+            print(f"[EXTRACT] No JSON object in crew output (len={len(text)}), blocking")
+            return copy.deepcopy(_PARSE_FAIL_DEFAULT)
     text = text[first:]
     candidates = [i for i, ch in enumerate(text) if ch == '}']
     text = re.sub(r'(?<=:)\s*True\b', ' true', text)
@@ -147,7 +165,7 @@ def _extract_json(data):
     if result is not None:
         return result
     print(f"[EXTRACT] Failed to parse crew output (len={len(text)}), returning safe default")
-    return {"decision": "block", "score": 0, "issues": [{"severity": "high", "detail": "Crew output parse failed"}], "feedback": "Auto-blocked (parse failure)", "breakdown": {"script_quality": 0, "visual_effectiveness": 0, "engagement": 0, "technical": 0}}
+    return copy.deepcopy(_PARSE_FAIL_DEFAULT)
 
 
 def _execute_single_task(crew_factory, inputs=None, **factory_kwargs):
