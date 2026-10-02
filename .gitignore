@@ -81,3 +81,8 @@ agents/scripts/set_tiktok_prod.py
 # Rendered video output + audit artefacts. Evidence, not source: never commit.
 # Incident evidence lives in agents/logs/incident-*/ (committed on purpose, *.log gitignored).
 agents/output/
+
+# UI review screenshots + the original capture. Regenerable by re-running the
+# browser pass; 5MB of PNGs has no business in history.
+shots/
+*.heic
