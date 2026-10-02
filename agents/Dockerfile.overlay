@@ -5,8 +5,6 @@ FROM timi-pipeline:latest
 # manim, texlive-laTeX, blender and friends are still in the committed-base image
 # (D39 removes the code paths and requirements, but the image is not being
 # flattened tonight -- see AGENTS D39). They are zero-cost once unreferenced.
-# A real dependency change needs `docker compose build` against the full
-# Dockerfile, not this overlay.
 #
 # Thin overlay: sync the whole source tree instead of ~45 per-file COPY lines.
 # The per-file list kept growing with every change and eventually tripped
@@ -19,6 +17,28 @@ FROM timi-pipeline:latest
 # (timi-pipeline:flat, 1 layer; latest is 3-8 layers), so a 6th COPY builds fine.
 # Keep new paths out of this file anyway to stay cache-friendly, and verify any
 # 6th instruction with a real build before relying on it.
+# Install Python dependencies here. This used to be missing, which meant there
+# was NO working way to ship a requirements.txt change: the overlay only COPYs
+# source, docker-compose.yml has `image:` with no `build:`, and the full
+# `docker build` path was abandoned in D35 (3GB torch re-download, ~1h, died on
+# a pip read-timeout). Editing requirements.txt therefore rebuilt an image that
+# still ran the OLD packages -- a false green where git and Dependabot both
+# showed the bump applied while the container kept the vulnerable version.
+#
+# Ordering is deliberate: this sits BEFORE the source COPYs so a source-only
+# edit does not invalidate it. A layer's cache key is its own inputs *plus the
+# parent chain*, so requirements.txt placed after the source COPYs was
+# invalidated by every main.py touch -- the exact opposite of what the old
+# comment claimed. Ahead of them, the key is base image + requirements.txt only.
+#
+# --upgrade-strategy only-if-needed (the pip default) means a range like
+# `numpy>=1.26.4,<3.0.0` already satisfied by the installed version installs
+# nothing and downloads nothing; only genuinely new pins cause work. torch is
+# NOT in requirements.txt (the base installs it separately), so this never
+# re-pulls the multi-GB ML stack.
+COPY requirements.txt /app/requirements.txt
+RUN pip install --no-cache-dir --upgrade-strategy only-if-needed -r /app/requirements.txt
+
 COPY main.py /app/main.py
 COPY utils/ /app/utils/
 COPY crew/ /app/crew/

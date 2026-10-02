@@ -5,6 +5,10 @@ on:
     branches: [main]
   pull_request:
     branches: [main]
+  # Weekly so a newly published advisory is caught even when nobody opens a PR.
+  # Off the hour on purpose: every scheduled workflow on the planet fires at :00.
+  schedule:
+    - cron: '17 6 * * 1'
 
 env:
   SENTRY_DSN: ${{ secrets.SENTRY_DSN }}
@@ -25,6 +29,12 @@ jobs:
           cache-dependency-path: dashboard/package-lock.json
       - run: npm ci
       - run: npm run lint
+      # Strict-zero, not baselined: the dashboard is at 0 advisories, so any new
+      # one fails outright rather than waiting for someone to widen a baseline.
+      - name: npm audit (strict zero)
+        run: |
+          npm audit --json > /tmp/npm-audit.json || true
+          python3 ../.github/scripts/audit_gate.py npm /tmp/npm-audit.json
 
   test:
     runs-on: ubuntu-latest
@@ -79,6 +89,15 @@ jobs:
       - run: pip install -r requirements.txt
       - run: python -m pytest tests/ -v --tb=short
       - run: python -c "from utils.cost_tracker import log_llm_cost, get_cost_summary; log_llm_cost('test', 10, 5); s = get_cost_summary(); print('cost OK', s)"
+      # Audits the env that was just installed, so this needs no second resolve.
+      # --local is the shipped image's real package set, not a simulated one.
+      - name: Dependency advisory gate
+        run: |
+          pip install -q pip-audit
+          pip-audit --local --format=json --progress-spinner=off > /tmp/pip-audit.json || true
+          python3 ../.github/scripts/audit_gate.py pip /tmp/pip-audit.json ../.github/dependency-audit-baseline.json
+      - name: Audit gate self-check
+        run: python3 ../.github/scripts/audit_gate.py --self-check
 
   healthcheck:
     runs-on: ubuntu-latest
