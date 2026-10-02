@@ -44,7 +44,7 @@ function ReviewContent() {
   };
 
   return (
-    <main className="min-h-screen bg-[#0f1220] text-gray-100 flex items-center justify-center p-6">
+    <main className="min-h-screen bg-[#050510] text-gray-100 flex items-center justify-center p-6">
       <div className="w-full max-w-md space-y-5">
         <div className="text-center space-y-2">
           <h1 className="text-2xl font-bold">Timi Video</h1>
@@ -52,7 +52,7 @@ function ReviewContent() {
         </div>
 
         {errorMsg && (
-          <div className="rounded-lg bg-red-500/10 border border-red-500/40 p-3 text-sm text-red-200">
+          <div className="rounded-lg bg-dark-error/10 border border-dark-error/40 p-3 text-sm text-dark-error">
             Error: {errorMsg}
           </div>
         )}
@@ -66,7 +66,7 @@ function ReviewContent() {
           <button
             onClick={startConnect}
             disabled={connected}
-            className="w-full rounded-lg bg-[#1877F2] hover:bg-[#166fe0] disabled:opacity-50 py-2.5 font-semibold transition-colors"
+            className="w-full rounded-lg bg-[#0f5fbf] hover:bg-[#0b4d9c] disabled:opacity-50 py-2.5 font-semibold text-white transition-colors"
           >
             {connected ? 'Connected \u2713' : 'Connect Facebook'}
           </button>
@@ -78,21 +78,27 @@ function ReviewContent() {
             Publishes a status to the linked Facebook Page using the app&apos;s authorized token,
             demonstrating the publish / manage-posts permission in use.
           </p>
+          {/* Button fills are darkened from the brand hues, deliberately.
+              White on Meta's #1877F2 is 4.2:1 and white on emerald-400
+              (`dark-success`, 1.75:1) is unreadable, both short of the 4.5:1
+              needed for 16px text. `dark-success` is a text token meant to sit
+              ON dark, not to be a fill. A Meta reviewer reads this page, so
+              legibility here is an approval concern, not just accessibility. */}
           <button
             onClick={publishTest}
             disabled={publishing}
-            className="w-full rounded-lg bg-emerald-500 hover:bg-emerald-400 disabled:opacity-50 py-2.5 font-semibold transition-colors"
+            className="w-full rounded-lg bg-[#047857] hover:bg-[#065f46] disabled:opacity-50 py-2.5 font-semibold text-white transition-colors"
           >
             {publishing ? 'Publishing...' : 'Publish test post'}
           </button>
           {result && (
-            <p className={`text-sm ${result.ok ? 'text-emerald-300' : 'text-red-300'}`}>
+            <p className={`text-sm ${result.ok ? 'text-dark-success' : 'text-dark-error'}`}>
               {result.message}
             </p>
           )}
         </div>
 
-        <p className="text-center text-xs text-gray-500">
+        <p className="text-center text-xs text-gray-400">
           This is a restricted demo page for Meta App Review. It does not expose any account
           credentials or dashboard data.
         </p>
@@ -103,7 +109,7 @@ function ReviewContent() {
 
 export default function ReviewPage() {
   return (
-    <Suspense fallback={<div className="min-h-screen bg-[#0f1220] flex items-center justify-center text-gray-200">Loading...</div>}>
+    <Suspense fallback={<div className="min-h-screen bg-[#050510] flex items-center justify-center text-gray-200">Loading...</div>}>
       <ReviewContent />
     </Suspense>
   );

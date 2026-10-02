@@ -34,6 +34,10 @@ interface UploadQueueItem {
   progress: Record<string, number>;
 }
 
+// The one handle on a queued post. Kept in localStorage so a reload mid-publish
+// resumes polling instead of forgetting the post exists.
+const COMPOSE_INTENT_KEY = 'tiktok.composer.intentId';
+
 export default function PublishingPage() {
   const PRIVACY_LABELS: Record<string, string> = {
     PUBLIC_TO_EVERYONE: 'Public',
@@ -161,6 +165,16 @@ export default function PublishingPage() {
     setCompDuration(0);
     if (!videoId) return;
     const v = availableVideos.find((x: any) => (x.video_id || x.id) === videoId);
+    // Seed from the persisted Firestore duration so guideline 1c still shows a
+    // length (and the max check still bites) when there is no preview to measure.
+    // onLoadedMetadata below refines this with the real media length.
+    const recorded = Number(v?.duration) || 0;
+    if (recorded > 0) {
+      setCompDuration(recorded);
+      if (compCreator?.max_duration && recorded > compCreator.max_duration) {
+        compPushMsg(`Duration ${Math.round(recorded)}s exceeds TikTok max ${compCreator.max_duration}s — publishing blocked.`);
+      }
+    }
     let src = v?.video_url || v?.youtube_url || '';
     const r2Key = v?.r2_key || '';
     if (!src && r2Key) {
@@ -210,6 +224,7 @@ export default function PublishingPage() {
       const data = await res.json();
       if (data.success) {
         setCompIntentId(data.intent_id);
+        localStorage.setItem(COMPOSE_INTENT_KEY, data.intent_id);
         setCompIntent({ status: 'queued' });
         compPushMsg(`Queued (${data.intent_id}). Posting may take a few minutes to be visible on TikTok.`);
         setCompTitle(''); setCompVideo(''); setCompPrivacy(''); setCompComment(false); setCompDuet(false); setCompStitch(false);
@@ -225,7 +240,31 @@ export default function PublishingPage() {
     }
   };
 
+  // Restore an in-flight intent on mount, then immediately resolve it rather than
+  // leaving the panel blank until the first 10s tick.
+  useEffect(() => {
+    const saved = localStorage.getItem(COMPOSE_INTENT_KEY);
+    if (!saved) return;
+    setCompIntentId(saved);
+    apiFetch(`/api/tiktok/composer/status/${saved}`)
+      .then((r) => r.json())
+      .then((d) => {
+        if (!d.success) return;
+        setCompIntent(d);
+        if (d.status === 'published' || d.status === 'failed') {
+          localStorage.removeItem(COMPOSE_INTENT_KEY);
+          setCompIntentId('');
+        }
+      })
+      .catch(() => {
+        // Keep the id: a transient network blip should not orphan a real post.
+      });
+  }, []);
+
   // Poll intent status after queuing (guideline 5e: users understand post status).
+  // The id is persisted so a reload resumes tracking. Without this, refreshing the
+  // page mid-post silently dropped the only handle on a post that is still in
+  // flight -- the queue is asynchronous, so the reload window is not small.
   useEffect(() => {
     if (!compIntentId) return;
     const timer = setInterval(async () => {
@@ -237,6 +276,7 @@ export default function PublishingPage() {
           setCompIntent(data);
           if (st === 'published' || st === 'failed') {
             clearInterval(timer);
+            localStorage.removeItem(COMPOSE_INTENT_KEY);
             compPushMsg(st === 'published' ? `Published: ${data.url || data.publish_id || 'TikTok'}` : `Failed: ${data.error || st}`);
           }
         }
@@ -625,36 +665,54 @@ export default function PublishingPage() {
                 className="w-full max-h-56 object-contain"
                 onLoadedMetadata={(e) => {
                   const d = (e.target as HTMLVideoElement).duration || 0;
-                  setCompDuration(d);
-                  if (compCreator?.max_duration && d > compCreator.max_duration) {
-                    compPushMsg(`Duration ${Math.round(d)}s exceeds TikTok max ${compCreator.max_duration}s — publishing blocked.`);
+                  if (d > 0) setCompDuration(d);
+                  const dur = d > 0 ? d : compDuration;
+                  if (compCreator?.max_duration && dur > compCreator.max_duration) {
+                    compPushMsg(`Duration ${Math.round(dur)}s exceeds TikTok max ${compCreator.max_duration}s — publishing blocked.`);
                   }
                 }}
               />
-              {compDuration > 0 && (
-                <div className="px-3 py-1 text-[11px] text-light-muted dark:text-dark-muted">
-                  Duration: {Math.round(compDuration)}s
-                  {compCreator?.max_duration > 0 && ` / max ${compCreator.max_duration}s`} —
-                  {compCreator?.max_duration > 0 && compDuration > compCreator.max_duration ? (
-                    <span className="text-red-500 font-semibold"> too long, publishing blocked</span>
-                  ) : (
-                    <span className="text-light-success font-semibold"> OK</span>
-                  )}
-                </div>
+            </div>
+          )}
+
+          {/* Length readout, required whether or not a preview plays. */}
+          {compDuration > 0 && (
+            <div className="rounded-xl border border-light-border dark:border-dark-border px-3 py-1.5 text-[11px] text-light-muted dark:text-dark-muted">
+              Duration: {Math.round(compDuration)}s
+              {compCreator?.max_duration > 0 && ` / max ${compCreator.max_duration}s`} —
+              {compCreator?.max_duration > 0 && compDuration > compCreator.max_duration ? (
+                <span className="text-red-500 font-semibold"> too long, publishing blocked</span>
+              ) : (
+                <span className="text-light-success font-semibold"> OK</span>
+              )}
+              {!compPreviewUrl && (
+                <span> (from pipeline record — no preview available)</span>
               )}
             </div>
           )}
 
           <div>
-            <label className="text-xs font-medium text-light-muted dark:text-dark-muted block mb-1">Title</label>
-            <input
-              type="text"
+            <label className="text-xs font-medium text-light-muted dark:text-dark-muted block mb-1">
+              Caption (this is the post title — include your hashtags here)
+            </label>
+            {/* A textarea, not an input: on TikTok the title IS the caption, and a
+                caption carrying hashtags is multi-line by nature. maxLength is
+                enforced by the browser in UTF-16 code units, which is the same
+                unit TikTok's 2200 limit uses, so the two cannot disagree. */}
+            <textarea
               value={compTitle}
               onChange={(e) => setCompTitle(e.target.value)}
-              maxLength={100}
-              placeholder="Enter post title…"
-              className="w-full px-3 py-2 rounded-xl bg-light-bg dark:bg-dark-bg border border-light-border/30 dark:border-white/5 text-sm text-light-text dark:text-dark-text placeholder-light-muted dark:placeholder-dark-muted outline-none focus:border-light-primary/50"
+              maxLength={2200}
+              rows={4}
+              placeholder="Write the caption and add #hashtags…"
+              className="w-full px-3 py-2 rounded-xl bg-light-bg dark:bg-dark-bg border border-light-border/30 dark:border-white/5 text-sm text-light-text dark:text-dark-text placeholder-light-muted dark:placeholder-dark-muted outline-none focus:border-light-primary/50 resize-y"
             />
+            {/* JS strings ARE UTF-16, so `.length` is already the unit TikTok and
+                maxLength both use. Do not "fix" this to [...s].length -- that
+                counts code points and would under-report an emoji-heavy caption. */}
+            <div className="mt-1 text-right text-[11px] tabular-nums text-light-muted dark:text-dark-muted">
+              {compTitle.length} / 2200
+            </div>
           </div>
 
           <div>

@@ -39,10 +39,10 @@ interface SeriesPlanOption {
 }
 
 const gradients: Record<string, string> = {
-  primary: 'linear-gradient(135deg, #FF6969, #C80036)',
-  warm: 'linear-gradient(135deg, #FF6969, #FFF5E1)',
-  cool: 'linear-gradient(135deg, #C80036, #0C1844)',
-  success: 'linear-gradient(135deg, #FF6969, #0C1844)',
+  primary: 'linear-gradient(135deg, #9B4DFF, #F856A5)',
+  warm: 'linear-gradient(135deg, #9B4DFF, #FFF5E1)',
+  cool: 'linear-gradient(135deg, #F856A5, #1B1212)',
+  success: 'linear-gradient(135deg, #9B4DFF, #1B1212)',
 };
 
 export default function SchedulerPage() {

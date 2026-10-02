@@ -24,11 +24,11 @@ interface AgentStatus {
 }
 
 const WORKFLOW_STEPS = [
-  { key: 'scriptwriter', label: 'Script', icon: '📝', color: '#FF6B6B' },
-  { key: 'storyboard', label: 'Storyboard', icon: '🎨', color: '#4ECDC4' },
+  { key: 'scriptwriter', label: 'Script', icon: '📝', color: '#FF8133' },
+  { key: 'storyboard', label: 'Storyboard', icon: '🎨', color: '#6641FC' },
   { key: 'voice', label: 'Voice', icon: '🎙️', color: '#FFD93D' },
   { key: 'composer', label: 'Music', icon: '🎵', color: '#A29BFE' },
-  { key: 'animator', label: 'Animate', icon: '🎬', color: '#8a50e8' },
+  { key: 'animator', label: 'Animate', icon: '🎬', color: '#9148EF' },
   { key: 'editor', label: 'Edit', icon: '✂️', color: '#F39C12' },
   { key: 'thumbnail', label: 'Thumbnail', icon: '🖼️', color: '#E056FD' },
   { key: 'publisher', label: 'Publish', icon: '🚀', color: '#7ED6DF' },
@@ -240,7 +240,7 @@ export function AgentWorkflow({
                     className="w-3 sm:w-4 h-0.5 rounded-full"
                     style={{
                       background: pipeline?.running
-                        ? 'linear-gradient(90deg, #ec133e, #f4718b)'
+                        ? 'linear-gradient(90deg, #9B4DFF, #F856A5)'
                         : undefined,
                       backgroundColor: !pipeline?.running ? 'var(--border-color, #e2e8f0)' : undefined,
                     }}

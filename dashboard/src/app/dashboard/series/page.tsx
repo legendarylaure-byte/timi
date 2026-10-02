@@ -40,10 +40,10 @@ interface SeriesPart {
 }
 
 const gradients: Record<string, string> = {
-  primary: 'linear-gradient(135deg, #FF6969, #C80036)',
-  warm: 'linear-gradient(135deg, #FF6969, #FFF5E1)',
-  cool: 'linear-gradient(135deg, #C80036, #0C1844)',
-  success: 'linear-gradient(135deg, #FF6969, #0C1844)',
+  primary: 'linear-gradient(135deg, #9B4DFF, #F856A5)',
+  warm: 'linear-gradient(135deg, #9B4DFF, #FFF5E1)',
+  cool: 'linear-gradient(135deg, #F856A5, #1B1212)',
+  success: 'linear-gradient(135deg, #9B4DFF, #1B1212)',
 };
 
 export default function SeriesPage() {
@@ -296,7 +296,7 @@ export default function SeriesPage() {
                   <div className="flex items-center gap-2 mb-3 flex-wrap">
                     {plan.categories.map(cat => (
                       <span key={cat} className="text-xs px-2 py-0.5 rounded-full font-medium"
-                        style={{ background: 'linear-gradient(135deg, #FF6969, #C80036)', color: 'white' }}>
+                        style={{ background: 'linear-gradient(135deg, #9B4DFF, #F856A5)', color: 'white' }}>
                         {cat}
                       </span>
                     ))}
@@ -390,7 +390,7 @@ export default function SeriesPage() {
               )}
               <div className="flex items-center gap-2 mb-3">
                 <span className="text-xs px-2 py-0.5 rounded-full font-medium" style={{
-                  background: 'linear-gradient(135deg, #FF6969, #C80036)',
+                  background: 'linear-gradient(135deg, #9B4DFF, #F856A5)',
                   color: 'white',
                 }}>
                   {s.category}

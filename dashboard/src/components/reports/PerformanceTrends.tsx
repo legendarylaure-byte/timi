@@ -161,8 +161,8 @@ export function PerformanceTrends() {
               <AreaChart data={chartData} margin={{ top: 10, right: 10, left: 0, bottom: 0 }}>
                 <defs>
                   <linearGradient id="colorMetric" x1="0" y1="0" x2="0" y2="1">
-                    <stop offset="5%" stopColor="#ec133e" stopOpacity={0.3} />
-                    <stop offset="95%" stopColor="#ec133e" stopOpacity={0} />
+                    <stop offset="5%" stopColor="#9B4DFF" stopOpacity={0.3} />
+                    <stop offset="95%" stopColor="#9B4DFF" stopOpacity={0} />
                   </linearGradient>
                 </defs>
                 <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.05)" />
@@ -180,7 +180,7 @@ export function PerformanceTrends() {
                 <Area
                   type="monotone"
                   dataKey={yKey}
-                  stroke="#ec133e"
+                  stroke="#9B4DFF"
                   strokeWidth={2}
                   fillOpacity={1}
                   fill="url(#colorMetric)"
@@ -231,7 +231,7 @@ export function PerformanceTrends() {
                 <Area
                   type="monotone"
                   dataKey="avgViralityScore"
-                  stroke="#F59E0B"
+                  stroke="#FFB05F"
                   strokeWidth={2}
                   fillOpacity={0}
                   name="Virality Score"

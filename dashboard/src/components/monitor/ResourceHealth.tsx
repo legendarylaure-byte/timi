@@ -7,7 +7,7 @@ import { LivePayload } from '@/lib/monitor';
 function pctColor(v: number | null | undefined): string {
   if (v == null) return '#9CA3AF';
   if (v >= 90) return '#EF4444';
-  if (v >= 75) return '#F59E0B';
+  if (v >= 75) return '#FFB05F';
   return '#10B981';
 }
 

@@ -155,7 +155,7 @@ export function PipelineHealth() {
                 />
                 <Bar dataKey="avgDurationSec" radius={[0, 6, 6, 0]} maxBarSize={20}>
                   {data.stepBreakdown.map((_, idx) => {
-                    const colors = ['#8a50e8', '#c060d0', '#e07040', '#8a50e8', '#c060d0', '#e07040', '#8a50e8', '#c060d0', '#e07040', '#ffffff'];
+                    const colors = ['#9148EF', '#c060d0', '#e07040', '#9148EF', '#c060d0', '#e07040', '#9148EF', '#c060d0', '#e07040', '#ffffff'];
                     return <Cell key={idx} fill={colors[idx % colors.length]} fillOpacity={0.8} />;
                   })}
                 </Bar>

@@ -104,7 +104,7 @@ export default function TrendsPage() {
       <motion.div initial={{ opacity: 0, y: -20 }} animate={{ opacity: 1, y: 0 }}>
         <div className="flex items-center justify-between mb-2">
           <div className="flex items-center gap-4">
-            <div className="w-12 h-12 rounded-2xl flex items-center justify-center" style={{ background: 'linear-gradient(135deg, #FF6969, #C80036)' }}>
+            <div className="w-12 h-12 rounded-2xl flex items-center justify-center" style={{ background: 'linear-gradient(135deg, #9B4DFF, #F856A5)' }}>
               <Flame className="w-6 h-6 text-white" />
             </div>
             <div>
@@ -116,7 +116,7 @@ export default function TrendsPage() {
             onClick={discoverTrends}
             disabled={refreshing}
             className="px-4 py-2.5 rounded-xl text-white text-sm font-medium hover:opacity-90 disabled:opacity-50 transition-opacity flex items-center gap-2"
-            style={{ background: 'linear-gradient(135deg, #FF6969, #C80036)' }}
+            style={{ background: 'linear-gradient(135deg, #9B4DFF, #F856A5)' }}
           >
             <motion.div animate={refreshing ? { rotate: 360 } : {}} transition={{ duration: 1, repeat: refreshing ? Infinity : 0 }}>
               <Search className="w-4 h-4" />
@@ -197,7 +197,7 @@ export default function TrendsPage() {
             onClick={discoverTrends}
             disabled={refreshing}
             className="px-6 py-2.5 rounded-xl text-white text-sm font-medium hover:opacity-90 disabled:opacity-50 transition-opacity"
-            style={{ background: 'linear-gradient(135deg, #FF6969, #C80036)' }}
+            style={{ background: 'linear-gradient(135deg, #9B4DFF, #F856A5)' }}
           >
             {refreshing ? 'Discovering...' : 'Discover Trends'}
           </button>

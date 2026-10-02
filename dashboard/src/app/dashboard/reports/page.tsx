@@ -15,6 +15,7 @@ import { ChatPanel } from '@/components/reports/ChatPanel';
 import { TitleTesting } from '@/components/reports/TitleTesting';
 import { ContentCalendar } from '@/components/reports/ContentCalendar';
 import { apiFetch } from '@/lib/api-fetch';
+import { BRAND_GRADIENT } from '@/lib/brand';
 
 const tabs = [
   { id: 'summary', label: 'Executive Summary', icon: BarChart3 },
@@ -136,7 +137,7 @@ export default function ReportsPage() {
                 <motion.div
                   layoutId="reportTab"
                   className="absolute inset-0 rounded-xl"
-                  style={{ background: 'linear-gradient(135deg, #ec133e, #bd0f32)' }}
+                  style={{ background: BRAND_GRADIENT }}
                   transition={{ type: 'spring', stiffness: 300, damping: 30 }}
                 />
               )}

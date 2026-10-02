@@ -66,7 +66,7 @@ export default function PreviewPage() {
     <div className="space-y-6">
       <motion.div initial={{ opacity: 0, y: -20 }} animate={{ opacity: 1, y: 0 }}>
         <div className="flex items-center gap-4 mb-2">
-          <div className="w-12 h-12 rounded-2xl flex items-center justify-center" style={{ background: 'linear-gradient(135deg, #FF6969, #C80036)' }}>
+          <div className="w-12 h-12 rounded-2xl flex items-center justify-center" style={{ background: 'linear-gradient(135deg, #9B4DFF, #F856A5)' }}>
             <Palette className="w-6 h-6 text-white" />
           </div>
           <div>
@@ -143,7 +143,7 @@ export default function PreviewPage() {
               onClick={renderPreview}
               disabled={loading}
               className="mt-4 w-full py-3 rounded-xl text-white font-semibold text-sm hover:opacity-90 disabled:opacity-50 disabled:cursor-not-allowed transition-opacity"
-              style={{ background: 'linear-gradient(135deg, #FF6969, #C80036)' }}
+              style={{ background: 'linear-gradient(135deg, #9B4DFF, #F856A5)' }}
             >
               {loading ? 'Rendering...' : 'Render Preview'}
             </button>

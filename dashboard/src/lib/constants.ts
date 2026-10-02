@@ -14,14 +14,14 @@ export const AGENT_ROLES: AgentRole[] = [
     id: 'scriptwriter',
     name: 'Scriptwriter',
     emoji: '📝',
-    color: '#FF6B6B',
+    color: '#FF8133',
     description: 'Writes a complete script for your video — like a TV show writer planning every scene and what the narrator will say',
   },
   {
     id: 'storyboard',
     name: 'Storyboard Artist',
     emoji: '🎨',
-    color: '#4ECDC4',
+    color: '#6641FC',
     description: 'Draws a picture-by-picture plan of what viewers will see on screen for every scene',
   },
   {
@@ -42,7 +42,7 @@ export const AGENT_ROLES: AgentRole[] = [
     id: 'animator',
     name: 'Animator',
     emoji: '🎬',
-    color: '#8a50e8',
+    color: '#9148EF',
     description: 'Gathers all the visuals — stock footage, screen recordings, diagrams, and code snippets',
   },
   {
@@ -182,11 +182,11 @@ export const PIPELINE_STEPS = [
 ];
 
 export const AGENT_COLORS: Record<string, string> = {
-  scriptwriter: '#FF6B6B',
-  storyboard: '#4ECDC4',
+  scriptwriter: '#FF8133',
+  storyboard: '#6641FC',
   voice: '#FFD93D',
   composer: '#A29BFE',
-  animator: '#8a50e8',
+  animator: '#9148EF',
   editor: '#F39C12',
   thumbnail: '#E056FD',
   metadata: '#22A6B3',

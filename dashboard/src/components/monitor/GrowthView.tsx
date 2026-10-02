@@ -61,7 +61,7 @@ export function GrowthView({ data }: { data: ReviewPayload | null }) {
 
         <div className="pt-2 border-t border-light-border/40 dark:border-dark-border/40 space-y-1">
           <p className="text-[11px] font-bold text-light-muted dark:text-dark-muted">Views trend (recent videos)</p>
-          {spark(viewsTrend, '#EC133E')}
+          {spark(viewsTrend, '#9B4DFF')}
           <p className="text-[10px] text-light-muted/60 dark:text-dark-muted/60">Total views: {data?.channel.total_views ?? 0}</p>
         </div>
       </div>

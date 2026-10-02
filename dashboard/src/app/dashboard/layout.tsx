@@ -20,6 +20,7 @@ import {
 } from 'lucide-react';
 import { GlobalStatusBar } from '@/components/status/GlobalStatusBar';
 import { AmbientBackground } from '@/components/ui/AmbientBackground';
+import { BRAND_GRADIENT } from '@/lib/brand';
 
 const navGroups = [
   {
@@ -28,7 +29,7 @@ const navGroups = [
       { label: 'Dashboard', icon: LayoutDashboard, path: '/dashboard' },
       { label: 'Workspace', icon: Clapperboard, path: '/dashboard/workspace' },
       { label: 'News', icon: Newspaper, path: '/dashboard/news' },
-      { label: 'Social Media Post', icon: Share2, path: '/dashboard/viral' },
+      { label: 'Social Posts', icon: Share2, path: '/dashboard/viral' },
       { label: 'Archive', icon: Archive, path: '/dashboard/archive' },
       { label: 'Repurpose', icon: Scissors, path: '/dashboard/repurpose' },
       { label: 'Trends', icon: Flame, path: '/dashboard/trends' },
@@ -56,6 +57,19 @@ const navGroups = [
 ];
 
 const navItems = navGroups.flatMap((g) => g.items);
+
+// The mobile bottom bar has room for 5. The old code took
+// `navItems.slice(0, 5)`, which is positional: it silently showed Repurpose /
+// Trends / Preview while hiding the other two Workspace entries, and it would
+// change if anyone reordered navGroups. Naming the five makes the trade-off a
+// decision rather than an accident.
+const MOBILE_NAV_PATHS = [
+  '/dashboard',
+  '/dashboard/workspace',
+  '/dashboard/news',
+  '/dashboard/archive',
+  '/dashboard/reports',
+];
 
 export default function DashboardLayout({ children }: { children: React.ReactNode }) {
   const router = useRouter();
@@ -241,8 +255,8 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
                                   layoutId="activeNav"
                                   className="absolute inset-0 rounded-xl"
                                   style={{
-                                    background: 'linear-gradient(135deg, #ec133e, #bd0f32)',
-                                    boxShadow: '0 6px 18px rgba(236, 19, 62, 0.35), inset 0 1px 0 rgba(255,255,255,0.15)',
+                                    background: BRAND_GRADIENT,
+                                    boxShadow: '0 6px 18px rgba(155,77,255, 0.35), inset 0 1px 0 rgba(255,255,255,0.15)',
                                   }}
                                   transition={{ type: 'spring', stiffness: 300, damping: 30 }}
                                 />
@@ -298,14 +312,18 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
           className="md:hidden fixed bottom-0 left-0 right-0 glass-strong z-50 border-t border-light-border/50 dark:border-dark-border/50"
         >
           <div className="flex items-center justify-around px-2 py-2">
-            {navItems.slice(0, 5).map((item) => {
+            {MOBILE_NAV_PATHS.map((path) => {
+              const item = navItems.find((i) => i.path === path);
+              // A typo in MOBILE_NAV_PATHS would otherwise render a blank gap.
+              if (!item) return null;
               const isActive = pathname === item.path;
               const Icon = item.icon;
               return (
                 <Link
                   key={item.path}
                   href={item.path}
-                  className={`flex flex-col items-center gap-1 px-3 py-1.5 rounded-xl transition-all ${
+                  aria-current={isActive ? 'page' : undefined}
+                  className={`flex flex-col items-center gap-1 px-3 py-1.5 rounded-xl transition-colors ${
                     isActive ? 'text-light-primary' : 'text-light-muted dark:text-dark-muted'
                   }`}
                 >
@@ -391,7 +409,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
                                       ? 'text-white font-medium'
                                       : 'text-light-muted dark:text-dark-muted'
                                   }`}
-                                  style={isActive ? { background: 'linear-gradient(135deg, #ec133e, #bd0f32)' } : {}}
+                                  style={isActive ? { background: BRAND_GRADIENT } : {}}
                                 >
                                   <Icon className="w-5 h-5" />
                                   <span className="text-sm">{item.label}</span>

@@ -6,6 +6,7 @@ import { db } from '@/lib/firebase';
 import { collection, query, orderBy, limit, startAfter, onSnapshot, getDocs } from 'firebase/firestore';
 import { DocumentSnapshot } from 'firebase/firestore';
 import { CONTENT_CATEGORIES } from '@/lib/constants';
+import { statusMeta, statusClasses } from '@/lib/brand';
 import Image from 'next/image';
 import PlatformBadge from '@/components/platforms/PlatformBadge';
 import VideoPreview from '@/components/ui/VideoPreview';
@@ -95,17 +96,16 @@ export default function ArchivePage() {
 
   const formatVideo = (v: VideoDoc) => v.format === 'shorts' ? 'Shorts' : 'Long Form';
 
-  const statusColors: Record<string, string> = {
-    generating: 'bg-yellow-500/20 text-yellow-400 border-yellow-500/30',
-    uploaded: 'bg-emerald-500/20 text-emerald-400 border-emerald-500/30',
-    scheduled: 'bg-sky-500/20 text-sky-400 border-sky-500/30',
-    upload_failed: 'bg-red-500/20 text-red-400 border-red-500/30',
-    failed: 'bg-red-500/20 text-red-400 border-red-500/30',
-    blocked: 'bg-orange-500/20 text-orange-400 border-orange-500/30',
-    blocked_virality: 'bg-orange-500/20 text-orange-400 border-orange-500/30',
-    blocked_compliance: 'bg-orange-500/20 text-orange-400 border-orange-500/30',
-    testing: 'bg-blue-500/20 text-blue-400 border-blue-500/30',
-  };
+  // Status labels and colours now come from lib/brand.ts.
+  //
+  // The old local map covered 9 statuses and omitted pending_review and
+  // blocked_review, then fell back to `statusColors.generating`. A video the
+  // quality gate was deliberately holding therefore rendered as a yellow
+  // "Generating" badge -- the archive claimed work was in progress for a video
+  // that had finished and was waiting on a person.
+  // See src/__tests__/statusMeta.test.ts.
+  const statusColor = (status?: string | null) => statusClasses(status);
+  const statusLabel = (status?: string | null) => statusMeta(status).label;
 
   const baseFiltered = videos;
 
@@ -246,10 +246,14 @@ export default function ArchivePage() {
           className="px-4 py-2.5 rounded-xl bg-light-bg dark:bg-dark-bg border border-light-border/50 dark:border-white/10 text-light-text dark:text-dark-text text-sm focus:outline-none focus:ring-2 focus:ring-light-primary/50"
         >
           <option value="all">All Status</option>
-          <option value="uploaded">Uploaded</option>
+          <option value="uploaded">Published</option>
           <option value="scheduled">Scheduled</option>
           <option value="generating">Generating</option>
-          <option value="upload_failed">Upload Failed</option>
+          {/* These two were unreachable from the filter even though the pipeline
+              writes them, so there was no way to find the held videos. */}
+          <option value="pending_review">Needs review</option>
+          <option value="blocked_review">Blocked by review</option>
+          <option value="upload_failed">Upload failed</option>
           <option value="failed">Failed</option>
         </select>
         <select
@@ -391,8 +395,10 @@ export default function ArchivePage() {
                 </h3>
                 <div className="flex items-center justify-between">
                   <div className="flex items-center gap-1.5">
-                    <span className={`text-[10px] px-2 py-0.5 rounded-full border ${statusColors[video.status] || statusColors.generating}`}>
-                      {video.status}
+                    <span className={`text-[10px] px-2 py-0.5 rounded-full border ${statusColor(video.status)}`}
+                      title={statusMeta(video.status).hint}
+                    >
+                      {statusLabel(video.status)}
                     </span>
                   </div>
                   <div className="flex items-center gap-1.5">
@@ -474,8 +480,10 @@ export default function ArchivePage() {
                       </span>
                     </td>
                     <td className="p-3">
-                      <span className={`text-[10px] px-2 py-0.5 rounded-full border ${statusColors[video.status] || statusColors.generating}`}>
-                        {video.status}
+                      <span className={`text-[10px] px-2 py-0.5 rounded-full border ${statusColor(video.status)}`}
+                        title={statusMeta(video.status).hint}
+                      >
+                        {statusLabel(video.status)}
                       </span>
                     </td>
                     <td className="p-3">
@@ -586,8 +594,10 @@ export default function ArchivePage() {
                 )}
 
                 <div className="flex items-center gap-2">
-                  <span className={`text-xs px-2 py-0.5 rounded-full border ${statusColors[selectedVideo.status] || ''}`}>
-                    {selectedVideo.status}
+                  <span className={`text-xs px-2 py-0.5 rounded-full border ${statusColor(selectedVideo.status)}`}
+                    title={statusMeta(selectedVideo.status).hint}
+                  >
+                    {statusLabel(selectedVideo.status)}
                   </span>
                   <span className="text-xs px-2 py-0.5 rounded-full bg-light-primary/10 dark:bg-light-primary/20 text-light-primary">
                     {formatVideo(selectedVideo)}

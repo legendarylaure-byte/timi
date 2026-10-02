@@ -27,7 +27,7 @@ export function HappyScene() {
 
   useEffect(() => {
     const codeSymbols = ['{', '}', '<', '>', '[', ']', '/', '=', '&&', '||', '=>', '()', '...', '/*', '*/'];
-    const colors = ['#ec133e', '#bd0f32', '#f4718b', '#6B7280', '#2563EB', '#059669', '#D97706'];
+    const colors = ['#9B4DFF', '#C14381', '#F856A5', '#6B7280', '#2563EB', '#059669', '#D97706'];
     setSymbols(
       Array.from({ length: 20 }, (_, i) => ({
         id: i,
@@ -56,7 +56,7 @@ export function HappyScene() {
     }}>
       {/* Grid overlay */}
       <div className="absolute inset-0 opacity-[0.03]" style={{
-        backgroundImage: 'linear-gradient(#ec133e 1px, transparent 1px), linear-gradient(90deg, #ec133e 1px, transparent 1px)',
+        backgroundImage: 'linear-gradient(#9B4DFF 1px, transparent 1px), linear-gradient(90deg, #9B4DFF 1px, transparent 1px)',
         backgroundSize: '40px 40px',
       }} />
 
@@ -70,7 +70,7 @@ export function HappyScene() {
               y1={`${a.y}%`}
               x2={`${b.x}%`}
               y2={`${b.y}%`}
-              stroke="#ec133e"
+              stroke="#9B4DFF"
               strokeWidth="0.5"
               opacity={0.3 + Math.sin(i + j) * 0.2}
             />
@@ -88,8 +88,8 @@ export function HappyScene() {
             top: `${node.y}%`,
             width: node.size,
             height: node.size,
-            background: '#ec133e',
-            boxShadow: '0 0 8px #ec133e80',
+            background: '#9B4DFF',
+            boxShadow: '0 0 8px #9B4DFF80',
           }}
           animate={{
             scale: [1, 1.5, 1],
@@ -138,7 +138,7 @@ export function HappyScene() {
       {/* Scrolling hex line */}
       <motion.div
         className="absolute font-mono text-[10px] tracking-widest"
-        style={{ right: '6%', top: '15%', color: '#f4718b', opacity: 0.15 }}
+        style={{ right: '6%', top: '15%', color: '#F856A5', opacity: 0.15 }}
         animate={{ y: [0, -30, 0] }}
         transition={{ duration: 8, repeat: Infinity, ease: 'linear' }}
       >
@@ -148,7 +148,7 @@ export function HappyScene() {
       {/* Data flow bar */}
       <motion.div
         className="absolute bottom-0 left-0 right-0 h-0.5"
-        style={{ background: 'linear-gradient(90deg, transparent, #ec133e, #bd0f32, transparent)' }}
+        style={{ background: 'linear-gradient(90deg, transparent, #9B4DFF, #C14381, transparent)' }}
         animate={{ x: ['-100%', '100%'] }}
         transition={{ duration: 3, repeat: Infinity, ease: 'linear' }}
       />

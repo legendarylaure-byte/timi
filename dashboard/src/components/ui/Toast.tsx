@@ -18,9 +18,12 @@ interface ToastContextType {
 
 const ToastContext = createContext<ToastContextType | undefined>(undefined);
 
+// error used to be `primary`, so a failed action and the app's main accent were
+// the same colour. On a purple brand that read as "success with a different
+// shade", which is worse than no colour at all.
 const typeStyles: Record<string, { bg: string; border: string; icon: string }> = {
   success: { bg: 'bg-light-success/10 dark:bg-dark-success/10', border: 'border-light-success/30 dark:border-dark-success/30', icon: '✓' },
-  error: { bg: 'bg-light-primary/10 dark:bg-dark-primary/10', border: 'border-light-primary/30 dark:border-dark-primary/30', icon: '✕' },
+  error: { bg: 'bg-light-error/10 dark:bg-dark-error/10', border: 'border-light-error/30 dark:border-dark-error/30', icon: '✕' },
   info: { bg: 'bg-light-info/10 dark:bg-dark-info/10', border: 'border-light-info/30 dark:border-dark-info/30', icon: 'i' },
   warning: { bg: 'bg-light-warning/10 dark:bg-dark-warning/10', border: 'border-light-warning/30 dark:border-dark-warning/30', icon: '!' },
 };

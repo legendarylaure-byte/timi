@@ -185,7 +185,7 @@ export default function MonetizationPage() {
     <div className="space-y-6 max-w-6xl">
       <motion.div initial={{ opacity: 0, y: -20 }} animate={{ opacity: 1, y: 0 }}>
         <div className="flex items-center gap-4 mb-2">
-          <div className="w-12 h-12 rounded-2xl flex items-center justify-center" style={{ background: 'linear-gradient(135deg, #FF6969, #C80036)' }}>
+          <div className="w-12 h-12 rounded-2xl flex items-center justify-center" style={{ background: 'linear-gradient(135deg, #9B4DFF, #F856A5)' }}>
             <DollarSign className="w-6 h-6 text-white" />
           </div>
           <div>

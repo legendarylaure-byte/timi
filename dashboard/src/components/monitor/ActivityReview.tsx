@@ -22,7 +22,7 @@ function timeAgo(iso: string | null): string {
 
 const HOT = { color: '#EF4444', label: 'Hot', Icon: Flame };
 const COLD = { color: '#60A5FA', label: 'Cold', Icon: Snowflake };
-const STEADY = { color: '#F59E0B', label: 'Steady', Icon: BarChart3 };
+const STEADY = { color: '#FFB05F', label: 'Steady', Icon: BarChart3 };
 
 export function ActivityReview({ data }: { data: ReviewPayload | null }) {
   const hot = data?.videos.filter((v) => classify(v) === 'hot') || [];

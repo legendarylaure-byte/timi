@@ -74,7 +74,7 @@ export interface ReviewPayload {
 
 export function healthColor(score: number): string {
   if (score >= 75) return '#10B981';
-  if (score >= 50) return '#F59E0B';
+  if (score >= 50) return '#FFB05F';
   return '#EF4444';
 }
 

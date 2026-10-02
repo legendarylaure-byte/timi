@@ -165,9 +165,9 @@ export function QualityInsights() {
                   formatter={(value: any) => [typeof value === 'number' ? formatNum(value) : value, '']}
                   labelFormatter={(label: any) => String(selectedCorr.scatterData.find(d => d.label === label)?.label || label || '')}
                     />
-                    <Scatter data={selectedCorr.scatterData} fill="#ec133e" fillOpacity={0.6}>
+                    <Scatter data={selectedCorr.scatterData} fill="#9B4DFF" fillOpacity={0.6}>
                       {selectedCorr.scatterData.map((_, idx) => (
-                        <Cell key={idx} fill="#ec133e" fillOpacity={0.5} />
+                        <Cell key={idx} fill="#9B4DFF" fillOpacity={0.5} />
                       ))}
                     </Scatter>
                   </ScatterChart>
@@ -248,7 +248,7 @@ export function QualityInsights() {
                         {a.title || a.videoId}
                       </span>
                       <span className="text-[10px] uppercase px-1.5 py-0.5 rounded font-medium"
-                        style={{ background: a.format === 'shorts' ? 'rgba(236,19,62,0.15)' : 'rgba(16,185,129,0.15)', color: a.format === 'shorts' ? '#ec133e' : '#10B981' }}
+                        style={{ background: a.format === 'shorts' ? 'rgba(155,77,255,0.15)' : 'rgba(16,185,129,0.15)', color: a.format === 'shorts' ? '#9B4DFF' : '#10B981' }}
                       >
                         {a.format}
                       </span>
@@ -291,7 +291,7 @@ export function QualityInsights() {
                     />
                     <Bar dataKey="avgViews" radius={[6, 6, 0, 0]} maxBarSize={60}>
                       {corr.formatBreakdown.map((_, idx) => (
-                        <Cell key={idx} fill={idx === 0 ? '#ec133e' : '#10B981'} fillOpacity={0.7} />
+                        <Cell key={idx} fill={idx === 0 ? '#9B4DFF' : '#10B981'} fillOpacity={0.7} />
                       ))}
                     </Bar>
                   </BarChart>

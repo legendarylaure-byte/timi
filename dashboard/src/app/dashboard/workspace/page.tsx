@@ -157,8 +157,8 @@ export default function WorkspacePage() {
           ))}
         </div>
         <div className="absolute inset-0 overflow-hidden -z-10">
-          <div className="absolute top-4 left-10 w-40 h-40 rounded-full opacity-10 animate-pulse" style={{ background: 'radial-gradient(circle, #FF6B6B, transparent)' }} />
-          <div className="absolute bottom-4 right-16 w-48 h-48 rounded-full opacity-10 animate-pulse" style={{ background: 'radial-gradient(circle, #4ECDC4, transparent)', animationDelay: '1s' }} />
+          <div className="absolute top-4 left-10 w-40 h-40 rounded-full opacity-10 animate-pulse" style={{ background: 'radial-gradient(circle, #FF8133, transparent)' }} />
+          <div className="absolute bottom-4 right-16 w-48 h-48 rounded-full opacity-10 animate-pulse" style={{ background: 'radial-gradient(circle, #6641FC, transparent)', animationDelay: '1s' }} />
         </div>
       </div>
 

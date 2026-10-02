@@ -35,8 +35,8 @@ export function EmptyState({
           onClick={onAction}
           className="mt-5 px-5 py-2.5 rounded-xl font-semibold text-sm text-white transition-all duration-300 hover:scale-105 active:scale-95"
           style={{
-            background: 'linear-gradient(135deg, #ec133e, #bd0f32)',
-            boxShadow: '0 6px 18px rgba(236, 19, 62, 0.28)',
+            background: 'linear-gradient(135deg, #9B4DFF, #C14381)',
+            boxShadow: '0 6px 18px rgba(155,77,255, 0.28)',
           }}
         >
           {actionLabel}

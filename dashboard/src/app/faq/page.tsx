@@ -1,5 +1,6 @@
 import type { Metadata } from 'next';
 import PublicNavFooter from '@/components/PublicNavFooter';
+import { CONTACT_EMAIL } from '@/lib/brand';
 
 export const metadata: Metadata = {
   title: 'FAQ — Vyom Ai Cloud',
@@ -62,35 +63,31 @@ export default function FAQPage() {
     <PublicNavFooter>
       <div className="max-w-3xl mx-auto px-6 py-16">
         <div className="text-center mb-12">
-          <h1 className="text-4xl sm:text-5xl font-black text-white mb-4 tracking-tight">
+          <h1 className="text-4xl sm:text-5xl font-black text-light-text dark:text-white mb-4 tracking-tight">
             Frequently Asked Questions
           </h1>
-          <p className="text-lg text-gray-400 max-w-xl mx-auto">
+          <p className="text-lg text-light-muted dark:text-dark-muted max-w-xl mx-auto">
             Everything you need to know about Vyom Ai Cloud.
           </p>
         </div>
 
         <div className="space-y-4">
           {FAQS.map((faq, i) => (
-            <div key={i} className="p-6 rounded-2xl border border-white/5 bg-white/[0.02]">
-              <h2 className="text-white font-bold mb-3">{faq.q}</h2>
-              <p className="text-sm text-gray-400 leading-relaxed">{faq.a}</p>
+            <div key={i} className="p-6 rounded-2xl border border-light-border dark:border-white/5 bg-light-card dark:bg-white/[0.02]">
+              <h2 className="text-light-text dark:text-white font-bold mb-3">{faq.q}</h2>
+              <p className="text-sm text-light-muted dark:text-dark-muted leading-relaxed">{faq.a}</p>
             </div>
           ))}
         </div>
 
-        <div className="text-center mt-16 py-12 border-t border-white/5">
-          <h2 className="text-2xl font-bold text-white mb-3">Still have questions?</h2>
-          <p className="text-gray-400 mb-6">
+        <div className="text-center mt-16 py-12 border-t border-light-border dark:border-white/5">
+          <h2 className="text-2xl font-bold text-light-text dark:text-white mb-3">Still have questions?</h2>
+          <p className="text-light-muted dark:text-dark-muted mb-6">
             Contact us directly and we&apos;ll get back to you as soon as possible.
           </p>
           <a
-            href="mailto:support@vyomai.cloud"
-            className="inline-block px-6 py-3 rounded-xl font-semibold text-sm text-white transition-all duration-300"
-            style={{
-              background: 'linear-gradient(135deg, #FF6969, #C80036)',
-              boxShadow: '0 4px 20px rgba(255,105,105,0.3)',
-            }}
+            href={`mailto:${CONTACT_EMAIL}`}
+            className="btn-primary"
           >
             Contact Support
           </a>

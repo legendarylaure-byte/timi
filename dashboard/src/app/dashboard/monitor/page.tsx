@@ -87,7 +87,7 @@ export default function MonitorPage() {
                   <motion.span
                     layoutId="monitor-tab"
                     className="absolute inset-0 rounded-xl"
-                    style={{ background: 'linear-gradient(135deg, #ec133e, #bd0f32)' }}
+                    style={{ background: 'linear-gradient(135deg, #9B4DFF, #C14381)' }}
                     transition={{ type: 'spring', stiffness: 300, damping: 30 }}
                   />
                 )}
