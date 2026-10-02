@@ -281,6 +281,13 @@ def test_a_permanent_init_error_is_attempted_once(monkeypatch, tmp_path):
 
     for code in sorted(mpp._TIKTOK_PERMANENT_INIT_CODES):
         calls["n"] = 0
+        # _upload_tiktok returns "not configured" before it ever POSTs when these
+        # are unset, so without them the call count is 0 and this test passes on
+        # a CI runner that has no secrets -- for the wrong reason. Set them here
+        # rather than skipping: the retry classification is worth asserting
+        # everywhere, and a fake token never leaves the mocked requests.post.
+        monkeypatch.setenv("TIKTOK_ACCESS_TOKEN", "test-token")
+        monkeypatch.setenv("TIKTOK_OPEN_ID", "test-open-id")
 
         class _Resp:
             status_code = 403
@@ -314,6 +321,8 @@ def test_a_transient_init_error_is_still_retried(monkeypatch, tmp_path):
     src = tmp_path / "c.mp4"
     src.write_bytes(b"x" * 100)
     calls = {"n": 0}
+    monkeypatch.setenv("TIKTOK_ACCESS_TOKEN", "test-token")
+    monkeypatch.setenv("TIKTOK_OPEN_ID", "test-open-id")
 
     class _Resp:
         status_code = 400
@@ -350,6 +359,10 @@ def test_init_call_site_actually_passes_brand_content(monkeypatch, tmp_path):
     """
     src = tmp_path / "c.mp4"
     src.write_bytes(b"x" * 100)
+    # Same reason as the two tests above: unset creds short-circuit _upload_tiktok
+    # before the init call, so every assertion below would pass vacuously.
+    monkeypatch.setenv("TIKTOK_ACCESS_TOKEN", "test-token")
+    monkeypatch.setenv("TIKTOK_OPEN_ID", "test-open-id")
 
     def _unaudited(monkeypatch):
         class _Resp:
