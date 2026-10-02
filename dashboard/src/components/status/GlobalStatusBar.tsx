@@ -3,6 +3,7 @@
 import { useEffect, useState, useCallback } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { db } from '@/lib/firebase';
+import { apiFetch } from '@/lib/api-fetch';
 import { doc, collection, onSnapshot, Timestamp } from 'firebase/firestore';
 import { getNextUploadDisplay } from '@/lib/constants';
 
@@ -234,9 +235,12 @@ const WORKING_MESSAGES: Record<string, { title: string; description: string }> =
   },
 };
 
+// ponytail: apiFetch, never bare fetch — /api/{docker,firebase,storage} are
+// requireUser-gated, so a headerless fetch 401s and every pill reads
+// "Offline"/"Disconnected"/"R2 error" while the service is perfectly healthy.
 async function fetchJson(url: string): Promise<any> {
   try {
-    const res = await fetch(url, { signal: AbortSignal.timeout(8000) });
+    const res = await apiFetch(url, { signal: AbortSignal.timeout(8000) });
     if (!res.ok) return null;
     return res.json();
   } catch { return null; }
