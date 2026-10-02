@@ -17,7 +17,7 @@ PERFORMANCE_HASHTAGS = {
 }
 
 PLATFORM_TITLE_RULES = {
-    "tiktok": {"max_chars": 100, "strip_parentheses": True, "emoji_prefix": True},
+    "tiktok": {"max_chars": 2200, "strip_parentheses": True, "emoji_prefix": True},  # TikTok counts the title as the caption; 2200 UTF-16 units
     "instagram": {"max_chars": 150, "strip_parentheses": False, "emoji_prefix": True},
     "facebook": {"max_chars": 250, "strip_parentheses": False, "emoji_prefix": True},
     "youtube": {"max_chars": 300, "strip_parentheses": False, "emoji_prefix": False},
@@ -65,6 +65,25 @@ TECH_HASHTAGS = {
 }
 
 
+def _utf16_len(s: str) -> int:
+    """Length as TikTok measures it.
+
+    `len()` counts code points, but an emoji outside the BMP (most of them) is a
+    surrogate pair -- 2 UTF-16 code units -- so a caption that is exactly at the
+    limit in Python can still exceed TikTok's limit and be rejected. Encoding to
+    UTF-16 and dividing by 2 gives the unit the API actually enforces.
+    """
+    return len(s.encode("utf-16-le")) // 2
+
+
+def _truncate_utf16(s: str, max_units: int) -> str:
+    """Truncate to `max_units` UTF-16 code units without splitting a surrogate pair."""
+    if _utf16_len(s) <= max_units:
+        return s
+    out = s.encode("utf-16-le")[:max_units * 2].decode("utf-16-le", errors="ignore")
+    return out
+
+
 def optimize_title_for_platform(title: str, platform: str) -> str:
     rules = PLATFORM_TITLE_RULES.get(platform, PLATFORM_TITLE_RULES["youtube"])
     result = title
@@ -73,8 +92,9 @@ def optimize_title_for_platform(title: str, platform: str) -> str:
     if rules["emoji_prefix"] and not any(c in result for c in "📌📢🤯🔥💡⚡"):
         emojis = {"tiktok": "🤯 ", "instagram": "📌 ", "facebook": "📢 "}
         result = emojis.get(platform, "") + result
-    if len(result) > rules["max_chars"]:
-        result = result[:rules["max_chars"] - 3].rsplit(" ", 1)[0] + "..."
+    if _utf16_len(result) > rules["max_chars"]:
+        clipped = _truncate_utf16(result, rules["max_chars"] - 3).rsplit(" ", 1)[0]
+        result = clipped + "..."
     return result
 
 

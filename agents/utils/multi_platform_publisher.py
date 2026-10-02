@@ -11,7 +11,8 @@ from utils.firebase_status import get_firestore_client, log_activity, update_vid
 from compliance.ai_disclosure import get_ai_disclosure
 from utils.sanitize import safe_log
 from utils.platform_captions import optimize_for_platform, optimize_title_for_platform
-from utils.subprocess_helper import retry_with_backoff, rate_limiter, security_audit, safe_run, register_temp_dir
+from utils.subprocess_helper import (retry_with_backoff, rate_limiter, security_audit, safe_run,
+                                    register_temp_dir, NonRetryableError)
 
 _FACEBOOK_CRF = os.getenv("FACEBOOK_CRF", "30")
 # Above this size we use Meta's 3-phase resumable upload instead of a single
@@ -281,7 +282,7 @@ def _is_graph_permission_error(err: dict) -> bool:
     return False
 
 
-def upload_to_platform(platform: str, title: str, description: str, video_path: str, thumbnail_path: str, format_type: str = 'shorts', publish_at: str = None, subtitle_path: str = None, tags: list = None, tiktok_privacy_level: str = None, tiktok_comment_disabled: bool = False, tiktok_duet_disabled: bool = False, tiktok_stitch_disabled: bool = False, default_language: str = None) -> dict:  # noqa: E501
+def upload_to_platform(platform: str, title: str, description: str, video_path: str, thumbnail_path: str, format_type: str = 'shorts', publish_at: str = None, subtitle_path: str = None, tags: list = None, tiktok_privacy_level: str = None, tiktok_comment_disabled: bool = False, tiktok_duet_disabled: bool = False, tiktok_stitch_disabled: bool = False, default_language: str = None, tiktok_brand_content: bool = False, tiktok_brand_organic: bool = False) -> dict:  # noqa: E501
     """Upload a video to a specific platform."""
     platform_info = PLATFORMS.get(platform)
     if not platform_info:
@@ -296,7 +297,9 @@ def upload_to_platform(platform: str, title: str, description: str, video_path: 
             return _upload_tiktok(title, video_path, format_type, privacy_level=tiktok_privacy_level,
                                   comment_disabled=tiktok_comment_disabled,
                                   duet_disabled=tiktok_duet_disabled,
-                                  stitch_disabled=tiktok_stitch_disabled)
+                                  stitch_disabled=tiktok_stitch_disabled,
+                                  brand_content=tiktok_brand_content,
+                                  brand_organic=tiktok_brand_organic)
         elif platform == 'instagram':
             return _upload_instagram(title, video_path, format_type)
         elif platform == 'facebook':
@@ -381,9 +384,79 @@ def _upload_youtube(title: str, description: str, video_path: str, thumbnail_pat
         }
 
 
+_TIKTOK_PERMANENT_INIT_CODES = {
+    # The account/app is barred until a human changes something external. Re-sending
+    # the identical init body cannot alter any of these.
+    'spam_risk_user_banned_from_posting',
+    'unaudited_client_can_only_post_to_private_accounts',
+    'reached_active_user_cap',
+    'privacy_level_option_mismatch',
+}
+
+
+def _tiktok_error_code(resp) -> str:
+    """Best-effort pull of error.code, so classification never re-parses the body."""
+    try:
+        body = resp.json()
+    except ValueError:
+        return ''
+    if isinstance(body, dict):
+        err = body.get('error') or {}
+        if isinstance(err, dict):
+            return str(err.get('code') or '')
+    return ''
+
+
+def _tiktok_init_error(resp, brand_content: bool = False) -> str:
+    """Turn TikTok's init/publish error codes into something an operator can act on.
+
+    The raw body is a JSON envelope whose `message` is a developer string
+    ("The user has reached their quota limit") -- useless in an alert at 03:00
+    without knowing which of five distinct causes produced it. Two of these are
+    permanent account/app states that no retry will ever fix, and one of them is
+    the reason a SELF_ONLY post still failed. `creator_info` carries no quota
+    field, so the quota state is only ever visible here.
+    """
+    try:
+        body = resp.json()
+    except ValueError:
+        return safe_log((resp.text or '')[:200])
+
+    code = ''
+    msg = ''
+    if isinstance(body, dict):
+        err = body.get('error') or {}
+        if isinstance(err, dict):
+            code = str(err.get('code') or '')
+            msg = str(err.get('message') or '')
+
+    guidance = {
+        'spam_risk_too_many_posts': 'posting limit reached for this user; retry later',
+        'reached_active_user_cap': 'client active-user cap reached; retry later',
+        'spam_risk_user_banned_from_posting': 'ACCOUNT cannot post; not retryable',
+        'privacy_level_option_mismatch': 'privacy_level not offered for this user; refresh options',
+    }
+    if code == 'unaudited_client_can_only_post_to_private_accounts':
+        # The most misleading line in this table if left unqualified. An
+        # unaudited app may ONLY post privately -- but a branded post may not be
+        # private, because the disclosure the brand flag asserts is not visible
+        # on a self-only post. So "use SELF_ONLY" is a fix for a normal post and
+        # an impossibility for a branded one, and the operator needs both.
+        if brand_content:
+            return (f'{code}: app is not audited, so TikTok permits only SELF_ONLY; '
+                    f'brand content cannot be published privately, so this post cannot '
+                    f'comply -- complete App Review or unset the brand content toggle '
+                    f'(raw: {safe_log(msg)})')
+        return f'{code}: app not audited; use SELF_ONLY (raw: {safe_log(msg)})'
+    if code in guidance:
+        return f'{code}: {guidance[code]} (raw: {safe_log(msg)})'
+    return safe_log(f'{code} {msg}'.strip() or (resp.text or '')[:200])
+
+
 def _upload_tiktok(title: str, video_path: str, format_type: str, privacy_level: str = None,
                    comment_disabled: bool = False, duet_disabled: bool = False,
-                   stitch_disabled: bool = False) -> dict:
+                   stitch_disabled: bool = False,
+                   brand_content: bool = False, brand_organic: bool = False) -> dict:
     """Upload to TikTok via Content Posting API v2 with retry, rate limit, idempotency."""
     if not rate_limiter("tiktok_upload", max_per_hour=5):
         security_audit("RATE_LIMIT", "TikTok upload rate limit hit", "warning")
@@ -408,6 +481,19 @@ def _upload_tiktok(title: str, video_path: str, format_type: str, privacy_level:
 
     if not os.path.exists(video_path):
         return {'success': False, 'platform': 'tiktok', 'error': f'Video file not found: {video_path}'}
+
+    # TikTok rejects brand content published to a private audience: the disclosure
+    # a branded post requires is not visible on a SELF_ONLY post, so the two states
+    # are mutually exclusive. Caught here rather than in the composer because all
+    # three callers (shorts, long, composer job) reach this function, and a check
+    # that lives in one caller leaves the other two able to send the illegal pair.
+    if brand_content and privacy_level == 'SELF_ONLY':
+        msg = ('TikTok does not allow brand content with SELF_ONLY privacy '
+               '(the required disclosure is not visible on a private post). '
+               'Choose a public privacy level or unset the brand content toggle.')
+        log_activity('publisher', msg, 'error')
+        security_audit("TIKTOK_BRAND_PRIVACY_CONFLICT", safe_log(msg), "error")
+        return {'success': False, 'platform': 'tiktok', 'error': msg}
 
     idem_key = _idempotency_key()
     _tiktok_refresh_attempted = False
@@ -452,7 +538,14 @@ def _upload_tiktok(title: str, video_path: str, format_type: str, privacy_level:
                 return _do_upload()
 
         if init_resp.status_code != 200:
-            raise RuntimeError(f'TikTok init failed: {init_resp.status_code} {init_resp.text[:200]}')
+            _msg = (f'TikTok init failed: {init_resp.status_code} '
+                    f'{_tiktok_init_error(init_resp, brand_content)}')
+            if _tiktok_error_code(init_resp) in _TIKTOK_PERMANENT_INIT_CODES:
+                # Without this the unaudited/banned/capped states were retried 3x
+                # with 5->60s backoff, spending ~65s of the run to re-derive an
+                # identical error and three rate-limit slots per video.
+                raise NonRetryableError(_msg)
+            raise RuntimeError(_msg)
 
         init_data = init_resp.json()
         upload_url = init_data.get('data', {}).get('upload_url')
@@ -479,15 +572,26 @@ def _upload_tiktok(title: str, video_path: str, format_type: str, privacy_level:
                     raise RuntimeError(f'TikTok chunk {i + 1}/{total_chunk_count} upload failed: {upload_resp.status_code}')
 
         ai_flags = get_ai_disclosure("tiktok")
-        post_info = {'title': title, 'privacy_level': privacy_level}
+        # Field names are `disable_*`, not `*_disabled`. The old names were not
+        # rejected -- TikTok ignored them -- so every comment/duet/stitch
+        # choice silently did nothing and the post published with all three
+        # enabled regardless of what the composer asked for.
+        # Every toggle is sent explicitly. An omitted `brand_content_toggle`
+        # defaults to TRUE on TikTok's side, which declares the post as branded
+        # content and requires a matching disclosure in the UI; relying on that
+        # default is exactly what gets an app rejected, so the state is always
+        # stated here rather than inherited.
+        post_info = {
+            'title': title,
+            'privacy_level': privacy_level,
+            'disable_comment': bool(comment_disabled),
+            'disable_duet': bool(duet_disabled),
+            'disable_stitch': bool(stitch_disabled),
+            'brand_content_toggle': bool(brand_content),
+            'brand_organic_toggle': bool(brand_organic),
+        }
         if ai_flags.get("is_aigc"):
             post_info["is_aigc"] = True
-        if comment_disabled:
-            post_info["comment_disabled"] = True
-        if duet_disabled:
-            post_info["duet_disabled"] = True
-        if stitch_disabled:
-            post_info["stitch_disabled"] = True
 
         # Publish via status polling (init -> upload -> poll status/fetch until PUBLISH_COMPLETE)
         publish_payload = {'publish_id': publish_id, 'post_info': post_info}
@@ -1038,10 +1142,34 @@ def multi_platform_publish(video_id: str, title: str, description: str, video_pa
                            tiktok_comment_disabled: bool = False,
                            tiktok_duet_disabled: bool = False,
                            tiktok_stitch_disabled: bool = False,
-                           default_language: str = None) -> dict:
-    """Publish to multiple platforms with progress tracking."""
+                           default_language: str = None,
+                           tiktok_path: str = None,
+                           tiktok_brand_content: bool = False,
+                           tiktok_brand_organic: bool = False) -> dict:
+    """Publish to multiple platforms with progress tracking.
+
+    `tiktok_path` is the watermark-free master. TikTok's App Review rejects
+    watermarked submissions, and it is the only platform that must not receive
+    the channel logo, so it gets its own file while every other platform keeps
+    `video_path`.
+
+    Fail-closed, deliberately: when the pipeline is watermarking and no usable
+    clean master exists, TikTok is SKIPPED rather than fed the watermarked copy.
+    The earlier fallback here was a guard that could not fail -- it published
+    exactly the artifact App Review rejects, so a lost clean file surfaced hours
+    later as an external rejection instead of a pipeline error. Other platforms
+    are unaffected, so YouTube/Facebook/Instagram still land. With
+    ENABLE_WATERMARK=false `video_path` is already watermark-free, so the
+    fallback is still allowed there and no caller has to know about it.
+    """
     if platforms is None:
         platforms = ['youtube']
+
+    # `video_path` is the watermarked copy exactly when this is on, so this flag
+    # -- not the presence of tiktok_path -- decides whether TikTok must fail.
+    _watermarking = os.getenv("ENABLE_WATERMARK", "true").strip().lower() in (
+        "1", "true", "yes", "on",
+    )
 
     log_activity('publisher', f"Starting multi-platform publish: {title}", 'info')
 
@@ -1066,14 +1194,53 @@ def multi_platform_publish(video_id: str, title: str, description: str, video_pa
         try:
             platform_title = optimize_title_for_platform(title, platform)
             platform_desc = optimize_for_platform(title, description, platform)
+
+            # TikTok takes the clean master; everything else takes the watermarked one.
+            path_for_platform = video_path
+            if platform == 'tiktok':
+                # The question is "is this file watermark-free", not "was a second
+                # path supplied". Keying the check on tiktok_path meant a caller
+                # that passed none at all skipped the whole branch and shipped the
+                # watermarked master -- the exact rejection, now invisible because
+                # the guard looked like it was covering the case.
+                _clean_ok = (tiktok_path and tiktok_path != video_path
+                             and os.path.exists(tiktok_path))
+                if _clean_ok:
+                    path_for_platform = tiktok_path
+                elif not _watermarking:
+                    log_activity('publisher',
+                                 f"No separate clean master for TikTok ({tiktok_path or 'none'}); "
+                                 f"ENABLE_WATERMARK is off so {os.path.basename(video_path)} "
+                                 "is already watermark-free", 'info')
+                else:
+                    # Publishing the watermarked copy would be the App Review
+                    # rejection this whole path exists to prevent.
+                    _why = (f"no clean master was supplied" if not tiktok_path
+                            else f"the watermark-free master is missing ({tiktok_path})")
+                    _msg = (f"TikTok skipped: {_why}, and this pipeline watermarks its "
+                            f"output, so {os.path.basename(video_path)} would be rejected "
+                            "by App Review. Other platforms still published.")
+                    log_activity('publisher', _msg, 'error')
+                    security_audit("TIKTOK_NO_CLEAN_MASTER", safe_log(_msg), "error")
+                    results['platforms'][platform] = {
+                        'success': False, 'platform': 'tiktok',
+                        'error': 'watermark-free master unavailable; refusing to post a '
+                                 'watermarked video',
+                    }
+                    _update_queue(video_id, platform, False)
+                    results['all_success'] = False
+                    continue
+
             log_activity('publisher', f"Uploading to {PLATFORMS[platform]['name']}...", 'info')
-            result = upload_to_platform(platform, platform_title, platform_desc, video_path,
+            result = upload_to_platform(platform, platform_title, platform_desc, path_for_platform,
                                         thumbnail_path, format_type, publish_at, subtitle_path, tags=tags,
                                         tiktok_privacy_level=tiktok_privacy_level,
                                         tiktok_comment_disabled=tiktok_comment_disabled,
                                         tiktok_duet_disabled=tiktok_duet_disabled,
                                         tiktok_stitch_disabled=tiktok_stitch_disabled,
-                                        default_language=default_language)
+                                        default_language=default_language,
+                                        tiktok_brand_content=tiktok_brand_content,
+                                        tiktok_brand_organic=tiktok_brand_organic)
             results['platforms'][platform] = result
 
             # Update queue in Firestore
@@ -1125,13 +1292,18 @@ def multi_platform_publish(video_id: str, title: str, description: str, video_pa
             log_activity('publisher', f"R2 cleanup skipped: {e}", 'warn')
 
         if cleanup:
-            try:
-                if os.path.exists(video_path):
-                    size = os.path.getsize(video_path)
-                    os.remove(video_path)
-                    log_activity('publisher', f"Deleted local output: {video_path} ({size / 1024 / 1024:.1f}MB)", 'info')
-            except Exception as e:
-                log_activity('publisher', f"Local file cleanup skipped: {e}", 'warn')
+            # Both files, not just `video_path`. The clean master is a second
+            # real file on disk; deleting only the watermarked one leaked
+            # ~1.5GB per long video, and the compositor temp dir is not
+            # swept until the next cleanup pass.
+            for _p in {video_path, tiktok_path} - {None, ''}:
+                try:
+                    if os.path.exists(_p):
+                        size = os.path.getsize(_p)
+                        os.remove(_p)
+                        log_activity('publisher', f"Deleted local output: {_p} ({size / 1024 / 1024:.1f}MB)", 'info')
+                except Exception as e:
+                    log_activity('publisher', f"Local file cleanup skipped for {_p}: {e}", 'warn')
 
     log_activity(
         'publisher', f"Publish complete: {results['success_count']}/{results['total_count']} successful", 'success')

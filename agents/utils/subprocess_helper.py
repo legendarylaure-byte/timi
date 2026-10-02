@@ -86,6 +86,16 @@ def safe_run_bool(cmd, timeout=120, env=None):
         return False
 
 
+class NonRetryableError(Exception):
+    """A failure that retrying cannot fix (revoked permission, audit gate, ban).
+
+    Distinguished from a normal Exception so retry_with_backoff stops
+    immediately instead of re-sending a request that is certain to fail the same
+    way. Retrying those cost ~65s of wall clock, three rate-limiter slots and
+    three API calls to produce an identical error.
+    """
+
+
 def retry_with_backoff(func, max_retries=3, base_delay=2, max_delay=60):
     """Retry a callable with exponential backoff + jitter. Returns (success_bool, result_or_last_error)."""
     last_error = None
@@ -93,6 +103,10 @@ def retry_with_backoff(func, max_retries=3, base_delay=2, max_delay=60):
         try:
             result = func()
             return True, result
+        except NonRetryableError as e:
+            # Same (False, error) contract as exhausting the retries, so every
+            # existing call site handles it unchanged -- it just happens at once.
+            return False, e
         except Exception as e:
             last_error = e
             if attempt < max_retries - 1:

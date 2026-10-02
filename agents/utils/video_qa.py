@@ -39,6 +39,44 @@ def _ffprobe_path() -> str:
     return "ffprobe"
 
 
+def resolved_video_duration(video_result: dict | None) -> tuple[float, str]:
+    """Seconds for a finished render, plus which source answered.
+
+    Returns (seconds, source) where source is "compositor" or "ffprobe".
+
+    The compositor's own count is preferred, but it can be 0 or absent, and the
+    TikTok composer refuses to publish a post whose duration it cannot verify
+    against the account's max. Probing the finished file is the difference
+    between "duration unknown, refuse to publish" and a usable number, so the
+    probe is a fallback rather than a second source of truth.
+
+    Lives here rather than in main.py so it is importable without the crew
+    dependency chain (main.py pulls in crewai -> langchain, absent outside the
+    container), which is what makes it testable at all.
+    """
+    vr = video_result or {}
+    try:
+        dur = float(vr.get("duration", 0) or 0)
+    except (TypeError, ValueError):
+        dur = 0.0
+    if dur > 0:
+        return dur, "compositor"
+
+    path = vr.get("video_path") or ""
+    if not path or not os.path.exists(path):
+        return 0.0, "ffprobe"
+    try:
+        r = safe_run(
+            [_ffprobe_path(), "-v", "error", "-show_entries", "format=duration",
+             "-of", "default=noprint_wrappers=1:nokey=1", path],
+            timeout=15, capture_output=True, text=True,
+        )
+        return round(float((r.stdout or "").strip()), 1), "ffprobe"
+    except Exception as e:
+        logger.warning("Duration probe failed for %s: %s", path, e)
+        return 0.0, "ffprobe"
+
+
 def check_black_frames(video_path: str, duration: float = 2.0,
                        pixel_threshold: float = 0.1) -> dict:
     if not os.path.exists(video_path):

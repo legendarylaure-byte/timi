@@ -52,6 +52,7 @@ from utils.music_gen import generate_background_music
 from utils.voice_gen import generate_voiceover
 from utils.stock_video import search_videos_for_scenes
 from utils.multi_platform_publisher import multi_platform_publish
+from utils.video_qa import resolved_video_duration
 from utils.trend_discovery import discover_trends
 from utils.quality_scorer import score_content, predict_performance, check_repetition, evaluate_publish_decision
 from utils.cleanup_service import run_cleanup
@@ -1505,6 +1506,16 @@ def run_video_pipeline(script_text: str, storyboard_text: str, category: str, fo
             # English still ships, just without burned captions; dubs continue.
             log_event("EDITOR", "English caption burn failed; uploading clean master for English")
 
+    # TikTok App Review requires the submitted video to carry no watermark, and a
+    # retry/re-upload later must be able to reproduce it. Capture the pre-overlay
+    # path NOW, before add_logo_overlay reassigns final_path to the _wm copy.
+    # Deliberately NOT reusing `clean_master`: that is only populated when
+    # ENABLE_MULTI_LANG_DUB is on, so on the default config it is "" and TikTok
+    # would silently fall back to the watermarked master. This runs whether or
+    # not watermarking is enabled, so with ENABLE_WATERMARK=false both paths are
+    # the same file and TikTok still gets a watermark-free source.
+    tiktok_path = final_path
+
     if ENABLE_WATERMARK and final_path:
         # One insertion here covers short and long: both go through this function.
         # add_logo_overlay had zero callers until now, so the channel has never
@@ -1533,6 +1544,7 @@ def run_video_pipeline(script_text: str, storyboard_text: str, category: str, fo
 
     return {
         "video_path": final_path,
+        "tiktok_path": tiktok_path,
         "clean_video_path": clean_master,
         "voice_path": voice_result["path"],
         "music_path": music_path,
@@ -1902,7 +1914,10 @@ def generate_short_video(topic: str, category: str, video_id: str, publish_at: s
                 log_event("QUALITY", f"FAILED: {qc_msg}")
                 update_pipeline_status(False)
                 return False
-        save_checkpoint(video_id, "video_pipeline", {"video_path": video_result.get("video_path", "")})
+        save_checkpoint(video_id, "video_pipeline", {
+            "video_path": video_result.get("video_path", ""),
+            "tiktok_path": video_result.get("tiktok_path", ""),
+        })
 
         failed_step = "review_gate"
         review_decision = apply_review_gate(video_id, topic, "shorts", script_text, quality, category)
@@ -1998,6 +2013,7 @@ def generate_short_video(topic: str, category: str, video_id: str, publish_at: s
                 title=best_title,
                 description=desc_result.get("full_description", ""),
                 video_path=video_result.get("video_path", ""),
+                tiktok_path=video_result.get("tiktok_path", ""),
                 thumbnail_path=thumbnail_path,
                 format_type="shorts",
                 platforms=platforms_to_publish,
@@ -2185,6 +2201,8 @@ def generate_short_video(topic: str, category: str, video_id: str, publish_at: s
             "publish_at": publish_at,
             "tiktok_url": _tiktok.get('url', '') if _tiktok.get('success') else '',
             "tiktok_status": 'published' if _tiktok.get('success') else ('upload_failed' if _tiktok else ''),
+            "duration": _resolved_duration(video_result),
+            "duration_source": _duration_source(video_result),
             **_news_updates,
         })
         if short_status == "upload_failed":
@@ -2533,7 +2551,10 @@ def generate_long_video(topic: str, category: str, video_id: str, publish_at: st
                 log_event("QUALITY", f"FAILED: {qc_msg}")
                 update_pipeline_status(False)
                 return False
-        save_checkpoint(video_id, "video_pipeline", {"video_path": video_result.get("video_path", "")})
+        save_checkpoint(video_id, "video_pipeline", {
+            "video_path": video_result.get("video_path", ""),
+            "tiktok_path": video_result.get("tiktok_path", ""),
+        })
 
         failed_step = "review_gate"
         review_decision = apply_review_gate(video_id, topic, "long", script_text, quality, category)
@@ -2631,6 +2652,7 @@ def generate_long_video(topic: str, category: str, video_id: str, publish_at: st
                 title=best_title,
                 description=desc_result.get("full_description", ""),
                 video_path=video_result.get("video_path", ""),
+                tiktok_path=video_result.get("tiktok_path", ""),
                 thumbnail_path=thumbnail_path,
                 format_type="long",
                 platforms=platforms_to_publish,
@@ -2821,6 +2843,8 @@ def generate_long_video(topic: str, category: str, video_id: str, publish_at: st
             "publish_at": publish_at,
             "tiktok_url": _tiktok.get('url', '') if _tiktok.get('success') else '',
             "tiktok_status": 'published' if _tiktok.get('success') else ('upload_failed' if _tiktok else ''),
+            "duration": _resolved_duration(video_result),
+            "duration_source": _duration_source(video_result),
             **_news_updates,
         })
 
@@ -2870,6 +2894,14 @@ def _add_days(dt, n: int):
     """Return dt advanced by n days, safe across month/month-end boundaries
     (ponytail: replace(day=+1) overflows on 28/29/30/31 -> ValueError)."""
     return dt + timedelta(days=n)
+
+
+def _resolved_duration(video_result: dict) -> float:
+    return resolved_video_duration(video_result)[0]
+
+
+def _duration_source(video_result: dict) -> str:
+    return resolved_video_duration(video_result)[1]
 
 
 def _platforms_to_publish() -> list:
@@ -3819,9 +3851,12 @@ def tiktok_composer_job():
         intent_ref.update({'status': 'processing', 'started_at': time.time()})
 
         video_path = ''
+        tiktok_path = ''
         cp = load_checkpoint(video_id)
         if cp:
-            video_path = (cp.get('state') or {}).get('video_path', '') or ''
+            _state = cp.get('state') or {}
+            video_path = _state.get('video_path', '') or ''
+            tiktok_path = _state.get('tiktok_path', '') or ''
         if not video_path or not os.path.exists(video_path):
             video_path = _resolve_video_for_publish(db, video_id, video_path)
 
@@ -3829,12 +3864,21 @@ def tiktok_composer_job():
             _fail_intent(db, intent_id, f'Video file unavailable for video_id={video_id}')
             return
 
+        # The checkpoint's video_path carries the channel watermark, which TikTok's
+        # App Review rejects. Prefer the clean master when the checkpoint recorded
+        # one; fall back to the resolved file otherwise (older videos, or a
+        # checkpoint written before this field existed).
+        if tiktok_path and not os.path.exists(tiktok_path):
+            log_event("TIKTOK_COMPOSER", f"Clean master missing ({tiktok_path}); using resolved file", "warn")
+            tiktok_path = ''
+
         def _do():
             result = multi_platform_publish(
                 video_id=video_id,
                 title=title,
                 description=data.get('description', '') or title,
                 video_path=video_path,
+                tiktok_path=tiktok_path,
                 thumbnail_path='',
                 format_type=data.get('format', 'shorts'),
                 platforms=['tiktok'],
@@ -3844,6 +3888,8 @@ def tiktok_composer_job():
                 tiktok_comment_disabled=comment_disabled,
                 tiktok_duet_disabled=duet_disabled,
                 tiktok_stitch_disabled=stitch_disabled,
+                tiktok_brand_content=bool(data.get('brand_content', False)),
+                tiktok_brand_organic=bool(data.get('brand_organic', False)),
             )
             t = result.get('platforms', {}).get('tiktok', {})
             if t.get('success'):
