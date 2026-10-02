@@ -8,27 +8,34 @@ import { signInWithPopup, GoogleAuthProvider } from 'firebase/auth';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { motion, AnimatePresence } from 'framer-motion';
-import { ThemeToggle } from '@/components/ui/ThemeToggle';
+import DenialNotice from '@/components/auth/DenialNotice';
+import { BRAND, BRAND_GRADIENT, COMPANY, CONTACT_EMAIL } from '@/lib/brand';
 import Image from 'next/image';
 import { Bot, Sparkles, Cpu, Lock, Shield, CheckCircle } from 'lucide-react';
 
 const TAGLINES = [
-  '9 AI Agents at your service',
+  '13 specialist agents at your service',
   'Daily content creation automated',
-  '100% Free, Local AI pipeline',
+  'Verified sources, rendered video',
   'From script to publish daily',
 ];
 
+// "100% Free / Local AI, no API costs" was wrong: the pipeline calls Gemini's
+// free tier and Edge TTS, and YouTube's API is not free at scale. Replaced with
+// the thing that is actually true and the reason anyone should care.
 const PERKS = [
-  { icon: Bot, title: '9 AI Agents', desc: 'Script to publish, automated', gradient: 'from-rose-400/20 to-pink-400/20' },
-  { icon: Sparkles, title: 'Daily Content', desc: 'Shorts + long-form videos', gradient: 'from-orange-400/20 to-amber-400/20' },
-  { icon: Cpu, title: '100% Free', desc: 'Local AI, no API costs', gradient: 'from-purple-400/20 to-violet-400/20' },
+  { icon: Bot, title: '13 Specialist Agents', desc: 'Script to publish, automated', gradient: 'from-dark-primary/20 to-dark-accent/20' },
+  { icon: Sparkles, title: 'Daily Content', desc: 'Shorts + long-form videos', gradient: 'from-light-primary/20 to-light-accent/20 dark:from-dark-primary/20 dark:to-dark-accent/20' },
+  { icon: Cpu, title: 'Verified Sources', desc: 'Publisher allowlist, not a guess', gradient: 'from-light-secondary/20 to-light-primary/20 dark:from-dark-secondary/20 dark:to-dark-primary/20' },
 ];
 
 export default function SignupPage() {
   const router = useRouter();
   const [loading, setLoading] = useState(false);
-  const [error, setError] = useState('');
+  // Discriminated for the same reason as login: a refusal and a broken check
+  // need different words, and the renderer must not have to guess.
+  const [error, setError] = useState<{ kind: 'denial' | 'technical'; text: string } | null>(null);
+  const fail = (text: string) => setError({ kind: 'technical', text });
   const [mounted, setMounted] = useState(false);
   const [mousePos, setMousePos] = useState({ x: 0, y: 0 });
   const [taglineIdx, setTaglineIdx] = useState(0);
@@ -41,6 +48,15 @@ export default function SignupPage() {
 
   useEffect(() => {
     setMounted(true);
+    // An invite-only product can bounce a signed-in stranger off a route guard
+    // and back here. Without this the reason is dropped on the floor and the
+    // form just sits there looking like the signup itself failed.
+    const params = new URLSearchParams(window.location.search);
+    if (params.get('error') === 'not_allowed') {
+      setError({ kind: 'denial', text: signInErrorMessage(403, 'Not authorized', null) });
+    } else if (params.get('error') === 'check_failed') {
+      fail(signInErrorMessage(Number(params.get('status')) || 0, null, null));
+    }
   }, []);
 
   useEffect(() => {
@@ -83,7 +99,7 @@ export default function SignupPage() {
 
   const handleGoogleSignup = async () => {
     setLoading(true);
-    setError('');
+    setError(null);
     try {
       const provider = new GoogleAuthProvider();
       const result = await signInWithPopup(auth, provider);
@@ -95,7 +111,10 @@ export default function SignupPage() {
           if (isDefinitiveDenial(res.status, error)) {
             try { await auth.signOut(); } catch {}
           }
-          setError(signInErrorMessage(res.status, error, result.user.email));
+          setError({
+            kind: isDefinitiveDenial(res.status, error) ? 'denial' : 'technical',
+            text: signInErrorMessage(res.status, error, result.user.email),
+          });
           setLoading(false);
           return;
         }
@@ -103,7 +122,7 @@ export default function SignupPage() {
       }
     } catch (err: any) {
       if (err.code !== 'auth/popup-closed-by-user') {
-        setError(err.message || 'Signup failed. Please try again.');
+        fail(err.message || 'Signup failed. Please try again.');
       }
     } finally {
       setLoading(false);
@@ -115,25 +134,23 @@ export default function SignupPage() {
       className="min-h-screen relative overflow-hidden flex items-center justify-center"
       onMouseMove={handleMouseMove}
       style={{
-        backgroundColor: '#0C1844',
+        backgroundColor: BRAND.canvas,
         backgroundImage: 'radial-gradient(circle at 1px 1px, rgba(255,255,255,0.05) 1px, transparent 0)',
         backgroundSize: '40px 40px',
       }}
     >
-      <div className="fixed top-4 right-4 z-50"><ThemeToggle /></div>
-
       {/* Aurora glow */}
       {mounted && (
         <motion.div
           className="absolute inset-0 pointer-events-none"
           style={{
-            background: `radial-gradient(ellipse at ${30 + mousePos.x * 40}% ${20 + mousePos.y * 30}%, rgba(255,105,105,0.15) 0%, transparent 50%)`,
+            background: `radial-gradient(ellipse at ${30 + mousePos.x * 40}% ${20 + mousePos.y * 30}%, rgba(155, 77, 255, 0.15) 0%, transparent 50%)`,
           }}
           animate={{
             background: [
-              `radial-gradient(ellipse at 30% 20%, rgba(255,105,105,0.15) 0%, transparent 50%)`,
-              `radial-gradient(ellipse at 60% 40%, rgba(200,0,54,0.1) 0%, transparent 50%)`,
-              `radial-gradient(ellipse at 30% 20%, rgba(255,105,105,0.15) 0%, transparent 50%)`,
+              `radial-gradient(ellipse at 30% 20%, rgba(155, 77, 255, 0.15) 0%, transparent 50%)`,
+              `radial-gradient(ellipse at 60% 40%, rgba(248, 86, 165, 0.1) 0%, transparent 50%)`,
+              `radial-gradient(ellipse at 30% 20%, rgba(155, 77, 255, 0.15) 0%, transparent 50%)`,
             ],
           }}
           transition={{ duration: 10, repeat: Infinity, ease: 'linear' }}
@@ -164,6 +181,7 @@ export default function SignupPage() {
               src="/logo-vyomai.png"
               alt="Vyom Ai Cloud"
               fill
+              sizes="192px"
               className="object-contain drop-shadow-2xl"
               priority
             />
@@ -175,7 +193,7 @@ export default function SignupPage() {
             animate={{ opacity: 1, y: 0 }}
             transition={{ delay: 0.5, duration: 0.8 }}
             style={{
-              background: 'linear-gradient(135deg, #FF6969 0%, #C80036 50%, #FF6969 100%)',
+              background: BRAND_GRADIENT,
               backgroundSize: '300% auto',
               WebkitBackgroundClip: 'text',
               WebkitTextFillColor: 'transparent',
@@ -189,7 +207,7 @@ export default function SignupPage() {
             <AnimatePresence mode="wait">
                 <motion.p
                   key={taglineIdx}
-                  className="text-xl text-red-200/80 font-medium max-w-md mx-auto lg:mx-0"
+                  className="text-xl text-white/70 font-medium max-w-md mx-auto lg:mx-0"
                 initial={{ opacity: 0, y: 30 }}
                 animate={{ opacity: 1, y: 0 }}
                 exit={{ opacity: 0, y: -30 }}
@@ -216,15 +234,15 @@ export default function SignupPage() {
                   className={`absolute inset-0 bg-gradient-to-br ${perk.gradient} opacity-0 group-hover:opacity-100 transition-opacity duration-300`}
                 />
                 <motion.div
-                  className="relative z-10 w-12 h-12 rounded-xl bg-gradient-to-br from-red-500/20 to-red-800/20 flex items-center justify-center"
+                  className="relative z-10 w-12 h-12 rounded-xl flex items-center justify-center" style={{ background: "rgba(155,77,255,0.16)" }}
                   whileHover={{ scale: 1.2, rotate: [0, -10, 10, 0] }}
                   transition={{ duration: 0.4 }}
                 >
-                  <perk.icon className="w-6 h-6 text-red-300" />
+                  <perk.icon className="w-6 h-6" style={{ color: BRAND.lightOrange }} />
                 </motion.div>
                 <div className="relative z-10">
                   <h3 className="text-sm font-bold text-white">{perk.title}</h3>
-                  <p className="text-xs text-red-200/60">{perk.desc}</p>
+                  <p className="text-xs text-white/60">{perk.desc}</p>
                 </div>
               </motion.div>
             ))}
@@ -252,10 +270,10 @@ export default function SignupPage() {
             style={{
               background: 'linear-gradient(135deg, rgba(255,255,255,0.08), rgba(255,255,255,0.03))',
               backdropFilter: 'blur(40px)',
-              border: '1px solid rgba(255,105,105,0.2)',
+              border: '1px solid rgba(155, 77, 255, 0.2)',
               boxShadow: isHoveringCard
-                ? '0 35px 80px rgba(255,105,105,0.15), 0 15px 40px rgba(12,1,68,0.3)'
-                : '0 25px 60px rgba(255,105,105,0.1), 0 10px 30px rgba(12,1,68,0.2)',
+                ? '0 35px 80px rgba(155, 77, 255, 0.15), 0 15px 40px rgba(27, 18, 18, 0.3)'
+                : '0 25px 60px rgba(155, 77, 255, 0.1), 0 10px 30px rgba(27, 18, 18, 0.2)',
               transformStyle: 'preserve-3d',
             }}
           >
@@ -263,7 +281,7 @@ export default function SignupPage() {
             <motion.div
               className="absolute inset-0 rounded-3xl opacity-40"
               style={{
-                background: 'conic-gradient(from 0deg, #FF6969, #C80036, #0C1844, #FF6969, #C80036, #FF6969)',
+                background: 'conic-gradient(from 0deg, #9B4DFF, #F856A5, #FF8133, #1B1212, #9B4DFF)',
                 mask: 'linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0)',
                 WebkitMaskComposite: 'xor',
                 maskComposite: 'exclude',
@@ -278,7 +296,7 @@ export default function SignupPage() {
               <motion.div
                 className="absolute inset-0 pointer-events-none"
                 style={{
-                  background: `radial-gradient(600px circle at ${mousePos.x * 100}% ${mousePos.y * 100}%, rgba(255,105,105,0.12), transparent 40%)`,
+                  background: `radial-gradient(600px circle at ${mousePos.x * 100}% ${mousePos.y * 100}%, rgba(155, 77, 255, 0.12), transparent 40%)`,
                 }}
               />
             )}
@@ -298,19 +316,28 @@ export default function SignupPage() {
                 >
                   Get Started
                 </motion.h2>
-                <p className="text-sm text-red-200/60">Create your account and start building</p>
+                <p className="text-sm text-white/60">Create your account and start building</p>
               </motion.div>
 
-              {/* Error message */}
-              <AnimatePresence>
-                {error && (
+              {/* Error message. A refusal gets the friendly component; a
+                  broken check gets a technical line. See the same split on
+                  login -- the two used to be one red box. */}
+              <AnimatePresence mode="wait">
+                {error?.kind === 'denial' && (
+                  <div className="mb-6">
+                    <DenialNotice detail={error.text} />
+                  </div>
+                )}
+                {error?.kind === 'technical' && (
                   <motion.div
-                    initial={{ opacity: 0, height: 0, scale: 0.95 }}
-                    animate={{ opacity: 1, height: 'auto', scale: 1 }}
-                    exit={{ opacity: 0, height: 0, scale: 0.95 }}
-                    className="mb-6 p-4 rounded-xl bg-red-500/10 border border-red-500/20 text-red-500 text-sm"
+                    key="technical"
+                    initial={{ opacity: 0, height: 0 }}
+                    animate={{ opacity: 1, height: 'auto' }}
+                    exit={{ opacity: 0, height: 0 }}
+                    role="alert"
+                    className="mb-6 p-4 rounded-xl bg-dark-error/10 border border-dark-error/20 text-dark-error text-sm"
                   >
-                    {error}
+                    {error.text}
                   </motion.div>
                 )}
               </AnimatePresence>
@@ -324,9 +351,9 @@ export default function SignupPage() {
                 disabled={loading}
                 className="relative w-full py-4 rounded-2xl font-bold text-white transition-all duration-300 disabled:opacity-50 overflow-hidden"
                 style={{
-                  background: 'linear-gradient(135deg, #FF6969, #C80036)',
+                  background: BRAND_GRADIENT,
                   backgroundSize: '200% auto',
-                  boxShadow: '0 10px 30px rgba(255,105,105,0.3)',
+                  boxShadow: '0 10px 30px rgba(155, 77, 255, 0.3)',
                   transform: `translate(${btnMagnetic.x}px, ${btnMagnetic.y}px)`,
                 }}
                 animate={{
@@ -370,9 +397,9 @@ export default function SignupPage() {
                 animate={{ opacity: 1 }}
                 transition={{ delay: 0.9 }}
               >
-                <div className="flex-1 h-px bg-gradient-to-r from-transparent via-red-400/20 to-transparent" />
-                <span className="text-xs text-red-200/40 font-medium">SECURED BY</span>
-                <div className="flex-1 h-px bg-gradient-to-r from-transparent via-red-400/20 to-transparent" />
+                <div className="flex-1 h-px bg-gradient-to-r from-transparent via-dark-primary/20 to-transparent" />
+                <span className="text-xs text-white/60 font-medium">SECURED BY</span>
+                <div className="flex-1 h-px bg-gradient-to-r from-transparent via-dark-primary/20 to-transparent" />
               </motion.div>
 
               {/* Security badges */}
@@ -396,8 +423,8 @@ export default function SignupPage() {
                     transition={{ delay: 1.1 + i * 0.1, type: 'spring', stiffness: 300 }}
                     className="flex items-center gap-1.5 hover:scale-110 transition-transform cursor-default"
                   >
-                    <BadgeIcon className="w-3.5 h-3.5 text-red-300" />
-                    <span className="text-red-200/60">{item.label}</span>
+                    <BadgeIcon className="w-3.5 h-3.5" style={{ color: BRAND.lightOrange }} />
+                    <span className="text-white/60">{item.label}</span>
                   </motion.div>
                   );
                 })}
@@ -405,15 +432,15 @@ export default function SignupPage() {
 
               {/* Login link */}
               <motion.p
-                className="text-center mt-8 text-sm text-red-200/40"
+                className="text-center mt-8 text-sm text-white/60"
                 initial={{ opacity: 0 }}
                 animate={{ opacity: 1 }}
                 transition={{ delay: 1.2 }}
               >
                 Already have an account?{' '}
-                <Link href="/login" className="text-red-400 hover:text-red-300 font-bold transition-colors relative group">
+                <Link href="/login" className="text-light-orange hover:text-white font-bold transition-colors relative group">
                   Sign in
-                  <span className="absolute -bottom-0.5 left-0 w-0 h-0.5 bg-red-400 group-hover:w-full transition-all duration-300" />
+                  <span className="absolute -bottom-0.5 left-0 w-0 h-0.5 bg-light-orange group-hover:w-full transition-all duration-300" />
                 </Link>
               </motion.p>
             </div>
@@ -424,10 +451,10 @@ export default function SignupPage() {
       {/* Footer */}
       <footer className="absolute bottom-0 left-0 right-0 z-50 py-4 px-6">
         <div className="flex items-center justify-center gap-6 text-xs">
-          <Link href="/terms" className="text-red-200/40 hover:text-red-200/70 transition-colors">
+          <Link href="/terms" className="text-white/60 hover:text-white/70 transition-colors">
             Terms of Service
           </Link>
-          <Link href="/privacy" className="text-red-200/40 hover:text-red-200/70 transition-colors">
+          <Link href="/privacy" className="text-white/60 hover:text-white/70 transition-colors">
             Privacy Policy
           </Link>
         </div>

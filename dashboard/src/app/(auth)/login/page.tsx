@@ -9,7 +9,8 @@ import { signInWithPopup, signInWithEmailAndPassword, GoogleAuthProvider } from 
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { motion, AnimatePresence } from 'framer-motion';
-import { ThemeToggle } from '@/components/ui/ThemeToggle';
+import DenialNotice from '@/components/auth/DenialNotice';
+import { BRAND, BRAND_GRADIENT, COMPANY, CONTACT_EMAIL } from '@/lib/brand';
 import Image from 'next/image';
 import { Play, TrendingUp, Music, Zap, Bot, Rocket, Shield, Lock, CheckCircle } from 'lucide-react';
 
@@ -21,16 +22,22 @@ const TAGLINES = [
 ];
 
 const FEATURES = [
-  { icon: Play, title: 'AI Video Gen', desc: '9 agents working together', gradient: 'from-rose-400/20 to-pink-400/20' },
-  { icon: TrendingUp, title: 'Auto Publishing', desc: 'YT, TikTok, FB, IG', gradient: 'from-orange-400/20 to-amber-400/20' },
-  { icon: Music, title: 'Music & Voice', desc: 'AI-generated audio', gradient: 'from-purple-400/20 to-violet-400/20' },
-  { icon: Zap, title: 'Trend Discovery', desc: 'AI-powered topics', gradient: 'from-yellow-400/20 to-orange-400/20' },
+  { icon: Play, title: 'AI Video Gen', desc: '13 agents working together', gradient: 'from-light-secondary/20 to-light-accent/20 dark:from-dark-secondary/20 dark:to-dark-accent/20' },
+  { icon: TrendingUp, title: 'Auto Publishing', desc: 'YT, TikTok, FB, IG', gradient: 'from-light-primary/20 to-light-accent/20 dark:from-dark-primary/20 dark:to-dark-accent/20' },
+  { icon: Music, title: 'Music & Voice', desc: 'AI-generated audio', gradient: 'from-light-secondary/20 to-light-primary/20 dark:from-dark-secondary/20 dark:to-dark-primary/20' },
+  { icon: Zap, title: 'Trend Discovery', desc: 'Verified news sources', gradient: 'from-light-accent/20 to-light-primary/20 dark:from-dark-accent/20 dark:to-dark-primary/20' },
 ];
 
 export default function LoginPage() {
   const router = useRouter();
+  // Discriminated, not a bare string. The renderer needs to know whether this is
+  // "you are not allowed" (friendly, with a way forward) or "the check broke"
+  // (technical, retry). Inferring that from the message text is the bug this
+  // whole module was written to stop, so it is not repeated here.
+  type AuthError = { kind: 'denial'; text: string } | { kind: 'technical'; text: string };
+  const [error, setError] = useState<AuthError | null>(null);
+  const fail = (text: string) => setError({ kind: 'technical', text });
   const [loading, setLoading] = useState(false);
-  const [error, setError] = useState('');
   const [mounted, setMounted] = useState(false);
   const [mousePos, setMousePos] = useState({ x: 0, y: 0 });
   const [taglineIdx, setTaglineIdx] = useState(0);
@@ -47,9 +54,9 @@ export default function LoginPage() {
     // instead of dropping them on a bare sign-in form.
     const params = new URLSearchParams(window.location.search);
     if (params.get('error') === 'not_allowed') {
-      setError(signInErrorMessage(403, 'Not authorized', null));
+      setError({ kind: 'denial', text: signInErrorMessage(403, 'Not authorized', null) });
     } else if (params.get('error') === 'check_failed') {
-      setError(signInErrorMessage(Number(params.get('status')) || 0, null, null));
+      fail(signInErrorMessage(Number(params.get('status')) || 0, null, null));
     }
   }, []);
 
@@ -95,7 +102,7 @@ export default function LoginPage() {
 
   const handleGoogleLogin = async () => {
     setLoading(true);
-    setError('');
+    setError(null);
     try {
       const provider = new GoogleAuthProvider();
       const result = await signInWithPopup(auth, provider);
@@ -112,7 +119,11 @@ export default function LoginPage() {
           if (isDefinitiveDenial(res.status, error)) {
             try { await auth.signOut(); } catch {}
           }
-          setError(signInErrorMessage(res.status, error, result.user.email));
+          setError(
+            isDefinitiveDenial(res.status, error)
+              ? { kind: 'denial', text: signInErrorMessage(res.status, error, result.user.email) }
+              : { kind: 'technical', text: signInErrorMessage(res.status, error, result.user.email) }
+          );
           setLoading(false);
           return;
         }
@@ -120,7 +131,7 @@ export default function LoginPage() {
       }
     } catch (err: any) {
       if (err.code !== 'auth/popup-closed-by-user') {
-        setError(err.code === 'auth/unauthorized-domain'
+        fail(err.code === 'auth/unauthorized-domain'
           ? 'Domain not authorized. Add localhost to Firebase Console.'
           : err.message || 'Login failed. Please try again.'
         );
@@ -137,14 +148,14 @@ export default function LoginPage() {
   const handleEmailLogin = async (e: React.FormEvent) => {
     e.preventDefault();
     setEmailLoading(true);
-    setError('');
+    setError(null);
     try {
       const result = await signInWithEmailAndPassword(auth, email.trim(), password);
       if (result.user) {
         router.replace('/dashboard');
       }
     } catch (err: any) {
-      setError(err.code === 'auth/user-not-found' || err.code === 'auth/wrong-password'
+      fail(err.code === 'auth/user-not-found' || err.code === 'auth/wrong-password'
         ? 'Incorrect email or password.'
         : err.code === 'auth/invalid-credential'
         ? 'Invalid login credentials.'
@@ -160,25 +171,23 @@ export default function LoginPage() {
       className="min-h-screen relative overflow-hidden flex items-center justify-center"
       onMouseMove={handleMouseMove}
       style={{
-        backgroundColor: '#0C1844',
+        backgroundColor: BRAND.canvas,
         backgroundImage: 'radial-gradient(circle at 1px 1px, rgba(255,255,255,0.05) 1px, transparent 0)',
         backgroundSize: '40px 40px',
       }}
     >
-      <div className="fixed top-4 right-4 z-50"><ThemeToggle /></div>
-
       {/* Aurora glow */}
       {mounted && (
         <motion.div
           className="absolute inset-0 pointer-events-none"
           style={{
-            background: `radial-gradient(ellipse at ${30 + mousePos.x * 40}% ${20 + mousePos.y * 30}%, rgba(255,105,105,0.15) 0%, transparent 50%)`,
+            background: `radial-gradient(ellipse at ${30 + mousePos.x * 40}% ${20 + mousePos.y * 30}%, rgba(155, 77, 255, 0.15) 0%, transparent 50%)`,
           }}
           animate={{
             background: [
-              `radial-gradient(ellipse at 30% 20%, rgba(255,105,105,0.15) 0%, transparent 50%)`,
-              `radial-gradient(ellipse at 60% 40%, rgba(200,0,54,0.1) 0%, transparent 50%)`,
-              `radial-gradient(ellipse at 30% 20%, rgba(255,105,105,0.15) 0%, transparent 50%)`,
+              `radial-gradient(ellipse at 30% 20%, rgba(155, 77, 255, 0.15) 0%, transparent 50%)`,
+              `radial-gradient(ellipse at 60% 40%, rgba(248, 86, 165, 0.1) 0%, transparent 50%)`,
+              `radial-gradient(ellipse at 30% 20%, rgba(155, 77, 255, 0.15) 0%, transparent 50%)`,
             ],
           }}
           transition={{ duration: 10, repeat: Infinity, ease: 'linear' }}
@@ -209,6 +218,7 @@ export default function LoginPage() {
               src="/logo-vyomai.png"
               alt="Vyom Ai Cloud"
               fill
+              sizes="192px"
               className="object-contain drop-shadow-2xl"
               priority
             />
@@ -221,22 +231,23 @@ export default function LoginPage() {
             animate={{ opacity: 1, y: 0 }}
             transition={{ delay: 0.5, duration: 0.8 }}
             style={{
-              background: 'linear-gradient(135deg, #FF6969 0%, #C80036 50%, #FF6969 100%)',
+              background: BRAND_GRADIENT,
               backgroundSize: '300% auto',
               WebkitBackgroundClip: 'text',
               WebkitTextFillColor: 'transparent',
               animation: 'shimmer 3s ease-in-out infinite',
             }}
           >
-            Vyom Ai Cloud
+            Timi
           </motion.h1>
+          <p className="text-sm text-white/50 mb-4">by {COMPANY.legalName}</p>
 
           {/* Cycling tagline */}
           <div className="h-8 mb-8 overflow-hidden">
             <AnimatePresence mode="wait">
                 <motion.p
                   key={taglineIdx}
-                  className="text-xl text-red-200/80 font-medium max-w-md mx-auto lg:mx-0"
+                  className="text-xl text-white/70 font-medium max-w-md mx-auto lg:mx-0"
                 initial={{ opacity: 0, y: 30 }}
                 animate={{ opacity: 1, y: 0 }}
                 exit={{ opacity: 0, y: -30 }}
@@ -268,13 +279,13 @@ export default function LoginPage() {
                     whileHover={{ scale: 1.3, rotate: [0, -10, 10, 0] }}
                     transition={{ duration: 0.4 }}
                   >
-                    <feature.icon className="w-7 h-7 text-red-300" />
+                    <feature.icon className="w-7 h-7" style={{ color: BRAND.lightOrange }} />
                   </motion.div>
                   <h3 className="text-sm font-bold text-white">{feature.title}</h3>
-                  <p className="text-xs text-red-200/60 mt-0.5">{feature.desc}</p>
+                  <p className="text-xs text-white/60 mt-0.5">{feature.desc}</p>
                 </div>
                 <motion.div
-                  className="absolute -bottom-8 left-1/2 -translate-x-1/2 w-16 h-4 bg-orange-300/20 blur-xl rounded-full opacity-0 group-hover:opacity-100 transition-opacity"
+                  className="absolute -bottom-8 left-1/2 -translate-x-1/2 w-16 h-4 bg-dark-accent/20 blur-xl rounded-full opacity-0 group-hover:opacity-100 transition-opacity"
                 />
               </motion.div>
             ))}
@@ -302,10 +313,10 @@ export default function LoginPage() {
             style={{
               background: 'linear-gradient(135deg, rgba(255,255,255,0.08), rgba(255,255,255,0.03))',
               backdropFilter: 'blur(40px)',
-              border: '1px solid rgba(255,105,105,0.2)',
+              border: '1px solid rgba(155, 77, 255, 0.2)',
               boxShadow: isHoveringCard
-                ? '0 35px 80px rgba(255,105,105,0.15), 0 15px 40px rgba(12,1,68,0.3)'
-                : '0 25px 60px rgba(255,105,105,0.1), 0 10px 30px rgba(12,1,68,0.2)',
+                ? '0 35px 80px rgba(155, 77, 255, 0.15), 0 15px 40px rgba(27, 18, 18, 0.3)'
+                : '0 25px 60px rgba(155, 77, 255, 0.1), 0 10px 30px rgba(27, 18, 18, 0.2)',
               transformStyle: 'preserve-3d',
             }}
           >
@@ -313,7 +324,7 @@ export default function LoginPage() {
             <motion.div
               className="absolute inset-0 rounded-3xl opacity-40"
               style={{
-                background: 'conic-gradient(from 0deg, #FF6969, #C80036, #0C1844, #FF6969, #C80036, #FF6969)',
+                background: 'conic-gradient(from 0deg, #9B4DFF, #F856A5, #FF8133, #1B1212, #9B4DFF)',
                 mask: 'linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0)',
                 WebkitMaskComposite: 'xor',
                 maskComposite: 'exclude',
@@ -328,7 +339,7 @@ export default function LoginPage() {
               <motion.div
                 className="absolute inset-0 pointer-events-none"
                 style={{
-                  background: `radial-gradient(600px circle at ${mousePos.x * 100}% ${mousePos.y * 100}%, rgba(255,105,105,0.12), transparent 40%)`,
+                  background: `radial-gradient(600px circle at ${mousePos.x * 100}% ${mousePos.y * 100}%, rgba(155, 77, 255, 0.12), transparent 40%)`,
                 }}
               />
             )}
@@ -348,19 +359,29 @@ export default function LoginPage() {
                   >
                     Welcome Back
                   </motion.h2>
-                  <p className="text-sm text-red-200/60">Sign in to manage your AI video pipeline</p>
+                  <p className="text-sm text-white/60">Sign in to manage your AI video pipeline</p>
               </motion.div>
 
-              {/* Error message */}
-              <AnimatePresence>
-                {error && (
+              {/* Error message. A denial gets the full component; a technical
+                  failure gets a plain line, because offering an email address
+                  next to "HTTP 500" sends people off to ask for access they
+                  already have. */}
+              <AnimatePresence mode="wait">
+                {error?.kind === 'denial' && (
+                  <div className="mb-6">
+                    <DenialNotice detail={error.text} />
+                  </div>
+                )}
+                {error?.kind === 'technical' && (
                   <motion.div
-                    initial={{ opacity: 0, height: 0, scale: 0.95 }}
-                    animate={{ opacity: 1, height: 'auto', scale: 1 }}
-                    exit={{ opacity: 0, height: 0, scale: 0.95 }}
-                    className="mb-6 p-4 rounded-xl bg-red-500/10 border border-red-500/20 text-red-500 text-sm"
+                    key="technical"
+                    initial={{ opacity: 0, height: 0 }}
+                    animate={{ opacity: 1, height: 'auto' }}
+                    exit={{ opacity: 0, height: 0 }}
+                    role="alert"
+                    className="mb-6 p-4 rounded-xl bg-dark-error/10 border border-dark-error/20 text-dark-error text-sm"
                   >
-                    {error}
+                    {error.text}
                   </motion.div>
                 )}
               </AnimatePresence>
@@ -373,7 +394,7 @@ export default function LoginPage() {
                   onChange={(e) => setEmail(e.target.value)}
                   placeholder="Email"
                   required
-                  className="w-full px-4 py-3 rounded-xl bg-white/10 border border-white/15 text-white placeholder-white/40 focus:outline-none focus:border-red-400/50"
+                  className="w-full px-4 py-3 rounded-xl bg-white/10 border border-white/15 text-white placeholder-white/40 focus:outline-none focus:border-dark-primary/60"
                 />
                 <input
                   type="password"
@@ -381,7 +402,7 @@ export default function LoginPage() {
                   onChange={(e) => setPassword(e.target.value)}
                   placeholder="Password"
                   required
-                  className="w-full px-4 py-3 rounded-xl bg-white/10 border border-white/15 text-white placeholder-white/40 focus:outline-none focus:border-red-400/50"
+                  className="w-full px-4 py-3 rounded-xl bg-white/10 border border-white/15 text-white placeholder-white/40 focus:outline-none focus:border-dark-primary/60"
                 />
                 <button
                   type="submit"
@@ -394,9 +415,9 @@ export default function LoginPage() {
 
               {/* Divider */}
               <div className="flex items-center gap-4 my-4">
-                <div className="flex-1 h-px bg-gradient-to-r from-transparent via-red-400/20 to-transparent" />
-                <span className="text-xs text-red-200/40 font-medium">OR</span>
-                <div className="flex-1 h-px bg-gradient-to-r from-transparent via-red-400/20 to-transparent" />
+                <div className="flex-1 h-px bg-gradient-to-r from-transparent via-dark-primary/20 to-transparent" />
+                <span className="text-xs text-white/60 font-medium">OR</span>
+                <div className="flex-1 h-px bg-gradient-to-r from-transparent via-dark-primary/20 to-transparent" />
               </div>
 
               {/* Google login button */}
@@ -408,9 +429,9 @@ export default function LoginPage() {
                 disabled={loading}
                 className="relative w-full py-4 rounded-2xl font-bold text-white transition-all duration-300 disabled:opacity-50 overflow-hidden"
                 style={{
-                  background: 'linear-gradient(135deg, #FF6969, #C80036)',
+                  background: BRAND_GRADIENT,
                   backgroundSize: '200% auto',
-                  boxShadow: '0 10px 30px rgba(255,105,105,0.3)',
+                  boxShadow: '0 10px 30px rgba(155,77,255,0.3)',
                   transform: `translate(${btnMagnetic.x}px, ${btnMagnetic.y}px)`,
                 }}
                 animate={{
@@ -454,9 +475,9 @@ export default function LoginPage() {
                 animate={{ opacity: 1 }}
                 transition={{ delay: 0.9 }}
               >
-                <div className="flex-1 h-px bg-gradient-to-r from-transparent via-red-400/20 to-transparent" />
-                <span className="text-xs text-red-200/40 font-medium">SECURED BY</span>
-                <div className="flex-1 h-px bg-gradient-to-r from-transparent via-red-400/20 to-transparent" />
+                <div className="flex-1 h-px bg-gradient-to-r from-transparent via-dark-primary/20 to-transparent" />
+                <span className="text-xs text-white/60 font-medium">SECURED BY</span>
+                <div className="flex-1 h-px bg-gradient-to-r from-transparent via-dark-primary/20 to-transparent" />
               </motion.div>
 
               {/* Security badges */}
@@ -480,8 +501,8 @@ export default function LoginPage() {
                     transition={{ delay: 1.1 + i * 0.1, type: 'spring', stiffness: 300 }}
                     className="flex items-center gap-1.5 hover:scale-110 transition-transform cursor-default"
                   >
-                    <BadgeIcon className="w-3.5 h-3.5 text-red-300" />
-                    <span className="text-red-200/60">{item.label}</span>
+                    <BadgeIcon className="w-3.5 h-3.5" style={{ color: BRAND.lightOrange }} />
+                    <span className="text-white/60">{item.label}</span>
                   </motion.div>
                   );
                 })}
@@ -489,15 +510,15 @@ export default function LoginPage() {
 
               {/* Signup link */}
               <motion.p
-                className="text-center mt-8 text-sm text-red-200/40"
+                className="text-center mt-8 text-sm text-white/60"
                 initial={{ opacity: 0 }}
                 animate={{ opacity: 1 }}
                 transition={{ delay: 1.2 }}
               >
                 Don&apos;t have an account?{' '}
-                <Link href="/signup" className="text-red-400 hover:text-red-300 font-bold transition-colors relative group">
+                <Link href="/signup" className="text-light-orange hover:text-white font-bold transition-colors relative group">
                   Create one
-                  <span className="absolute -bottom-0.5 left-0 w-0 h-0.5 bg-red-400 group-hover:w-full transition-all duration-300" />
+                  <span className="absolute -bottom-0.5 left-0 w-0 h-0.5 bg-light-orange group-hover:w-full transition-all duration-300" />
                 </Link>
               </motion.p>
             </div>
@@ -508,10 +529,10 @@ export default function LoginPage() {
       {/* Footer */}
       <footer className="absolute bottom-0 left-0 right-0 z-50 py-4 px-6">
         <div className="flex items-center justify-center gap-6 text-xs">
-          <Link href="/terms" className="text-red-200/40 hover:text-red-200/70 transition-colors">
+          <Link href="/terms" className="text-white/60 hover:text-white/70 transition-colors">
             Terms of Service
           </Link>
-          <Link href="/privacy" className="text-red-200/40 hover:text-red-200/70 transition-colors">
+          <Link href="/privacy" className="text-white/60 hover:text-white/70 transition-colors">
             Privacy Policy
           </Link>
         </div>
