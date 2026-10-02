@@ -11,11 +11,69 @@
   --glass-strength: 0.55;
   --shadow-card: 0 8px 30px rgba(15, 15, 35, 0.10);
   --shadow-card-lg: 0 16px 40px rgba(15, 15, 35, 0.18);
+
+  /* Vyom Ai Cloud brand tokens. Single definition, consumed by the utilities
+   * below and by src/lib/brand.ts.
+   *
+   * These six are the *dark-surface* ramp: they are tuned to clear text on
+   * #050510 / #0E0909, not on white. #FFB05F is 1.9:1 on #FAF7FA and #FF8133 is
+   * 2.6:1, so anything painted with this raw ramp on a light canvas fails AA.
+   * That is why --brand-gradient has a light-mode override in .gradient-text
+   * below rather than being used directly. Do not use these six as text colour
+   * on a light surface; use the --color-light-* tokens, which are darkened
+   * brand colours and are contrast-asserted in brandTokens.test.ts. */
+  --brand-purple: #9B4DFF;
+  --brand-violet: #6641FC;
+  --brand-pink: #F856A5;
+  --brand-orange: #FF8133;
+  --brand-light-orange: #FFB05F;
+  --brand-white: #FFFFFF;
+  --brand-licorice: #1B1212;
+
+  --brand-gradient: linear-gradient(90deg, #9B4DFF 0%, #6641FC 25%, #F856A5 55%, #FF8133 80%, #FFB05F 100%);
+
+  /* Motion tokens. Anything animated should use one of these so
+   * prefers-reduced-motion has a single place to switch off. */
+  --motion-fast: 150ms;
+  --motion-base: 250ms;
+  --motion-slow: 400ms;
+  --ease-out-soft: cubic-bezier(0.22, 1, 0.36, 1);
+
+  /* Per-theme surface tokens, referenced by the glass utilities via
+   * color-mix(). These are CSS mirrors of LIGHT_THEME / DARK_THEME in
+   * src/lib/brand.ts, which is the value source of truth -- brandTokens.test.ts
+   * asserts the two agree, so a hex cannot drift in only one place. */
+  --color-light-bg: #FAF7FA;
+  --color-light-card: #FFFFFF;
+  --color-light-text: #1B1212;
+  --color-light-muted: #796F79;
+  --color-light-border: #E7DEE9;
+  --color-light-border-strong: #9A8B9D;
+  --color-light-primary: #9148EF;
+  --color-light-secondary: #6641FC;
+  --color-light-accent: #C14381;
+  --color-light-success: #20815E;
+  --color-light-info: #4474B0;
+  --color-light-warning: #89700C;
+  --color-light-error: #D13B31;
 }
 
 .dark {
   --shadow-card: 0 8px 30px rgba(0, 0, 0, 0.35);
   --shadow-card-lg: 0 18px 46px rgba(0, 0, 0, 0.5);
+  --color-dark-bg: #0E0909;
+  --color-dark-card: #1B1212;
+  --color-dark-text: #FFFFFF;
+  --color-dark-muted: #A396A3;
+  --color-dark-border: #3D3131;
+  --color-dark-border-strong: #6C595B;
+  --color-dark-primary: #9B4DFF;
+  --color-dark-secondary: #6641FC;
+  --color-dark-accent: #F856A5;
+  --color-dark-success: #34D399;
+  --color-dark-info: #60A5FA;
+  --color-dark-warning: #FACC15;
+  --color-dark-error: #F04438;
 }
 
 @layer base {
@@ -30,13 +88,19 @@
 
   /* Accessible focus ring shared by frosted interactive elements */
   :focus-visible {
-    outline: 2px solid rgba(236, 19, 62, 0.6);
+    outline: 2px solid rgba(155, 77, 255, 0.85);
     outline-offset: 2px;
     border-radius: var(--radius-sm);
   }
 
   ::selection {
-    background: rgba(236, 19, 62, 0.25);
+    background: rgba(155, 77, 255, 0.32);
+  }
+
+  /* Metric numbers that sit in columns must not jitter as they update.
+   * Scope: only tabular figures, not body copy. */
+  .tabular {
+    font-variant-numeric: tabular-nums;
   }
 
   @media (prefers-reduced-motion: reduce) {
@@ -73,47 +137,73 @@
     box-shadow: inset 0 1px 0 rgba(255,255,255,0.10), inset 0 -12px 24px rgba(0,0,0,0.10);
   }
 
+  /* ---------------------------------------------------------------------
+     Liquid glass
+     ---------------------------------------------------------------------
+     ponytail: the dark variants used to tint themselves with the retired
+     crimson / teal / navy from the pre-rebrand theme; they are now brand ramp stops.
+
+     Light glass was the actual broken half. It was a 50% white overlay on a
+     #FAF7FA page with a `inset 0 1px 0 rgba(255,255,255,0.6)` highlight -- a
+     white sheen on white, which does nothing, plus no border strength and no
+     tinted edge. So light mode was a low-contrast grey-on-white wash. Fixed by
+     giving light glass a violet tint (so a card is distinguishable from the
+     page without a heavy border), a real hairline, and a genuine shadow.
+     --------------------------------------------------------------------- */
+
   /* default card */
   .glass-card {
-    @apply backdrop-blur-xl bg-white/80 dark:bg-dark-card/70 border border-light-border/50 dark:border-dark-border/50 rounded-2xl;
-    box-shadow: var(--shadow-card), inset 0 1px 0 rgba(255,255,255,0.6);
+    @apply backdrop-blur-xl border rounded-2xl;
+    background:
+      linear-gradient(160deg, rgba(155,77,255,0.05), rgba(255,177,95,0.03) 55%, transparent),
+      color-mix(in srgb, #ffffff calc(var(--glass-strength) * 100%), transparent);
+    border-color: color-mix(in srgb, var(--color-light-border) 85%, transparent);
+    box-shadow: var(--shadow-card);
   }
 
   .dark .glass-card {
-    box-shadow: var(--shadow-card), inset 0 1px 0 rgba(255,255,255,0.08);
+    background:
+      linear-gradient(160deg, rgba(155,77,255,0.07), rgba(248,86,165,0.04) 55%, transparent),
+      color-mix(in srgb, #1B1212 calc(var(--glass-strength) * 100%), transparent);
+    border-color: color-mix(in srgb, var(--color-dark-border) 90%, transparent);
+    box-shadow: var(--shadow-card), inset 0 1px 0 rgba(255,255,255,0.09);
   }
 
   /* primary panel used across cards — consistent + premium frosted look */
   .glass-panel {
     position: relative;
-    @apply rounded-2xl backdrop-blur-xl border border-light-border/50 dark:border-dark-border/50;
+    @apply rounded-2xl backdrop-blur-xl border;
     background:
-      linear-gradient(to bottom, rgba(255,255,255,0.5), rgba(255,255,255,0.18)),
+      linear-gradient(160deg, rgba(155,77,255,0.06), rgba(255,129,51,0.035) 60%, transparent),
       color-mix(in srgb, #ffffff calc(var(--glass-strength) * 100%), transparent);
-    box-shadow: var(--shadow-card), inset 0 1px 0 rgba(255,255,255,0.6);
+    border-color: color-mix(in srgb, var(--color-light-border) 85%, transparent);
+    box-shadow: var(--shadow-card);
   }
 
   .dark .glass-panel {
     background:
       linear-gradient(to bottom, rgba(255,255,255,0.07), rgba(255,255,255,0) 45%),
-      linear-gradient(160deg, rgba(255,105,105,0.08), rgba(76,205,196,0.05) 60%, rgba(12,24,68,0.25));
-    box-shadow: var(--shadow-card), inset 0 1px 0 rgba(255,255,255,0.08);
+      linear-gradient(160deg, rgba(155,77,255,0.12), rgba(102,65,252,0.08) 55%, rgba(248,86,165,0.06));
+    border-color: color-mix(in srgb, var(--color-dark-border) 90%, transparent);
+    box-shadow: var(--shadow-card), inset 0 1px 0 rgba(255,255,255,0.09);
   }
 
   /* KPI / stat panel with colored accent strip */
   .glass-kpi {
-    @apply rounded-2xl backdrop-blur-xl border border-light-border/50 dark:border-dark-border/50 overflow-hidden;
+    @apply rounded-2xl backdrop-blur-xl border overflow-hidden;
     background:
-      linear-gradient(to bottom, rgba(255,255,255,0.5), rgba(255,255,255,0.16)),
+      linear-gradient(160deg, rgba(155,77,255,0.07), rgba(255,177,95,0.035) 60%, transparent),
       color-mix(in srgb, #ffffff calc(var(--glass-strength) * 100%), transparent);
-    box-shadow: var(--shadow-card), inset 0 1px 0 rgba(255,255,255,0.6);
+    border-color: color-mix(in srgb, var(--color-light-border) 85%, transparent);
+    box-shadow: var(--shadow-card);
   }
 
   .dark .glass-kpi {
     background:
       linear-gradient(to bottom, rgba(255,255,255,0.07), rgba(255,255,255,0) 45%),
-      linear-gradient(160deg, rgba(255,105,105,0.10), rgba(76,205,196,0.06) 60%, rgba(12,24,68,0.28));
-    box-shadow: var(--shadow-card), inset 0 1px 0 rgba(255,255,255,0.08);
+      linear-gradient(160deg, rgba(155,77,255,0.15), rgba(102,65,252,0.09) 55%, rgba(248,86,165,0.07));
+    border-color: color-mix(in srgb, var(--color-dark-border) 90%, transparent);
+    box-shadow: var(--shadow-card), inset 0 1px 0 rgba(255,255,255,0.09);
   }
 
   .glass-kpi .kpi-accent {
@@ -122,7 +212,15 @@
 
   /* warm variant (already used in some places) */
   .glass-warm {
-    @apply bg-white/90 dark:bg-dark-card/70 backdrop-blur-2xl border border-light-border/40 dark:border-white/15;
+    @apply backdrop-blur-2xl border rounded-2xl;
+    background: color-mix(in srgb, #ffffff calc(var(--glass-strength) * 100%), transparent);
+    border-color: color-mix(in srgb, var(--color-light-border) 80%, transparent);
+    box-shadow: var(--shadow-card);
+  }
+
+  .dark .glass-warm {
+    background: color-mix(in srgb, #1B1212 calc(var(--glass-strength) * 100%), transparent);
+    border-color: color-mix(in srgb, var(--color-dark-border) 80%, transparent);
   }
 
   .card-hover {
@@ -130,10 +228,68 @@
   }
 
   .glass-panel.card-hover:hover, .glass-card:hover {
-    box-shadow: var(--shadow-card-lg), inset 0 1px 0 rgba(255,255,255,0.6);
+    box-shadow: var(--shadow-card-lg);
+  }
+  .dark .glass-panel.card-hover:hover, .dark .glass-card:hover {
+    box-shadow: var(--shadow-card-lg), inset 0 1px 0 rgba(255,255,255,0.12);
   }
 
-  /* subtle film-grain noise over glass to hide banding */
+  /* Pointer-reactive specular highlight. Set --mx/--my from JS (see
+     useGlassPointer); the gradient tracks the cursor so the glass reads as a
+     lit surface rather than a static wash. Disabled entirely under
+     prefers-reduced-motion (F5) and on touch, where there is no pointer. */
+  .glass-specular {
+    position: relative;
+    overflow: hidden;
+    isolation: isolate;
+  }
+  .glass-specular::before {
+    content: '';
+    position: absolute;
+    inset: -1px;
+    z-index: -1;
+    pointer-events: none;
+    opacity: 0;
+    transition: opacity 320ms ease;
+    background: radial-gradient(
+      180px circle at var(--glass-x, 50%) var(--glass-y, 0%),
+      rgba(255, 255, 255, 0.16),
+      transparent 70%
+    );
+  }
+  .dark .glass-specular::before {
+    background: radial-gradient(
+      180px circle at var(--glass-x, 50%) var(--glass-y, 0%),
+      rgba(255, 255, 255, 0.13),
+      transparent 70%
+    );
+  }
+  .glass-specular:hover::before {
+    opacity: 1;
+  }
+  /* A light page needs the highlight to read as *darker* sheen at the edges or
+     it is invisible; the rim catches the cursor opposite the highlight. */
+  .glass-specular::after {
+    content: '';
+    position: absolute;
+    inset: 0;
+    z-index: -1;
+    pointer-events: none;
+    border-radius: inherit;
+    opacity: 0;
+    transition: opacity 320ms ease;
+    box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--color-light-primary) 18%, transparent);
+  }
+  .glass-specular:hover::after {
+    opacity: 1;
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .glass-specular::before,
+    .glass-specular::after {
+      transition: none;
+    }
+  }
+
   .glass-noise::after {
     content: '';
     position: absolute;
@@ -148,7 +304,10 @@
     @apply px-6 py-3 rounded-xl font-semibold text-white transition-all duration-300;
     @apply bg-gradient-to-r from-light-primary to-light-secondary dark:from-dark-primary dark:to-dark-secondary;
     @apply hover:shadow-lg hover:scale-105 active:scale-95;
-    box-shadow: 0 6px 18px rgba(236, 19, 62, 0.28);
+    box-shadow: 0 6px 18px rgba(155, 77, 255, 0.28);
+    /* Visible focus ring. The old styles had none, so a keyboard user could not
+     * tell where they were on any primary CTA. */
+    @apply focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-light-primary focus-visible:ring-offset-2 focus-visible:ring-offset-dark-bg;
   }
 
   .btn-secondary {
@@ -157,28 +316,37 @@
     @apply hover:bg-light-primary/10 dark:hover:bg-dark-primary/10;
   }
 
+  /* The full five-stop brand ramp, not the three-stop default gradient. Kept as
+   * a utility because the wordmark, headings and the live badge all use it.
+   *
+   * The ramp is dark-surface tuned, so it is overridden in light mode. This was
+   * not a public-marketing-only problem: the class is on 10 dashboard surfaces
+   * too, and the dashboard themes, so every one of those headings rendered
+   * #FF8133 / #FFB05F on #FAF7FA (2.6:1 and 1.9:1) in light mode. Both stops
+   * come from the contrast-asserted light.* namespace, which is the same set
+   * .btn-primary already uses, so there is no new colour here. */
   .gradient-text {
-    @apply bg-gradient-to-r from-light-primary via-light-accent to-light-secondary bg-clip-text text-transparent;
+    @apply bg-clip-text text-transparent;
+    background-image: linear-gradient(
+      90deg,
+      var(--color-light-primary) 0%,
+      var(--color-light-secondary) 45%,
+      var(--color-light-accent) 100%
+    );
     background-size: 200% auto;
     animation: shimmer 3s ease-in-out infinite;
   }
 
-  .gradient-text-warm {
-    @apply bg-gradient-to-r from-light-primary via-light-accent to-light-primary bg-clip-text text-transparent;
-    background-size: 200% auto;
-    animation: shimmer 3s ease-in-out infinite;
+  .dark .gradient-text {
+    background-image: var(--brand-gradient);
   }
 }
 
 @layer utilities {
+  /* One gradient, one definition. Mirrors BRAND_GRADIENT in src/lib/brand.ts;
+   * the two are pinned together by brandTokens.test.ts. */
   .aurora-bg {
-    background: linear-gradient(135deg, #ec133e, #bd0f32, #f4718b, #F5F4FA, #E6E3F0, #ec133e);
-    background-size: 400% 400%;
-    animation: aurora 15s ease-in-out infinite;
-  }
-
-  .dark .aurora-bg {
-    background: linear-gradient(135deg, #FF6969, #C80036, #0C1844, #1A2248, #D4B896, #FF6969);
+    background: linear-gradient(135deg, #9B4DFF 0%, #6641FC 25%, #F856A5 55%, #FF8133 80%, #FFB05F 100%);
     background-size: 400% 400%;
     animation: aurora 15s ease-in-out infinite;
   }
@@ -188,18 +356,14 @@
     background: transparent;
   }
 
-  .ambient-scene.light-scene {
-    background:
-      radial-gradient(60% 50% at 12% 18%, rgba(236, 41, 75, 0.16), transparent 62%),
-      radial-gradient(55% 50% at 88% 82%, rgba(78, 205, 196, 0.16), transparent 62%),
-      radial-gradient(45% 45% at 55% 8%, rgba(244, 113, 139, 0.12), transparent 60%);
-  }
-
+  /* Dark-only, so the light scene variant collapses to the same wash. Kept as a
+   * separate selector because components still pass .light-scene. */
+  .ambient-scene.light-scene,
   .ambient-scene.dark-scene {
     background:
-      radial-gradient(60% 50% at 12% 18%, rgba(236, 19, 62, 0.20), transparent 62%),
-      radial-gradient(55% 50% at 88% 82%, rgba(78, 205, 196, 0.14), transparent 62%),
-      radial-gradient(45% 45% at 55% 8%, rgba(212, 184, 150, 0.08), transparent 60%);
+      radial-gradient(60% 50% at 12% 18%, rgba(155, 77, 255, 0.20), transparent 62%),
+      radial-gradient(55% 50% at 88% 82%, rgba(102, 65, 252, 0.16), transparent 62%),
+      radial-gradient(45% 45% at 55% 8%, rgba(255, 129, 51, 0.10), transparent 60%);
   }
 
   .ambient-orb {
@@ -265,12 +429,12 @@
 }
 
 .glow-red {
-  box-shadow: 0 0 20px rgba(236, 19, 62, 0.1);
+  box-shadow: 0 0 20px rgba(155, 77, 255, 0.1);
   transition: box-shadow 0.3s ease;
 }
 
 .glow-red:hover {
-  box-shadow: 0 0 30px rgba(236, 19, 62, 0.2);
+  box-shadow: 0 0 30px rgba(155, 77, 255, 0.2);
 }
 
 .gradient-border {
@@ -284,7 +448,7 @@
   inset: 0;
   border-radius: inherit;
   padding: 1px;
-  background: linear-gradient(135deg, #ec133e, #4ecdc4, #ec133e, #4ecdc4);
+  background: linear-gradient(135deg, #9B4DFF 0%, #6641FC 25%, #F856A5 55%, #FF8133 80%, #FFB05F 100%);
   background-size: 300% 300%;
   animation: border-shimmer 4s ease-in-out infinite;
   -webkit-mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0);

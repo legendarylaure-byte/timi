@@ -1,4 +1,9 @@
 /** @type {import('tailwindcss').Config} */
+// ponytail: the palette is retyped here rather than imported, because a CJS
+// config cannot require() a .ts file. That duplication is deliberate and is
+// asserted equal to src/lib/brand.ts by brandTokens.test.ts, which is what makes
+// it safe. Do not 'fix' it by inlining a second copy of the numbers into the
+// test -- the test derives from brand.ts, so one side is never hand-copied.
 module.exports = {
   darkMode: 'class',
   content: [
@@ -6,36 +11,62 @@ module.exports = {
   ],
   theme: {
     extend: {
+      // Two real themes, both read from src/lib/brand.ts.
+      //
+      // There are ~2,900 `light-*` / `dark:*` utility usages in this codebase
+      // and rewriting them file by file is a diff nobody can review. The class
+      // *structure* was always correct for two themes -- `bg-light-bg
+      // dark:bg-dark-bg` picks the right surface once the two namespaces hold
+      // different values -- so the only change needed was to stop forcing them
+      // to be identical.
+      //
+      // It used to: both namespaces resolved to the same dark palette, a second
+      // palette lived unused in src/lib/theme.ts, and the pre-paint script
+      // force-wrote `dark` to localStorage. The theme toggle therefore changed
+      // nothing at all.
+      //
+      // The light accents are darkened brand colours, not new hues, so buttons
+      // still read as the brand purple while text clears WCAG AA on white.
+      // See LIGHT_THEME in src/lib/brand.ts and the contrast assertions in
+      // src/__tests__/brandTokens.test.ts -- change one, change both.
       colors: {
         light: {
-          bg: '#F5F4FA',
+          bg: '#FAF7FA',
           card: '#FFFFFF',
-          primary: '#ec133e',
-          secondary: '#bd0f32',
-          accent: '#f4718b',
-          success: '#059669',
-          info: '#2563EB',
-          warning: '#D97706',
-          text: '#1a1a1a',
-          muted: '#6B7280',
-          border: '#E6E3F0',
+          primary: '#9148EF',
+          secondary: '#6641FC',
+          accent: '#C14381',
+          success: '#20815E',
+          info: '#4474B0',
+          warning: '#89700C',
+          error: '#D13B31',
+          text: '#1B1212',
+          muted: '#796F79',
+          border: '#E7DEE9',
+          'border-strong': '#9A8B9D',
         },
         dark: {
-          bg: '#0C1844',
-          card: '#1A2248',
-          primary: '#FF6969',
-          secondary: '#FF4757',
-          accent: '#D4B896',
+          bg: '#0E0909',
+          card: '#1B1212',
+          primary: '#9B4DFF',
+          secondary: '#6641FC',
+          accent: '#F856A5',
           success: '#34D399',
           info: '#60A5FA',
-          warning: '#FBBF24',
-          text: '#FFF5E1',
-          muted: '#8890B0',
-          border: '#2A3460',
+          warning: '#FACC15',
+          error: '#F04438',
+          text: '#FFFFFF',
+          muted: '#A396A3',
+          border: '#3D3131',
+          'border-strong': '#6C595B',
         },
       },
       fontFamily: {
-        sans: ['Inter', 'Poppins', 'system-ui', 'sans-serif'],
+        // Loaded in src/app/layout.tsx via next/font, matching
+        // www.vyomai.cloud so the two sites read as one company.
+        sans: ['var(--font-body)', 'system-ui', 'sans-serif'],
+        display: ['var(--font-display)', 'system-ui', 'sans-serif'],
+        mono: ['var(--font-mono)', 'ui-monospace', 'monospace'],
       },
       animation: {
         'float': 'float 6s ease-in-out infinite',
@@ -72,18 +103,24 @@ module.exports = {
         },
       },
       boxShadow: {
-        'glow-red': '0 0 20px rgba(236, 19, 62, 0.4)',
-        'glow-navy': '0 0 20px rgba(12, 24, 68, 0.4)',
-        'glow-crimson': '0 0 20px rgba(189, 15, 50, 0.4)',
-        'glow-emerald': '0 0 20px rgba(16, 185, 129, 0.4)',
-        'glow-blue': '0 0 20px rgba(37, 99, 235, 0.4)',
+        // Retired: glow-red / glow-navy / glow-crimson. Kept as violet glows
+        // rather than deleted because ~30 files reference `shadow-glow-red`
+        // and renaming them all is a bigger diff than recolouring here.
+        'glow-red': '0 0 20px rgba(155, 77, 255, 0.4)',
+        'glow-navy': '0 0 20px rgba(102, 65, 252, 0.4)',
+        'glow-crimson': '0 0 20px rgba(248, 86, 165, 0.4)',
+        'glow-emerald': '0 0 20px rgba(52, 211, 153, 0.4)',
+        'glow-blue': '0 0 20px rgba(96, 165, 250, 0.4)',
+        glass: '0 1px 0 0 rgba(255,255,255,0.06) inset, 0 8px 32px rgba(0,0,0,0.36)',
       },
       backgroundImage: {
-        'gradient-primary': 'linear-gradient(135deg, #ec133e, #bd0f32)',
-        'gradient-warm': 'linear-gradient(135deg, #ec133e, #1a1a1a)',
-        'gradient-cool': 'linear-gradient(135deg, #bd0f32, #1a1a1a)',
-        'gradient-success': 'linear-gradient(135deg, #059669, #2563EB)',
-        'gradient-aurora': 'linear-gradient(135deg, #ec133e, #bd0f32, #1a1a1a)',
+        // One gradient, one definition. The old file had five, three of which
+        // were crimson ramps, and components picked between them at random.
+        'gradient-primary': 'linear-gradient(135deg, #9B4DFF, #6641FC)',
+        'gradient-warm': 'linear-gradient(135deg, #FF8133, #FFB05F)',
+        'gradient-cool': 'linear-gradient(135deg, #6641FC, #F856A5)',
+        'gradient-success': 'linear-gradient(135deg, #34D399, #60A5FA)',
+        'gradient-aurora': 'linear-gradient(90deg, #9B4DFF 0%, #6641FC 25%, #F856A5 55%, #FF8133 80%, #FFB05F 100%)',
       },
     },
   },
