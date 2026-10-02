@@ -1518,8 +1518,10 @@ def run_video_pipeline(script_text: str, storyboard_text: str, category: str, fo
 
     if ENABLE_WATERMARK and final_path:
         # One insertion here covers short and long: both go through this function.
-        # add_logo_overlay had zero callers until now, so the channel has never
-        # shipped a watermark. Top-right, inside the platform safe area -- on 9:16
+        # The overlay landed in e4838d09 (VyomAI rebrand) and IS called, so
+        # video_path returned below is the `_wm` copy and TikTok's App Review
+        # no-watermark rule is what needs the pre-overlay path captured above.
+        # Top-right, inside the platform safe area -- on 9:16
         # the bottom band is the caption/channel-name zone and a bottom-right bug
         # is invisible on upload despite rendering fine locally.
         logo_path = os.path.join(os.path.dirname(os.path.abspath(__file__)),
