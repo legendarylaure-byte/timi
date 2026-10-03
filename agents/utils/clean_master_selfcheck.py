@@ -82,12 +82,65 @@ def _dur(path):
         return 0.0
 
 
+def _frame(video, at="2.0"):
+    """One RGB frame as an int array, or None if ffmpeg produced nothing."""
+    out_png = os.path.join(tempfile.gettempdir(), "cm_frame_probe.png")
+    _run(["ffmpeg", "-y", "-v", "error", "-ss", at, "-i", video, "-frames:v", "1",
+          "-f", "image2", out_png])
+    if not os.path.exists(out_png):
+        return None
+    from PIL import Image
+    import numpy as np
+    return np.array(Image.open(out_png).convert("RGB"), dtype=int)
+
+
+def _dims(video):
+    out = _run(["ffprobe", "-v", "error", "-select_streams", "v:0",
+                "-show_entries", "stream=width,height",
+                "-of", "csv=s=x:p=0", video])
+    try:
+        w, h = out.stdout.strip().split("x")
+        return int(w), int(h)
+    except (ValueError, AttributeError):
+        return 0, 0
+
+
+def _amber_pixels(video, at="2.0"):
+    """Caption count by the DESIGN colour, not by brightness.
+
+    D37d: the amber subtitle track is RGB(204,136,0), luma ~141, so any proxy
+    tuned to white text (the luma>230 rule) reported "zero burned captions" on
+    videos carrying 274,719 amber pixels. Measure the colour that is actually
+    drawn. Note brand accent #FF6B35 also satisfies this test, so prefer the
+    comparative assertion over an absolute zero.
+    """
+    arr = _frame(video, at)
+    if arr is None:
+        return -1
+    r, g, b = arr[:, :, 0], arr[:, :, 1], arr[:, :, 2]
+    return int(((r - b > 80) & (r > 140) & (b < 120)).sum())
+
+
+def _changed_pixels(a, b, at="2.0"):
+    """(changed count, centroid y as a fraction of height) between two videos."""
+    import numpy as np
+    fa, fb = _frame(a, at), _frame(b, at)
+    if fa is None or fb is None or fa.shape != fb.shape:
+        return -1, -1.0
+    mask = np.abs(fa - fb).sum(axis=2) > 24
+    n = int(mask.sum())
+    if not n:
+        return 0, -1.0
+    ys, _ = np.nonzero(mask)
+    return n, float(ys.mean()) / fa.shape[0]
+
+
 def main():
     print("=" * 68)
     print("CLEAN MASTER SELFCHECK (two real composites, no publish)")
     print("=" * 68)
     import utils.video_compositor as vc
-    from utils.video_compositor import composite_video, burn_subtitles
+    from utils.video_compositor import composite_video, burn_subtitles, add_logo_overlay
     from utils.subtitle_gen import should_burn_subtitles, should_upload_cc
 
     # This selfcheck proves one thing: whether the clean master carries burned
@@ -170,6 +223,47 @@ def main():
               not should_upload_cc("shorts"))
         print(f"       upload_cc(long)={should_upload_cc('long')} "
               f"(dubs bypass via default_language -- see youtube_upload._caption_body)")
+
+        # ------------------------------------------------------------------
+        # The three shipped visual facts nothing else proves automatically.
+        # Legacy teal is NOT here: tests/test_brand_colors.py already AST-walks
+        # 13 render-surface files for it and is negative-tested. Re-asserting it
+        # here would be a second, weaker copy of a check that already works.
+        # ------------------------------------------------------------------
+        print("\n[6] amber captions, exact dimensions, watermark placement")
+
+        amber_burned = _amber_pixels(burned_path)
+        amber_clean = _amber_pixels(clean)
+        check("could sample amber probes", -1 not in (amber_burned, amber_clean),
+              f"burned={amber_burned} clean={amber_clean}")
+        # Comparative, not absolute: brand accent #FF6B35 also reads as amber,
+        # so "clean == 0" would be brittle. Captions must dominate it instead.
+        check("burned captions are drawn in the amber design colour",
+              amber_burned > 200, f"amber_px={amber_burned}")
+        check("clean master carries far fewer amber pixels than the burn",
+              amber_clean >= 0 and amber_burned > max(amber_clean * 3, 150),
+              f"burned={amber_burned} clean={amber_clean}")
+
+        check("shorts output is exactly 1080x1920", _dims(direct) == (1080, 1920),
+              str(_dims(direct)))
+        long_ar = (vc.ASPECT_RATIOS["long"]["w"], vc.ASPECT_RATIOS["long"]["h"])
+        check("long format is exactly 1920x1080", long_ar == (1920, 1080), str(long_ar))
+
+        logo = os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                            "assets", "channel_logo.png")
+        wm = os.path.join(tmp, "direct_wm.mp4")
+        wm_ok = add_logo_overlay(direct, logo, wm, position="safe",
+                                 format_type="shorts")
+        check("add_logo_overlay succeeded", wm_ok is True, str(wm_ok))
+        if wm_ok and os.path.exists(wm):
+            n, cy = _changed_pixels(direct, wm)
+            # Threshold measured, not guessed: a real watermark changes 5225px,
+            # a fully transparent one (LOGO_ALPHA=0.0) leaves 258px of codec
+            # noise. A cutoff of 200 sat INSIDE that noise floor and passed an
+            # invisible logo. 1000 separates the two populations 4x/5x.
+            check("watermark actually changed pixels", n > 1000, f"changed_px={n}")
+            check("watermark sits in the TOP half (safe area resolves top-right)",
+                  0 < cy < 0.5, f"centroid_y={cy:.3f}")
 
     print("\n" + "=" * 68)
     if FAILED:
