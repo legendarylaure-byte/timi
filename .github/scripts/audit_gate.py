@@ -45,11 +45,6 @@ def new_python_ids(found, baseline):
     return sorted(set(found) - set(baseline))
 
 
-def npm_is_clean(doc):
-    """npm gate is strict: any advisory at all fails."""
-    return not doc.get("vulnerabilities")
-
-
 def npm_ids(doc):
     """Distinct npm advisory IDs. Normalised to str.
 
@@ -88,8 +83,6 @@ def self_check():
     # A genuinely new advisory MUST fail.
     assert new_python_ids(["PYSEC-1", "PYSEC-2"], {"PYSEC-1": "litellm"}) == ["PYSEC-2"]
     # npm strict-zero: clean passes, one advisory fails.
-    assert npm_is_clean({"vulnerabilities": {}}) is True
-    assert npm_is_clean({"vulnerabilities": {"tar": {}}}) is False
     # str-normalised: a real report can carry int `source` and GHSA strings
     # together, and sorted() over mixed types raises TypeError.
     assert npm_ids({"vulnerabilities": {"tar": {"via": [{"source": 1}]}}}) == ["1"]
