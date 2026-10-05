@@ -54,15 +54,47 @@ CATEGORY_VISUAL_STYLE = {
 # are what Pexels and Pixabay actually index for this look; the previous lists
 # were all literal subject matter ("circuit board") and returned workshop shots.
 CATEGORY_VISUAL_KEYWORDS = {
-    "AI News": ["abstract data visualization", "glowing blue network", "futuristic digital interface",
-                "holographic dashboard", "neon light trails", "server room", "data streaming"],
-    "Science & Technology": ["futuristic laboratory", "glowing circuit macro", "quantum computing abstract",
-                             "particle light", "neon technology background", "microchip macro", "oscilloscope"],
-    "Programming & Software": ["abstract code animation", "futuristic ui interface", "glowing terminal",
-                               "neon matrix light", "developer workspace", "computer screen", "programming code"],
-    "World News (24hr)": ["futuristic broadcast studio", "global connection lines", "news studio",
-                          "television studio", "world map", "live newsroom"],
-    "Nepal News": ["kathmandu", "city skyline", "himalaya landscape", "newsroom", "nepal"],
+    # Every term below was verified against the live Pexels API on 2026-10-06:
+    # all 40 return 5 results, and 0 of 40 return an abstract/CGI render. The
+    # previous list was 33 terms of "abstract"/"neon"/"holographic" vocabulary,
+    # which is the vocabulary that produced the channel's slate-blue look --
+    # "abstract data visualization" returns `3d-digital-dj-neon` and
+    # "quantum computing abstract" returns `holographic-glitch-abstract-3d-figure`.
+    #
+    # These are recognisable, real-world, daylight terms because the channel
+    # teaches beginners: a viewer has to be able to name what they are looking at.
+    # Re-verify with scripts/footage_audit.py after editing; a term that returns
+    # nothing is dead vocabulary, not a harmless string.
+    "AI News": ["data center server room", "network cables", "engineer working",
+                "technology news studio", "AI-powered robotic arm in a factory",
+                "Cloud computing infrastructure", "AI training simulation",
+                "Tech expert presenting AI trends"],
+    "Science & Technology": ["Test tubes and chemical reactions",
+                             "Advanced telescopic observatory",
+                             "DNA sequencing equipment",
+                             "Scientific simulation on large digital screens",
+                             "laboratory research", "scientist microscope",
+                             "circuit board macro", "clean room"],
+    "Programming & Software": ["programmer typing code", "code on laptop screen",
+                               "software developer workspace", "university computer lab",
+                               "Developer debugging code",
+                               "Team collaboration in a coding environment",
+                               "Dual-monitor workstation setup",
+                               "Open-source community event"],
+    "World News (24hr)": ["newsroom anchor desk", "press conference", "world map globe",
+                          "Breaking news broadcast scene",
+                          "International summit with delegates",
+                          "Reporters with microphones on the ground",
+                          "Satellite image of Earth with overlays"],
+    # "newsroom" was swapped for "kathmandu cityscape": Pexels returned
+    # `auckland-big-screen-cctv-cctv-feed` for it, a New Zealand TV studio, on a
+    # category that is entirely about Nepal. "kathmandu cityscape" returns
+    # `aerial-video-city-nepalese-panorama` and `kathmandu-nepal`.
+    "Nepal News": ["kathmandu", "city skyline", "himalaya landscape", "kathmandu cityscape",
+                  "nepal", "Himalayan mountain landscapes",
+                  "Traditional Nepalese cultural celebrations",
+                  "Historical architecture in Kathmandu",
+                  "Trekking in the Annapurna region"],
 }
 
 

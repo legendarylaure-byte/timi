@@ -524,6 +524,25 @@ def _get_log_file():
     return _LOG_FILE
 
 
+# Age window for the retention pull. Deliberately a window, not a row limit: YouTube
+# needs a couple of days to process audienceWatchRatio, so asking for "the newest
+# N" asks for the N videos least likely to have data -- which is how this loop stayed
+# dead while the mechanism underneath it worked.
+RETENTION_MIN_AGE_DAYS = int(os.getenv("RETENTION_MIN_AGE_DAYS", "3"))
+RETENTION_MAX_AGE_DAYS = int(os.getenv("RETENTION_MAX_AGE_DAYS", "14"))
+# Shorts only are skipped, deliberately. Shorts returned no audienceWatchRatio on
+# 4/4 probes, so collecting them would cost an API call per short per night to
+# record nothing. Missing data must never be stored as zero --
+# pull_retention_from_youtube returns early on error without persisting, and that
+# early return is what keeps the guarantee.
+#
+# Keyed on the document's own `format` field, not on category and not on duration:
+# duration_seconds is None on freshly published docs and long-form ranges overlap
+# shorts, so neither can tell the two apart. A doc with no readable format is
+# skipped rather than guessed.
+RETENTION_SKIP_FORMATS = frozenset({"shorts", "short"})
+
+
 def _setup_logging():
     log_dir = Path(__file__).parent / "logs"
     log_dir.mkdir(parents=True, exist_ok=True)
@@ -3470,21 +3489,66 @@ def daily_analytics_job():
         except Exception as e:
             log_event("TITLE_SYNC", f"Title CTR sync failed: {e}", "debug")
 
-        # Pull retention curves for recent videos
+        # Pull retention curves for videos YouTube has actually measured.
+        #
+        # This used to take the 5 NEWEST videos, which is precisely the set that
+        # cannot have data: YouTube needs a couple of days to process
+        # audienceWatchRatio, so every pull returned {"error": "no data"}, nothing
+        # was stored, and the loop stayed dead forever. Measured to prove the
+        # mechanism is otherwise fine -- long-2026-09-24 returned hook 0.967,
+        # long-09-23 0.934, long-09-22 0.626. The measurement half worked; only the
+        # selection was wrong.
+        #
+        # Longs only, deliberately: Shorts returned no data on 4/4 probes. It is
+        # recorded as unavailable rather than as zero, because a zero would be
+        # indistinguishable from "nobody watched" and would drag every category
+        # average down. pull_retention_from_youtube does not store on error, so
+        # there is nothing to write here.
         try:
             from utils.retention_analyzer import pull_retention_from_youtube
             from utils.firebase_status import get_firestore_client
+            from datetime import datetime, timedelta, timezone as _tz
             db = get_firestore_client()
             if db:
-                from datetime import datetime
-                recent = db.collection("videos").order_by("created_at", direction="DESCENDING").limit(5).stream()
-                for doc in recent:
-                    v = doc.to_dict()
+                # Candidates are selected by age here rather than by limit, so the
+                # window is explicit instead of implied by a row count.
+                oldest = datetime.now(_tz.utc) - timedelta(days=RETENTION_MAX_AGE_DAYS)
+                newest = datetime.now(_tz.utc) - timedelta(days=RETENTION_MIN_AGE_DAYS)
+                scanned = eligible = 0
+                for doc in db.collection("videos").order_by(
+                        "created_at", direction="DESCENDING").limit(80).stream():
+                    scanned += 1
+                    v = doc.to_dict() or {}
                     vid = v.get("youtube_id", v.get("video_id", ""))
-                    cat = v.get("category", "AI News")
-                    dur = v.get("duration_seconds", 60)
-                    if vid:
-                        pull_retention_from_youtube(vid, cat, dur)
+                    if not vid:
+                        continue
+                    cat = v.get("category") or ""
+                    fmt = str(v.get("format") or "").strip().lower()
+                    if fmt in RETENTION_SKIP_FORMATS:
+                        continue
+                    if not fmt:
+                        # Unreadable format: do not guess. A wrong guess either
+                        # burns an API call per short or silently drops a long.
+                        continue
+                    created = v.get("created_at")
+                    if not isinstance(created, datetime):
+                        continue
+                    if created.tzinfo is None:
+                        created = created.replace(tzinfo=_tz.utc)
+                    if not (oldest <= created <= newest):
+                        continue
+                    dur = v.get("duration_seconds") or 60
+                    res = pull_retention_from_youtube(vid, cat, dur)
+                    if not res.get("error"):
+                        eligible += 1
+                        log_event("RETENTION", f"hook={res['hook_retention']:.3f} "
+                                              f"avg={res['avg_retention']:.3f} "
+                                              f"{cat} {vid}", "info")
+                if eligible == 0:
+                    log_event("RETENTION",
+                              f"scanned {scanned} videos, 0 in the "
+                              f"{RETENTION_MIN_AGE_DAYS}-{RETENTION_MAX_AGE_DAYS}d "
+                              f"window with data available", "debug")
         except Exception as e:
             log_event("RETENTION", f"Retention pull failed: {e}", "debug")
 

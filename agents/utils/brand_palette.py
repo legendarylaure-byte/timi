@@ -58,17 +58,24 @@ SPOTLIGHT_RAMP = (VIOLET, PURPLE, PINK, ORANGE, LIGHT_ORANGE)
 #
 # Target below is therefore a deliberate, well-exposed corporate-cinematic look
 # rather than a restatement of what the pipeline happened to produce:
-#   y=92  comfortable exposure. Rec.709 mid-grey is 126 at 50% code, but that
-#         is a *reference white*; well-exposed editorial content averages lower.
-#         92 keeps deep shadow detail without the mud.
+#   y=105 comfortable exposure. Rec.709 mid-grey is 126 at 50% code, but that is
+#         a *reference white*; well-exposed editorial content averages lower.
+#         Raised from 92 because the shipped output measured 76.4 -- the grade was
+#         asked for 92 and did not deliver it, and on a phone in daylight that is
+#         the difference between legible and not. 105 still leaves headroom below
+#         mid-grey, so highlights have somewhere to go.
 #   u=128 neutral chroma axis (measured 128-135, so no cast to correct).
-#   v=140 a small headroom so the grade can add vibrance rather than have to
-#         desaturate first -- measured V sat at 123-128, i.e. slightly flat.
+#   v=128 neutral, NOT 140. The old 140 existed to leave headroom so the grade
+#         could add vibrance; the grade no longer adds vibrance (see
+#         GRADE_VIBRANCE in video_compositor, default 0) because vibrance amplifies
+#         whatever cast the source already has. The shipped video measured
+#         u=142.9, i.e. visibly blue, and vibrance was making that worse.
 #
 # The brand colour is carried by the CTA / lower-third / watermark. Tinting every
 # frame purple is what makes AI footage look cheap; brightening it so people can
-# actually watch it is what makes them stay.
-GRADE_REFERENCE_YUV = {"y_mean": 92.0, "u_mean": 128.0, "v_mean": 140.0}
+# actually watch it is what makes them stay. The grade is LUMA-ONLY for that
+# reason: exposure, contrast and a filmic curve, no saturation push.
+GRADE_REFERENCE_YUV = {"y_mean": 105.0, "u_mean": 128.0, "v_mean": 128.0}
 
 # Filmic S-curve applied after the exposure lift: a soft toe so shadows keep
 # detail, a shoulder at 0.75 so mid-tones stay open, and a 0.98 ceiling so

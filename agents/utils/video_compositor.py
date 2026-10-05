@@ -50,6 +50,16 @@ COLOR_GRADING_THRESHOLD = float(os.getenv("COLOR_GRADING_THRESHOLD", "0.05"))
 # through untouched); 1 is the full look. Exists because taste is not something
 # that should need a code change plus a 16GB image rebuild to adjust.
 GRADE_STRENGTH = max(0.0, min(1.0, float(os.getenv("GRADE_STRENGTH", "1.0"))))
+# Saturation push. Default 0, deliberately.
+#
+# This was a flat 0.18 and it fought the goal. brand_palette says outright that
+# "tinting every frame purple is what makes AI footage look cheap", and vibrance
+# does not remove a cast -- it amplifies whatever cast the source already has.
+# Shipped output measured u=142.9, i.e. visibly blue, so an 18% vibrance lift was
+# making the slate-blue stronger. The brand is carried by the CTA, lower-third and
+# watermark, so the footage needs no saturation help. Left as a dial because taste
+# is not something that should need a code change plus an image rebuild to adjust.
+GRADE_VIBRANCE = max(0.0, min(1.0, float(os.getenv("GRADE_VIBRANCE", "0.0"))))
 
 # Brand palette reference (Licorice/Purple/Violet/Orange) — measured from real
 # output by scripts/measure_grade.py, not freehand. See brand_palette.py for the
@@ -908,7 +918,13 @@ def _grade_filter(measured: dict | None, target: dict, strength: float) -> str:
     # measure_grade --histogram.
     brightness = max(-0.12, min(0.22, dy * 0.85)) * strength
     contrast = 1.0 + (0.06 * strength)
-    vibrance = 0.18 * strength
+    vibrance = GRADE_VIBRANCE * strength
+    if vibrance <= 0:
+        # Omit the filter rather than passing intensity=0: the grade is luma and
+        # curve only, and saying so in the command line keeps "why is this frame
+        # not tinted" answerable from the log.
+        return (f"eq=brightness={brightness:+.4f}:contrast={contrast:.3f},"
+                f"curves=all='{GRADE_CURVES}'")
     return (f"eq=brightness={brightness:+.4f}:contrast={contrast:.3f},"
             f"curves=all='{GRADE_CURVES}',"
             f"vibrance=intensity={vibrance:.3f}")

@@ -97,9 +97,16 @@ def test_grade_reference_is_neutral_not_brand_tinted():
     # is that band, and the upper bound still refuses the old over-bright teal
     # (140) that desaturated every frame.
     assert 80 <= y <= 130, f"luma target {y} should be well exposed, not crushed or blown"
-    assert 132 <= v <= 150, (
-        f"v={v} should leave modest chroma headroom above neutral for vibrance, "
-        f"without the warm push of the old teal reference (166)"
+    # v must sit ON the neutral axis now, not above it. It used to be required to
+    # sit at 132-150 "so the grade has headroom to add vibrance". The grade no
+    # longer adds vibrance (GRADE_VIBRANCE defaults to 0), because vibrance
+    # amplifies whatever cast the source already has: the shipped video measured
+    # u=142.9, i.e. visibly blue, and an 18% vibrance lift made that worse. This
+    # assertion is the thing that stops someone re-adding a warm tint to "make it
+    # look richer".
+    assert abs(v - 128) < 2, (
+        f"v={v} must stay on the neutral axis; the brand is carried by the "
+        f"CTA/lower-third/watermark, not by a global cast"
     )
 
 
@@ -793,7 +800,12 @@ def test_keyterm_text_overlays_are_gone_from_source():
 # this brighter" cannot fix video that is too dark.
 
 DARK_SCENE = {"y_mean": 43.3, "u_mean": 128.1, "v_mean": 127.9}   # measured 09-26
-ON_TARGET = {"y_mean": 92.0, "u_mean": 128.0, "v_mean": 140.0}    # the reference
+
+# Derived from the reference, never a copy of it. This used to be a literal
+# {92.0, 128.0, 140.0}, so raising the target broke the convergence test for a
+# reason that had nothing to do with convergence -- the same "a comment/test
+# pinning a duplicate of a value the code owns" drift as everywhere else.
+ON_TARGET = dict(GRADE_REFERENCE_YUV)
 
 
 def _brightness_of(vf: str) -> float:
@@ -840,14 +852,90 @@ def test_strength_zero_is_an_honest_no_op():
     assert _grade_filter(DARK_SCENE, BRAND_YUV, 0.0) == "null"
 
 
+def test_grade_is_luma_only_by_default():
+    """The grade must not saturate the footage.
+
+    It used to apply a flat `vibrance=intensity=0.18`. brand_palette.py says
+    outright that "tinting every frame purple is what makes AI footage look
+    cheap", and vibrance does not remove a cast -- it amplifies whatever cast the
+    source already has. The shipped long measured u=142.9, i.e. visibly blue, so
+    that 18% lift was making the slate-blue stronger rather than fixing it. The
+    brand is carried by the CTA, lower-third and watermark, which are solid
+    colours and are unaffected.
+    """
+    import utils.video_compositor as vc
+
+    # Drive the branch explicitly rather than relying on the shipped value. The
+    # first version of this test read the module default, and mutating that
+    # default changed nothing -- agents/.env sets GRADE_VIBRANCE=0.0, which masks
+    # the code fallback. A test that cannot see the thing it guards is the failure
+    # this repo keeps re-learning.
+    saved = vc.GRADE_VIBRANCE
+    try:
+        vc.GRADE_VIBRANCE = 0.0
+        vf = vc._grade_filter(DARK_SCENE, vc.BRAND_YUV, 1.0)
+    finally:
+        vc.GRADE_VIBRANCE = saved
+
+    assert "curves=all=" in vf, f"no filmic curve: {vf}"
+    assert "vibrance=" not in vf, (
+        f"the grade is saturating the footage again: {vf}"
+    )
+    assert "saturation=" not in vf, (
+        f"eq=saturation ignores vibrance's skin-tone protection: {vf}"
+    )
+
+
+def test_shipped_vibrance_default_is_zero_in_both_places():
+    """Both the env line compose injects and the code fallback must be 0.
+
+    Checked separately because they can drift: if only the code default were
+    checked, deleting the .env line would silently restore saturation, and if
+    only .env were checked, the code fallback could sit at 0.18 waiting for a
+    container built without that file.
+    """
+    import re
+    from pathlib import Path
+
+    env_file = Path(__file__).resolve().parents[1] / ".env"
+    assert env_file.exists(), f"{env_file} is missing"
+    m = re.search(r"^GRADE_VIBRANCE=([0-9.]+)", env_file.read_text(), re.MULTILINE)
+    assert m, "agents/.env has no GRADE_VIBRANCE line"
+    assert float(m.group(1)) == 0.0, (
+        f"agents/.env sets GRADE_VIBRANCE={m.group(1)}; the grade would "
+        f"saturate the footage again"
+    )
+
+    source = (Path(__file__).resolve().parents[1] / "utils" / "video_compositor.py").read_text()
+    m2 = re.search(r'GRADE_VIBRANCE"\s*,\s*"([0-9.]+)"', source)
+    assert m2, "video_compositor no longer reads a GRADE_VIBRANCE default"
+    assert float(m2.group(1)) == 0.0, (
+        f"the code fallback is {m2.group(1)}, so a container without agents/.env "
+        f"would saturate the footage"
+    )
+
+
+def test_vibrance_dial_still_works_when_asked_for():
+    """Counterweight to the test above. Without it, "default 0" could be satisfied
+    by deleting the knob, and there would be no way to put saturation back without
+    another code change plus a 16GB image rebuild."""
+    import utils.video_compositor as vc
+
+    saved = vc.GRADE_VIBRANCE
+    try:
+        vc.GRADE_VIBRANCE = 0.18
+        vf = vc._grade_filter(DARK_SCENE, vc.BRAND_YUV, 1.0)
+        assert "vibrance=intensity=0.180" in vf, f"dial is inert: {vf}"
+    finally:
+        vc.GRADE_VIBRANCE = saved
+
+
 def test_grade_carries_the_cinematic_look():
-    """vibrance instead of eq=saturation (preserves skin tone), a filmic toe
-    and shoulder, and no forced brand tint on U/V."""
+    """A filmic toe and shoulder, and no forced brand tint on U/V."""
     from utils.video_compositor import BRAND_YUV, _grade_filter
 
     vf = _grade_filter(DARK_SCENE, BRAND_YUV, 1.0)
     assert "curves=all=" in vf, f"no filmic curve: {vf}"
-    assert "vibrance=" in vf, f"vibrance missing: {vf}"
     assert "saturation=" not in vf, (
         "flat eq=saturation oversaturates skin; vibrance is the correct knob"
     )

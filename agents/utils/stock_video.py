@@ -1,4 +1,5 @@
 import os
+import re
 import time
 import threading
 import shutil
@@ -410,6 +411,26 @@ def _search_cached(key: str, source: str, orientation: str) -> list[dict]:
     return result
 
 
+def _pexels_title(video: dict) -> str:
+    """The clip's own description, as Pexels states it.
+
+    Pexels has no title field. Its `image` URL slug is the description, e.g.
+    ".../videos/12352337/abstract-background-binary-blue-12352337.jpeg" ->
+    "abstract background binary blue". This is the only text in the response that
+    says what the clip depicts, and it is what the quality gate reads.
+    """
+    img = video.get("image") or ""
+    if not img:
+        return ""
+    m = re.search(r"/videos/\d+/([^?]+)", img)
+    slug = m.group(1) if m else img.rsplit("/", 1)[-1]
+    slug = slug.split(".")[0]
+    vid = str(video.get("id", ""))
+    if vid and slug.endswith(f"-{vid}"):
+        slug = slug[: -(len(vid) + 1)]
+    return slug.replace("-", " ").strip()
+
+
 def _min_source_dims(orientation: str) -> tuple[int, int]:
     """Minimum acceptable source resolution, in the clip's OWN orientation.
 
@@ -471,6 +492,15 @@ def _search_pexels_uncached(query: str, orientation: str = "landscape") -> list[
                 "size": best.get("size", 0),
                 "source": "pexels",
                 "query": query,
+                # Pexels' own title for the clip. This used to be dropped, and
+                # that one omission is why "relevance" could never rank anything:
+                # _score_stock_relevance compares a candidate against the query
+                # we just sent, so all five candidates from one search score
+                # identically (measured spread 0.0) and the winner is decided by
+                # jitter. The title is the only thing in the response that says
+                # what a clip actually depicts, so it is also what lets the
+                # quality gate reject abstract renders by name.
+                "title": _pexels_title(v),
             })
         return results
     except requests.exceptions.HTTPError as e:
@@ -699,6 +729,55 @@ def _search_providers(keywords: list[str], orientation: str, per_page: int = 5) 
     return all_results
 
 
+# Clip descriptions that mean "abstract render", not "recognisable footage".
+#
+# The channel teaches beginners, so the footage has to show something a viewer can
+# name. These are the words Pexels itself uses for the abstract CGI look, read off
+# real search results: "abstract data visualization" returns `3d-digital-dj-neon`,
+# "quantum computing abstract" returns `holographic-glitch-abstract-3d-figure`.
+# That look is what the channel was shipping: measured on a recent long, mean RGB
+# #314664 with a per-frame luma range of 3 points across four minutes.
+#
+# `\b3d\b` rather than "3d" because "3d" appears inside unrelated words. "space" is
+# deliberately NOT here: it matched "office-space" and cost a false positive on
+# otherwise perfect office footage when this list was measured against 40 real
+# queries.
+_ABSTRACT_TITLE_RE = re.compile(
+    r"\babstract\b|\bneon\b|\bholographic\b|\bglitch\b|\b3d\b|\bcgi\b"
+    r"|\bparticles?\b|\bcosmos\b|\bbackground\b|\banimation\b|\brender\b",
+    re.IGNORECASE,
+)
+
+# Mean luma floor. Below this the clip reads as near-black on a phone, which is
+# where most of this is watched. Measured reference: the channel's own long-form
+# output sat at 76.4, and brand_palette.py already calls that "a near-black frame".
+# Set from the footage, not guessed -- raise it only against measure_grade output.
+MIN_CLIP_LUMA = float(os.getenv("MIN_CLIP_LUMA", "62"))
+STOCK_QUALITY_REJECTED = os.getenv("STOCK_QUALITY_REJECTED", "0") == "1"
+
+
+def _clip_mean_luma(path: str) -> float | None:
+    """Mean luma of a downloaded clip, or None when it cannot be measured.
+
+    Reuses video_compositor._extract_yuv_histogram rather than adding a second
+    signalstats parser: that function is already the corrected way to read YAVG
+    (its own docstring records that the ffprobe form never worked and silently
+    returned None for every clip). Imported lazily so stock_video does not drag
+    the compositor in at module load.
+    """
+    try:
+        from utils.video_compositor import _extract_yuv_histogram
+        hist = _extract_yuv_histogram(path)
+        return None if hist is None else float(hist.get("y_mean", 0.0))
+    except Exception as e:
+        print(f"[stock_video] luma probe failed for {os.path.basename(path)}: {e}")
+        return None
+
+
+def _title_rejected(title: str) -> bool:
+    return bool(title) and bool(_ABSTRACT_TITLE_RE.search(title))
+
+
 def search_and_download(
     scene_keyword: str,
     target_duration: float = 5.0,
@@ -742,6 +821,26 @@ def search_and_download(
         reverse=True,
     )
 
+    # Free half of the quality gate: reject abstract-looking candidates before
+    # spending a download on them. Reads Pexels' own clip description, which is why
+    # P4 keeps it.
+    #
+    # fail-open, deliberately. If every candidate is abstract-looking we proceed
+    # unfiltered and say so, because a scene that loses all its footage falls
+    # through to the branded title card -- a worse outcome than the slate-blue this
+    # gate exists to remove. Tightening this can cost quality; it must never cost a
+    # scene its video.
+    if STOCK_QUALITY_REJECTED:
+        kept = [c for c in unique if not _title_rejected(c.get("title", ""))]
+        dropped = len(unique) - len(kept)
+        if dropped and kept:
+            print(f"[stock_video] quality gate dropped {dropped} abstract-looking "
+                  f"candidate(s) for '{scene_keyword}'")
+            unique = kept
+        elif dropped:
+            print(f"[stock_video] quality gate would reject all {dropped} candidates "
+                  f"for '{scene_keyword}'; proceeding unfiltered so the scene keeps footage")
+
     for candidate in unique:
         # Namespaced by video_id: the old name was clip_{scene_idx}_{src}_{id}.mp4, so
         # a clip downloaded for one video was silently reused by the next video that
@@ -765,6 +864,23 @@ def search_and_download(
         if download_clip(candidate["url"], output_path):
             duration = get_video_duration(str(output_path))
             if duration > 0:
+                # Second half of the gate. The title filter above is free; this one
+                # needs the file, so it runs on the downloaded clip only.
+                luma = _clip_mean_luma(str(output_path))
+                if luma is not None and luma < MIN_CLIP_LUMA:
+                    print(f"[stock_video] rejected near-black clip "
+                          f"({candidate.get('title') or candidate['_cid']}, luma={luma:.1f} "
+                          f"< {MIN_CLIP_LUMA}); trying the next candidate")
+                    if STOCK_QUALITY_REJECTED:
+                        with open(os.path.join(os.path.dirname(CLIPS_DIR),
+                                               "stock_quality_rejected.log"), "a") as fh:
+                            fh.write(f"{video_id}\t{scene_idx}\t{candidate.get('title','')}\t"
+                                     f"{luma:.1f}\tdark\n")
+                    try:
+                        output_path.unlink()
+                    except OSError:
+                        pass
+                    continue
                 _mark_used(candidate["_cid"])
                 return {
                     "path": str(output_path),
