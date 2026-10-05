@@ -2,6 +2,7 @@ import os
 import re
 import json
 import math
+import subprocess
 import tempfile
 import logging
 from utils.subprocess_helper import safe_run, register_temp_dir
@@ -229,7 +230,7 @@ def check_static_video(video_path: str, sample_count: int = 16,
 
 def check_corruption(video_path: str) -> dict:
     if not os.path.exists(video_path):
-        return {"total_frames": 0, "decode_errors": 1, "is_corrupt": True}
+        return {"total_frames": 0, "decode_errors": 1, "is_corrupt": True, "timed_out": False}
     cmd = [
         _ffprobe_path(), "-v", "error", "-count_frames",
         "-select_streams", "v:0", "-show_entries", "stream=nb_read_frames",
@@ -245,10 +246,19 @@ def check_corruption(video_path: str) -> dict:
             "total_frames": total,
             "decode_errors": decode_errors,
             "is_corrupt": decode_errors > 3 or total == 0,
+            "timed_out": False,
         }
+    except subprocess.TimeoutExpired:
+        # A timeout is NOT corruption. `-count_frames` decodes the whole file, so
+        # on a loaded box (CONCURRENT_PIPELINE_WORKERS=2) a healthy clip can
+        # exceed 60s. Returning is_corrupt here made asset_router demote the
+        # scene to stock footage and drop its ltx_prompt -- a slow read silently
+        # downgraded the visual. Measured 2026-10-05: 4 scenes, ~4min wasted.
+        logger.warning("Frame count timed out (not treated as corrupt): %s", video_path)
+        return {"total_frames": 0, "decode_errors": 0, "is_corrupt": False, "timed_out": True}
     except Exception as e:
         logger.warning("Frame corruption check failed: %s", e)
-        return {"total_frames": 0, "decode_errors": 1, "is_corrupt": True}
+        return {"total_frames": 0, "decode_errors": 1, "is_corrupt": True, "timed_out": False}
 
 
 def check_resolution(video_path: str,
