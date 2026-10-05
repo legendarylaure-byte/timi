@@ -1175,10 +1175,19 @@ def _run_stock_footage_pipeline(script_text: str, storyboard_text: str, category
     return scenes, clips, total_duration
 
 
-def _parse_scenes_for_asset_router(script_text: str, storyboard_text: str, category: str, format_type: str, video_id: str, max_duration: int = None) -> list[dict]:  # noqa: E501
+def _parse_scenes_for_asset_router(script_text: str, storyboard_text: str, category: str, format_type: str, video_id: str, max_duration: int = None, topic: str = "") -> list[dict]:  # noqa: E501
     from utils.scene_parser import (parse_script_to_scenes, normalize_scene_durations)
     from utils.series_router import inject_intro_outro
-    scenes = parse_script_to_scenes(script_text, title=video_id, category=category, format_type=format_type, storyboard_text=str(storyboard_text), max_duration=max_duration)
+    # `title` MUST be the human topic, never video_id. scene_parser folds it into
+    # asset_keywords[0] (rule-based path) and prints it into the LLM prompt as
+    # "Title:", which the model then copies into asset_keywords (LLM path). Both
+    # branches reach the stock search, so passing video_id here searched Pexels
+    # for e.g. "short-20261005-1"; Pexels fuzzy-matched every one of those to
+    # generic abstract tech clips, so every scene in every video rendered the
+    # same dark slate-blue footage. Measured: 355 of 487 searches in python.log
+    # used the video id as the query, and the remaining ones were plumbing
+    # tokens. Fall back to video_id only when there is genuinely no topic.
+    scenes = parse_script_to_scenes(script_text, title=(topic or video_id), category=category, format_type=format_type, storyboard_text=str(storyboard_text), max_duration=max_duration)
     scenes = inject_intro_outro(scenes, category, format_type)
     normalize_scene_durations(scenes)
     log_event("PIPELINE", f"Asset Router: {len(scenes)} scenes")
@@ -1335,7 +1344,7 @@ def _proportional_scale(scenes: list[dict], audio_duration: float) -> list[dict]
     return scenes
 
 
-def run_video_pipeline(script_text: str, storyboard_text: str, category: str, format_type: str, video_id: str, max_duration: int, generate_subs: bool = True, subtitle_lang: str = "en", tier: str = "") -> dict:  # noqa: E501
+def run_video_pipeline(script_text: str, storyboard_text: str, category: str, format_type: str, video_id: str, max_duration: int, generate_subs: bool = True, subtitle_lang: str = "en", tier: str = "", topic: str = "") -> dict:  # noqa: E501
     log_event("PIPELINE", "Step 1: Parsing storyboard into scenes")
     is_documentary = bool(tier) if tier else (os.environ.get("TIER", "") == "documentary")
     _tier_param = tier or ("documentary" if is_documentary else "")
@@ -1346,7 +1355,7 @@ def run_video_pipeline(script_text: str, storyboard_text: str, category: str, fo
     total_video_duration = 0.0
 
     if use_asset_router:
-        scenes = _parse_scenes_for_asset_router(script_text, storyboard_text, category, format_type, video_id, max_duration)
+        scenes = _parse_scenes_for_asset_router(script_text, storyboard_text, category, format_type, video_id, max_duration, topic=topic)
     else:
         scenes, clips, total_video_duration = _run_stock_footage_pipeline(script_text, storyboard_text, category, format_type, video_id, max_duration)
 
@@ -1904,7 +1913,7 @@ def generate_short_video(topic: str, category: str, video_id: str, publish_at: s
 
         failed_step = "video_pipeline"
         with _track_step(video_id, "video_pipeline"):
-            video_result = run_video_pipeline(script_text, str(storyboard), category, "shorts", video_id, SHORTS_MAX_DURATION)
+            video_result = run_video_pipeline(script_text, str(storyboard), category, "shorts", video_id, SHORTS_MAX_DURATION, topic=topic)
 
         failed_step = "duration_check"
         dur_ok, dur_msg = _duration_ok(video_result.get("video_path", ""), "shorts")
@@ -2565,7 +2574,7 @@ def generate_long_video(topic: str, category: str, video_id: str, publish_at: st
 
         failed_step = "video_pipeline"
         with _track_step(video_id, "video_pipeline"):
-            video_result = run_video_pipeline(script_text, str(storyboard), category, "long", video_id, _deep_lesson_dur(category))
+            video_result = run_video_pipeline(script_text, str(storyboard), category, "long", video_id, _deep_lesson_dur(category), topic=topic)
 
         failed_step = "duration_check"
         dur_ok, dur_msg = _duration_ok(video_result.get("video_path", ""), "long")

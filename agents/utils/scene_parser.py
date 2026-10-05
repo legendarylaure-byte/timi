@@ -102,6 +102,11 @@ META_TOKENS = frozenset({
     "render_type", "asset_type", "diagram", "scene", "background", "camera",
     "transition", "music_mood", "target_duration", "storyboard", "script",
     "script_text", "block", "clip", "text", "format",
+    # storyboard output columns + text_overlay style values. These leak in when
+    # the LLM echoes a column name instead of content: python.log showed "stock OK
+    # (query=call_to_action)" and "(query=text_overlay)", i.e. Pexels was asked
+    # for a literal overlay label.
+    "text_overlay", "call_to_action", "subscribe", "end_screen", "thumbnail",
     # render backends and sources
     "manim", "blender", "pexels", "pixabay", "ltx", "stock", "stock_footage",
     "branded_card", "static_image", "diagram_animation",

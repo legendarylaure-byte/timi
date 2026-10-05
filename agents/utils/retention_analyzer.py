@@ -7,8 +7,8 @@ Analyzes YouTube Analytics retention data to find:
 
 Usage:
     from utils.retention_analyzer import analyze_retention, get_insights
-    analysis = analyze_retention(video_id, retention_data)
-    insights = get_insights("AI Explained")
+    analysis = analyze_retention(video_id, category, curve, duration_seconds)
+    insights = get_insights(category)
 """
 import os
 import json
@@ -43,11 +43,19 @@ def analyze_retention(
     category: str,
     retention_curve: list[float],
     duration_seconds: float,
+    persist: bool = True,
 ) -> dict:
     """Analyze a retention curve and return drop-off points and insights.
 
     retention_curve: list of % values (1.0 = 100% watching) at each second
     duration_seconds: total video duration
+    persist: False computes the analysis WITHOUT appending to the dataset.
+
+    `persist` exists because this function writes to a production dataset that
+    the learning loop reads back. A one-off probe that passes a real video_id
+    with a GUESSED category therefore poisons that category's average forever,
+    and the damage is invisible: the file still looks well-formed. Probing
+    therefore must opt out explicitly.
 
     Returns dict with:
     - hook_retention: % still watching at 5s (hook effectiveness)
@@ -87,6 +95,12 @@ def analyze_retention(
     drop_offs.sort(key=lambda x: x[1], reverse=True)
 
     # Save to data
+    if not persist:
+        return {
+            "hook_retention": round(hook_retention, 3),
+            "avg_retention": round(avg_retention, 3),
+            "drop_off_points": drop_offs[:5],
+        }
     data = _load_data()
     if category not in data:
         data[category] = []
@@ -147,10 +161,15 @@ def get_insights(category: str) -> dict:
     }
 
 
-def pull_retention_from_youtube(video_id: str, category: str, duration_seconds: float) -> dict:
+def pull_retention_from_youtube(video_id: str, category: str, duration_seconds: float,
+                                persist: bool = True) -> dict:
     """Pull retention curve from YouTube Analytics API and analyze it.
 
     Returns the analysis dict from analyze_retention().
+
+    `persist=False` makes this a read-only probe: the curve is computed and
+    returned but nothing is written to the dataset or Firestore. Anything that
+    is not the scheduled collector should pass it -- see analyze_retention().
     """
     try:
         from utils.youtube_upload import get_youtube_credentials
@@ -201,18 +220,19 @@ def pull_retention_from_youtube(video_id: str, category: str, duration_seconds: 
         if last <= 0:
             return {"hook_retention": 0, "avg_retention": 0, "error": "empty curve"}
 
-        result = analyze_retention(video_id, category, curve, total_seconds)
+        result = analyze_retention(video_id, category, curve, total_seconds, persist=persist)
 
         # Persist the real curve so there is a usable retention dataset (and the
         # dashboard has something to plot) instead of a per-category average only.
         try:
-            from utils.firebase_status import get_firestore_client
-            db = get_firestore_client()
-            if db:
-                db.collection("videos").document(video_id).set({
-                    "retention_curve": curve,
-                    "retention_measured_at": datetime.now().isoformat(),
-                }, merge=True)
+            if persist:
+                from utils.firebase_status import get_firestore_client
+                db = get_firestore_client()
+                if db:
+                    db.collection("videos").document(video_id).set({
+                        "retention_curve": curve,
+                        "retention_measured_at": datetime.now().isoformat(),
+                    }, merge=True)
         except Exception as e:
             logger.debug(f"[RETENTION] curve persist failed for {video_id}: {e}")
 

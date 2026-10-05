@@ -28,6 +28,7 @@ Run in-container (needs the API keys, ffmpeg and PIL):
 """
 import json
 import os
+import re
 import subprocess
 import sys
 from pathlib import Path
@@ -36,7 +37,7 @@ sys.path.insert(0, "/app")
 
 from PIL import Image, ImageDraw, ImageFont
 
-from utils.scene_parser import clean_scene_keywords, _apply_category_style
+from utils.scene_parser import clean_scene_keywords, _apply_category_style, _rule_based_parse
 from utils import asset_router
 
 OUT_DIR = Path("/app/output/footage_audit")
@@ -123,17 +124,52 @@ def _frame(path: str, at: float = 1.0) -> Image.Image | None:
         out.unlink(missing_ok=True)
 
 
+def _script_for(narration: str) -> str:
+    """Build a production-shaped script out of a scene's narration.
+
+    Two shapes matter and both were wrong in the first version of this audit:
+    `_rule_based_parse` returns [] unless it produces >= 2 scenes (scene_parser.py:404),
+    and it sizes the target from word count (`min(target, word_count // 20)`), so a
+    33-word string asks for 1 scene and gets rejected. Real scripts are 450+ words
+    across 12-18 scenes. Handing the parser a 33-word string therefore measured the
+    minimal fallback -- the audit passed 5/5 while never touching the path it exists
+    to check. The narration is expanded here so every paragraph carries real subject
+    words, which is what the keyword inference actually consumes.
+    """
+    sentences = [x.strip() for x in re.split(r"(?<=[.!?])\s+", narration) if x.strip()]
+    if not sentences:
+        sentences = [narration]
+    body = " ".join(sentences)
+    # Two extra paragraphs of the same subject matter push the word count past the
+    # //20 target and give the block splitter more than one boundary to work with.
+    return "\n\n".join([f"NARRATION: {body}", f"NARRATION: {body}", f"NARRATION: {body}"])
+
+
 def audit_scene(idx: int, spec: dict) -> dict:
-    scene = {
-        "keyword": spec["title"],
-        "description": spec["narration"],
-        "asset_keywords": [spec["title"]],
-        "render_type": "stock",
-        "asset_type": "STOCK_FOOTAGE",
-    }
-    # Same call the pipeline makes, so the injected category vocabulary is real.
-    scene = _apply_category_style([scene], spec["category"])[0]
-    scene["asset_keywords"] = clean_scene_keywords(scene["asset_keywords"]) or ["technology"]
+    # Build the scene through the REAL parse, seeded with the real topic.
+    #
+    # This used to hand-build `asset_keywords: [spec["title"]]`. That is what
+    # made the 09-29 report read `won_via: scene_words` and look healthy while
+    # production was searching Pexels for "short-20261005-1": the audit supplied
+    # a title the pipeline never supplies, so it measured a path that did not
+    # exist. Measured against python.log, 355 of 487 stock searches used the
+    # video id as the query and the rest were plumbing tokens -- not one used the
+    # scene topic. An audit that supplies its own input measures itself.
+    #
+    # _rule_based_parse is used rather than parse_script_to_scenes because the
+    # LLM branch needs a model call and is non-deterministic, which would make
+    # the sheet unreproducible. Both branches read the same `title` argument, so
+    # this still catches the defect it is here to catch.
+    script = _script_for(spec["narration"])
+    parsed = _rule_based_parse(script, "", "long", spec["title"], 60)
+    if not parsed:
+        raise RuntimeError(f"scene {idx}: real parse produced nothing for {spec['title']!r}")
+    # Same post-parse step parse_script_to_scenes() applies, so the category
+    # vocabulary is present exactly as it is in production. Skipping it would put
+    # the audit back on a path the pipeline never takes.
+    parsed = _apply_category_style(parsed, spec["category"])
+    scene = parsed[0]
+    scene["asset_keywords"] = clean_scene_keywords(scene.get("asset_keywords")) or ["technology"]
 
     kw_list = scene["asset_keywords"]
     joined = ", ".join(kw_list)
@@ -178,6 +214,11 @@ def audit_scene(idx: int, spec: dict) -> dict:
         "source": (got or {}).get("source"),
         "path": path,
     }
+    # The regression this audit exists for: if the first query is not derived
+    # from the topic, the sheet is describing a pipeline that does not run.
+    row["query_is_topic_derived"] = bool(
+        winner and not winner.startswith(("short-", "long-", "manual-"))
+    )
     # One ffmpeg call, reused. There was an Image.open(path) "sanity check" here
     # that raised on every .mp4 -- PIL cannot open a video, so it flagged 5/5
     # healthy downloads as errors and the sheet showed NO FOOTAGE RETURNED.
@@ -254,11 +295,38 @@ def main() -> int:
     (OUT_DIR / "report.json").write_text(json.dumps(rows, indent=2))
     sheet = contact_sheet(rows)
 
-    got = [r for r in rows if r["won_via"] != "nothing"]
+    got = [r for r in rows if r["won_via"] not in ("nothing", "error")]
     print(f"\n[audit] contact sheet -> {sheet}")
     print(f"[audit] footage returned for {len(got)}/{len(rows)} scenes")
     from collections import Counter
     print(f"[audit] winners: {dict(Counter(r['won_via'] for r in rows))}")
+
+    # An errored scene means the path under audit did not run. It must fail, not be
+    # filtered out: this audit reported a clean summary with 5/5 errors behind it
+    # while exiting 0, which is precisely the "green job that published nothing"
+    # shape. Errors are a gate.
+    failed = [r for r in rows if r["won_via"] == "error"]
+    if failed:
+        print(f"\n[audit] FAIL: {len(failed)} scene(s) errored inside the real path:")
+        for r in failed:
+            print(f"        [{r['idx']}] {r['category']}: {r.get('error')}")
+        return 1
+
+    # Non-zero exit when the first query is not derived from the topic. That was
+    # the 355-of-487 failure: main.py passed title=video_id, so Pexels was
+    # fuzzy-matching a slug like "short-20261005-1" and returning generic abstract
+    # tech clips for every scene of every video. A sheet full of plausible tiles is
+    # exactly what that bug produced while the pipeline looked busy, so the check
+    # has to be a gate and not a line of output nobody reads.
+    machine = [r for r in rows if not r.get("query_is_topic_derived")]
+    if machine:
+        print(f"\n[audit] FAIL: {len(machine)} scene(s) searched on something that is not "
+              f"the scene topic:")
+        for r in machine:
+            print(f"        [{r['idx']}] {r['category']}: {r['winning_query']!r}")
+        print("[audit] this is the video_id-as-title regression (main.py must pass topic=)")
+        return 1
+    print("[audit] all searches were derived from the scene topic")
     return 0
 
 

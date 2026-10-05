@@ -410,6 +410,27 @@ def _search_cached(key: str, source: str, orientation: str) -> list[dict]:
     return result
 
 
+def _min_source_dims(orientation: str) -> tuple[int, int]:
+    """Minimum acceptable source resolution, in the clip's OWN orientation.
+
+    This used to be a hard `width < 1920 or height < 1080` for every query, which
+    is only correct for landscape. Portrait stock is natively 1080x1920, so the
+    width test rejected 100% of it: measured against the live API, "abstract
+    data visualization" and "quantum computing abstract" each returned 5 portrait
+    clips and 0 survived. Shorts therefore lost all Pexels portrait footage and
+    fell through to Pixabay, which takes no orientation parameter at all and so
+    handed back landscape clips that were then crushed into a 9:16 frame.
+
+    The bound is the DELIVERY size, not the catalogue's largest. Output is
+    1920x1080 landscape / 1080x1920 portrait, so a source that is exactly the
+    delivery size is good enough; demanding 4K portrait would reject the native
+    portrait library for a resolution the renderer never uses.
+    """
+    if str(orientation or "").lower().startswith("port"):
+        return 1080, 1920
+    return 1920, 1080
+
+
 def _search_pexels_uncached(query: str, orientation: str = "landscape") -> list[dict]:
     if not PEXELS_API_KEY:
         print("[stock_video] PEXELS_API_KEY is empty — set it in GitHub secrets")
@@ -437,7 +458,8 @@ def _search_pexels_uncached(query: str, orientation: str = "landscape") -> list[
             if not vf:
                 continue
             best = max(vf, key=lambda f: f.get("width", 0) * f.get("height", 0))
-            if best.get("width", 0) < 1920 or best.get("height", 0) < 1080:
+            min_w, min_h = _min_source_dims(orientation)
+            if best.get("width", 0) < min_w or best.get("height", 0) < min_h:
                 continue
             results.append({
                 "id": v["id"],
@@ -499,7 +521,12 @@ def _search_pixabay_uncached(query: str) -> list[dict]:
                 continue
             best_key = max(videos.keys(), key=lambda k: videos[k].get("width", 0))
             best = videos[best_key]
-            if best.get("width", 0) < 1920 or best.get("height", 0) < 1080:
+            # Pixabay's API has no orientation parameter, so we cannot know which
+            # way this clip faces. Requiring landscape dims here would reject every
+            # native portrait clip (shorts); requiring portrait would reject every
+            # landscape one (longs). Both dimensions clear 1080 is the one test
+            # that is correct without knowing the answer.
+            if min(best.get("width", 0), best.get("height", 0)) < 1080:
                 continue
             results.append({
                 "id": v["id"],

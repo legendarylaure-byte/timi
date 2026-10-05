@@ -19,7 +19,7 @@ def test_hook_retention_is_read_at_five_seconds():
     # ~0.99. Reading index 5 (the 6th bucket) gives 0.970, so the bound has to be
     # tight enough to tell the two apart.
     curve = _bucketed_curve(100, 300)
-    res = analyze_retention("t_hook", "unit", curve, 300)
+    res = analyze_retention("t_hook", "unit", curve, 300, persist=False)
     assert res["hook_retention"] >= 0.98, res["hook_retention"]
 
 
@@ -28,7 +28,7 @@ def test_drop_offs_are_real_seconds():
     # timestamp must be 150, not 50.
     curve = _bucketed_curve(100, 300)
     curve[50] -= 0.30
-    res = analyze_retention("t_drop", "unit", curve, 300)
+    res = analyze_retention("t_drop", "unit", curve, 300, persist=False)
     stamps = [ts for ts, _ in res["drop_off_points"]]
     assert stamps, "no drop-off detected"
     worst = max(res["drop_off_points"], key=lambda x: x[1])[0]
@@ -38,12 +38,12 @@ def test_drop_offs_are_real_seconds():
 def test_per_second_curve_is_not_mangled():
     # Already-correct input (one value per second) must pass through unchanged.
     curve = _bucketed_curve(300, 300)
-    res = analyze_retention("t_perfect", "unit", curve, 300)
+    res = analyze_retention("t_perfect", "unit", curve, 300, persist=False)
     assert 0.95 <= res["hook_retention"] <= 1.0, res["hook_retention"]
 
 
 def test_empty_input_is_safe():
-    assert analyze_retention("t_empty", "unit", [], 100)["hook_retention"] == 0
+    assert analyze_retention("t_empty", "unit", [], 100, persist=False)["hook_retention"] == 0
 
 
 if __name__ == "__main__":
