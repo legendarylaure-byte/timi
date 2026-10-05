@@ -14,25 +14,51 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5
-      # The token is REQUIRED, not optional. With it unset this used to skip the
-      # deploy and still report success -- a green job that published nothing,
-      # which is how a rules file could be wrong in production while CI was
-      # green. Fail loudly instead.
-      - name: Require FIREBASE_TOKEN
+      # Credentials are REQUIRED, not optional. With them unset this used to skip
+      # the deploy and still report success -- a green job that published nothing,
+      # which is how a rules file could be wrong in production while CI was green.
+      # Fail loudly instead.
+      #
+      # The service account also carries roles/firebaserules.admin, so it can
+      # create rulesets and releases. That path was proven against the real
+      # project before the token was retired; firebase-tools reads the key from
+      # GOOGLE_APPLICATION_CREDENTIALS and needs no --token.
+      - name: Authenticate with the service account
         env:
-          FIREBASE_TOKEN: ${{ secrets.FIREBASE_TOKEN }}
+          FIREBASE_SERVICE_ACCOUNT: ${{ secrets.FIREBASE_SERVICE_ACCOUNT }}
         run: |
-          if [ -z "$FIREBASE_TOKEN" ]; then
-            echo "::error::FIREBASE_TOKEN not set — refusing to report a deploy that did not happen"
-            echo "Generate one: npx firebase-tools login:ci"
-            echo "Add to repo secrets: FIREBASE_TOKEN"
+          set -uo pipefail
+          if [ -z "${FIREBASE_SERVICE_ACCOUNT:-}" ]; then
+            echo "::error::FIREBASE_SERVICE_ACCOUNT not set — refusing to report a deploy that did not happen"
             exit 1
           fi
+          KEY="$RUNNER_TEMP/firebase-sa.json"
+          # This secret has been stored both raw and base64-encoded, and GitHub
+          # will not tell us which -- `gh secret get` cannot read a value. Two
+          # files in this repo already disagree on the format, so accept either
+          # and let the JSON parse decide, rather than guessing.
+          printf '%s' "$FIREBASE_SERVICE_ACCOUNT" > "$KEY"
+          if ! python3 -c 'import json,sys; json.load(open(sys.argv[1]))' "$KEY" 2>/dev/null; then
+            printf '%s' "$FIREBASE_SERVICE_ACCOUNT" | base64 --decode > "$KEY" 2>/dev/null || true
+          fi
+          # Fail loudly rather than deploying with a half-written key: a valid
+          # JSON file for the WRONG project is the failure worth catching here.
+          python3 - "$KEY" <<'PY' || exit 1
+          import json, sys
+          try:
+              d = json.load(open(sys.argv[1]))
+          except Exception as e:
+              print(f"::error::FIREBASE_SERVICE_ACCOUNT is neither raw JSON nor base64 JSON: {e}")
+              sys.exit(1)
+          if d.get("project_id") != "timi-childern-stories":
+              print(f"::error::key is for {d.get('project_id')!r}, expected 'timi-childern-stories'")
+              sys.exit(1)
+          print(f"key ok: {d.get('client_email')}")
+          PY
+          chmod 600 "$KEY"
+          echo "GOOGLE_APPLICATION_CREDENTIALS=$KEY" >> "$GITHUB_ENV"
       - name: Deploy Firestore rules and indexes
-        env:
-          FIREBASE_TOKEN: ${{ secrets.FIREBASE_TOKEN }}
         run: |
           npx firebase-tools deploy \
             --only firestore:indexes,firestore:rules \
-            --project timi-childern-stories \
-            --token "$FIREBASE_TOKEN"
+            --project timi-childern-stories
