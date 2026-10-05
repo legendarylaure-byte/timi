@@ -6,7 +6,6 @@ on:
     paths:
       - 'firebase/firestore.indexes.json'
       - 'firebase/firestore.rules'
-      - 'firestore.indexes.json'
       - 'firebase.json'
   workflow_dispatch:
 

@@ -24,7 +24,10 @@ DATABASE = "(default)"
 PARENT_TEMPLATE = f"projects/{PROJECT}/databases/{DATABASE}/collectionGroups"
 
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
-INDEX_FILE = os.path.join(SCRIPT_DIR, "..", "firestore.indexes.json")
+# Same file CI deploys (firebase.json points at firebase/firestore.indexes.json).
+# One source of truth: a second copy here meant this tool could report "all up to date"
+# against a file the deploy had never read.
+INDEX_FILE = os.path.join(SCRIPT_DIR, "..", "firebase", "firestore.indexes.json")
 
 
 def get_client():

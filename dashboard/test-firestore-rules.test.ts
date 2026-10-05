@@ -205,7 +205,38 @@ console.log('\n11. there is exactly ONE firebase.json, and it is at the root');
   else ok('deploy.sh runs from the repo root');
 }
 
-console.log(failed ? `\n${failed} FAILED` : '\nOK — firestore rules invariants hold, storage unconfigured');
+// Two copies of the index file meant scripts/deploy_indexes.py could report
+// "all up to date" against a file the deploy had never read. Worse: a copy may
+// carry single-field entries, which Firestore REFUSES as composite definitions --
+// `HTTP 400, this index is not necessary, configure using single field index
+// controls` -- so an unreviewed duplicate is not harmless, it is undployable.
+// Those indexes are real, but they belong to the Field API, not this file.
+console.log('\n12. exactly ONE firestore.indexes.json, it is the one CI deploys, and it is deployable');
+{
+  const rootIdx = join(__dirname, '..', 'firestore.indexes.json');
+  if (existsSync(rootIdx)) bad('a second firestore.indexes.json exists at the repo root -- deploy_indexes.py and CI can read different files');
+  else ok('no duplicate index file at the repo root');
+
+  const cfg = JSON.parse(readFileSync(join(__dirname, '..', 'firebase.json'), 'utf8'));
+  const target = cfg.firestore?.indexes;
+  if (target !== 'firebase/firestore.indexes.json')
+    bad(`firebase.json deploys ${target}, but the single index file is firebase/firestore.indexes.json`);
+  else ok(`firebase.json -> ${target}`);
+
+  const spec = JSON.parse(readFileSync(join(__dirname, '..', 'firebase', 'firestore.indexes.json'), 'utf8'));
+  const singles = (spec.indexes ?? []).filter((i: any) => (i.fields ?? []).length === 1);
+  if (singles.length)
+    bad(`${singles.length} single-field index(es) declared as composite -- Firestore rejects these with HTTP 400: ` +
+        singles.map((i: any) => `${i.collectionGroup}.${i.fields[0].fieldPath}`).join(', '));
+  else ok(`no single-field entries in ${(spec.indexes ?? []).length} composite index(es)`);
+
+  const wf = readFileSync(join(__dirname, '..', '.github', 'workflows', 'firebase-deploy.yml'), 'utf8');
+  if (/^\s*-\s*'firestore\.indexes\.json'\s*$/m.test(wf))
+    bad("the deploy workflow still triggers on the deleted root 'firestore.indexes.json'");
+  else ok('deploy workflow does not trigger on the deleted root path');
+}
+
+console.log(failed ? `\n${failed} FAILED` : '\nOK — rules invariants hold; storage unconfigured; indexes single-source and deployable');
 
 // jest claims this file because of the .test.ts name, but everything above runs
 // at import. Calling process.exit() from a worker killed the worker, so jest
