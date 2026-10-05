@@ -67,8 +67,15 @@ def send_alert(
                 delivered = True
             elif channel == "slack":
                 from utils.slack_notifier import send_alert_slack
-                send_alert_slack(message, severity)
-                delivered = True
+                # Honour the return value. send_slack_message() reports failure
+                # by returning False -- it does not raise -- so setting delivered
+                # unconditionally claimed a message had arrived when it had not,
+                # and the cooldown below then swallowed the retry after Slack
+                # recovered. The failure is visible in its own log already.
+                if send_alert_slack(message, severity):
+                    delivered = True
+                else:
+                    logger.warning("[alert] Slack did not accept the message")
         except Exception as e:
             logger.warning("[alert] Failed to send via %s: %s", channel, e)
 

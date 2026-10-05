@@ -523,3 +523,59 @@ def test_guard_job_is_registered_every_15_minutes():
 
     assert 'minutes=15' in src
     assert "misfire_grace_time=120" in src
+
+
+# --- a failed delivery must not start the cooldown ----------------------------
+# send_alert's comment claims "Stamp only after a real delivery, so a channel
+# outage does not start a cooldown that then swallows the retry once the channel
+# recovers." That is the whole justification for checking `delivered`, and it was
+# false: send_slack_message() reports failure by RETURNING False (it does not
+# raise), and the slack branch set delivered = True unconditionally, discarding
+# the return value. So a Slack outage produced exactly the outcome the comment
+# says it prevents -- delivered=True, a cooldown stamped, and the retry after
+# recovery suppressed for 6h.
+def test_slack_failure_is_not_recorded_as_delivered(monkeypatch):
+    import utils.alert_manager as am
+
+    calls = []
+
+    class Resp:
+        status_code = 500
+        text = "server error"
+
+    def fake_post(*a, **k):
+        calls.append(1)
+        import requests
+
+        return Resp()
+
+    monkeypatch.setenv("SLACK_WEBHOOK_URL", "https://hooks.invalid/x")
+    monkeypatch.setattr("requests.post", fake_post)
+    am._alert_last_sent.clear()
+
+    assert am.send_alert("first", alert_type="probe") is False, (
+        "a non-200 Slack response must not count as delivered"
+    )
+    assert "probe" not in am._alert_last_sent, (
+        "a failed send must not stamp the cooldown -- otherwise the alert is "
+        "swallowed for 6h after Slack recovers, which is the outage this guard "
+        "exists to catch"
+    )
+    assert calls, "the webhook was never called; the test proved nothing"
+
+
+def test_successful_delivery_does_stamp(monkeypatch):
+    """The other half: a real send must start the cooldown, or it alerts every 15 min."""
+    import utils.alert_manager as am
+
+    class Resp:
+        status_code = 200
+        text = "ok"
+
+    monkeypatch.setenv("SLACK_WEBHOOK_URL", "https://hooks.invalid/x")
+    monkeypatch.setattr("requests.post", lambda *a, **k: Resp())
+    am._alert_last_sent.clear()
+
+    assert am.send_alert("first", alert_type="probe") is True
+    assert "probe" in am._alert_last_sent, "a delivered alert must start its cooldown"
+    assert am.send_alert("again", alert_type="probe") is False, "repeat must be suppressed"

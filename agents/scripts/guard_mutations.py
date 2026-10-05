@@ -162,6 +162,19 @@ MUTATIONS = [
         )],
         "tests/test_render_only_status.py",
     ),
+    (
+        "M13 slack delivery ignores the return value (failed send counted as delivered)",
+        "utils/alert_manager.py",
+        [(
+            """                if send_alert_slack(message, severity):
+                    delivered = True
+                else:
+                    logger.warning("[alert] Slack did not accept the message")""",
+            """                send_alert_slack(message, severity)
+                delivered = True""",
+        )],
+        "tests/test_overnight_guards.py",
+    ),
 ]
 
 
