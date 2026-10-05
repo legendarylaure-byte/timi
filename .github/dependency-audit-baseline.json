@@ -1,5 +1,5 @@
 {
-  "_comment": "Advisory IDs we accept and why. The gate fails on any ID not listed here. python: 96 entries, all declined-major or NO-FIX. npm: 3 entries, all NO-FIX and dev-only -- so production npm deps remain strict-zero by construction (nothing shipped is baselined, so any prod advisory is automatically new).",
+  "_comment": "Advisory IDs we accept and why. The gate fails on any ID not listed here. python: 96 entries, all declined-major or NO-FIX. npm: dev-only NO-FIX only -- so production npm deps are strict-zero by construction, not by extra code. Removed 1240981/1240982 (2026-10-05): those were @fastify/busboy, NOT a braces NO-FIX dev chain as their rationale claimed. They arrive via firebase-admin, a PRODUCTION dep, and both GHSAs are patched in 3.2.1, so they were fixed by an override rather than accepted.",
   "python": {
     "CVE-2026-57204": "pypdf",
     "CVE-2026-59152": "langsmith",
@@ -99,8 +99,6 @@
     "PYSEC-2026-77": "langchain-text-splitters"
   },
   "npm": {
-    "1240981": "@fastify/busboy DoS via chokidar (tailwindcss dev chain). NO-FIX: braces 3.0.3 is the latest published and is itself vulnerable (<=3.0.3). Reaches us only through the devDependency chain tailwindcss -> chokidar/fast-glob -> micromatch -> braces and eslint-config-next -> @next/eslint-plugin-next -> fast-glob -> micromatch -> braces. Not shipped: no production dependency is affected. Clearing it needs tailwindcss 3->4 (declined, PR #184) or an eslint-config-next downgrade inconsistent with next@15.",
-    "1240982": "@fastify/busboy DoS via chokidar (tailwindcss dev chain). NO-FIX: braces 3.0.3 is the latest published and is itself vulnerable (<=3.0.3). Reaches us only through the devDependency chain tailwindcss -> chokidar/fast-glob -> micromatch -> braces and eslint-config-next -> @next/eslint-plugin-next -> fast-glob -> micromatch -> braces. Not shipped: no production dependency is affected. Clearing it needs tailwindcss 3->4 (declined, PR #184) or an eslint-config-next downgrade inconsistent with next@15.",
     "1240992": "NO-FIX: braces 3.0.3 is the latest published and is itself vulnerable (<=3.0.3). Reaches us only through the devDependency chain tailwindcss -> chokidar/fast-glob -> micromatch -> braces and eslint-config-next -> @next/eslint-plugin-next -> fast-glob -> micromatch -> braces. Not shipped: no production dependency is affected. Clearing it needs tailwindcss 3->4 (declined, PR #184) or an eslint-config-next downgrade inconsistent with next@15."
   }
 }

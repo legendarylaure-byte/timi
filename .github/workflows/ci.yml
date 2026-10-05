@@ -21,7 +21,7 @@ jobs:
       run:
         working-directory: dashboard
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - uses: actions/setup-node@v4
         with:
           node-version: 20
@@ -35,6 +35,15 @@ jobs:
         run: |
           npm audit --json > /tmp/npm-audit.json || true
           python3 ../.github/scripts/audit_gate.py npm /tmp/npm-audit.json
+      # Production npm is strict-zero with NO baseline, and it is audited as a
+      # separate tree because a production finding and a dev finding are
+      # indistinguishable in the full report. On 10-05 two baselined ids turned
+      # out to be a production busboy advisory under a "dev-only" rationale;
+      # only this step could have caught it.
+      - name: npm audit (production, strict zero)
+        run: |
+          npm audit --omit=dev --json > /tmp/npm-prod.json || true
+          python3 ../.github/scripts/audit_gate.py npm-prod /tmp/npm-prod.json
 
   test:
     runs-on: ubuntu-latest
@@ -42,7 +51,7 @@ jobs:
       run:
         working-directory: dashboard
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - uses: actions/setup-node@v4
         with:
           node-version: 20
@@ -58,7 +67,7 @@ jobs:
       run:
         working-directory: dashboard
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - uses: actions/setup-node@v4
         with:
           node-version: 20
@@ -73,7 +82,7 @@ jobs:
       run:
         working-directory: agents
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'

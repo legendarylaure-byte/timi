@@ -149,6 +149,41 @@ def self_check():
             f"FAIL row mismatch for rc={rc}: {body!r}"
     if old is not None:
         os.environ["GITHUB_STEP_SUMMARY"] = old
+
+    # npm-prod must reject an advisory that IS in the baseline. This is the exact
+    # regression of 10-05: two baselined ids were a PRODUCTION busboy advisory
+    # filed under a "dev-only NO-FIX" rationale, and membership alone passed it.
+    # So craft a production report carrying a baselined id and require a failure.
+    baselined_id = sorted(load_baseline(BASELINE, "npm"))[0]
+    prod_doc = {"vulnerabilities": {"@fastify/busboy": {
+        "severity": "high", "isDirect": False,
+        "via": [{"source": baselined_id}]}}}
+    summ2, rep2 = tempfile.mkstemp(suffix=".json"), tempfile.mkstemp(suffix=".md")
+    os.close(summ2[0]); os.close(rep2[0])
+    with open(rep2[1], "w") as f:
+        json.dump(prod_doc, f)
+    old2 = os.environ.get("GITHUB_STEP_SUMMARY")
+    os.environ["GITHUB_STEP_SUMMARY"] = summ2[1]
+    rc = main(["audit_gate.py", "npm-prod", rep2[1]])
+    body2 = open(summ2[1]).read()
+    os.unlink(rep2[1]); os.unlink(summ2[1])
+    if old2 is not None:
+        os.environ["GITHUB_STEP_SUMMARY"] = old2
+    assert rc == 1, f"npm-prod accepted a BASELINED id ({baselined_id}); " \
+                    "production has no baseline and must not be able to use one"
+    assert "| npm prod (FAIL) |" in body2, f"FAIL row missing: {body2!r}"
+    # And a clean production report must pass, or the gate is unusable.
+    summ3, rep3 = tempfile.mkstemp(suffix=".json"), tempfile.mkstemp(suffix=".md")
+    os.close(summ3[0]); os.close(rep3[0])
+    with open(rep3[1], "w") as f:
+        json.dump({"vulnerabilities": {}}, f)
+    old3 = os.environ.get("GITHUB_STEP_SUMMARY")
+    os.environ["GITHUB_STEP_SUMMARY"] = summ3[1]
+    rc3 = main(["audit_gate.py", "npm-prod", rep3[1]])
+    os.unlink(rep3[1]); os.unlink(summ3[1])
+    if old3 is not None:
+        os.environ["GITHUB_STEP_SUMMARY"] = old3
+    assert rc3 == 0, "npm-prod rejected a clean production report"
     print("  audit_gate self-check OK")
 
 
@@ -199,6 +234,37 @@ def main(argv):
                     "vulnerable). No production dependency is affected.")
         print(f"  npm: {len(ids)} distinct advisory ids, all baselined "
               f"({len(accepted)} accepted)")
+        return 0
+    if kind == "npm-prod":
+        # Strict-zero for shipped code, and NOT baselined. This exists because the
+        # "only dev-chain IDs are baselined" promise was unenforced prose, and on
+        # 10-05 two baselined IDs turned out to be @fastify/busboy -- a PRODUCTION
+        # advisory arriving via firebase-admin -- filed under a rationale that
+        # claimed they were a braces NO-FIX dev chain. Membership alone could not
+        # catch that, because the ID was in the baseline. Only ever auditing the
+        # full tree cannot either: a production finding and a dev finding are
+        # indistinguishable there. So the production tree is audited separately
+        # and nothing is accepted.
+        ids = npm_ids(doc)
+        summary("### Dependency advisories (production, strict-zero)")
+        summary("")
+        summary("| ecosystem | distinct advisory IDs | raw findings |")
+        summary("| --- | --- | --- |")
+        if ids:
+            summary(f"| npm prod (FAIL) | {len(ids)} | {len(ids)} |")
+            summary("")
+            summary("Production npm dependencies must have ZERO advisories, and "
+                    "there is no production baseline. Fix these:")
+            summary("")
+            for i in ids:
+                summary(f"- `{i}`")
+            print(f"FAIL: {len(ids)} advisories in production npm deps "
+                  f"(no baseline by policy)", file=sys.stderr)
+            for i in ids:
+                print(f"  {i}", file=sys.stderr)
+            return 1
+        summary("| npm prod | 0 | 0 |")
+        print("  npm production: 0 advisories (strict-zero, no baseline)")
         return 0
     if kind == "pip":
         accepted = load_baseline(baseline)
