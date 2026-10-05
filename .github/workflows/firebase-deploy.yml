@@ -6,8 +6,6 @@ on:
     paths:
       - 'firebase/firestore.indexes.json'
       - 'firebase/firestore.rules'
-      - 'firebase/storage.rules'
-      - 'firebase/firebase.json'
       - 'firestore.indexes.json'
       - 'firebase.json'
   workflow_dispatch:
@@ -31,11 +29,11 @@ jobs:
             echo "Add to repo secrets: FIREBASE_TOKEN"
             exit 1
           fi
-      - name: Deploy Firestore + Storage rules and indexes
+      - name: Deploy Firestore rules and indexes
         env:
           FIREBASE_TOKEN: ${{ secrets.FIREBASE_TOKEN }}
         run: |
           npx firebase-tools deploy \
-            --only firestore:indexes,firestore:rules,storage:rules \
+            --only firestore:indexes,firestore:rules \
             --project timi-childern-stories \
             --token "$FIREBASE_TOKEN"

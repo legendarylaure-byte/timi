@@ -8,7 +8,7 @@
  * DOES read is still owner-readable, and that an unconfigured owner email
  * fails closed. Verified against the shipped file, not the intent.
  */
-import { readFileSync, existsSync } from 'fs';
+import { readFileSync, existsSync, readdirSync } from 'fs';
 import { join } from 'path';
 
 const RULES = join(__dirname, '..', 'firebase', 'firestore.rules');
@@ -125,70 +125,93 @@ console.log('\n7. structural sanity (not a substitute for the rules compiler)');
   else ok('no non-Firestore calls');
 }
 
-// --- storage.rules -----------------------------------------------------------
-// Two files now hardcode the owner email. If they drift, the app allows the
-// owner while the database denies them (or worse, the reverse) and the only
-// symptom is a dashboard full of permission errors.
-console.log('\n8. storage.rules agrees with firestore.rules, and nothing is public');
+// --- storage is not configured, and nothing uses it --------------------------
+// This section used to compare firebase/storage.rules against firestore.rules
+// and assert it had no public read and no missing catch-all deny. The file is
+// deleted now, so those three checks are gone -- and deleting the checks without
+// replacing them is how a removed guard quietly comes back. So assert the
+// stronger invariant instead: Storage is not configured at all.
+//
+// Deleting the checks would have been fine ONLY if Storage were actually unused.
+// That premise is asserted here rather than assumed, because a stray
+// import { getStorage } would make it false and nothing else would notice.
+console.log('\n8. Storage is unconfigured and unused (no bucket, media is on R2)');
 {
-  const storage = code(readFileSync(join(__dirname, '..', 'firebase', 'storage.rules'), 'utf8'));
-  const sf = storage.match(/function ownerEmail\(\)\s*\{\s*return\s+"([^"]*)"/);
-  const ff = src.match(/function ownerEmail\(\)\s*\{\s*return\s+"([^"]*)"/);
-  if (!sf) bad('storage.rules has no ownerEmail()');
-  else if (sf[1] !== ff?.[1]) bad(`storage ownerEmail "${sf[1]}" != firestore "${ff?.[1]}"`);
-  else ok(`both rules files agree: ${sf[1]}`);
+  const cfg = JSON.parse(readFileSync(join(__dirname, '..', 'firebase.json'), 'utf8'));
+  if (cfg.storage) bad(`firebase.json still configures storage: ${JSON.stringify(cfg.storage)}`);
+  else ok('firebase.json has no storage key');
 
-  if (/allow read[^:]*: if true/.test(storage)) bad('storage.rules still has a PUBLIC read');
-  else ok('no unconditional public read');
+  const rulesPath = join(__dirname, '..', 'firebase', 'storage.rules');
+  if (existsSync(rulesPath)) bad('firebase/storage.rules exists again');
+  else ok('no firebase/storage.rules');
 
-  if (/match \/\{allPaths=\*\*\}/.test(storage)) ok('catch-all deny present');
-  else bad('no catch-all deny in storage.rules');
+  // The client SDK. `getStorage` would be a bucket-less crash waiting to happen.
+  const users: string[] = [];
+  const scan = (dir: string): void => {
+    for (const e of readdirSync(dir, { withFileTypes: true })) {
+      const p = join(dir, e.name);
+      if (e.isDirectory()) scan(p);
+      else if (/\.tsx?$/.test(e.name)) {
+        const s = readFileSync(p, 'utf8');
+        // Strip comments: prose naming a retired colour/file is not the thing.
+        if (/firebase\/storage|getStorage|uploadBytes|getDownloadURL/.test(code(s))) users.push(p);
+      }
+    }
+  };
+  scan(SRCDIR);
+  if (users.length) bad(`dashboard imports Firebase Storage: ${users.map((u) => u.replace(__dirname, '..', '')).join(', ')}`);
+  else ok('no Firebase Storage client usage');
 }
 
-console.log('\n9. all three copies of the owner email agree');
+// --- owner email copies -------------------------------------------------------
+// Two copies remain in CI's reach: the rules file and the dashboard constant.
+// The third was storage.rules, and deleting that file removed a copy that could
+// have drifted from the other two with nothing comparing them. The live copy is
+// ALLOWED_EMAILS in the Vercel Production env, which no test can read, so it is
+// checked at boot by allowed-emails.ts.
+console.log('\n9. both CI-visible copies of the owner email agree');
 {
-  // The rules files are the two CI-visible copies. The third copy lives in the
-  // Vercel Production env, which no test can read, so it is checked at boot by
-  // allowed-emails.ts. This assertion is what stops CI passing while the live
-  // allowlist is a different address.
   const { OWNER_EMAIL } = require('./src/lib/allowed-emails');
   const ff = src.match(/function ownerEmail\(\)\s*\{\s*return\s+"([^"]*)"/)?.[1];
-  const sf = readFileSync(join(__dirname, '..', 'firebase', 'storage.rules'), 'utf8')
-    .match(/function ownerEmail\(\)\s*\{\s*return\s+"([^"]*)"/)?.[1];
-
   if (ff !== OWNER_EMAIL) bad(`firestore.rules ownerEmail != dashboard OWNER_EMAIL`);
   else ok('firestore.rules matches dashboard constant');
-  if (sf !== OWNER_EMAIL) bad(`storage.rules ownerEmail != dashboard OWNER_EMAIL`);
-  else ok('storage.rules matches dashboard constant');
 }
 
 // A config that omits a rules file deploys the OTHER rules silently. That is
 // how the root firebase.json shipped with indexes but no `rules` key: the CI
 // deploy job ran green from the repo root and published nothing, so nobody
 // could tell that a rules edit never reached production.
-console.log('\n10. firebase.json actually targets both rules files');
+console.log('\n10. firebase.json targets the rules file, and every target exists');
 {
   const cfg = JSON.parse(readFileSync(join(__dirname, '..', 'firebase.json'), 'utf8'));
-  const targets: Array<[string, string | undefined]> = [
-    ['firestore.rules', cfg.firestore?.rules],
-    ['storage.rules', cfg.storage?.rules],
-  ];
-  for (const [label, path] of targets) {
-    if (!path) { bad(`firebase.json has no target for ${label}`); continue; }
-    const abs = join(__dirname, '..', path);
-    if (!existsSync(abs)) { bad(`firebase.json points at ${path}, which does not exist`); continue; }
-    ok(`${label} -> ${path} (exists)`);
-  }
+  const path = cfg.firestore?.rules;
+  if (!path) bad('firebase.json has no target for firestore.rules');
+  else if (!existsSync(join(__dirname, '..', path))) bad(`firebase.json points at ${path}, which does not exist`);
+  else ok(`firestore.rules -> ${path} (exists)`);
   if (!cfg.firestore?.indexes) bad('firebase.json has no firestore.indexes target');
 }
 
-console.log(failed ? `\n${failed} FAILED` : '\nOK — firestore + storage rules invariants hold');
+// The duplicate that let the two configs drift: firebase/deploy.sh used to cd
+// into firebase/ and read a second, relative-path firebase.json. One config,
+// read by both CI and the local script, is what prevents that class.
+console.log('\n11. there is exactly ONE firebase.json, and it is at the root');
+{
+  const dup = join(__dirname, '..', 'firebase', 'firebase.json');
+  if (existsSync(dup)) bad('firebase/firebase.json exists again -- deploy.sh and CI would read different configs');
+  else ok('no nested firebase/firebase.json');
+
+  const script = readFileSync(join(__dirname, '..', 'firebase', 'deploy.sh'), 'utf8');
+  if (/cd "\$\(dirname "\$0"\)"/.test(script)) bad('deploy.sh still cd`s into firebase/ instead of the repo root');
+  else ok('deploy.sh runs from the repo root');
+}
+
+console.log(failed ? `\n${failed} FAILED` : '\nOK — firestore rules invariants hold, storage unconfigured');
 
 // jest claims this file because of the .test.ts name, but everything above runs
 // at import. Calling process.exit() from a worker killed the worker, so jest
 // reported "Test suite failed to run" — a red suite that asserted nothing, and a
 // green run that executed zero assertions. Asserting in a real test is what
 // makes this a gate. `failed` is the count from bad(); 0 means every invariant held.
-test('firestore and storage rules invariants hold', () => {
+test('firestore rules invariants hold and storage stays unconfigured', () => {
   expect(failed).toBe(0);
 });

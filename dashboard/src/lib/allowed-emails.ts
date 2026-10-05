@@ -4,16 +4,20 @@
 /**
  * Single committed source of truth for the owner address.
  *
- * It must match all three of:
+ * It must match both of:
  *   1. ownerEmail() in firebase/firestore.rules
- *   2. ownerEmail() in firebase/storage.rules
- *   3. ALLOWED_EMAILS in the Vercel Production environment
+ *   2. ALLOWED_EMAILS in the Vercel Production environment
  *
- * (1) and (2) are enforced in CI by dashboard/test-firestore-rules.test.ts.
- * (3) cannot be checked from CI, so it is checked at boot below — a rules file
+ * (1) is enforced in CI by dashboard/test-firestore-rules.test.ts.
+ * (2) cannot be checked from CI, so it is checked at boot below — a rules file
  * cannot read an env var, and a Vercel secret cannot be read from a test, which
- * is why this value was once wrong in exactly one of the three and every
+ * is why this value was once wrong in exactly one of the two and every
  * dashboard request 403'd with no way to tell which copy had drifted.
+ *
+ * There was a third copy in firebase/storage.rules. Storage was never
+ * initialised (no bucket, no release, media lives on Cloudflare R2) and the file
+ * is deleted, so that copy is gone rather than left to drift — three copies with
+ * nothing comparing them is what caused the original outage.
  */
 export const OWNER_EMAIL = 'legendarylaure@gmail.com';
 
