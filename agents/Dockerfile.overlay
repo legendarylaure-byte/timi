@@ -45,6 +45,15 @@ COPY crew/ /app/crew/
 COPY models/ /app/models/
 COPY scripts/ /app/scripts/
 
+# The documented env template travels with the image. It used to be left behind,
+# so /app/.env.example inside the container was whatever the BASE image was built
+# with -- stale by however many commits. That was found by a test asserting on the
+# shipped GRADE_VIBRANCE default and failing against a file nobody had meant to
+# ship. A knob documented in git but absent from the running image is a knob
+# nobody can debug from inside the container. agents/.env itself stays out: it is
+# gitignored and injected by compose.
+COPY .env.example /app/.env.example
+
 # The base image still carries utils/assets/logo.png -- the OLD pre-rebrand teal
 # mark, inherited from a layer COPY can never remove. Nothing references it (the
 # watermark reads utils/assets/channel_logo.png), but shipping an off-brand logo
