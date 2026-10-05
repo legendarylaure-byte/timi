@@ -841,6 +841,11 @@ def _pick_best_title(variants, topic: str, category: str = "", fmt: str = "") ->
         cap = 60
     elif fmt == "long":
         cap = 40
+    # Our own caps are strict `< cap`; YouTube's own 100-char limit is a hard API
+    # cap and stays inclusive. Same rule both ways -- a title must render whole,
+    # not merely fit.
+    strict = fmt in ("short", "long")
+    fits = (lambda t: len(t) < cap) if strict else (lambda t: len(t) <= cap)
     vals = []
     for v in (variants or []):
         if isinstance(v, dict):
@@ -857,12 +862,15 @@ def _pick_best_title(variants, topic: str, category: str = "", fmt: str = "") ->
     scored.sort(key=lambda x: x[0]["score"], reverse=True)
     # Prefer a title that fits: an over-length winner is worse than a slightly
     # lower-scoring variant that renders whole, so shortlist on length first.
-    fitting = [t for _s, t in scored if len(t) <= cap]
+    fitting = [t for _s, t in scored if fits(t)]
     best = (fitting[0] if fitting else scored[0][1])
     # YouTube API hard-caps titles at 100 chars; LLMs can't count, so enforce at the choke point.
-    if len(best) > cap:
+    if not fits(best):
         cut = best[:cap].rsplit(" ", 1)[0].rstrip()
-        best = (cut or best[:cap]).rstrip()
+        # The word-boundary cut can land exactly on `cap` (a single long word, or no
+        # space in range), which `fits` would then reject again. Fall back to the hard
+        # slice, which is the only form guaranteed to be shorter than `cap`.
+        best = (cut if fits(cut) else best[:cap]).rstrip()
     return best
 
 

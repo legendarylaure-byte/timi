@@ -152,7 +152,7 @@ def content_box(width: int, height: int, format_type: str = "landscape") -> tupl
 
 
 def watermark_position(width: int, height: int, format_type: str = "landscape") -> str:
-    """ffmpeg overlay expression for the channel logo, inside the safe box.
+    """ffmpeg overlay expression for the channel logo: top-right, fixed margin.
 
     Top-right on every format, and that is deliberate rather than lazy:
       - 9:16 bottom is the caption/name band, so bottom-right is the single
@@ -163,8 +163,13 @@ def watermark_position(width: int, height: int, format_type: str = "landscape") 
         it reads as a brand mark instead of drift.
     The hook bar is the one thing that shares that corner; it only occupies the
     first ~2s, and the logo is scaled small enough to sit clear of its text.
+
+    The margin is a flat `height * 0.035`, NOT the declared keep-out band. This
+    used to call `safe_band()` and throw the result away, while the docstring
+    claimed "inside the safe box" -- so the docstring asserted an invariant the
+    code never enforced. Kept as a fixed margin because that is what actually
+    renders correctly; `content_box()` is the place that enforces the real band.
     """
-    b = safe_band(format_type)
-    m = round(height * 0.035)          # breathing room inside the safe box
+    m = round(height * 0.035)
     return f"main_w-overlay_w-{m}:{m}"
 

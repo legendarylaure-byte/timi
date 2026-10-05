@@ -30,7 +30,7 @@ Format: {format_type}
 Title formulas to use: {title_formats}
 
 Rules:
-1. Each title under 60 characters (40 for shorts)
+1. Each title under 60 characters (under 40 for long-form)
 2. Titles must be factually accurate (no misleading clickbait)
 3. Each should use a DIFFERENT formula
 4. Optimize for tech/AI audience

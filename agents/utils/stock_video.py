@@ -672,16 +672,6 @@ def _search_providers(keywords: list[str], orientation: str, per_page: int = 5) 
     return all_results
 
 
-def _score_stock_relevance(candidate: dict, keyword: str, narration: str = "") -> float:
-    text = f"{keyword} {narration}".lower()
-    query = candidate.get("query", "").lower()
-    words = {w for w in text.split() if len(w) > 3}
-    query_words = set(query.split())
-    if not words:
-        return 0.0
-    return len(words & query_words) / max(len(words), 1)
-
-
 def search_and_download(
     scene_keyword: str,
     target_duration: float = 5.0,
@@ -706,14 +696,20 @@ def search_and_download(
             seen_ids.add(cid)
             unique.append(c)
 
-    # Relevance first, then penalise recently-used clips, then a stable per-video
-    # jitter so two videos with the same keyword do not land on the same clip.
+    # Ponytail: there is deliberately no relevance term in this sort. It used to
+    # score every candidate against the keyword that had just been sent, so all
+    # candidates from one search got identical scores (measured spread 0.0 on all
+    # 5 audit scenes) and it ranked nothing -- the ordering was pure jitter. The
+    # P4 query fix is what makes footage topic-specific now; re-adding a relevance
+    # term needs the Pexels video title back, which is dropped at search time, so
+    # there is currently nothing in a candidate that says what it depicts. That
+    # removal also leaves `narration_text` unused in the body -- kept in the
+    # signature so the one caller need not change; it is not feeding this sort.
     for c in unique:
         c["_cid"] = f"{c['source']}_{c['id']}"
     unique.sort(
         key=lambda c: (
-            _score_stock_relevance(c, scene_keyword, narration_text)
-            - _repeat_penalty(c["_cid"])
+            -_repeat_penalty(c["_cid"])
             + _stable_jitter(video_id, scene_idx, c["_cid"])
         ),
         reverse=True,
