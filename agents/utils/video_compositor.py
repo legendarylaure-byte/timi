@@ -236,6 +236,16 @@ def resize_to_target(input_path: str, output_path: str, target_w: int, target_h:
         _ffmpeg_cmd(), "-y",
         *(["-loop", "1", "-t", str(duration)] if duration > 0 else []),
         "-i", input_path, *_sws_flags(),
+        # ponytail: bound the OUTPUT too, and do not "simplify" this away. zoompan
+        # d=N expands every INPUT frame into N output frames, and a still arrives as
+        # `-loop 1 -t dur`, which the image2 demuxer feeds at 25fps -- so the input
+        # already holds dur*25 frames and the output was dur*25*N/24, i.e. QUADRATIC
+        # in the allotment. A 4.6s card rendered 527s; a 7.0s card rendered 1225s.
+        # The input -t above cannot help, because zoompan re-expands every one of
+        # those frames. This output -t stops ffmpeg pulling input once the duration
+        # is reached -- and the first input frame alone already emits exactly N
+        # frames, so what survives is one smooth push-in, not a stuttering loop.
+        *(["-t", str(duration)] if duration > 0 else []),
         "-vf", vf,
         "-c:v", "libx264", "-preset", PRESET, "-crf", CRF,
         "-r", str(OUTPUT_FPS), "-an", "-pix_fmt", "yuv420p", output_path,
@@ -283,7 +293,12 @@ def resize_portrait_to_target(input_path: str, output_path: str, target_w: int, 
 
 
 def apply_ken_burns(input_path: str, output_path: str, target_w: int, target_h: int, duration: float, preset_idx: int = 0, vid: str = "") -> bool:
-    trim_path = str(TEMP_DIR / f"kb_trim_{vid}_{preset_idx:03d}.mp4")
+    # ponytail: this MUST NOT be named kb_trim_{vid}_{preset_idx}. _process_clip
+    # creates its trimmed input at exactly that path and passes it in as
+    # input_path, so the old name made this trim_clip(X, X) -- same file, -y.
+    # That failed, and the fallback below silently swapped Ken Burns for a plain
+    # scale/crop on every long-form clip. Hence "kb_in", not a shared name.
+    trim_path = str(TEMP_DIR / f"kb_in_{vid}_{preset_idx:03d}.mp4")
     if not trim_clip(input_path, trim_path, 0, duration):
         return resize_to_target(input_path, output_path, target_w, target_h)
 
