@@ -868,9 +868,11 @@ def _pick_best_title(variants, topic: str, category: str = "", fmt: str = "") ->
     if not fits(best):
         cut = best[:cap].rsplit(" ", 1)[0].rstrip()
         # The word-boundary cut can land exactly on `cap` (a single long word, or no
-        # space in range), which `fits` would then reject again. Fall back to the hard
-        # slice, which is the only form guaranteed to be shorter than `cap`.
-        best = (cut if fits(cut) else best[:cap]).rstrip()
+        # space in range), which `fits` would then reject again -- and the hard slice
+        # has to clear `cap` too, not merely reach it: best[:cap] is len==cap and so
+        # still fails a strict cap. Hence cap-1 when strict.
+        hard = best[:cap - 1] if strict else best[:cap]
+        best = (cut if fits(cut) else hard).rstrip()
     return best
 
 

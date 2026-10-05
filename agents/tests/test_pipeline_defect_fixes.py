@@ -61,7 +61,7 @@ def test_scene_cap_clamps_and_rescales_duration():
     assert len(shorts) == 12, "12 is exactly the shorts ceiling; must pass through whole"
 
     longs = main._limit_scenes([dict(s) for s in scenes], "long")
-    assert len(longs) == 20, "12 scenes is under the long ceiling; nothing dropped"
+    assert len(longs) == 12, "12 scenes is under the long ceiling; nothing dropped"
 
     over = [{"target_duration": 4.0} for _ in range(33)]
     clamped = main._limit_scenes(over, "long")
