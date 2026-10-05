@@ -86,7 +86,7 @@ from utils.series_builder import register_video_in_series, build_continuity_text
 from utils.checkpoint import save_checkpoint, load_checkpoint, clear_checkpoint
 from utils.title_optimizer import pick_best_title
 from crew.affiliate_manager import build_affiliate_section
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from apscheduler.schedulers.blocking import BlockingScheduler
 from dotenv import load_dotenv
 from utils.scene_parser import normalize_scene_durations
@@ -3427,100 +3427,211 @@ def daily_analytics_job():
             log_event("RETENTION", f"Retention pull failed: {e}", "debug")
 
         try:
-            from utils.alert_manager import process_alerts, check_pipeline_health_alert, check_staleness
-            from utils.firebase_status import get_pipeline_metrics, get_firestore_client
+            from utils.alert_manager import check_pipeline_health_alert
+            from utils.firebase_status import get_pipeline_metrics
 
-            # Pipeline health alert
+            # Pipeline health alert. Stays at the 08:00 analytics cadence: it
+            # summarises 20 runs, so 15-minute polling would not see anything new.
             pm = get_pipeline_metrics(limit=20)
             if pm and len(pm) >= 5:
                 successes = sum(1 for m in pm if m.get("success"))
                 success_rate = successes / len(pm)
                 pipeline_alert = check_pipeline_health_alert(success_rate)
                 if pipeline_alert:
-                    send_alert(pipeline_alert["message"], pipeline_alert["severity"])
+                    send_alert(
+                        pipeline_alert["message"],
+                        pipeline_alert["severity"],
+                        alert_type="pipeline_health",
+                    )
                     log_event("ALERT", pipeline_alert["message"], "warn")
 
-            # Staleness check — get last activity from Firestore
-            last_activity = None
-            try:
-                db = get_firestore_client()
-                if db:
-                    docs = db.collection("activity_logs").order_by("timestamp", direction="DESCENDING").limit(1).stream()
-                    for doc in docs:
-                        data = doc.to_dict()
-                        ts = data.get("timestamp")
-                        if ts:
-                            if hasattr(ts, 'timestamp'):  # google.cloud.Timestamp
-                                last_activity = datetime.utcfromtimestamp(ts.timestamp())
-                            elif isinstance(ts, str):
-                                last_activity = datetime.fromisoformat(ts.replace('Z', '+00:00'))
-                            else:
-                                last_activity = ts  # already a datetime
-            except Exception:
-                pass
-            staleness_alert = check_staleness(last_activity)
-            if staleness_alert:
-                send_alert(staleness_alert["message"], staleness_alert["severity"])
-                log_event("ALERT", staleness_alert["message"], "warn")
-
-            # System-health drift (disk/memory) from heartbeat record — alert before it kills a pipeline
-            try:
-                hb = db.collection("system").document("heartbeat").get() if db else None
-                if hb and hb.exists:
-                    hdata = hb.to_dict() or {}
-                    disk_pct = hdata.get("disk_percent") or 0
-                    mem_pct = hdata.get("memory_percent") or 0
-                    overrides = []
-                    if float(disk_pct) >= 85:
-                        overrides.append(f"disk {disk_pct:.0f}%")
-                    if float(mem_pct) >= 90:
-                        overrides.append(f"memory {mem_pct:.0f}%")
-                    if overrides:
-                        msg = f"System resource warning: {' / '.join(overrides)}"
-                        send_alert(msg, "warning")
-                        log_event("ALERT", msg, "warn")
-            except Exception:
-                pass
-
-            # Missed-slot / daily-volume guard — verifies the scheduled 5/day landed.
-            # Target comes from daily_slate(), NOT SCHEDULE_*_PER_DAY: those are
-            # pillar counts and the news long consumes a GPU slot, so their sum
-            # (3) understates real daily volume (5) and the old guard passed on a
-            # day that shipped 3 of 5. It also compared format == "short" against
-            # docs stored as "shorts", so per-format counts were always 0.
-            try:
-                from utils.scheduler_planner import daily_slate
-                from utils.alert_manager import check_daily_volume
-
-                _slate = daily_slate()
-                cutoff = datetime.utcnow() - timedelta(hours=26)
-                _docs = [
-                    _d.to_dict() or {}
-                    for _d in db.collection("videos")
-                    .where("created_at", ">=", cutoff)
-                    .stream()
-                ] if db else []
-
-                _vol_alert = check_daily_volume(_docs, _slate)
-                if _vol_alert:
-                    send_alert(_vol_alert["message"], _vol_alert["severity"])
-                    log_event("ALERT", _vol_alert["message"], "warn")
-                else:
-                    log_event(
-                        "ALERT",
-                        f"Daily volume OK: {_slate['shorts']} short + {_slate['longs']} long "
-                        f"expected ({_slate['total']}/day)",
-                        "debug",
-                    )
-            except Exception as vol_err:
-                # Previously `except Exception: pass` -- a guard that cannot fail
-                # loudly is not a guard. Log it so a broken target is visible.
-                log_event("ALERT", f"Daily-volume guard failed: {vol_err}", "warn")
+            # Staleness / resource / volume / run-produced live in
+            # pipeline_guard_job(), which also runs every 15 minutes so an
+            # overnight failure is caught within the hour instead of the next
+            # morning. At 08:00 both fire; send_alert's cooldown absorbs the
+            # duplicate.
+            pipeline_guard_job()
         except Exception as alert_err:
-            log_event("ALERT", f"Alert checks failed: {alert_err}", "debug")
+            # Was "debug", which is why a TypeError here went unnoticed for
+            # days while every guard below it silently never ran.
+            log_event("ALERT", f"Alert checks failed: {alert_err}", "warn")
     except Exception as e:
         update_agent_status("analytics", "error", str(e))
         log_event("ANALYTICS", f"Analytics pull failed: {e}", "error")
+
+
+def _run_guard(name: str, fn) -> bool:
+    """Run one alert guard behind its own boundary.
+
+    These guards used to share a single try/except, so the first one to raise
+    silently skipped every guard after it. A naive/aware TypeError in the
+    staleness timestamp conversion meant the resource and daily-volume guards
+    had never executed in production -- "Daily volume OK" appears zero times in
+    the production log, and the failure was logged at "debug" so nobody saw it.
+
+    One broken guard must not disarm the next, so each gets its own boundary and
+    its own log line. Returns True when the guard ran to completion.
+
+    Exposed as a function so the isolation itself is testable, not just assumed.
+    """
+    try:
+        fn()
+        return True
+    except Exception as e:
+        log_event("ALERT", f"Guard '{name}' failed: {e}", "warn")
+        return False
+
+
+def _guard_staleness(db=None) -> None:
+    """Alert when nothing has touched the pipeline for check_staleness' window.
+
+    Window is check_staleness' own default (24h) -- deliberately not a new env
+    knob, since nothing here ever set one.
+    """
+    from utils.alert_manager import check_staleness
+
+    last_activity = None
+    if db is None:
+        from utils.firebase_status import get_firestore_client
+        db = get_firestore_client()
+
+    if db:
+        for doc in (
+            db.collection("activity_logs")
+            .order_by("timestamp", direction="DESCENDING")
+            .limit(1)
+            .stream()
+        ):
+            ts = (doc.to_dict() or {}).get("timestamp")
+            if ts:
+                if hasattr(ts, "timestamp"):  # google.cloud.Timestamp
+                    # Was datetime.utcfromtimestamp(ts.timestamp()), which drops
+                    # tzinfo and made the subtraction inside check_staleness raise
+                    # TypeError. That one line silenced every guard after it.
+                    last_activity = datetime.fromtimestamp(
+                        ts.timestamp(), tz=timezone.utc
+                    )
+                elif isinstance(ts, str):
+                    last_activity = datetime.fromisoformat(
+                        ts.replace("Z", "+00:00")
+                    )
+                else:
+                    last_activity = ts  # already a datetime
+            break
+
+    alert = check_staleness(last_activity)
+    if alert:
+        send_alert(alert["message"], alert["severity"], alert_type="staleness")
+        log_event("ALERT", alert["message"], "warn")
+
+
+def _guard_system_resources(db=None) -> None:
+    """Alert on disk/memory exhaustion from the heartbeat record, before it kills a run."""
+    if db is None:
+        from utils.firebase_status import get_firestore_client
+        db = get_firestore_client()
+
+    hb = db.collection("system").document("heartbeat").get() if db else None
+    if not (hb and hb.exists):
+        return
+
+    hdata = hb.to_dict() or {}
+    disk_pct = hdata.get("disk_percent") or 0
+    mem_pct = hdata.get("memory_percent") or 0
+    overrides = []
+    if float(disk_pct) >= 85:
+        overrides.append(f"disk {disk_pct:.0f}%")
+    if float(mem_pct) >= 90:
+        overrides.append(f"memory {mem_pct:.0f}%")
+    if overrides:
+        msg = f"System resource warning: {' / '.join(overrides)}"
+        send_alert(msg, "warning", alert_type="system_resources")
+        log_event("ALERT", msg, "warn")
+
+
+def _guard_daily_volume(db=None) -> None:
+    """Verify the scheduled slate landed. Warns per-format, alerts on zero.
+
+    Target comes from daily_slate(), NOT SCHEDULE_*_PER_DAY: those are pillar
+    counts and the news long consumes a GPU slot, so their sum (3) understates
+    real daily volume (5) and the old guard passed on a day that shipped 3 of 5.
+    It also compared format == "short" against docs stored as "shorts", so
+    per-format counts were always 0.
+    """
+    from utils.alert_manager import check_daily_volume
+    from utils.scheduler_planner import daily_slate
+
+    if db is None:
+        from utils.firebase_status import get_firestore_client
+        db = get_firestore_client()
+
+    slate = daily_slate()
+    cutoff = datetime.utcnow() - timedelta(hours=26)
+    docs = (
+        [d.to_dict() or {} for d in db.collection("videos").where("created_at", ">=", cutoff).stream()]
+        if db
+        else []
+    )
+
+    alert = check_daily_volume(docs, slate)
+    if alert:
+        send_alert(alert["message"], alert["severity"], alert_type="daily_volume")
+        log_event("ALERT", alert["message"], "warn")
+    else:
+        log_event(
+            "ALERT",
+            f"Daily volume OK: {slate['shorts']} short + {slate['longs']} long "
+            f"expected ({slate['total']}/day)",
+            "debug",
+        )
+
+
+def _guard_run_produced_today(db=None) -> None:
+    """Alert when today's run produced nothing at all, past the deadline.
+
+    Any video doc created today counts -- the question is whether the run
+    happened, not whether publishing succeeded. A run that rendered and failed
+    to upload still counts as having run; check_daily_volume covers that case.
+    """
+    from utils.alert_manager import check_run_produced_today
+
+    if db is None:
+        from utils.firebase_status import get_firestore_client
+        db = get_firestore_client()
+    if not db:
+        return
+
+    now_utc = datetime.now(timezone.utc)
+    start_of_day = now_utc.replace(hour=0, minute=0, second=0, microsecond=0)
+    count = 0
+    for _ in db.collection("videos").where("created_at", ">=", start_of_day).limit(50).stream():
+        count += 1
+
+    alert = check_run_produced_today(
+        count, deadline_hour=int(os.environ.get("RUN_DEADLINE_UTC_HOUR", "16")), now_hour=now_utc.hour
+    )
+    if alert:
+        send_alert(alert["message"], alert["severity"], alert_type="run_produced_nothing")
+        log_event("ALERT", alert["message"], "warn")
+
+
+def pipeline_guard_job():
+    """Lightweight overnight health guards. Runs every 15 minutes.
+
+    Deliberately excludes the heavy daily_analytics_job work (the YouTube pull
+    and process_alerts) -- this only guards, so it is cheap enough to poll.
+
+    Each guard runs behind its own boundary: one broken guard must not disarm
+    the rest. Cooldowns in send_alert keep a genuine outage from becoming ~52
+    identical Slack messages a night.
+    """
+    from utils.firebase_status import get_firestore_client
+
+    db = get_firestore_client()
+    _run_guard("staleness", lambda: _guard_staleness(db))
+    _run_guard("system_resources", lambda: _guard_system_resources(db))
+    _run_guard("daily_volume", lambda: _guard_daily_volume(db))
+    _run_guard("run_produced_today", lambda: _guard_run_produced_today(db))
 
 
 def daily_revenue_job():
@@ -4034,6 +4145,14 @@ if __name__ == "__main__":
     scheduler.add_job(daily_revenue_job, "cron", hour=8, minute=30, misfire_grace_time=86400)
     scheduler.add_job(daily_cleanup_job, "cron", hour=4, minute=0, misfire_grace_time=86400)
     scheduler.add_job(scheduled_publish_job, "interval", minutes=15)
+    # Overnight health guards. The video run works 15:05 -> ~04:00, but every
+    # alert lived in daily_analytics_job, a cron at 08:00 only -- so a failure at
+    # 02:00 was silent for ~6h. 15 min matches the scheduled_publish poll.
+    # Only misfire_grace_time is set: on this APScheduler (3.10.4, verified in
+    # the image) coalesce=True and max_instances=1 are ALREADY the scheduler
+    # defaults, so passing them would be noise. A container restart can therefore
+    # skip one window rather than backfilling a burst.
+    scheduler.add_job(pipeline_guard_job, "interval", minutes=15, misfire_grace_time=120)
     scheduler.add_job(tiktok_composer_job, "interval", minutes=5)
     scheduler.add_job(viral_check_job, "interval", minutes=VIRAL_CHECK_INTERVAL)
     for t in VIRAL_SCHEDULE_TIMES:

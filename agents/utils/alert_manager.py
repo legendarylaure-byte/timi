@@ -1,23 +1,53 @@
 """Centralized alert management — anomaly detection, notification dispatch."""
 import os
+import time
 import logging
 from datetime import datetime, timedelta, timezone
 from typing import Optional
 
 logger = logging.getLogger(__name__)
 
+# Per-type cooldown. The overnight guards run every 15 minutes, so without this
+# a single real outage would send the same Slack message ~52 times a night
+# (15:05 -> 04:00). Only guards that pass alert_type are throttled; everything
+# else keeps its fire-every-call behaviour.
+#
+# ponytail: in-process, so a container restart re-arms every cooldown. That is
+# acceptable here -- the pipeline is one long-running container and a restart is
+# itself worth an alert -- but move this dict to Firestore if alerts ever have
+# to survive a restart without re-notifying.
+ALERT_COOLDOWN_HOURS = float(os.getenv("ALERT_COOLDOWN_HOURS", "6"))
+_alert_last_sent: dict = {}
 
-def send_alert(message: str, severity: str = "info", channels: Optional[list] = None) -> bool:
+
+def send_alert(
+    message: str,
+    severity: str = "info",
+    channels: Optional[list] = None,
+    alert_type: Optional[str] = None,
+) -> bool:
     """Send an alert through all configured notification channels.
 
     Args:
         message: Alert message text
         severity: error, warning, info, success, critical
         channels: Override channels (default: telegram + slack if configured)
+        alert_type: Cooldown key. When set, repeats inside ALERT_COOLDOWN_HOURS
+            are suppressed, so a polling guard cannot become an alert storm.
+            None (the default) means always send.
 
     Returns:
-        True if at least one channel delivered
+        True if at least one channel delivered. False when suppressed by the
+        cooldown or when every channel failed -- neither means the message
+        actually reached a human.
     """
+    if alert_type:
+        last = _alert_last_sent.get(alert_type)
+        if last is not None and (time.time() - last) < ALERT_COOLDOWN_HOURS * 3600:
+            logger.info(
+                "[alert] suppressed %r (cooldown %.1fh)", alert_type, ALERT_COOLDOWN_HOURS
+            )
+            return False
     if channels is None:
         # Slack is the only reliably-working channel (telegram needs bot/notifications.py).
         channels = []
@@ -41,6 +71,11 @@ def send_alert(message: str, severity: str = "info", channels: Optional[list] = 
                 delivered = True
         except Exception as e:
             logger.warning("[alert] Failed to send via %s: %s", channel, e)
+
+    # Stamp only after a real delivery, so a channel outage does not start a
+    # cooldown that then swallows the retry once the channel recovers.
+    if alert_type and delivered:
+        _alert_last_sent[alert_type] = time.time()
 
     return delivered
 
@@ -135,6 +170,13 @@ def check_staleness(last_activity: Optional[datetime], max_hours: int = 24) -> O
     """
     if last_activity is None:
         return None
+
+    # Accept a naive datetime as UTC. Firestore timestamps, datetime.utcnow()
+    # and several persisted records are all naive; subtracting one from
+    # datetime.now(timezone.utc) raises TypeError, and that single unguarded
+    # line silenced every guard scheduled after it in daily_analytics_job.
+    if last_activity.tzinfo is None:
+        last_activity = last_activity.replace(tzinfo=timezone.utc)
 
     now = datetime.now(timezone.utc)
     hours_since = (now - last_activity).total_seconds() / 3600
@@ -318,4 +360,44 @@ def check_daily_volume(videos, slate: dict) -> Optional[dict]:
             "unclassified": other,
             "docs_seen": len(all_by_date[run_date]),
         },
+    }
+
+
+def check_run_produced_today(
+    count: int,
+    deadline_hour: int = 16,
+    now_hour: Optional[int] = None,
+) -> Optional[dict]:
+    """Alert when today's run produced nothing at all, past the deadline.
+
+    `count` is every video doc created today, regardless of publish status: this
+    guard asks "did the run happen", not "did publishing succeed" -- that is
+    check_daily_volume's job. Any doc counts, so a run that renders but fails to
+    upload still counts as having run.
+
+    This exists because check_daily_volume cannot cover the overnight gap. It
+    fires only at zero published within a 26-hour window, so a run that dies at
+    15:05 stays silent until roughly the next day's window closes -- about 24
+    hours. This one fires the same evening.
+
+    Before `deadline_hour` it always returns None: at 08:00 the day's run has
+    not been attempted yet, and alerting then would be a guaranteed false alarm.
+
+    Returns an alert dict, or None.
+    """
+    if now_hour is None:
+        now_hour = datetime.now(timezone.utc).hour
+    if now_hour < deadline_hour:
+        return None
+    if count > 0:
+        return None
+
+    return {
+        "type": "run_produced_nothing",
+        "severity": "error",
+        "message": (
+            f"No videos produced today (past {deadline_hour}:00 UTC). "
+            "The scheduled run produced nothing."
+        ),
+        "detail": {"count": 0, "deadline_hour": deadline_hour, "now_hour": now_hour},
     }
