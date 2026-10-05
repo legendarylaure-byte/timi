@@ -557,15 +557,23 @@ def _apply_camera_motion(input_path: str, output_path: str, target_w: int, targe
     zoom_pct = zoom * 100
     pan_x_px = int(pan_x * target_w * 0.2)
     pan_y_px = int(pan_y * target_h * 0.2)
+    # ponytail: d=1, not d=dur*24, and do not "simplify" this back. zoompan d=N turns
+    # every INPUT frame into N OUTPUT frames, so a dur-long input rendered
+    # input_len*duration*24 -- measured 144s for a 2s slot, 288s for a 6s input. The
+    # x=/y= terms below already divide `on` by duration*24, i.e. they were written
+    # assuming exactly that many output frames, so d=1 is what they mean.
     vf = (
         f"zoompan=z='if(eq(on,1),{zoom_pct},min({zoom_pct},zoom+0.005))':"
-        f"d={int(duration * 24)}:"
+        f"d=1:"
         f"x='iw/2-(iw/zoom/2)+{pan_x_px}*on/{int(duration*24)}':"
         f"y='ih/2-(ih/zoom/2)+{pan_y_px}*on/{int(duration*24)}':"
         f"s={target_w}x{target_h}:fps=24"
     )
     cmd = [
         _ffmpeg_cmd(), "-y", "-i", input_path, *_sws_flags(),
+        # the output -t is belt-and-braces: with d=1 a source longer than the
+        # allotment still over-runs, which is the half a d=1-only fix would miss.
+        *(["-t", str(duration)] if duration > 0 else []),
         "-vf", vf,
         "-c:v", "libx264", "-preset", PRESET, "-crf", CRF,
         "-r", str(OUTPUT_FPS), "-an", "-pix_fmt", "yuv420p", output_path,
@@ -961,7 +969,9 @@ def composite_video(clips: list[dict], voice_path: str, music_path: Optional[str
                 processed[-1] = trimmed
                 logger.warning(
                     "[compositor] Clip %d rendered %.1fs but was allotted %.1fs; trimmed. "
-                    "A renderer is sizing from `duration` instead of `target_duration`.",
+                    "Cause is a filter that expands frames: zoompan d=N turns every INPUT "
+                    "frame into N OUTPUT frames, so the OUTPUT needs its own -t. "
+                    "Check resize_to_target / _apply_camera_motion for a missing -t.",
                     i, actual_dur, requested_dur)
                 actual_dur = requested_dur
         clip["duration"] = actual_dur
