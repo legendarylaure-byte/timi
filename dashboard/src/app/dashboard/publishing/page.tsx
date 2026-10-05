@@ -24,16 +24,6 @@ interface PlatformConfig {
   maxLongPerDay: number;
 }
 
-interface UploadQueueItem {
-  id: string;
-  title: string;
-  format: 'shorts' | 'long';
-  platforms: string[];
-  status: 'queued' | 'uploading' | 'published' | 'failed';
-  created_at?: any;
-  progress: Record<string, number>;
-}
-
 // The one handle on a queued post. Kept in localStorage so a reload mid-publish
 // resumes polling instead of forgetting the post exists.
 const COMPOSE_INTENT_KEY = 'tiktok.composer.intentId';
@@ -57,9 +47,8 @@ export default function PublishingPage() {
       ? `${base} Branded Content Policy and Music Usage Confirmation.`
       : `${base} Music Usage Confirmation.`;
   };
-  const [platforms, setPlatforms] = useState<PlatformConfig[]>([]);
-  const [queue, setQueue] = useState<UploadQueueItem[]>([]);
-  const [loading, setLoading] = useState(true);
+const [platforms, setPlatforms] = useState<PlatformConfig[]>([]);
+    const [loading, setLoading] = useState(true);
   const [selectedPlatform, setSelectedPlatform] = useState<string | null>(null);
 
   // TikTok composer state
@@ -95,23 +84,8 @@ export default function PublishingPage() {
     return () => { cancelled = true; };
   }, []);
 
-  useEffect(() => {
-    const unsub = onSnapshot(query(collection(db, 'upload_queue'), orderBy('created_at', 'desc'), limit(20)),
-      (snap) => {
-        if (!snap.empty) {
-          setQueue(snap.docs.map(d => ({ id: d.id, ...d.data() } as UploadQueueItem)));
-        }
-      },
-      (error) => {
-        console.error('[Publishing] upload_queue:', error);
-      }
-    );
-    return () => unsub();
-  }, []);
-
-  // Load videos eligible for a manual TikTok compose (recent, not yet published) via client SDK.
-  useEffect(() => {
-    const unsub = onSnapshot(
+useEffect(() => {
+      const unsub = onSnapshot(
       query(collection(db, 'videos'), orderBy('created_at', 'desc'), limit(50)),
       (snap) => {
         const list = snap.docs.map(d => ({ id: d.id, ...d.data() }));
@@ -290,8 +264,7 @@ export default function PublishingPage() {
 
   const totalFollowers = platforms.reduce((s, p) => s + p.followers, 0);
   const totalPublished = platforms.reduce((s, p) => s + (Number(p.videosPublished) || 0), 0);
-  const connectedCount = platforms.filter(p => p.connected).length;
-  const queuedCount = queue.filter(q => q.status === 'queued').length;
+const connectedCount = platforms.filter(p => p.connected).length;
 
   const OAUTH_URLS: Record<string, string> = {
     tiktok: '/api/auth/tiktok?action=connect',
@@ -369,9 +342,8 @@ export default function PublishingPage() {
         {[
           { label: 'Connected Platforms', value: `${connectedCount}/${platforms.length}`, icon: '🔗', color: 'text-emerald-400' },
           { label: 'Total Followers', value: formatFollowers(totalFollowers), icon: '👥', color: 'text-blue-400' },
-          { label: 'Videos Published', value: totalPublished.toString(), icon: '🎬', color: 'text-purple-400' },
-          { label: 'In Queue', value: queuedCount.toString(), icon: '⏳', color: 'text-yellow-400' },
-        ].map(stat => (
+{ label: 'Videos Published', value: totalPublished.toString(), icon: '🎬', color: 'text-purple-400' },
+          ].map(stat => (
           <motion.div key={stat.label} className="p-4 rounded-xl glass-strong border border-light-border/30 dark:border-white/5">
             <div className="flex items-center gap-2 mb-1">
               <span className="text-lg">{stat.icon}</span>
@@ -532,61 +504,7 @@ export default function PublishingPage() {
       </div>
       )}
 
-      {/* Upload Queue */}
-      <div className="rounded-2xl glass-strong border border-light-border/30 dark:border-white/5 p-6">
-        <h2 className="text-lg font-bold text-light-text dark:text-dark-text mb-4">Upload Queue</h2>
-          {queue.length === 0 ? (
-            <div className="text-center py-8 text-light-muted dark:text-dark-muted">
-              <p className="text-sm">No videos in queue</p>
-            </div>
-          ) : (
-            <div className="space-y-3">
-              {queue.map((item, i) => (
-            <motion.div
-              key={item.id}
-              initial={{ opacity: 0, x: -10 }}
-              animate={{ opacity: 1, x: 0 }}
-              transition={{ delay: i * 0.05 }}
-              className="p-4 rounded-xl bg-light-bg/50 dark:bg-dark-bg/50 border border-light-border/30 dark:border-white/5"
-            >
-              <div className="flex items-center justify-between mb-3">
-                <div>
-                  <h3 className="text-sm font-semibold text-light-text dark:text-dark-text">{item.title}</h3>
-                  <p className="text-xs text-light-muted dark:text-dark-muted">{item.format === 'shorts' ? 'Shorts (9:16)' : 'Long Form (16:9)'}</p>
-                </div>
-                <StatusBadge status={item.status} />
-              </div>
-
-              <div className="flex gap-3">
-                {item.platforms.map(platformId => {
-                  const platform = platforms.find(p => p.id === platformId);
-                  const progress = item.progress[platformId] || 0;
-                  return (
-                    <div key={platformId} className="flex-1">
-                      <div className="flex items-center justify-between mb-1">
-                        <span className="text-xs text-light-muted dark:text-dark-muted">{platform?.icon} {platform?.name || platformId}</span>
-                        <span className="text-xs font-bold text-light-text dark:text-dark-text">{progress}%</span>
-                      </div>
-                      <div className="w-full h-1.5 bg-light-border dark:bg-dark-border rounded-full overflow-hidden">
-                        <motion.div
-                          initial={{ width: 0 }}
-                          animate={{ width: `${progress}%` }}
-                          transition={{ duration: 0.5 }}
-                          className="h-full rounded-full"
-                          style={{ backgroundColor: platform?.color || '#6B7280' }}
-                        />
-                      </div>
-                    </div>
-                  );
-                })}
-              </div>
-             </motion.div>
-               ))}
-             </div>
-           )}
-         </div>
-
-      {/* TikTok Composer */}
+{/* TikTok Composer */}
       <div className="rounded-2xl glass-strong border border-light-border/30 dark:border-white/5 p-6">
         <h2 className="text-lg font-bold text-light-text dark:text-dark-text mb-1">Compose TikTok Post</h2>
         <p className="text-xs text-light-muted dark:text-dark-muted mb-4">
@@ -866,20 +784,6 @@ function StatusPill({ connected }: { connected: boolean }) {
       connected ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30' : 'bg-red-500/20 text-red-400 border border-red-500/30'
     }`}>
       {connected ? '● Connected' : '○ Disconnected'}
-    </span>
-  );
-}
-
-function StatusBadge({ status }: { status: string }) {
-  const colors: Record<string, string> = {
-    queued: 'bg-yellow-500/20 text-yellow-400 border-yellow-500/30',
-    uploading: 'bg-blue-500/20 text-blue-400 border-blue-500/30',
-    published: 'bg-emerald-500/20 text-emerald-400 border-emerald-500/30',
-    failed: 'bg-red-500/20 text-red-400 border-red-500/30',
-  };
-  return (
-    <span className={`px-2 py-1 rounded-full text-[10px] font-bold border ${colors[status] || colors.queued}`}>
-      {status.toUpperCase()}
     </span>
   );
 }

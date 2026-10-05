@@ -29,7 +29,7 @@ service cloud.firestore {
     //
     // It used to be `request.auth == null`, which granted write access to
     // agents, logs, analytics, system, config, scheduled_posts, agent_status,
-    // activity_logs, monetization, upload_queue, content_plan and series to
+    // activity_logs, monetization, content_plan and series to
     // ANYONE who simply did not sign in. Those writers are the Docker pipeline
     // using the Admin SDK, and the Admin SDK BYPASSES security rules entirely —
     // so it never needed an exemption. The rule only ever widened the hole.
@@ -92,7 +92,6 @@ service cloud.firestore {
     match /series/{docId} { allow read: if isOwner(); }
     match /series_plans/{docId} { allow read: if isOwner(); }
     match /scheduled_posts/{docId} { allow read: if isOwner(); }
-    match /upload_queue/{docId} { allow read: if isOwner(); }
     match /tiktok_composer/{docId} { allow read: if isOwner(); }
     match /viral_news/{docId} { allow read: if isOwner(); }
     match /viral_news_posts/{docId} { allow read: if isOwner(); }

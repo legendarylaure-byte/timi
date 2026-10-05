@@ -1227,7 +1227,6 @@ def multi_platform_publish(video_id: str, title: str, description: str, video_pa
                         'error': 'watermark-free master unavailable; refusing to post a '
                                  'watermarked video',
                     }
-                    _update_queue(video_id, platform, False)
                     results['all_success'] = False
                     continue
 
@@ -1242,9 +1241,6 @@ def multi_platform_publish(video_id: str, title: str, description: str, video_pa
                                         tiktok_brand_content=tiktok_brand_content,
                                         tiktok_brand_organic=tiktok_brand_organic)
             results['platforms'][platform] = result
-
-            # Update queue in Firestore
-            _update_queue(video_id, platform, result['success'])
 
             if result['success']:
                 results['success_count'] += 1
@@ -1341,24 +1337,6 @@ def _register_in_playlist(youtube_id: str, category: str) -> None:
         log_activity("publisher", f"Playlist registration failed: {e}", "warn")
 
 
-def _update_queue(video_id: str, platform: str, success: bool):
-    """Update upload queue in Firestore."""
-    try:
-        db = get_firestore_client()
-        doc_ref = db.collection('upload_queue').document(video_id)
-        doc = doc_ref.get()
-        if doc.exists:
-            data = doc.to_dict()
-            progress = data.get('progress', {})
-            progress[platform] = 100 if success else 0
-            doc_ref.update({
-                'progress': progress,
-                'status': 'published' if all(v == 100 for v in progress.values()) else 'failed',
-            })
-    except Exception as e:
-        log_activity('publisher', f"Upload queue update failed for {video_id}: {e}", 'warn')
-
-
 def _send_telegram_notification(results: dict):
     """Send Telegram notification with publish results."""
     try:
@@ -1393,21 +1371,3 @@ def _send_telegram_notification(results: dict):
         )
     except Exception as e:
         log_activity('publisher', f"Telegram notification failed: {e}", 'warn')
-
-
-def schedule_upload(video_id: str, title: str, platforms: list, scheduled_time: str):
-    """Schedule an upload for later."""
-    try:
-        db = get_firestore_client()
-        db.collection('upload_queue').add({
-            'video_id': video_id,
-            'title': title,
-            'platforms': platforms,
-            'status': 'queued',
-            'scheduled_time': scheduled_time,
-            'progress': {p: 0 for p in platforms},
-            'created_at': datetime.utcnow(),
-        })
-        log_activity('publisher', f"Scheduled upload: {title} at {scheduled_time}", 'info')
-    except Exception as e:
-        log_activity('publisher', f"Schedule failed: {e}", 'warn')

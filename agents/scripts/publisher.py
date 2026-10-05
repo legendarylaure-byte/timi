@@ -4,7 +4,7 @@ Run: python -m agents.scripts.publisher --title "..." --platforms youtube,tiktok
 """
 import argparse
 import json
-from agents.utils.multi_platform_publisher import multi_platform_publish, schedule_upload
+from agents.utils.multi_platform_publisher import multi_platform_publish
 
 
 def main():
@@ -20,34 +20,33 @@ def main():
     parser.add_argument('--format', default='shorts', choices=['shorts', 'long'], help='Video format')
     parser.add_argument('--platforms', default='youtube', help='Comma-separated platforms')
     parser.add_argument('--video_id', default='temp-video', help='Video ID')
-    parser.add_argument('--schedule', help='Schedule time (ISO format)')
     args = parser.parse_args()
 
     platforms = [p.strip() for p in args.platforms.split(',')]
 
-    if args.schedule:
-        print(f"\n📅 Scheduling upload for {args.schedule}")
-        schedule_upload(args.video_id, args.title, platforms, args.schedule)
-    else:
-        print(f"\n📤 Publishing '{args.title}' to: {', '.join(platforms)}")
-        result = multi_platform_publish(
-            video_id=args.video_id,
-            title=args.title,
-            description=args.description,
-            video_path=args.video,
-            tiktok_path=args.tiktok_video,
-            thumbnail_path=args.thumbnail,
-            format_type=args.format,
-            platforms=platforms,
-        )
+    # ponytail: `--schedule` used to write a doc into the `upload_queue` collection
+    # that nothing ever dequeued, so it only ever looked like a queue. Publishing a
+    # now-scheduled upload still goes through publish_at / APScheduler, so there is
+    # no queue to write to. Removed rather than left as a write-only UI.
+    print(f"\n📤 Publishing '{args.title}' to: {', '.join(platforms)}")
+    result = multi_platform_publish(
+        video_id=args.video_id,
+        title=args.title,
+        description=args.description,
+        video_path=args.video,
+        tiktok_path=args.tiktok_video,
+        thumbnail_path=args.thumbnail,
+        format_type=args.format,
+        platforms=platforms,
+    )
 
-        print("\nResults:")
-        for platform, r in result['platforms'].items():
-            status = '✅' if r.get('success') else '❌'
-            print(f"  {status} {platform}: {r.get('url', r.get('error', ''))}")
+    print("\nResults:")
+    for platform, r in result['platforms'].items():
+        status = '✅' if r.get('success') else '❌'
+        print(f"  {status} {platform}: {r.get('url', r.get('error', ''))}")
 
-        print(f"\nSuccess: {result['success_count']}/{result['total_count']}")
-        print(json.dumps(result, indent=2, default=str))
+    print(f"\nSuccess: {result['success_count']}/{result['total_count']}")
+    print(json.dumps(result, indent=2, default=str))
 
 
 if __name__ == '__main__':

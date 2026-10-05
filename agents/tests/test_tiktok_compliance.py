@@ -415,7 +415,6 @@ def _no_r2(monkeypatch):
     monkeypatch.setattr(r2, "delete_thumbnail", lambda *a, **k: None)
     monkeypatch.setattr(mpp, "_register_in_playlist", lambda *a, **k: None)
     monkeypatch.setattr(mpp, "_send_telegram_notification", lambda *a, **k: None)
-    monkeypatch.setattr(mpp, "_update_queue", lambda *a, **k: None)
     monkeypatch.setattr(mpp, "update_video_record", lambda *a, **k: None)
 
 

@@ -20,7 +20,6 @@ def _stub_side_effects(monkeypatch, captured):
     """Neutralise every outbound call so only the reporting logic runs."""
     monkeypatch.setenv("PLATFORM_UPLOAD_DELAY", "0")
     monkeypatch.setattr(mpp, "log_activity", lambda *a, **k: None)
-    monkeypatch.setattr(mpp, "_update_queue", lambda *a, **k: None)
     monkeypatch.setattr(mpp, "_send_telegram_notification", lambda *a, **k: None)
     monkeypatch.setattr(mpp, "_register_in_playlist", lambda *a, **k: None)
     monkeypatch.setattr(mpp, "optimize_title_for_platform", lambda t, p: t)
