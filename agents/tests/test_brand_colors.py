@@ -887,30 +887,50 @@ def test_grade_is_luma_only_by_default():
 
 
 def test_shipped_vibrance_default_is_zero_in_both_places():
-    """Both the env line compose injects and the code fallback must be 0.
+    """Both the shipped template and the code fallback must be 0.
 
     Checked separately because they can drift: if only the code default were
-    checked, deleting the .env line would silently restore saturation, and if
-    only .env were checked, the code fallback could sit at 0.18 waiting for a
-    container built without that file.
+    checked, deleting the env line would silently restore saturation, and if only
+    the env line were checked, the code fallback could sit at 0.18 waiting for a
+    container built without it.
+
+    Asserted against .env.example, not .env. The example file is committed and
+    ships in the image; .env is gitignored and is injected by compose, so it does
+    not exist inside the container and reading it there fails for a reason that
+    has nothing to do with the value. The host-only .env is still checked, with a
+    visible skip when absent, so the gap is never silent.
     """
     import re
     from pathlib import Path
 
-    env_file = Path(__file__).resolve().parents[1] / ".env"
-    assert env_file.exists(), f"{env_file} is missing"
-    m = re.search(r"^GRADE_VIBRANCE=([0-9.]+)", env_file.read_text(), re.MULTILINE)
-    assert m, "agents/.env has no GRADE_VIBRANCE line"
+    agents_dir = Path(__file__).resolve().parents[1]
+
+    example = agents_dir / ".env.example"
+    assert example.exists(), f"{example} is missing"
+    m = re.search(r"^GRADE_VIBRANCE=([0-9.]+)", example.read_text(), re.MULTILINE)
+    assert m, ".env.example has no GRADE_VIBRANCE line"
     assert float(m.group(1)) == 0.0, (
-        f"agents/.env sets GRADE_VIBRANCE={m.group(1)}; the grade would "
-        f"saturate the footage again"
+        f".env.example sets GRADE_VIBRANCE={m.group(1)}; the documented "
+        f"default would saturate the footage"
     )
 
-    source = (Path(__file__).resolve().parents[1] / "utils" / "video_compositor.py").read_text()
+    source = (agents_dir / "utils" / "video_compositor.py").read_text()
     m2 = re.search(r'GRADE_VIBRANCE"\s*,\s*"([0-9.]+)"', source)
     assert m2, "video_compositor no longer reads a GRADE_VIBRANCE default"
     assert float(m2.group(1)) == 0.0, (
-        f"the code fallback is {m2.group(1)}, so a container without agents/.env "
+        f"the code fallback is {m2.group(1)}, so a container without an env file "
+        f"would saturate the footage"
+    )
+
+    live = agents_dir / ".env"
+    if not live.exists():
+        pytest.skip("agents/.env is not present in this environment "
+                    "(gitignored; injected by compose) -- .env.example and the "
+                    "code fallback are still checked above")
+    m3 = re.search(r"^GRADE_VIBRANCE=([0-9.]+)", live.read_text(), re.MULTILINE)
+    assert m3, "agents/.env has no GRADE_VIBRANCE line"
+    assert float(m3.group(1)) == 0.0, (
+        f"agents/.env sets GRADE_VIBRANCE={m3.group(1)}; the running container "
         f"would saturate the footage"
     )
 
