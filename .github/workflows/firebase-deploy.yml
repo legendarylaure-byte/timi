@@ -13,7 +13,7 @@ jobs:
   deploy:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       # The token is REQUIRED, not optional. With it unset this used to skip the
       # deploy and still report success -- a green job that published nothing,
       # which is how a rules file could be wrong in production while CI was
