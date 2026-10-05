@@ -255,6 +255,11 @@ export default function ArchivePage() {
           <option value="blocked_review">Blocked by review</option>
           <option value="upload_failed">Upload failed</option>
           <option value="failed">Failed</option>
+          {/* Preview renders (DEMO_RENDER_ONLY). Reachable from the filter for
+              the same reason as the two above: the pipeline writes it, so
+              without an option there is no way to find those videos. STATUS_META
+              already renders the badge correctly. */}
+          <option value="render_only">Preview only</option>
         </select>
         <select
           value={categoryFilter}

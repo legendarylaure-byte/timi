@@ -2193,11 +2193,29 @@ def generate_short_video(topic: str, category: str, video_id: str, publish_at: s
             log_event("HOOK", f"Hook recording skipped: {e}", "debug")
 
         failed_step = "finalizing"
-        short_status = "scheduled" if publish_at else ("uploaded" if (youtube_url or publish_result.get("success_count", 0) > 0) else "upload_failed")
+        # DEMO_RENDER_ONLY is checked FIRST and wins over publish_at. The old
+        # ordering produced two different lies for one deliberate 0/0 render:
+        # without publish_at it wrote "upload_failed", so a render that failed
+        # nothing read as a failure and would page someone; with publish_at it
+        # wrote "scheduled", claiming a publication that can never happen
+        # because nothing was ever uploaded. The upload_failed branch was the D20
+        # rule ("only mark uploaded when a real youtube_url exists") working
+        # correctly and landing on a misleading negative.
+        #
+        # The non-render_only ordering is left exactly as each path had it:
+        # shorts prefer "scheduled" over "uploaded", longs do not test publish_at
+        # at all. That asymmetry is pre-existing and load-bearing -- on the long
+        # path a scheduled upload always carries a youtube_url, so it already
+        # reported "uploaded", and changing it here would silently reclassify
+        # every scheduled long in the archive counts. Out of scope; not changed.
+        short_status = "render_only" if _render_only() else (
+            "scheduled" if publish_at else ("uploaded" if (youtube_url or publish_result.get("success_count", 0) > 0) else "upload_failed")
+        )
         _news_updates = {"news_source": news_article.get("source")} if news_article and news_article.get("source") else {}
         _tiktok = publish_result.get('platforms', {}).get('tiktok', {})
         update_video_record(video_id, {
             "status": short_status,
+            "render_only": _render_only(),
             "publish_success_count": publish_result.get("success_count", 0),
             "youtube_url": youtube_url,
             "publish_at": publish_at,
@@ -2209,6 +2227,12 @@ def generate_short_video(topic: str, category: str, video_id: str, publish_at: s
         })
         if short_status == "upload_failed":
             log_event("PUBLISH", f"Short video rendered but ALL platform uploads failed", "error")
+        elif short_status == "render_only":
+            log_event(
+                "PUBLISH",
+                f"Short video rendered, NOT published (DEMO_RENDER_ONLY): "
+                f"{publish_result.get('success_count', 0)}/{publish_result.get('total_count', 0)} platforms by request",
+            )
         log_event("PIPELINE", f"SHORT video generation SUCCESS: {topic} ({short_status})")
         update_pipeline_status(False)
         clear_checkpoint(video_id)
@@ -2831,7 +2855,11 @@ def generate_long_video(topic: str, category: str, video_id: str, publish_at: st
             log_event("HOOK", f"Hook recording skipped: {e}", "debug")
 
         failed_step = "finalizing"
-        final_status = "uploaded" if (youtube_url or publish_result.get("success_count", 0) > 0) else "upload_failed"
+        # See the short path for why DEMO_RENDER_ONLY is checked first and why
+        # the publish_at ordering below is left as this path had it.
+        final_status = "render_only" if _render_only() else (
+            "uploaded" if (youtube_url or publish_result.get("success_count", 0) > 0) else "upload_failed"
+        )
         _news_updates = {"news_source": news_article.get("source")} if news_article and news_article.get("source") else {}
         _tiktok = publish_result.get('platforms', {}).get('tiktok', {})
         update_video_record(video_id, {
@@ -2840,6 +2868,7 @@ def generate_long_video(topic: str, category: str, video_id: str, publish_at: st
             "chapters": video_result.get("chapters"),
             "is_above_8min": video_result.get("duration", 0) >= 480,
             "status": final_status,
+            "render_only": _render_only(),
             "publish_success_count": publish_result.get("success_count", 0),
             "youtube_url": youtube_url,
             "publish_at": publish_at,
@@ -2853,7 +2882,7 @@ def generate_long_video(topic: str, category: str, video_id: str, publish_at: st
         if final_status == "uploaded":
             add_video_record(video_id, topic, "long", "uploaded", category=category)
         else:
-            add_video_record(video_id, topic, "long", "upload_failed", category=category)
+            add_video_record(video_id, topic, "long", final_status, category=category)
             log_event("PUBLISH", f"Long video rendered but ALL platform uploads failed — status={final_status}", "error")
         log_event("PIPELINE", f"LONG video generation SUCCESS: {topic} ({final_status})")
         update_pipeline_status(False)
@@ -2906,6 +2935,20 @@ def _duration_source(video_result: dict) -> str:
     return resolved_video_duration(video_result)[1]
 
 
+def _render_only() -> bool:
+    """True when publication was deliberately suppressed by DEMO_RENDER_ONLY.
+
+    Single source of truth, shared with _platforms_to_publish(). These two must
+    agree: if they ever disagree, a render-only video gets a real status derived
+    from an empty platform list and lands back on the misleading `upload_failed`.
+
+    DEMO_RENDER_ONLY cannot be read off `not platforms_to_publish`, because an
+    empty PLATFORMS_TO_PUBLISH also yields [] and that is a config fault, not a
+    deliberate preview. Naming the intent is the point.
+    """
+    return os.getenv("DEMO_RENDER_ONLY", "").strip().lower() in ("1", "true", "yes")
+
+
 def _platforms_to_publish() -> list:
     """Target platforms for video publishing.
 
@@ -2923,7 +2966,7 @@ def _platforms_to_publish() -> list:
     `docker run -e` before a single line of pipeline code runs. A key Firestore
     does not hold is never clobbered, which is why this is a separate switch.
     """
-    if os.getenv("DEMO_RENDER_ONLY", "").strip().lower() in ("1", "true", "yes"):
+    if _render_only():
         return []
     raw = os.getenv("PLATFORMS_TO_PUBLISH", "youtube")
     return [p.strip().lower() for p in raw.split(",") if p.strip()]
