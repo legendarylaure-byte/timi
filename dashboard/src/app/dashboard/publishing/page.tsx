@@ -73,6 +73,14 @@ const [platforms, setPlatforms] = useState<PlatformConfig[]>([]);
   const [compIntentId, setCompIntentId] = useState('');
   const [compIntent, setCompIntent] = useState<any>(null);
   const [compMsgs, setCompMsgs] = useState<string[]>([]);
+  const [userRole, setUserRole] = useState<'owner' | 'reviewer'>('owner');
+
+  useEffect(() => {
+    apiFetch('/api/auth', { method: 'POST' })
+      .then((r) => (r.ok ? r.json() : Promise.reject(new Error(`HTTP ${r.status}`))))
+      .then((d) => { if (d?.role) setUserRole(d.role === 'reviewer' ? 'reviewer' : 'owner'); })
+      .catch(() => {});
+  }, []);
 
   useEffect(() => {
     let cancelled = false;
@@ -339,6 +347,14 @@ const connectedCount = platforms.filter(p => p.connected).length;
         </div>
       </motion.div>
 
+      {userRole === 'reviewer' ? (
+        <div className="rounded-2xl glass-strong border border-blue-500/30 p-6">
+          <h2 className="text-lg font-bold text-light-text dark:text-dark-text mb-1">Reviewer Access</h2>
+          <p className="text-xs text-light-muted dark:text-dark-muted">
+            You are signed in with a reviewer account. Only the TikTok composer and its publish-status flow are available to this role. Platform connection status, analytics, and admin controls are hidden.
+          </p>
+        </div>
+      ) : (
       {/* Stats */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
         {[
@@ -504,6 +520,8 @@ const connectedCount = platforms.filter(p => p.connected).length;
           </motion.div>
         ))}
       </div>
+      )}
+
       )}
 
 {/* TikTok Composer */}

@@ -44,7 +44,11 @@ export async function requireUser(request: Request): Promise<AuthResult> {
   if (role === 'reviewer') {
     const url = new URL(request.url);
     const path = url.pathname;
-    const allowed = path.startsWith('/api/tiktok/composer/') || path === '/api/auth';
+    const allowed = (
+      path.startsWith('/api/tiktok/composer/') ||
+      path === '/api/auth' ||
+      path === '/api/platform-settings'
+    );
     if (!allowed) return denied(403, 'Not authorized');
   }
 

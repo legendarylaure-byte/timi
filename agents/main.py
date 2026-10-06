@@ -2278,6 +2278,8 @@ def generate_short_video(topic: str, category: str, video_id: str, publish_at: s
             "tiktok_status": 'published' if _tiktok.get('success') else ('upload_failed' if _tiktok else ''),
             "duration": _resolved_duration(video_result),
             "duration_source": _duration_source(video_result),
+            "video_path": video_result.get("video_path", ""),
+            "tiktok_path": video_result.get("tiktok_path", ""),
             **_news_updates,
         })
         if short_status == "upload_failed":
@@ -2931,6 +2933,8 @@ def generate_long_video(topic: str, category: str, video_id: str, publish_at: st
             "tiktok_status": 'published' if _tiktok.get('success') else ('upload_failed' if _tiktok else ''),
             "duration": _resolved_duration(video_result),
             "duration_source": _duration_source(video_result),
+            "video_path": video_result.get("video_path", ""),
+            "tiktok_path": video_result.get("tiktok_path", ""),
             **_news_updates,
         })
 
@@ -4268,6 +4272,20 @@ def _resolve_video_for_publish(db, video_id: str, local_path: str = '') -> str:
     """Resolve a publishable video file: local path, else download from R2 by key."""
     if local_path and os.path.exists(local_path):
         return local_path
+    # ponytail: before hitting R2, check the local output dir — checkpoints are
+    # cleared on success, but the rendered file is still on disk.
+    try:
+        from utils.video_compositor import OUTPUT_DIR
+        for fmt in ('long', 'shorts'):
+            cand = OUTPUT_DIR / f"{video_id}_{fmt}.mp4"
+            if cand.exists() and cand.stat().st_size > 1000:
+                return str(cand)
+        # Fallback: any file matching the video id prefix
+        matches = sorted(OUTPUT_DIR.glob(f"{video_id}*.mp4"), key=os.path.getmtime, reverse=True)
+        if matches:
+            return str(matches[0])
+    except Exception as e:
+        log_event("TIKTOK_COMPOSER", f"Local resolve check failed for {video_id}: {e}", "warn")
     try:
         doc = db.collection('videos').document(video_id).get()
         if not doc.exists:
