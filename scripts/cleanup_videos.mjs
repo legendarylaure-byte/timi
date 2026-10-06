@@ -32,11 +32,15 @@ try {
 function initApp() {
   if (getApps().length > 0) return getApps()[0];
 
-  const keyBase64 = process.env.FIREBASE_SERVICE_ACCOUNT_KEY;
-  if (keyBase64) {
-    const sa = JSON.parse(Buffer.from(keyBase64, 'base64').toString('utf-8'));
-    return initializeApp({ credential: cert(sa) });
-  }
+    const raw = process.env.FIREBASE_SERVICE_ACCOUNT_KEY;
+    if (raw) {
+      // See cleanup_videos.cjs: the same secret is read raw by daily-content.yml,
+      // so it exists in both encodings. Never base64-decode unconditionally.
+      const parseEither = (s) => { try { return JSON.parse(s); } catch { /* not raw */ } };
+      const sa = parseEither(raw) ?? parseEither(Buffer.from(raw, 'base64').toString('utf-8'));
+      if (!sa) throw new Error('FIREBASE_SERVICE_ACCOUNT_KEY is neither raw JSON nor base64 JSON');
+      return initializeApp({ credential: cert(sa) });
+    }
 
   const keyPath = process.env.FIREBASE_SERVICE_ACCOUNT_PATH;
   if (keyPath) {

@@ -28,11 +28,18 @@ try {
 
 function initApp() {
   if (getApps().length > 0) return getApps()[0];
-  const keyBase64 = process.env.FIREBASE_SERVICE_ACCOUNT_KEY;
-  if (keyBase64) {
-    const sa = JSON.parse(Buffer.from(keyBase64, 'base64').toString('utf-8'));
-    return initializeApp({ credential: cert(sa) });
-  }
+    const raw = process.env.FIREBASE_SERVICE_ACCOUNT_KEY;
+    if (raw) {
+      // The same secret is read raw by daily-content.yml, so it has been stored
+      // both ways over time. Base64-decoding a raw JSON blob yields garbage and
+      // JSON.parse throws, which looked like a missing-credential error. Try raw
+      // first, fall back to base64 -- never guess from the variable's name.
+      // (`??` cannot express this: a thrown JSON.parse never reaches it.)
+      const parseEither = (s) => { try { return JSON.parse(s); } catch { /* not raw */ } };
+      const sa = parseEither(raw) ?? parseEither(Buffer.from(raw, 'base64').toString('utf-8'));
+      if (!sa) throw new Error('FIREBASE_SERVICE_ACCOUNT_KEY is neither raw JSON nor base64 JSON');
+      return initializeApp({ credential: cert(sa) });
+    }
   const keyPath = process.env.FIREBASE_SERVICE_ACCOUNT_PATH;
   if (keyPath) {
     const fullPath = resolve(projectRoot, keyPath);
