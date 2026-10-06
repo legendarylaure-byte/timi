@@ -8,6 +8,9 @@ from utils.firebase_status import log_activity
 from utils.scene_schema import ValidationError, clamp_scene_duration
 from utils.brand_palette import LICORICE, PURPLE
 
+import logging
+logger = logging.getLogger(__name__)
+
 TECH_TERMS = {
     "neural", "network", "layer", "deep learning", "transformer", "attention",
     "algorithm", "gradient", "optimization", "embedding", "token", "inference",
@@ -392,8 +395,15 @@ def _rule_based_parse(script_text: str, storyboard_text: str, format_type: str, 
 
     scene_blocks = scene_blocks[:target_scene_count]
 
-    # Enforce scene count range per format (prompt asks 5-8 shorts, 12-18 longs)
-    min_scenes, max_scenes = (5, 8) if format_type == "shorts" else (12, 18)
+    # Enforce scene count range per format (prompt asks 5-8 shorts, 12-18 longs).
+    # Deep lessons / documentaries (max_duration >= 600) are exempt from the 18
+    # cap: their prompt targets 30-60 scenes, and truncating them to 18 would
+    # produce a video that is ~4 minutes of silence between scenes.
+    is_deep = max_duration and max_duration >= 600
+    if is_deep:
+        min_scenes, max_scenes = 15, 60
+    else:
+        min_scenes, max_scenes = (5, 8) if format_type == "shorts" else (12, 18)
     actual_count = len(scene_blocks)
     if actual_count < min_scenes or actual_count > max_scenes:
         logger.warning(
@@ -988,8 +998,15 @@ def _default_scene(index: int) -> dict:
 
 
 def _adjust_scenes_for_format(scenes: list[dict], format_type: str, max_allowed: int = None) -> list[dict]:
-    # Enforce scene count range per format (prompt asks 5-8 shorts, 12-18 longs)
-    min_scenes, max_scenes = (5, 8) if format_type == "shorts" else (12, 18)
+    # Enforce scene count range per format (prompt asks 5-8 shorts, 12-18 longs).
+    # Deep lessons / documentaries (max_allowed >= 600) are exempt from the 18
+    # cap: their prompt targets 30-60 scenes, and truncating them to 18 would
+    # produce a video that is ~4 minutes of silence between scenes.
+    is_deep = max_allowed and max_allowed >= 600
+    if is_deep:
+        min_scenes, max_scenes = 15, 60
+    else:
+        min_scenes, max_scenes = (5, 8) if format_type == "shorts" else (12, 18)
     if len(scenes) < min_scenes:
         logger.warning(
             f"Scene count {len(scenes)} below minimum {min_scenes} for {format_type}; padding with last scene"
@@ -1003,7 +1020,6 @@ def _adjust_scenes_for_format(scenes: list[dict], format_type: str, max_allowed:
         )
         scenes = scenes[:max_scenes]
 
-    is_deep = max_allowed and max_allowed >= 600
     if format_type == "shorts":
         cap = float(os.getenv("SHORTS_MAX_DURATION", "180"))
     else:
