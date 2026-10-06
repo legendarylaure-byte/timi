@@ -174,7 +174,7 @@ def _refresh_tiktok_token() -> str | None:
             new_token = data.get('access_token')
             if new_token:
                 os.environ['TIKTOK_ACCESS_TOKEN'] = new_token
-                _save_env({'TIKTOK_ACCESS_TOKEN': new_token})
+                _save_token_atomic('TIKTOK_ACCESS_TOKEN', new_token, time.time())
                 return new_token
         return None
     except Exception as refresh_err:
@@ -182,44 +182,47 @@ def _refresh_tiktok_token() -> str | None:
         return None
 
 
-def _save_env(updates: dict):
-    """Persist env vars to both .env files (and Firestore env_vars)."""
-    _script_dir = os.path.dirname(os.path.abspath(__file__))
-    _agents_dir = os.path.dirname(_script_dir)
-    _root_dir = os.path.dirname(_agents_dir)
-    for _p in [os.path.join(_agents_dir, '.env'), os.path.join(_root_dir, '.env')]:
-        if os.path.exists(_p):
-            _lines = []
-            with open(_p) as _f:
-                _lines = _f.readlines()
-            _updated_keys = set(updates.keys())
-            _existing_keys = set()
-            _new_lines = []
-            for _line in _lines:
-                _stripped = _line.strip()
-                if _stripped and not _stripped.startswith('#'):
-                    _key, _, _ = _stripped.partition('=')
-                    _key = _key.strip()
-                    if _key in updates:
-                        _new_lines.append(f'{_key}={updates[_key]}\n')
-                        _existing_keys.add(_key)
-                        continue
-                _new_lines.append(_line)
-            for _key, _val in updates.items():
-                if _key not in _existing_keys:
-                    _new_lines.append(f'{_key}={_val}\n')
-            with open(_p, 'w') as _f:
-                _f.writelines(_new_lines)
-    # Firestore env_vars overrides .env at boot (sync_env_from_firestore),
-    # so a refreshed token written only to .env would be lost on restart.
+def _save_token_atomic(key: str, value: str, obtained_at: float) -> bool:
+    """Write a refreshed token only if it is newer than what is already stored.
+
+    Two processes can both take a 401 and both refresh. A plain set() makes the
+    LAST writer win, and the last writer is not the newest token -- so a stale
+    token can clobber a fresh one, and every upload after it 401s again until the
+    next refresh. That is the whole blast radius: one race, and the channel is
+    quietly broken for hours.
+
+    The transaction makes read-then-write atomic, and `obtained_at` is the
+    compare key, so the newest token always wins regardless of write order.
+    Firestore retries the transaction on contention, so this cannot deadlock.
+
+    Existing token docs have no `obtained_at`, so the first write after this
+    lands unconditionally (current 0.0 < any real timestamp).
+    """
     try:
-        from utils.firebase_status import get_firestore_client
-        _db = get_firestore_client()
-        if _db is not None:
-            for _key, _val in updates.items():
-                _db.collection('env_vars').document(_key).set({'value': _val}, merge=True)
-    except Exception:
-        pass
+        db = get_firestore_client()
+        if db is None:
+            return False
+        from google.cloud import firestore as _fs
+
+        doc_ref = db.collection('env_vars').document(key)
+
+        @_fs.transactional
+        def _swap(transaction):
+            snap = doc_ref.get(transaction=transaction)
+            current_at = 0.0
+            if snap.exists:
+                current_at = (snap.to_dict() or {}).get('obtained_at') or 0.0
+            if obtained_at > current_at:
+                transaction.set(
+                    doc_ref, {'value': value, 'obtained_at': obtained_at}, merge=True
+                )
+                return True
+            return False
+
+        return _swap(db.transaction())
+    except Exception as e:
+        security_audit("TOKEN_REFRESH_WRITE_FAILED", safe_log(str(e)), "error")
+        return False
 
 
 def _refresh_facebook_token() -> str | None:
@@ -245,7 +248,7 @@ def _refresh_facebook_token() -> str | None:
             new_token = resp.json().get('access_token')
             if new_token:
                 os.environ['FACEBOOK_ACCESS_TOKEN'] = new_token
-                _save_env({'FACEBOOK_ACCESS_TOKEN': new_token})
+                _save_token_atomic('FACEBOOK_ACCESS_TOKEN', new_token, time.time())
                 return new_token
         return None
     except Exception as refresh_err:
