@@ -798,3 +798,32 @@ def test_truncation_never_exceeds_the_limit_with_emoji():
     caption = "🤯 " * 1500
     out = optimize_title_for_platform(caption, "tiktok")
     assert _utf16_len(out) <= 2200, f"caption is {_utf16_len(out)} UTF-16 units, over 2200"
+
+
+def test_rate_limit_is_a_warning_not_a_block(monkeypatch, tmp_path):
+    """A soft limit: the upload must proceed, not return a rate-limit refusal.
+
+    A 5-video slate needs exactly 5 uploads per platform, so a hard block with
+    zero headroom silently dropped the 6th upload in an hour. The bucket is
+    in-memory, so a container restart reset it mid-run -- which is how the
+    2026-10-01 TikTok 429 happened. The real protection is PLATFORM_UPLOAD_DELAY
+    plus retry_with_backoff, which backs off on a genuine 429. A refused upload
+    loses a platform for good; a retried one only costs time.
+    """
+    mpp = pytest.importorskip("utils.multi_platform_publisher")
+    src = tmp_path / "c.mp4"
+    src.write_bytes(b"x" * 100)
+    # No credentials: the upload short-circuits at the token check, which is
+    # PAST the rate limiter. So a rate-limit error here means the limiter
+    # blocked; any other error means it proceeded.
+    monkeypatch.delenv("TIKTOK_ACCESS_TOKEN", raising=False)
+    monkeypatch.delenv("TIKTOK_OPEN_ID", raising=False)
+    monkeypatch.setattr(mpp, "rate_limiter", lambda *a, **k: False)
+    monkeypatch.setattr(mpp, "log_activity", lambda *a, **k: None)
+    monkeypatch.setattr(mpp, "security_audit", lambda *a, **k: None)
+
+    res = mpp._upload_tiktok("t", str(src), "shorts", "SELF_ONLY")
+
+    assert "rate limit" not in res.get("error", "").lower(), (
+        f"the rate limiter blocked the upload instead of warning: {res}"
+    )

@@ -459,8 +459,14 @@ def _upload_tiktok(title: str, video_path: str, format_type: str, privacy_level:
                    brand_content: bool = False, brand_organic: bool = False) -> dict:
     """Upload to TikTok via Content Posting API v2 with retry, rate limit, idempotency."""
     if not rate_limiter("tiktok_upload", max_per_hour=5):
-        security_audit("RATE_LIMIT", "TikTok upload rate limit hit", "warning")
-        return {'success': False, 'platform': 'tiktok', 'error': 'TikTok upload rate limit reached (max 5/hour)'}
+        # Soft limit: warn, never block. A 5-video slate needs exactly 5 per
+        # platform, so a hard block with zero headroom silently dropped the 6th
+        # upload in an hour -- and the bucket is in-memory, so a container restart
+        # reset it mid-run, which is how the 2026-10-01 TikTok 429 happened. The
+        # real protection is PLATFORM_UPLOAD_DELAY plus retry_with_backoff, which
+        # backs off on a genuine 429. A refused upload loses a platform for good;
+        # a retried one only costs time.
+        security_audit("RATE_LIMIT", "TikTok upload rate limit would be hit -- proceeding", "error")
 
     access_token = os.getenv('TIKTOK_ACCESS_TOKEN')
     open_id = os.getenv('TIKTOK_OPEN_ID')
@@ -667,8 +673,8 @@ def _upload_tiktok(title: str, video_path: str, format_type: str, privacy_level:
 def _upload_instagram(title: str, video_path: str, format_type: str) -> dict:
     """Upload to Instagram via Graph API with retry, rate limit, token refresh."""
     if not rate_limiter("instagram_upload", max_per_hour=5):
-        security_audit("RATE_LIMIT", "Instagram upload rate limit hit", "warning")
-        return {'success': False, 'platform': 'instagram', 'error': 'Instagram upload rate limit reached (max 5/hour)'}
+        # Soft limit, same reasoning as _upload_tiktok: warn, never drop a platform.
+        security_audit("RATE_LIMIT", "Instagram upload rate limit would be hit -- proceeding", "error")
 
     access_token = os.getenv('FACEBOOK_ACCESS_TOKEN')
     ig_account_id = os.getenv('INSTAGRAM_ACCOUNT_ID')
@@ -955,8 +961,8 @@ def _fb_resumable_transfer(upload_path: str, page_id: str, access_token: str,
 def _upload_facebook(title: str, description: str, video_path: str, thumbnail_path: str = None) -> dict:
     """Upload to Facebook via Graph API with retry, rate limit, token refresh."""
     if not rate_limiter("facebook_upload", max_per_hour=5):
-        security_audit("RATE_LIMIT", "Facebook upload rate limit hit", "warning")
-        return {'success': False, 'platform': 'facebook', 'error': 'Facebook upload rate limit reached (max 5/hour)'}
+        # Soft limit, same reasoning as _upload_tiktok: warn, never drop a platform.
+        security_audit("RATE_LIMIT", "Facebook upload rate limit would be hit -- proceeding", "error")
 
     access_token = os.getenv('FACEBOOK_ACCESS_TOKEN')
     page_id = os.getenv('FACEBOOK_PAGE_ID')
