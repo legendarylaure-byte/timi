@@ -24,6 +24,16 @@ service cloud.firestore {
         && request.auth.token.email.lower() == ownerEmail();
     }
 
+    // REVIEWER ROLE: reviewer@vyomai.cloud has limited access for TikTok app review.
+    // KEEP IN SYNC with ALLOWED_EMAILS in Vercel. This is a third copy by necessity —
+    // Firestore rules cannot read env vars. The boot check in allowed-emails.ts
+    // verifies the owner copy; this reviewer copy must be updated manually.
+    function isReviewer() {
+      return request.auth != null
+        && request.auth.token.email != null
+        && request.auth.token.email.lower() == "reviewer@vyomai.cloud";
+    }
+
     // ---------------------------------------------------------------------
     // WHY isBackend() IS GONE
     //
@@ -45,7 +55,7 @@ service cloud.firestore {
 
     // The dashboard only ever reads these; writes are the pipeline's job.
     match /videos/{videoId} {
-      allow read: if isOwner();
+      allow read: if isOwner() || isReviewer();
       allow create, update, delete: if isOwner();
     }
 
@@ -92,7 +102,7 @@ service cloud.firestore {
     match /series/{docId} { allow read: if isOwner(); }
     match /series_plans/{docId} { allow read: if isOwner(); }
     match /scheduled_posts/{docId} { allow read: if isOwner(); }
-    match /tiktok_composer/{docId} { allow read: if isOwner(); }
+    match /tiktok_composer/{docId} { allow read, write: if isOwner() || isReviewer(); }
     match /viral_news/{docId} { allow read: if isOwner(); }
     match /viral_news_posts/{docId} { allow read: if isOwner(); }
     match /viral_runs/{docId} { allow read: if isOwner(); }

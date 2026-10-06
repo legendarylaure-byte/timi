@@ -18,5 +18,5 @@ import { requireUser } from '@/lib/api-auth';
 export async function POST(request: Request) {
   const auth = await requireUser(request);
   if (!auth.ok) return auth.response;
-  return NextResponse.json({ success: true, uid: auth.user.uid, email: auth.user.email });
+  return NextResponse.json({ success: true, uid: auth.user.uid, email: auth.user.email, role: auth.user.role });
 }

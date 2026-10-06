@@ -392,6 +392,22 @@ def _rule_based_parse(script_text: str, storyboard_text: str, format_type: str, 
 
     scene_blocks = scene_blocks[:target_scene_count]
 
+    # Enforce scene count range per format (prompt asks 5-8 shorts, 12-18 longs)
+    min_scenes, max_scenes = (5, 8) if format_type == "shorts" else (12, 18)
+    actual_count = len(scene_blocks)
+    if actual_count < min_scenes or actual_count > max_scenes:
+        logger.warning(
+            f"Scene count {actual_count} outside allowed range [{min_scenes}-{max_scenes}] for {format_type}; "
+            f"truncating/padding to fit"
+        )
+    # The truncation at target_scene_count above already handles max; pad if too few
+    if len(scene_blocks) < min_scenes:
+        pad = scene_blocks[-1] if scene_blocks else combined
+        while len(scene_blocks) < min_scenes:
+            scene_blocks.append(pad)
+    elif len(scene_blocks) > max_scenes:
+        scene_blocks = scene_blocks[:max_scenes]
+
     prev_state: Optional[SceneState] = None
     for i, block in enumerate(scene_blocks):
         narration_text = _extract_narration_text_from_block(block)
@@ -972,6 +988,21 @@ def _default_scene(index: int) -> dict:
 
 
 def _adjust_scenes_for_format(scenes: list[dict], format_type: str, max_allowed: int = None) -> list[dict]:
+    # Enforce scene count range per format (prompt asks 5-8 shorts, 12-18 longs)
+    min_scenes, max_scenes = (5, 8) if format_type == "shorts" else (12, 18)
+    if len(scenes) < min_scenes:
+        logger.warning(
+            f"Scene count {len(scenes)} below minimum {min_scenes} for {format_type}; padding with last scene"
+        )
+        pad = scenes[-1] if scenes else {"background": "stock_footage", "duration": 5.0}
+        while len(scenes) < min_scenes:
+            scenes.append(pad)
+    elif len(scenes) > max_scenes:
+        logger.warning(
+            f"Scene count {len(scenes)} above maximum {max_scenes} for {format_type}; truncating"
+        )
+        scenes = scenes[:max_scenes]
+
     is_deep = max_allowed and max_allowed >= 600
     if format_type == "shorts":
         cap = float(os.getenv("SHORTS_MAX_DURATION", "180"))

@@ -667,9 +667,12 @@ def test_tiktok_path_is_captured_before_the_watermark_overlay():
     cap = captures[0]
 
     fn = next((n for n in ast.walk(tree)
-               if isinstance(n, ast.FunctionDef) and cap.lineno >= n.lineno), None)
+               if isinstance(n, ast.FunctionDef)
+               and n.lineno <= cap.lineno
+               and (n.end_lineno is None or n.end_lineno >= cap.lineno)), None)
     assert fn is not None, "the capture is not inside a function"
-    body = src[fn.lineno - 1:]
+    # Search within the function's own source segment, not to EOF.
+    body = ast.get_source_segment(src, fn)
 
     overlay = body.find("add_logo_overlay(")
     assert overlay != -1, f"no add_logo_overlay( call found inside {fn.name}"

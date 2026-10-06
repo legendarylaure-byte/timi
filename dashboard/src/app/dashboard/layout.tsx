@@ -75,6 +75,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
   const router = useRouter();
   const pathname = usePathname();
   const [user, setUser] = useState<User | null>(null);
+  const [userRole, setUserRole] = useState<'owner' | 'reviewer'>('owner');
   const [currentTime, setCurrentTime] = useState<string>('');
   const [sidebarOpen, setSidebarOpen] = useState(true);
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
@@ -137,10 +138,19 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
           return;
         }
       }
+      const data = await res.json().catch(() => ({}));
+      setUserRole(data.role === 'reviewer' ? 'reviewer' : 'owner');
       setUser(u);
     });
     return () => unsubscribe();
   }, [router]);
+
+  // Reviewer role: redirect to /dashboard/publishing if they navigate elsewhere
+  useEffect(() => {
+    if (userRole === 'reviewer' && pathname !== '/dashboard/publishing') {
+      router.push('/dashboard/publishing');
+    }
+  }, [userRole, pathname, router]);
 
   const handleLogout = async () => {
     await auth.signOut();
@@ -160,6 +170,17 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
     { icon: Clapperboard, value: '3', label: 'Videos' },
     { icon: Eye, value: '28K', label: 'Views' },
   ];
+
+  const visibleNavGroups = userRole === 'reviewer'
+    ? navGroups.map((g) => ({
+        ...g,
+        items: g.items.filter((i) => i.path === '/dashboard/publishing'),
+      })).filter((g) => g.items.length > 0)
+    : navGroups;
+
+  const visibleMobilePaths = userRole === 'reviewer'
+    ? ['/dashboard/publishing']
+    : MOBILE_NAV_PATHS;
 
   return (
     <div className="min-h-screen bg-light-bg dark:bg-dark-bg flex relative">
@@ -202,7 +223,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
         )}
 
         <nav className="flex-1 px-3 py-4 overflow-y-auto space-y-2">
-          {navGroups.map((group) => {
+          {visibleNavGroups.map((group) => {
             const isCollapsed = collapsedGroups[group.label];
             const hasActive = group.items.some((i) => pathname === i.path);
             return (
@@ -312,7 +333,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
           className="md:hidden fixed bottom-0 left-0 right-0 glass-strong z-50 border-t border-light-border/50 dark:border-dark-border/50"
         >
           <div className="flex items-center justify-around px-2 py-2">
-            {MOBILE_NAV_PATHS.map((path) => {
+            {visibleMobilePaths.map((path) => {
               const item = navItems.find((i) => i.path === path);
               // A typo in MOBILE_NAV_PATHS would otherwise render a blank gap.
               if (!item) return null;
@@ -371,7 +392,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
               </div>
 
               <nav className="flex-1 space-y-3 overflow-y-auto">
-                {navGroups.map((group) => {
+                {visibleNavGroups.map((group) => {
                   const isCollapsed = collapsedGroups[group.label];
                   const hasActive = group.items.some((i) => pathname === i.path);
                   return (

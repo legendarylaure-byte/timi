@@ -365,6 +365,22 @@ def _publish_dubbed_languages(video_id: str, clean_video_path: str, script_text:
                 log_event("DUB", f"{lang_code} mux failed: {stats.get('reason')}", "warn")
                 continue
 
+            # Apply channel watermark to the dubbed video (same as main video flow)
+            if ENABLE_WATERMARK and dub_video:
+                try:
+                    from utils.video_compositor import add_logo_overlay
+                    logo_path = os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                                             "utils", "assets", "channel_logo.png")
+                    wm_path = f"{os.path.splitext(dub_video)[0]}_wm{os.path.splitext(dub_video)[1]}"
+                    if add_logo_overlay(dub_video, logo_path, wm_path,
+                                        position="safe", format_type=fmt):
+                        dub_video = wm_path
+                        log_event("DUB", f"{lang_code} channel watermark applied -> {wm_path}")
+                    else:
+                        log_event("DUB", f"{lang_code} watermark skipped (overlay failed); uploading without it")
+                except Exception as e:
+                    log_event("DUB", f"{lang_code} watermark raised {type(e).__name__}; uploading without it")
+
             # Captions must sit after the card and follow the corrected audio.
             scale = float(dub.get("stats", {}).get("scale", 1.0))
             phrases = build_dub_timings(dub.get("segments", []),
@@ -4235,9 +4251,13 @@ def tiktok_composer_job():
 
 def _fail_intent(db, intent_id: str, reason: str):
     try:
+        reason_str = str(reason)
+        quota_codes = ['spam_risk_too_many_posts', 'reached_active_user_cap', 'posting limit', 'active-user cap']
+        is_quota = any(code in reason_str.lower() for code in quota_codes)
+        status = 'limit_reached' if is_quota else 'failed'
         db.collection('tiktok_composer').document(intent_id).update({
-            'status': 'failed',
-            'error': str(reason)[:500],
+            'status': status,
+            'error': reason_str[:500],
             'completed_at': time.time(),
         })
     except Exception as e:

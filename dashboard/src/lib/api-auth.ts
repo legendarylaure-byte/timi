@@ -1,9 +1,9 @@
 // ponytail: all API routes must call this, not their own verification
 import { NextResponse } from 'next/server';
 import { getAdminAuth } from '@/lib/firebase-admin';
-import { isAllowedEmail } from './allowed-emails';
+import { isAllowedEmail, isOwnerEmail } from './allowed-emails';
 
-export type Authed = { uid: string; email: string };
+export type Authed = { uid: string; email: string; role: 'owner' | 'reviewer' };
 export type AuthResult =
   | { ok: true; user: Authed }
   | { ok: false; response: NextResponse };
@@ -16,6 +16,10 @@ export type AuthResult =
  *
  *   const auth = await requireUser(request);
  *   if (!auth.ok) return auth.response;
+ *
+ * Reviewer role: any allowlisted non-owner email gets role 'reviewer' and can
+ * only access /api/tiktok/composer/* and /api/auth. All other routes return 403.
+ * This is the API-level gate; Firestore rules provide a second layer.
  */
 export async function requireUser(request: Request): Promise<AuthResult> {
   const denied = (status: number, error: string): AuthResult => ({
@@ -34,5 +38,15 @@ export async function requireUser(request: Request): Promise<AuthResult> {
   }
 
   if (!isAllowedEmail(decoded.email)) return denied(403, 'Not authorized');
-  return { ok: true, user: { uid: decoded.uid, email: decoded.email ?? '' } };
+
+  const role: 'owner' | 'reviewer' = isOwnerEmail(decoded.email) ? 'owner' : 'reviewer';
+
+  if (role === 'reviewer') {
+    const url = new URL(request.url);
+    const path = url.pathname;
+    const allowed = path.startsWith('/api/tiktok/composer/') || path === '/api/auth';
+    if (!allowed) return denied(403, 'Not authorized');
+  }
+
+  return { ok: true, user: { uid: decoded.uid, email: decoded.email ?? '', role } };
 }

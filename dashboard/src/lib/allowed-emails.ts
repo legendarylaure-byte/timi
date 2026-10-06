@@ -43,6 +43,11 @@ export function isAllowedEmail(email: string | null | undefined): boolean {
   return ALLOWED.includes(email.trim().toLowerCase());
 }
 
+export function isOwnerEmail(email: string | null | undefined): boolean {
+  if (!email) return false;
+  return email.trim().toLowerCase() === OWNER_EMAIL;
+}
+
 export function allowedEmails(): string[] {
   return ALLOWED;
 }

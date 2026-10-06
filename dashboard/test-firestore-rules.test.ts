@@ -177,6 +177,25 @@ console.log('\n9. both CI-visible copies of the owner email agree');
   else ok('firestore.rules matches dashboard constant');
 }
 
+console.log('\n9b. reviewer role is defined and scoped to tiktok_composer + videos read');
+{
+  if (!/function isReviewer\(\)/.test(src)) bad('isReviewer() not found in rules');
+  else ok('isReviewer() defined');
+
+  const reviewerBlock = blocks['tiktok_composer'];
+  if (!reviewerBlock) bad('no match block for tiktok_composer');
+  else if (!/isReviewer/.test(reviewerBlock)) bad('tiktok_composer does not grant reviewer access');
+  else ok('tiktok_composer allows reviewer');
+
+  const videosBlock = blocks['videos'];
+  if (!videosBlock) bad('no match block for videos');
+  else if (!/allow read[^:]*:\s*if\s+isOwner\(\)\s*\|\|\s*isReviewer\(\)/.test(videosBlock)) bad('videos read not granted to reviewer');
+  else ok('videos read allowed for reviewer');
+
+  if (/allow read, write: if isReviewer/.test(src)) bad('isReviewer grants write outside tiktok_composer');
+  else ok('isReviewer has no unscoped write');
+}
+
 // A config that omits a rules file deploys the OTHER rules silently. That is
 // how the root firebase.json shipped with indexes but no `rules` key: the CI
 // deploy job ran green from the repo root and published nothing, so nobody
