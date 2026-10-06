@@ -414,6 +414,149 @@ def test_daily_volume_guard_alerts_on_short_slate(monkeypatch):
     assert len(sent) == 1, f"expected an alert, got {sent}"
 
 
+# ------------------------------------------- in-flight: do not judge a live run
+def _activity(minutes_ago):
+    """A real datetime, which is what Firestore returns (DatetimeWithNanoseconds
+    subclasses datetime). _FakeTimestamp is a stub for a different guard and
+    would be skipped by the isinstance check, silently fail-open the deferral,
+    and make these tests pass for the wrong reason."""
+    when = datetime.now(timezone.utc) - timedelta(minutes=minutes_ago)
+    return _Doc({"timestamp": when})
+
+
+def _volume_says_shortfall(monkeypatch, main):
+    monkeypatch.setattr(
+        alert_manager,
+        "check_daily_volume",
+        lambda docs, slate: {"message": "0/5 videos", "severity": "error"},
+    )
+    monkeypatch.setattr(main, "log_event", lambda *a, **k: None)
+
+
+def test_daily_volume_guard_defers_while_a_run_is_in_flight(monkeypatch):
+    """A run that started minutes ago has published nothing -- that is not a fault.
+
+    On 2026-10-05 the guard fired at 15:19, fourteen minutes into a run that
+    finished 5/5 at 16:54, and that single alert reached Slack.
+    """
+    main = _main()
+    sent = []
+    _volume_says_shortfall(monkeypatch, main)
+    monkeypatch.setattr(main, "send_alert", lambda *a, **k: sent.append(a))
+
+    main._guard_daily_volume(_FakeDB(activity_docs=[_activity(5)]))
+
+    assert sent == [], f"judged a run that is still going: {sent}"
+
+
+def test_daily_volume_guard_alerts_once_the_run_goes_quiet(monkeypatch):
+    """The counterweight. Without this, the fix is just a guard that never fires.
+
+    Measured: during a run `activity_logs` has a max gap of 12.4 minutes, idle
+    77.2. So 40 minutes stale must mean "run over, judge it".
+    """
+    main = _main()
+    sent = []
+    _volume_says_shortfall(monkeypatch, main)
+    monkeypatch.setattr(main, "send_alert", lambda *a, **k: sent.append(a))
+
+    main._guard_daily_volume(_FakeDB(activity_docs=[_activity(40)]))
+
+    assert len(sent) == 1, f"a finished run reporting 0/5 must alert, got {sent}"
+
+
+def test_deferring_does_not_stamp_the_cooldown(monkeypatch):
+    """The half that actually matters, and the one a silence-only test misses.
+
+    The real production harm was not the noise: the false alert at 15:19 stamped
+    the 6h cooldown, so a genuine shortfall later in the same run stayed silent
+    until 21:19. Deferring must therefore happen BEFORE send_alert -- never send
+    a "still running" notice, or the guard disarms itself.
+
+    Uses the real send_alert and the real cooldown table, so this fails if the
+    guard sends anything at all while a run is live.
+    """
+    main = _main()
+    _volume_says_shortfall(monkeypatch, main)
+    slack = _slack_recorder(monkeypatch)
+    alert_manager._alert_last_sent.clear()
+
+    # Tick 1: run is live -> must be silent and must not arm the cooldown.
+    main._guard_daily_volume(_FakeDB(activity_docs=[_activity(5)]))
+    assert slack == [], f"alerted during a live run: {slack}"
+    assert not alert_manager._alert_last_sent, (
+        "the in-flight deferral stamped the cooldown, so a real shortfall later "
+        "in this run would be swallowed for 6h -- the exact 10-05 failure"
+    )
+
+    # Tick 2: run has finished and really is short -> must reach Slack.
+    main._guard_daily_volume(_FakeDB(activity_docs=[_activity(40)]))
+    assert len(slack) == 1, f"the genuine alert was swallowed: {slack}"
+    alert_manager._alert_last_sent.clear()
+
+
+def test_in_flight_threshold_is_configurable(monkeypatch):
+    """A calibration knob, not a constant: run duration is not a fixed thing."""
+    main = _main()
+    monkeypatch.setenv("RUN_IN_FLIGHT_MINUTES", "2")
+    assert main._run_in_flight_minutes() == 2
+
+    sent = []
+    _volume_says_shortfall(monkeypatch, main)
+    monkeypatch.setattr(main, "send_alert", lambda *a, **k: sent.append(a))
+    # 5 minutes stale, but only a 2-minute window is being asked about.
+    main._guard_daily_volume(_FakeDB(activity_docs=[_activity(5)]))
+    assert len(sent) == 1, "a 2-minute window must not treat 5-minute-old activity as live"
+
+
+def test_in_flight_fails_open_when_it_cannot_tell(monkeypatch):
+    """Unknown is not healthy and not broken. The guard must still judge.
+
+    This is the D42 direction: a check that cannot tell must not silently pass.
+    """
+    main = _main()
+    sent = []
+    _volume_says_shortfall(monkeypatch, main)
+    monkeypatch.setattr(main, "send_alert", lambda *a, **k: sent.append(a))
+
+    assert main._run_in_flight(_FakeDB(activity_docs=[])) is None
+    main._guard_daily_volume(_FakeDB(activity_docs=[]))
+    assert len(sent) == 1, "an unreadable activity log must not disarm the guard"
+
+
+def test_in_flight_tolerates_an_unparseable_timestamp(monkeypatch):
+    """A malformed timestamp must not raise -- one bad doc, not a dead guard."""
+    main = _main()
+    sent = []
+    _volume_says_shortfall(monkeypatch, main)
+    monkeypatch.setattr(main, "send_alert", lambda *a, **k: sent.append(a))
+
+    db = _FakeDB(activity_docs=[_Doc({"timestamp": "not-a-date"})])
+    assert main._run_in_flight(db) is None
+    main._guard_daily_volume(db)
+    assert len(sent) == 1
+
+
+def test_in_flight_fails_open_when_there_is_no_firestore(monkeypatch):
+    """The no-client branch, which nothing else reaches.
+
+    Mutation-confirmed: making this return True instead of None leaves the rest
+    of the suite green, because every other test supplies a fake db. So the
+    branch that would disarm the guard entirely during a Firestore outage was
+    the one thing not covered. Failing open means the guard still judges on the
+    last known good state instead of going quiet.
+    """
+    main = _main()
+    monkeypatch.setattr(
+        "utils.firebase_status.get_firestore_client", lambda: None, raising=False
+    )
+
+    assert main._run_in_flight() is None, (
+        "with no Firestore the in-flight check must return None (cannot tell), "
+        "not True -- returning True silently disables the volume guard"
+    )
+
+
 # ------------------------------------------------------------------ cooldown
 def _slack_recorder(monkeypatch):
     calls = []

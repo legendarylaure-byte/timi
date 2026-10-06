@@ -87,6 +87,7 @@ from utils.checkpoint import save_checkpoint, load_checkpoint, clear_checkpoint
 from utils.title_optimizer import pick_best_title
 from crew.affiliate_manager import build_affiliate_section
 from datetime import datetime, timedelta, timezone
+from typing import Optional
 from apscheduler.schedulers.blocking import BlockingScheduler
 from dotenv import load_dotenv
 from utils.scene_parser import normalize_scene_durations
@@ -3675,6 +3676,83 @@ def _guard_system_resources(db=None) -> None:
         log_event("ALERT", msg, "warn")
 
 
+def _run_in_flight_minutes() -> int:
+    """How recently activity must have been logged for a run to count as live."""
+    try:
+        return max(1, int(os.environ.get("RUN_IN_FLIGHT_MINUTES", "30")))
+    except (TypeError, ValueError):
+        return 30
+
+
+def _run_in_flight(db=None) -> Optional[bool]:
+    """True when a content run looks like it is still going.
+
+    The daily run takes roughly two hours, and the volume guard fires every 15
+    minutes, so an unguarded judge reports 0/5 minutes after the run starts and
+    sends it to Slack. On 2026-10-05 that single false alert also stamped the
+    6h cooldown, so a genuine shortfall later in the same run stayed silent --
+    the false positive did not merely annoy, it disarmed the alarm.
+
+    Measured from Firestore: during a run `activity_logs` has a max gap of 12.4
+    minutes, and while idle 77.2. So "logged within RUN_IN_FLIGHT_MINUTES
+    (default 30)" separates the two with room to spare, and it needs no retuning
+    when the run gets slower.
+
+    This must stay BEFORE send_alert: deferring without sending is what leaves
+    the cooldown un-stamped, so the verdict after the run finishes can still
+    alert. `log_event` writes only to stdout/pipeline.log/python logging, never
+    to `activity_logs`, so this check cannot keep itself true.
+
+    Returns None when it cannot tell (no db, no readable timestamp) -- the
+    caller then judges, because failing open is what the D42 fix demanded.
+    """
+    if db is None:
+        from utils.firebase_status import get_firestore_client
+        db = get_firestore_client()
+    if db is None:
+        return None
+
+    try:
+        newest = None
+        for doc in (
+            db.collection("activity_logs")
+            .order_by("timestamp", direction="DESCENDING")
+            .limit(1)
+            .stream()
+        ):
+            # to_dict().get(), not doc.get(): a Firestore snapshot's .get()
+            # RAISES KeyError on a missing field, so one doc without a timestamp
+            # would kill the check and fail the guard open on every tick.
+            ts = (doc.to_dict() or {}).get("timestamp")
+            if isinstance(ts, str):
+                try:
+                    ts = datetime.fromisoformat(ts.replace("Z", "+00:00"))
+                except ValueError:
+                    ts = None
+            if not isinstance(ts, datetime):
+                continue
+            if ts.tzinfo is None:
+                ts = ts.replace(tzinfo=timezone.utc)
+            newest = ts.astimezone(timezone.utc)
+        if newest is None:
+            return None
+        age = (datetime.now(timezone.utc) - newest).total_seconds() / 60.0
+    except Exception as e:
+        log_event("ALERT", f"in-flight check unavailable, judging anyway: {e}", "warn")
+        return None
+
+    minutes = _run_in_flight_minutes()
+    if age < minutes:
+        log_event(
+            "ALERT",
+            f"Run looks in flight (last activity {age:.1f}min ago < {minutes}min) "
+            f"— deferring the volume check",
+            "debug",
+        )
+        return True
+    return False
+
+
 def _guard_daily_volume(db=None) -> None:
     """Verify the scheduled slate landed. Warns per-format, alerts on zero.
 
@@ -3683,6 +3761,8 @@ def _guard_daily_volume(db=None) -> None:
     real daily volume (5) and the old guard passed on a day that shipped 3 of 5.
     It also compared format == "short" against docs stored as "shorts", so
     per-format counts were always 0.
+
+    Defers while a run is still in flight -- see _run_in_flight.
     """
     from utils.alert_manager import check_daily_volume
     from utils.scheduler_planner import daily_slate
@@ -3690,6 +3770,9 @@ def _guard_daily_volume(db=None) -> None:
     if db is None:
         from utils.firebase_status import get_firestore_client
         db = get_firestore_client()
+
+    if _run_in_flight(db):
+        return
 
     slate = daily_slate()
     cutoff = datetime.utcnow() - timedelta(hours=26)
