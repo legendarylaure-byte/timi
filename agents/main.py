@@ -4206,6 +4206,22 @@ def tiktok_composer_job():
             _fail_intent(db, intent_id, f'Video file unavailable for video_id={video_id}')
             return
 
+        # Derive the clean master / watermarked pair from the resolved path.
+        # The composer only publishes to TikTok, but multi_platform_publish
+        # still expects video_path (watermarked) and tiktok_path (clean) to
+        # both exist when watermarking is on.
+        if not tiktok_path:
+            base, ext = os.path.splitext(video_path)
+            if base.endswith('_wm'):
+                candidate = base[:-3] + ext
+                if os.path.exists(candidate):
+                    tiktok_path = candidate
+            else:
+                wm_candidate = base + '_wm' + ext
+                if os.path.exists(wm_candidate):
+                    video_path = wm_candidate
+                tiktok_path = video_path.replace('_wm', '') if video_path.endswith('_wm' + ext) else video_path
+
         # The checkpoint's video_path carries the channel watermark, which TikTok's
         # App Review rejects. Prefer the clean master when the checkpoint recorded
         # one; fall back to the resolved file otherwise (older videos, or a
@@ -4213,6 +4229,23 @@ def tiktok_composer_job():
         if tiktok_path and not os.path.exists(tiktok_path):
             log_event("TIKTOK_COMPOSER", f"Clean master missing ({tiktok_path}); using resolved file", "warn")
             tiktok_path = ''
+
+        _is_upload = False
+        try:
+            _v = db.collection("videos").document(video_id).get()
+            if _v.exists and _v.to_dict().get("source") == "reviewer_upload":
+                _is_upload = True
+        except Exception:
+            pass
+
+        # ponytail: a locally resolved video without a watermarked sibling is
+        # already clean; treat it as such so an uploaded demo file can publish.
+        _wants_clean_only = video_path and '_wm' not in os.path.basename(video_path)
+        if _wants_clean_only:
+            _old_watermark = os.environ.get('ENABLE_WATERMARK')
+            os.environ['ENABLE_WATERMARK'] = 'false'
+        else:
+            _old_watermark = None
 
         def _do():
             result = multi_platform_publish(

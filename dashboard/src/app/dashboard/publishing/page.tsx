@@ -73,6 +73,8 @@ const [platforms, setPlatforms] = useState<PlatformConfig[]>([]);
   const [compIntentId, setCompIntentId] = useState('');
   const [compIntent, setCompIntent] = useState<any>(null);
   const [compMsgs, setCompMsgs] = useState<string[]>([]);
+  const [compUploading, setCompUploading] = useState(false);
+  const [compUploadProgress, setCompUploadProgress] = useState(0);
   const [userRole, setUserRole] = useState<'owner' | 'reviewer'>('owner');
 
   useEffect(() => {
@@ -591,6 +593,50 @@ const connectedCount = platforms.filter(p => p.connected).length;
                 </button>
               ))}
             </div>
+          </div>
+
+          {/* Manual upload shortcut for reviewers */}
+          <div>
+            <label className="text-xs font-medium text-light-muted dark:text-dark-muted block mb-1">Upload a video file to R2</label>
+            <input
+              type="file"
+              accept="video/*"
+              onChange={async (e) => {
+                const file = e.target.files?.[0];
+                if (!file) return;
+                setCompUploading(true);
+                setCompUploadProgress(15);
+                const _fake = setInterval(() => { setCompUploadProgress(p => Math.min(p + 15, 90)); }, 200);
+                try {
+                  const form = new FormData();
+                  form.append('file', file);
+                  form.append('format', 'shorts');
+                  const res = await apiFetch('/api/tiktok/composer/upload', { method: 'POST', body: form });
+                  const data = await res.json();
+                  clearInterval(_fake);
+                  setCompUploadProgress(100);
+                  if (data.success) {
+                    setCompVideo(data.video_id);
+                    setAvailableVideos(p => [{ video_id: data.video_id, title: file.name, format: 'shorts', status: 'uploaded', r2_key: data.r2_key }, ...p]);
+                    compPushMsg('Uploaded: ' + data.video_id);
+                  } else {
+                    compPushMsg('Upload failed: ' + (data.error || 'unknown'));
+                  }
+                } catch (err: any) {
+                  compPushMsg('Upload failed: ' + err.message);
+                } finally {
+                  clearInterval(_fake);
+                  setCompUploading(false);
+                  setTimeout(() => setCompUploadProgress(0), 1500);
+                }
+              }}
+              className="w-full px-3 py-2 rounded-xl bg-light-bg dark:bg-dark-bg border border-light-border/30 dark:border-white/5 text-sm text-light-text dark:text-dark-text"
+            />
+            {compUploading && (
+              <div className="mt-2 w-full h-2 rounded-full bg-gray-200 dark:bg-gray-700 overflow-hidden">
+                <div className="h-full bg-light-primary dark:bg-dark-primary transition-all duration-200" style={{ width: `${compUploadProgress}%` }} />
+              </div>
+            )}
           </div>
 
           {/* Content preview (guideline 5a) */}
