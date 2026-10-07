@@ -4240,12 +4240,10 @@ def tiktok_composer_job():
 
         # ponytail: a locally resolved video without a watermarked sibling is
         # already clean; treat it as such so an uploaded demo file can publish.
+        _old_watermark = os.environ.get('ENABLE_WATERMARK')
         _wants_clean_only = video_path and '_wm' not in os.path.basename(video_path)
         if _wants_clean_only:
-            _old_watermark = os.environ.get('ENABLE_WATERMARK')
             os.environ['ENABLE_WATERMARK'] = 'false'
-        else:
-            _old_watermark = None
 
         def _do():
             result = multi_platform_publish(
@@ -4279,7 +4277,19 @@ def tiktok_composer_job():
                 raise RuntimeError(t.get('error', 'TikTok publish failed'))
 
         from utils.subprocess_helper import retry_with_backoff
-        ok, result = retry_with_backoff(_do, max_retries=2, base_delay=5, max_delay=30)
+        try:
+            ok, result = retry_with_backoff(_do, max_retries=2, base_delay=5, max_delay=30)
+        finally:
+            # The env toggle is process-global and the publisher re-reads it per
+            # publish (multi_platform_publisher line ~1203), so a clean-only
+            # intent must not leak ENABLE_WATERMARK=false into the next intent
+            # handled by this scan -- that would make a watermarked video_path
+            # look clean and ship the exact App Review rejection this path exists
+            # to prevent.
+            if _old_watermark is None:
+                os.environ.pop('ENABLE_WATERMARK', None)
+            else:
+                os.environ['ENABLE_WATERMARK'] = _old_watermark
         if not ok:
             _fail_intent(db, intent_id, result if isinstance(result, str) else str(result))
     except Exception as e:

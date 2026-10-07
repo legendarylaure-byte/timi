@@ -488,6 +488,30 @@ def _upload_tiktok(title: str, video_path: str, format_type: str, privacy_level:
         security_audit("PRIVACY_MISSING", 'TikTok publish blocked: no privacy_level', "error")
         return {'success': False, 'platform': 'tiktok', 'error': msg}
 
+    # Unaudited Direct Post app gate: while TIKTOK_PRIVACY_LEVEL is SELF_ONLY (or
+    # unset) TikTok refuses anything else at init with
+    # `unaudited_client_can_only_post_to_private_accounts`. One shared guard here
+    # covers every caller (shorts, long, composer job, direct API) so a non-private
+    # post cannot slip past the audit -- and it reuses _tiktok_init_error so a
+    # branded post gets the "brand content cannot be published privately; complete
+    # App Review" guidance, never the plain "use SELF_ONLY" that a brand post cannot
+    # satisfy. Flip TIKTOK_PRIVACY_LEVEL to PUBLIC_TO_EVERYONE after the TikTok
+    # Direct Post audit grants and this restriction lifts.
+    env_privacy = os.getenv('TIKTOK_PRIVACY_LEVEL', '').strip().upper()
+    if privacy_level.upper() != 'SELF_ONLY' and (env_privacy in ('', 'SELF_ONLY')):
+        class _Unaudited:
+            status_code = 403
+            text = ''
+
+            @staticmethod
+            def json():
+                return {"error": {"code": "unaudited_client_can_only_post_to_private_accounts",
+                                  "message": "local guard: Direct Post app not yet audited"}}
+        msg = _tiktok_init_error(_Unaudited(), brand_content)
+        log_activity('publisher', f'TikTok blocked non-SELF_ONLY privacy while the app is unaudited: {safe_log(privacy_level)}', 'error')
+        security_audit("TIKTOK_UNAUDITED_PRIVACY", f'TikTok blocked non-SELF_ONLY privacy: {safe_log(privacy_level)}', "error")
+        return {'success': False, 'platform': 'tiktok', 'error': msg}
+
     if not os.path.exists(video_path):
         return {'success': False, 'platform': 'tiktok', 'error': f'Video file not found: {video_path}'}
 

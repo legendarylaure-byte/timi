@@ -25,6 +25,26 @@ export async function POST(request: Request) {
         { status: 400 },
       );
     }
+
+    const db = getAdminFirestore();
+
+    // An unaudited Direct Post app may only post with SELF_ONLY privacy; TikTok
+    // refuses anything else at init with `unaudited_client_can_only_post_to_private_accounts`.
+    // The single knob is TIKTOK_PRIVACY_LEVEL: while it is SELF_ONLY (or unset) only
+    // SELF_ONLY posts are legal. When the audit grants, flip that env var to
+    // PUBLIC_TO_EVERYONE and this restriction lifts automatically.
+    const envDoc = await db.collection('env_vars').doc('TIKTOK_PRIVACY_LEVEL').get().catch(() => null);
+    const privacyEnv = (envDoc?.exists && envDoc.data()?.value) || '';
+    const unaudited = !privacyEnv || privacyEnv.toUpperCase() === 'SELF_ONLY';
+    if (unaudited && privacy_level.trim().toUpperCase() !== 'SELF_ONLY') {
+      return NextResponse.json(
+        {
+          success: false,
+          error: `Your TikTok app is not yet audited, so TikTok only permits "Only me" (SELF_ONLY) posts. A private post still proves the publishing flow.`,
+        },
+        { status: 400 },
+      );
+    }
     if (!express_consent) {
       return NextResponse.json(
         { success: false, error: 'express_consent is required before publishing' },
@@ -38,7 +58,6 @@ export async function POST(request: Request) {
       );
     }
 
-    const db = getAdminFirestore();
     const doc = await db.collection('tiktok_composer').add({
       video_id,
       title,

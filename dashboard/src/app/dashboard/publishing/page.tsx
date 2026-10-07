@@ -54,6 +54,7 @@ const [platforms, setPlatforms] = useState<PlatformConfig[]>([]);
   // TikTok composer state
   const [availableVideos, setAvailableVideos] = useState<any[]>([]);
   const [privacyOptions, setPrivacyOptions] = useState<any[]>([]);
+  const [compUnaudited, setCompUnaudited] = useState(false);
   const [compTitle, setCompTitle] = useState('');
   const [compVideo, setCompVideo] = useState('');
   const [compPrivacy, setCompPrivacy] = useState('');
@@ -120,6 +121,7 @@ useEffect(() => {
       const res = await apiFetch('/api/tiktok/composer/options');
       const data = await res.json();
       if (data.success) {
+        setCompUnaudited(!!data.unaudited);
         setPrivacyOptions(Array.isArray(data.privacy_level_options) ? data.privacy_level_options : []);
         setCompCreator({
           nickname: data.creator_nickname || '',
@@ -357,6 +359,7 @@ const connectedCount = platforms.filter(p => p.connected).length;
           </p>
         </div>
       ) : (
+      <>
       {/* Stats */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
         {[
@@ -523,7 +526,7 @@ const connectedCount = platforms.filter(p => p.connected).length;
         ))}
       </div>
       )}
-
+      </>
       )}
 
 {/* TikTok Composer */}
@@ -719,11 +722,11 @@ const connectedCount = platforms.filter(p => p.connected).length;
                 className="flex-1 px-3 py-2 rounded-xl bg-light-bg dark:bg-dark-bg border border-light-border/30 dark:border-white/5 text-sm text-light-text dark:text-dark-text outline-none focus:border-light-primary/50"
               >
                 <option value="">Select privacy…</option>
-                {privacyOptions.map((opt: any) => {
+                {(compUnaudited ? ['SELF_ONLY'] : privacyOptions).map((opt: any) => {
                   const val = typeof opt === 'string' ? opt : (opt?.level || opt?.privacy_level || opt?.value || '');
                   const label = compPrivacyLabel(opt);
                   const blocked = compBrandToggle && compBrandContent && val === 'SELF_ONLY';
-                  return val ? <option key={val} value={val} disabled={!!blocked}>{label}{blocked ? ' (blocked for branded content)' : ''}</option> : null;
+                  return val ? <option key={val} value={val} disabled={!!blocked}>{label}{compUnaudited ? ' (only option until app audit grants)' : ''}{blocked ? ' (blocked for branded content)' : ''}</option> : null;
                 })}
               </select>
               <button
@@ -734,6 +737,11 @@ const connectedCount = platforms.filter(p => p.connected).length;
                 {compOptionsLoading ? 'Loading…' : 'Reload options'}
               </button>
             </div>
+            {compUnaudited && (
+              <p className="text-xs text-amber-500 mt-1">
+                Your TikTok app is not yet audited — TikTok only permits posts visible to &quot;Only me&quot; (SELF_ONLY) until the Direct Post audit grants. A private post still proves the publishing flow.
+              </p>
+            )}
           </div>
 
           <div className="space-y-2 pt-1">
@@ -824,7 +832,16 @@ const connectedCount = platforms.filter(p => p.connected).length;
                 </span>
               </div>
               {compIntent.status !== 'published' && compIntent.status !== 'failed' && compIntent.status !== 'limit_reached' && (
-                <p className="text-xs text-light-muted dark:text-dark-muted mt-1">Processing — this may take a few minutes to appear on TikTok.</p>
+                <div className="mt-2">
+                  <div className="h-1.5 w-full overflow-hidden rounded-full bg-light-border dark:bg-dark-border">
+                    <motion.div
+                      className="h-full rounded-full bg-gradient-to-r from-light-primary to-purple-600"
+                      animate={{ x: ['-100%', '200%'] }}
+                      transition={{ repeat: Infinity, duration: 1.2, ease: 'easeInOut' }}
+                    />
+                  </div>
+                  <p className="text-xs text-light-muted dark:text-dark-muted mt-2">Publishing to TikTok — this may take a few minutes to appear.</p>
+                </div>
               )}
               {compIntent.status === 'limit_reached' && (
                 <p className="text-xs text-amber-500 mt-1">You&apos;ve hit today&apos;s posting limit — try again later.</p>

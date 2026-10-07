@@ -93,8 +93,21 @@ export async function GET(request: Request) {
     }
 
     const info = body?.data || {};
+
+    // The Direct Post app is NOT audited until TikTok grants it, and an unaudited
+    // app may only post with SELF_ONLY privacy (init returns
+    // `unaudited_client_can_only_post_to_private_accounts` for anything else).
+    // The one production knob is TIKTOK_PRIVACY_LEVEL: while it is SELF_ONLY the
+    // composer must only offer "Only me" for the explicit choice, and the publish
+    // route must refuse anything else. When the audit grants, flip that env var to
+    // PUBLIC_TO_EVERYONE and this flag flips automatically -- one knob, no code.
+    const envDoc = await db.collection('env_vars').doc('TIKTOK_PRIVACY_LEVEL').get().catch(() => null);
+    const privacyEnv = (envDoc?.exists && envDoc.data()?.value) || '';
+    const unaudited = !privacyEnv || privacyEnv.toUpperCase() === 'SELF_ONLY';
+
     return NextResponse.json({
       success: true,
+      unaudited,
       creator_nickname: info.creator_nickname || '',
       creator_username: info.creator_username || '',
       creator_avatar_url: info.creator_avatar_url || '',

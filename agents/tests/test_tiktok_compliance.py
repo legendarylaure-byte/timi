@@ -86,6 +86,11 @@ def _publish_capture(monkeypatch, tmp_path):
     monkeypatch.setitem(__import__("sys").modules, "requests", _FakeRequests)
     monkeypatch.setenv("TIKTOK_ACCESS_TOKEN", "tok")
     monkeypatch.setenv("TIKTOK_OPEN_ID", "oid")
+    # Post-audit state: the unaudited-privacy guard (section 2) refuses a PUBLIC
+    # post while TIKTOK_PRIVACY_LEVEL is SELF_ONLY/unset, and these tests are
+    # about the body TikTok receives, not the audit gate. Simulate the audit
+    # having granted so the call reaches the API it is capturing.
+    monkeypatch.setenv("TIKTOK_PRIVACY_LEVEL", "PUBLIC_TO_EVERYONE")
     monkeypatch.setattr(mpp, "rate_limiter", lambda *a, **k: True)
     monkeypatch.setattr(mpp, "log_activity", lambda *a, **k: None)
     monkeypatch.setattr(mpp, "security_audit", lambda *a, **k: None)
@@ -288,6 +293,11 @@ def test_a_permanent_init_error_is_attempted_once(monkeypatch, tmp_path):
         # everywhere, and a fake token never leaves the mocked requests.post.
         monkeypatch.setenv("TIKTOK_ACCESS_TOKEN", "test-token")
         monkeypatch.setenv("TIKTOK_OPEN_ID", "test-open-id")
+        # Post-audit state: with TIKTOK_PRIVACY_LEVEL unset/SELF_ONLY the local
+        # unaudited guard refuses a PUBLIC post before this test could reach the
+        # API it is counting. This test is about the retry classification, not
+        # the gate, so simulate the audit having granted.
+        monkeypatch.setenv("TIKTOK_PRIVACY_LEVEL", "PUBLIC_TO_EVERYONE")
 
         class _Resp:
             status_code = 403
@@ -323,6 +333,10 @@ def test_a_transient_init_error_is_still_retried(monkeypatch, tmp_path):
     calls = {"n": 0}
     monkeypatch.setenv("TIKTOK_ACCESS_TOKEN", "test-token")
     monkeypatch.setenv("TIKTOK_OPEN_ID", "test-open-id")
+    # Same post-audit simulation as above: the transient-quota test must reach
+    # the API it is counting retries on, and the local unaudited guard would
+    # otherwise refuse a PUBLIC post before any retry happens.
+    monkeypatch.setenv("TIKTOK_PRIVACY_LEVEL", "PUBLIC_TO_EVERYONE")
 
     class _Resp:
         status_code = 400
@@ -383,19 +397,79 @@ def test_init_call_site_actually_passes_brand_content(monkeypatch, tmp_path):
         # already partly spent by the time this test runs.
         monkeypatch.setattr(mpp, "rate_limiter", lambda *a, **k: True)
 
-    # Unbranded, public: passes the brand guard, hits the unaudited 403.
+    # Unbranded, public: refused by the local unaudited gate before any API call.
+    # The gate reuses _tiktok_init_error guidance, so the message it returns is
+    # the same string TikTok's 403 would have produced.
     _unaudited(monkeypatch)
     plain = mpp._upload_tiktok("t", str(src), "shorts", "PUBLIC_TO_EVERYONE")
     assert plain["success"] is False
     assert "use SELF_ONLY" in plain["error"], plain["error"]
 
-    # Branded, public: also passes the guard, same 403, but the advice differs.
+    # Branded, public: same refusal, but the advice must differ -- the gate must
+    # NOT tell a branded post to go private, which cannot satisfy the brand guard.
     _unaudited(monkeypatch)
     branded = mpp._upload_tiktok("t", str(src), "shorts", "PUBLIC_TO_EVERYONE",
                                  brand_content=True)
     assert branded["success"] is False
     assert "use SELF_ONLY" not in branded["error"], \
         f"the call site dropped brand_content, so a branded post got the wrong advice: {branded['error']}"
+
+
+def test_unaudited_gate_blocks_non_private_posts_before_any_api_call(monkeypatch, tmp_path):
+    """The new shared gate, pinned: no unaudited post may leave the process.
+
+    The API-layer tests above deliberately simulate the post-audit state so they
+    can count retries and capture request bodies. This test is the other half:
+    while TIKTOK_PRIVACY_LEVEL is unset or SELF_ONLY, a PUBLIC post is refused
+    by the gate and TikTok's API is never touched (tripwire on requests.post).
+    """
+    src = tmp_path / "c.mp4"
+    src.write_bytes(b"x" * 100)
+    calls = {"n": 0}
+
+    class _Resp:
+        status_code = 201
+        text = ""
+        json = staticmethod(lambda: {"data": {"publish_id": "p1", "upload_url": "https://u"}})
+
+    def _post(*a, **k):
+        calls["n"] += 1
+        return _Resp()
+
+    monkeypatch.setenv("TIKTOK_ACCESS_TOKEN", "test-token")
+    monkeypatch.setenv("TIKTOK_OPEN_ID", "test-open-id")
+    monkeypatch.setattr(mpp, "rate_limiter", lambda *a, **k: True)
+    monkeypatch.setattr(mpp, "log_activity", lambda *a, **k: None)
+    monkeypatch.setattr(mpp, "security_audit", lambda *a, **k: None)
+
+    # Case 1: env unset (the "no value -> conservative" default).
+    monkeypatch.delenv("TIKTOK_PRIVACY_LEVEL", raising=False)
+    monkeypatch.setitem(sys.modules, "requests", type("R", (), {"post": staticmethod(_post)}))
+    res = mpp._upload_tiktok("t", str(src), "shorts", "PUBLIC_TO_EVERYONE")
+    assert res["success"] is False
+    assert calls["n"] == 0, "a PUBLIC post reached TikTok's API while the app is unaudited"
+    assert "unaudited_client_can_only_post_to_private_accounts" in res["error"], res["error"]
+
+    # Case 2: env SELF_ONLY (the explicitly-configured unaudited state).
+    monkeypatch.setenv("TIKTOK_PRIVACY_LEVEL", "SELF_ONLY")
+    res = mpp._upload_tiktok("t", str(src), "shorts", "PUBLIC_TO_EVERYONE")
+    assert res["success"] is False
+    assert calls["n"] == 0, "a PUBLIC post reached TikTok's API despite the SELF_ONLY gate"
+
+    # Case 3: a SELF_ONLY post is allowed past the gate while unaudited -- the
+    # audit ceiling is private posts, not a blanket block. The traffic now
+    # reaches the API (or the token/publish layer), which is what proves the
+    # gate is selective rather than dead.
+    res = mpp._upload_tiktok("t", str(src), "shorts", "SELF_ONLY")
+    assert res["success"] is False  # still fails: the SELF_ONLY upload hits the real
+    # publish flow (no valid R2/upload here), but it must NOT be this gate's refusal
+    assert "unaudited_client_can_only_post_to_private_accounts" not in res["error"], res["error"]
+
+    # Case 4: after the audit grants (env PUBLIC_TO_EVERYONE), a PUBLIC post is
+    # allowed past the gate -- it fails later, in the publish flow, not here.
+    monkeypatch.setenv("TIKTOK_PRIVACY_LEVEL", "PUBLIC_TO_EVERYONE")
+    res = mpp._upload_tiktok("t", str(src), "shorts", "PUBLIC_TO_EVERYONE")
+    assert "unaudited_client_can_only_post_to_private_accounts" not in res["error"], res["error"]
 
 
 # ---------------------------------------------------------------------------
