@@ -26,6 +26,8 @@ export async function GET(
       publish_id: d.publish_id || '',
       url: d.url || '',
       error: d.error || '',
+      progress: typeof d.progress === 'number' ? d.progress : (d.status === 'published' ? 100 : 0),
+      phase: d.phase || '',
       created_at: d.created_at?.toMillis?.() ?? null,
       started_at: d.started_at ?? null,
       completed_at: d.completed_at ?? null,

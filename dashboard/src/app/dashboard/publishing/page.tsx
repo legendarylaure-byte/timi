@@ -76,6 +76,8 @@ const [platforms, setPlatforms] = useState<PlatformConfig[]>([]);
   const [compMsgs, setCompMsgs] = useState<string[]>([]);
   const [compUploading, setCompUploading] = useState(false);
   const [compUploadProgress, setCompUploadProgress] = useState(0);
+  const [compDemoTopic, setCompDemoTopic] = useState('');
+  const [compDemoGenerating, setCompDemoGenerating] = useState(false);
   const [userRole, setUserRole] = useState<'owner' | 'reviewer'>('owner');
 
   useEffect(() => {
@@ -225,6 +227,33 @@ useEffect(() => {
       compPushMsg(`Failed to queue TikTok post: ${e.message}`);
     } finally {
       setCompSubmitting(false);
+    }
+  };
+
+  // Queue an on-demand demo video. The container renders it + uploads to R2 and
+  // writes a `videos` doc (source === 'demo') which appears in the dropdown.
+  const submitDemo = async () => {
+    const topic = compDemoTopic.trim();
+    if (!topic) return alert('Enter a demo topic.');
+    if (topic.length > 120) return alert('Topic too long (max 120 chars).');
+    setCompDemoGenerating(true);
+    try {
+      const res = await apiFetch('/api/tiktok/composer/demo', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ topic }),
+      });
+      const data = await res.json();
+      if (data.success) {
+        compPushMsg(`Demo queued (${data.id}). It renders in the pipeline and appears here in under a minute.`);
+        setCompDemoTopic('');
+      } else {
+        compPushMsg(`Failed to queue demo: ${data.error}`);
+      }
+    } catch (e: any) {
+      compPushMsg(`Failed to queue demo: ${e.message}`);
+    } finally {
+      setCompDemoGenerating(false);
     }
   };
 
@@ -577,7 +606,7 @@ const connectedCount = platforms.filter(p => p.connected).length;
               <option value="">Select a video…</option>
               {availableVideos.map((v: any) => (
                 <option key={v.video_id || v.id} value={v.video_id || v.id}>
-                  {v.title || v.video_id || v.id} ({v.format || 'shorts'}){v.status ? ` — ${v.status}` : ''}
+                  {v.source === 'demo' ? '[TEST] ' : ''}{v.title || v.video_id || v.id} ({v.format || 'shorts'}){v.status ? ` — ${v.status}` : ''}
                 </option>
               ))}
             </select>
@@ -588,14 +617,47 @@ const connectedCount = platforms.filter(p => p.connected).length;
                   onClick={() => selectComposeVideo(v.video_id || v.id)}
                   className={`px-2 py-1 rounded-lg text-xs font-medium border ${
                     compVideo === (v.video_id || v.id)
-                      ? 'bg-purple-500/20 text-purple-400 border-purple-500/30'
-                      : 'bg-light-bg dark:bg-dark-bg border-light-border/30 dark:border-white/5 text-light-muted dark:text-dark-muted'
+                      ? v.source === 'demo'
+                        ? 'bg-amber-500/20 text-amber-400 border-amber-500/30'
+                        : 'bg-purple-500/20 text-purple-400 border-purple-500/30'
+                      : v.source === 'demo'
+                        ? 'bg-amber-500/5 border-amber-500/20 text-amber-500/90'
+                        : 'bg-light-bg dark:bg-dark-bg border-light-border/30 dark:border-white/5 text-light-muted dark:text-dark-muted'
                   }`}
                 >
-                  {(v.title || v.video_id || v.id).slice(0, 24)}
+                  {v.source === 'demo' ? 'TEST · ' : ''}{(v.title || v.video_id || v.id).slice(0, 24)}
                 </button>
               ))}
             </div>
+          </div>
+
+          {/* On-demand TEST demo video (auditor flow: always a video to pick) */}
+          <div className="rounded-xl p-3 border border-amber-500/20 bg-amber-500/5">
+            <div className="flex items-center justify-between mb-2">
+              <span className="text-xs font-medium text-light-text dark:text-dark-text">
+                Need a video to test with? Generate a <span className="font-bold text-amber-500">TEST</span> demo ({'<30s'}).
+              </span>
+            </div>
+            <div className="flex gap-2">
+              <input
+                value={compDemoTopic}
+                onChange={(e) => setCompDemoTopic(e.target.value)}
+                onKeyDown={(e) => { if (e.key === 'Enter') submitDemo(); }}
+                placeholder="Demo topic, e.g. Neural networks explained"
+                maxLength={120}
+                className="flex-1 px-3 py-2 rounded-xl bg-light-bg dark:bg-dark-bg border border-light-border/30 dark:border-white/5 text-sm text-light-text dark:text-dark-text placeholder-light-muted dark:placeholder-dark-muted outline-none focus:border-amber-500/50"
+              />
+              <button
+                onClick={submitDemo}
+                disabled={compDemoGenerating}
+                className="px-3 py-2 rounded-xl text-xs font-semibold bg-amber-500/20 text-amber-500 border border-amber-500/30 hover:bg-amber-500/30 disabled:opacity-50 shrink-0"
+              >
+                {compDemoGenerating ? 'Queuing…' : 'Generate demo'}
+              </button>
+            </div>
+            <p className="text-[10px] text-light-muted dark:text-dark-muted mt-2">
+              Renders in the pipeline (no watermark, no publish to any platform), then appears above as <span className="text-amber-500 font-semibold">TEST</span> while short-based &quot;Only me&quot; queueing stays safe for review.
+            </p>
           </div>
 
           {/* Manual upload shortcut for reviewers */}
@@ -833,14 +895,32 @@ const connectedCount = platforms.filter(p => p.connected).length;
               </div>
               {compIntent.status !== 'published' && compIntent.status !== 'failed' && compIntent.status !== 'limit_reached' && (
                 <div className="mt-2">
-                  <div className="h-1.5 w-full overflow-hidden rounded-full bg-light-border dark:bg-dark-border">
-                    <motion.div
-                      className="h-full rounded-full bg-gradient-to-r from-light-primary to-purple-600"
-                      animate={{ x: ['-100%', '200%'] }}
-                      transition={{ repeat: Infinity, duration: 1.2, ease: 'easeInOut' }}
-                    />
-                  </div>
-                  <p className="text-xs text-light-muted dark:text-dark-muted mt-2">Publishing to TikTok — this may take a few minutes to appear.</p>
+                  {(typeof compIntent.progress === 'number') ? (
+                    <div>
+                      <div className="h-1.5 w-full overflow-hidden rounded-full bg-light-border dark:bg-dark-border">
+                        <motion.div
+                          className="h-full rounded-full bg-gradient-to-r from-light-primary to-purple-600"
+                          initial={false}
+                          animate={{ width: `${Math.max(2, Math.min(100, compIntent.progress))}%` }}
+                          transition={{ duration: 0.8, ease: 'easeOut' }}
+                        />
+                      </div>
+                      <p className="text-xs text-light-muted dark:text-dark-muted mt-2">
+                        {compIntent.phase ? `${compIntent.phase} — ` : ''}{Math.round(compIntent.progress)}% — this may take a few minutes to appear on TikTok.
+                      </p>
+                    </div>
+                  ) : (
+                    <div>
+                      <div className="h-1.5 w-full overflow-hidden rounded-full bg-light-border dark:bg-dark-border">
+                        <motion.div
+                          className="h-full rounded-full bg-gradient-to-r from-light-primary to-purple-600"
+                          animate={{ x: ['-100%', '200%'] }}
+                          transition={{ repeat: Infinity, duration: 1.2, ease: 'easeInOut' }}
+                        />
+                      </div>
+                      <p className="text-xs text-light-muted dark:text-dark-muted mt-2">Publishing to TikTok — this may take a few minutes to appear.</p>
+                    </div>
+                  )}
                 </div>
               )}
               {compIntent.status === 'limit_reached' && (

@@ -285,7 +285,7 @@ def _is_graph_permission_error(err: dict) -> bool:
     return False
 
 
-def upload_to_platform(platform: str, title: str, description: str, video_path: str, thumbnail_path: str, format_type: str = 'shorts', publish_at: str = None, subtitle_path: str = None, tags: list = None, tiktok_privacy_level: str = None, tiktok_comment_disabled: bool = False, tiktok_duet_disabled: bool = False, tiktok_stitch_disabled: bool = False, default_language: str = None, tiktok_brand_content: bool = False, tiktok_brand_organic: bool = False) -> dict:  # noqa: E501
+def upload_to_platform(platform: str, title: str, description: str, video_path: str, thumbnail_path: str, format_type: str = 'shorts', publish_at: str = None, subtitle_path: str = None, tags: list = None, tiktok_privacy_level: str = None, tiktok_comment_disabled: bool = False, tiktok_duet_disabled: bool = False, tiktok_stitch_disabled: bool = False, default_language: str = None, tiktok_brand_content: bool = False, tiktok_brand_organic: bool = False, progress_cb=None) -> dict:  # noqa: E501
     """Upload a video to a specific platform."""
     platform_info = PLATFORMS.get(platform)
     if not platform_info:
@@ -302,7 +302,8 @@ def upload_to_platform(platform: str, title: str, description: str, video_path: 
                                   duet_disabled=tiktok_duet_disabled,
                                   stitch_disabled=tiktok_stitch_disabled,
                                   brand_content=tiktok_brand_content,
-                                  brand_organic=tiktok_brand_organic)
+                                  brand_organic=tiktok_brand_organic,
+                                  progress_cb=progress_cb)
         elif platform == 'instagram':
             return _upload_instagram(title, video_path, format_type)
         elif platform == 'facebook':
@@ -459,7 +460,8 @@ def _tiktok_init_error(resp, brand_content: bool = False) -> str:
 def _upload_tiktok(title: str, video_path: str, format_type: str, privacy_level: str = None,
                    comment_disabled: bool = False, duet_disabled: bool = False,
                    stitch_disabled: bool = False,
-                   brand_content: bool = False, brand_organic: bool = False) -> dict:
+                   brand_content: bool = False, brand_organic: bool = False,
+                   progress_cb=None) -> dict:
     """Upload to TikTok via Content Posting API v2 with retry, rate limit, idempotency."""
     if not rate_limiter("tiktok_upload", max_per_hour=5):
         # Soft limit: warn, never block. A 5-video slate needs exactly 5 per
@@ -603,6 +605,8 @@ def _upload_tiktok(title: str, video_path: str, format_type: str, privacy_level:
                 )
                 if upload_resp.status_code not in (200, 201, 206):
                     raise RuntimeError(f'TikTok chunk {i + 1}/{total_chunk_count} upload failed: {upload_resp.status_code}')
+                if progress_cb:
+                    progress_cb({'pct': int((i + 1) * 100 / total_chunk_count)})
 
         ai_flags = get_ai_disclosure("tiktok")
         # Field names are `disable_*`, not `*_disabled`. The old names were not
@@ -1178,7 +1182,8 @@ def multi_platform_publish(video_id: str, title: str, description: str, video_pa
                            default_language: str = None,
                            tiktok_path: str = None,
                            tiktok_brand_content: bool = False,
-                           tiktok_brand_organic: bool = False) -> dict:
+                           tiktok_brand_organic: bool = False,
+                           progress_cb=None) -> dict:
     """Publish to multiple platforms with progress tracking.
 
     `tiktok_path` is the watermark-free master. TikTok's App Review rejects
@@ -1272,7 +1277,8 @@ def multi_platform_publish(video_id: str, title: str, description: str, video_pa
                                         tiktok_stitch_disabled=tiktok_stitch_disabled,
                                         default_language=default_language,
                                         tiktok_brand_content=tiktok_brand_content,
-                                        tiktok_brand_organic=tiktok_brand_organic)
+                                        tiktok_brand_organic=tiktok_brand_organic,
+                                        progress_cb=progress_cb)
             results['platforms'][platform] = result
 
             if result['success']:

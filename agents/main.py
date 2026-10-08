@@ -4190,7 +4190,8 @@ def tiktok_composer_job():
             return
 
         intent_ref = db.collection('tiktok_composer').document(intent_id)
-        intent_ref.update({'status': 'processing', 'started_at': time.time()})
+        intent_ref.update({'status': 'processing', 'started_at': time.time(),
+                           'progress': 30, 'phase': 'picked_up'})
 
         video_path = ''
         tiktok_path = ''
@@ -4205,6 +4206,8 @@ def tiktok_composer_job():
         if not video_path:
             _fail_intent(db, intent_id, f'Video file unavailable for video_id={video_id}')
             return
+
+        intent_ref.update({'progress': 60, 'phase': 'video_resolved'})
 
         # Derive the clean master / watermarked pair from the resolved path.
         # The composer only publishes to TikTok, but multi_platform_publish
@@ -4246,6 +4249,16 @@ def tiktok_composer_job():
             os.environ['ENABLE_WATERMARK'] = 'false'
 
         def _do():
+            def _progress(info):
+                try:
+                    pct = int(info.get('pct', 0))
+                    # upload spans 60-95; scale chunk % into that band
+                    scaled = 60 + int(pct * 0.35)
+                    db.collection('tiktok_composer').document(intent_id).update(
+                        {'progress': min(scaled, 95), 'phase': 'uploading'})
+                except Exception:
+                    pass
+
             result = multi_platform_publish(
                 video_id=video_id,
                 title=title,
@@ -4263,11 +4276,14 @@ def tiktok_composer_job():
                 tiktok_stitch_disabled=stitch_disabled,
                 tiktok_brand_content=bool(data.get('brand_content', False)),
                 tiktok_brand_organic=bool(data.get('brand_organic', False)),
+                progress_cb=_progress,
             )
             t = result.get('platforms', {}).get('tiktok', {})
             if t.get('success'):
                 db.collection('tiktok_composer').document(intent_id).update({
                     'status': 'published',
+                    'progress': 100,
+                    'phase': 'published',
                     'publish_id': t.get('video_id'),
                     'url': t.get('url', ''),
                     'completed_at': time.time(),
@@ -4309,6 +4325,68 @@ def _fail_intent(db, intent_id: str, reason: str):
         })
     except Exception as e:
         log_event("TIKTOK_COMPOSER", f"Failed to mark intent failed: {e}", "error")
+
+
+def demo_video_job():
+    """Generate demo shorts on demand for the TikTok composer.
+
+    The dashboard can always queue a <30s demo even when the nightly run has
+    cleaned up its renders, so the developer has a non-privileged sample to
+    record. Polls demo_video_requests, renders via utils.demo_video (cards +
+    Edge TTS, no LLM), uploads to R2, and files a `videos` doc marked
+    source=demo with status uploaded so the composer dropdown offers it under a
+    "TEST" label.
+    """
+    try:
+        from utils.firebase_status import get_firestore_client
+        db = get_firestore_client()
+        # ponytail: no .order_by here -- a == filter + order_by is a composite
+        # index; a demo queue needs none. Any queued request is fine.
+        q = (db.collection('demo_video_requests')
+             .where('status', '==', 'queued')
+             .limit(1))
+        docs = list(q.stream())
+        if not docs:
+            return
+        d = docs[0]
+        req = d.to_dict()
+        req_id = d.id
+        topic = str(req.get('topic', 'AI in under 30 seconds')).strip() or 'AI in under 30 seconds'
+        db.collection('demo_video_requests').document(req_id).update({'status': 'generating'})
+
+        video_id = f"demo-{int(time.time())}"
+        from utils.demo_video import render_demo_short
+        from utils.video_compositor import OUTPUT_DIR
+        out = OUTPUT_DIR / f"{video_id}_shorts.mp4"
+        result = render_demo_short(topic, str(out), video_id=video_id)
+
+        r2_url = ''
+        try:
+            from utils.r2_storage import upload_video
+            r2_url = upload_video(str(out), video_id, 'shorts')
+        except Exception as e:
+            log_event("DEMO_VIDEO", f"R2 upload failed for {video_id}: {e}", "warn")
+
+        db.collection('videos').document(video_id).set({
+            'video_id': video_id,
+            'title': f"TEST — {topic}",
+            'category': 'demo',
+            'format': 'shorts',
+            'status': 'uploaded',
+            'source': 'demo',
+            'r2_key': f"videos/{video_id}_shorts.mp4" if r2_url else '',
+            'video_path': str(out),
+            'duration': result.get('duration_seconds'),
+            'duration_seconds': result.get('duration_seconds'),
+            'created_at': time.time(),
+        })
+        db.collection('demo_video_requests').document(req_id).update({
+            'status': 'done', 'video_id': video_id,
+            'completed_at': time.time(),
+        })
+        log_event("DEMO_VIDEO", f"Generated demo short {video_id}: {topic} ({result.get('duration_seconds')}s)")
+    except Exception as e:
+        log_event("DEMO_VIDEO", f"demo_video_job failed: {e}", "error")
 
 
 def _resolve_video_for_publish(db, video_id: str, local_path: str = '') -> str:
@@ -4443,7 +4521,8 @@ if __name__ == "__main__":
     # defaults, so passing them would be noise. A container restart can therefore
     # skip one window rather than backfilling a burst.
     scheduler.add_job(pipeline_guard_job, "interval", minutes=15, misfire_grace_time=120)
-    scheduler.add_job(tiktok_composer_job, "interval", minutes=5)
+    scheduler.add_job(tiktok_composer_job, "interval", seconds=30)
+    scheduler.add_job(demo_video_job, "interval", seconds=30)
     scheduler.add_job(viral_check_job, "interval", minutes=VIRAL_CHECK_INTERVAL)
     for t in VIRAL_SCHEDULE_TIMES:
         h, m = (int(x) for x in t.split(":"))
