@@ -298,6 +298,11 @@ def check_daily_volume(videos, slate: dict) -> Optional[dict]:
     for v in videos or []:
         if not isinstance(v, dict):
             continue
+        # on-demand TEST demos are not part of the scheduled slate. They carry
+        # status=uploaded/format=shorts, so counting them would inflate the short
+        # total and silently mask a short run -- the failure this guard exists for.
+        if v.get("source") == "demo":
+            continue
         d = _run_date(v)
         if not d:
             continue

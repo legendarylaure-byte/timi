@@ -3833,7 +3833,11 @@ def _guard_run_produced_today(db=None) -> None:
     now_utc = datetime.now(timezone.utc)
     start_of_day = now_utc.replace(hour=0, minute=0, second=0, microsecond=0)
     count = 0
-    for _ in db.collection("videos").where("created_at", ">=", start_of_day).limit(50).stream():
+    for d in db.collection("videos").where("created_at", ">=", start_of_day).limit(50).stream():
+        # a generated TEST demo is not the scheduled run and must not let this
+        # guard pass on a day the run produced nothing.
+        if (d.to_dict() or {}).get("source") == "demo":
+            continue
         count += 1
 
     alert = check_run_produced_today(

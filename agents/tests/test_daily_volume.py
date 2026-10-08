@@ -330,6 +330,34 @@ def test_all_failed_run_does_not_fall_back_to_yesterday():
     assert alert["detail"]["docs_seen"] == 5
 
 
+def test_demo_video_does_not_count_toward_the_slate():
+    """An on-demand TEST demo must not mask a short run.
+
+    A demo is filed status=uploaded/format=shorts on the day it was generated,
+    so counting it would push a 2-short run up to "3 shorts" and silence the
+    alert -- exactly the failure this guard exists to catch.
+    """
+    slate = _expected_slate(1, 2, 2, True)
+    run = [
+        {"video_id": f"shorts-20260926-{i}", "format": "shorts", "status": "published"}
+        for i in range(1, 3)  # 2 shorts, target is 3
+    ] + [
+        {"video_id": f"long-20260926-{i}", "format": "long", "status": "published"}
+        for i in range(1, 3)  # 2 longs, satisfied
+    ]
+    demo = [{
+        "video_id": "demo-20260926-1", "source": "demo",
+        "format": "shorts", "status": "uploaded",
+    }]
+
+    assert check_daily_volume(run, slate) is not None, "2 shorts must alert"
+    # The demo would have made it 3 shorts and silenced the alert; it must not.
+    alert = check_daily_volume(run + demo, slate)
+    assert alert is not None, "a demo short must not rescue a short slate"
+    assert alert["detail"]["run_date"] == "2026-09-26"
+    assert "1 short" in alert["message"]
+
+
 def test_demo_render_only_suppresses_publishing():
     """Demo sign-off is a human gate: render and measure, but do not go public.
 
