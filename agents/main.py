@@ -4371,10 +4371,13 @@ def demo_video_job():
         except Exception as e:
             log_event("DEMO_VIDEO", f"R2 upload failed for {video_id}: {e}", "warn")
 
+        from google.cloud.firestore import SERVER_TIMESTAMP
         db.collection('videos').document(video_id).set({
             'video_id': video_id,
             'title': f"TEST — {topic}",
-            'category': 'demo',
+            # ponytail: empty category, NOT 'demo'. delete_old_videos() deletes
+            # any doc with a category outside VALID_CATEGORIES, and 'demo' is one.
+            'category': '',
             'format': 'shorts',
             'status': 'uploaded',
             'source': 'demo',
@@ -4382,7 +4385,7 @@ def demo_video_job():
             'video_path': str(out),
             'duration': result.get('duration_seconds'),
             'duration_seconds': result.get('duration_seconds'),
-            'created_at': time.time(),
+            'created_at': SERVER_TIMESTAMP,
         })
         db.collection('demo_video_requests').document(req_id).update({
             'status': 'done', 'video_id': video_id,
