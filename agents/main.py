@@ -920,9 +920,29 @@ def _pick_best_title(variants, topic: str, category: str = "", fmt: str = "") ->
 # same steps. When the retry was inlined it silently skipped both, so a winning
 # retry dropped the FTC affiliate disclosure and shipped unsanitized text --
 # which is what YouTube rejects with 400 invalidDescription (D20).
-def _assemble_description(desc_result: dict, script_text: str, category: str) -> dict:
+def _assemble_description(desc_result: dict, script_text: str, category: str,
+                          title: str = None, news_article: dict = None) -> dict:
     from utils.platform_captions import sanitize_description
     full_desc = desc_result.get("full_description", "") or ""
+
+    # Header block, assembled at this single choke point so the retry path gets
+    # it too. The title line guarantees the topic keyword sits above YouTube's
+    # "show more" fold. Guarded on the emoji marker, not a bare-title prefix, so
+    # calling this twice on its own output is idempotent rather than doubling the
+    # header (a plain startswith check loses to the leading emoji).
+    header = ""
+    marker = f"🔎 {title.strip()}" if title and title.strip() else ""
+    if marker and marker not in full_desc:
+        header += f"{marker}\n\n"
+    # Real attribution for verified news only. Tech content has no source and
+    # description_gen is told not to invent one, so this stays empty there.
+    if news_article and "📰 Source:" not in full_desc:
+        source = (news_article.get("source") or "").strip()
+        link = (news_article.get("link") or "").strip()
+        if source or link:
+            header += f"📰 Source: {source}" + (f" — {link}" if link else "") + "\n\n"
+
+    full_desc = header + full_desc
     affiliate_text = build_affiliate_section(script_text, category)
     if affiliate_text and affiliate_text not in full_desc:
         full_desc += affiliate_text
@@ -941,7 +961,7 @@ def _assemble_description(desc_result: dict, script_text: str, category: str) ->
 # not a publishing blocker -- the description is not the video.
 def _seo_polish_description(desc_result: dict, script_text: str, category: str,
                             format_type: str, title: str, topic: str,
-                            scenes: list = None) -> tuple[dict, dict]:
+                            scenes: list = None, news_article: dict = None) -> tuple[dict, dict]:
     """Returns (desc_result, seo_score). Never raises."""
     seo_score = {}
     try:
@@ -976,7 +996,7 @@ def _seo_polish_description(desc_result: dict, script_text: str, category: str,
 
     # A winning retry replaces the whole description, so it must be assembled the
     # same way the first one was -- affiliate section appended, then sanitized.
-    retry = _assemble_description(retry, script_text, category)
+    retry = _assemble_description(retry, script_text, category, title=title, news_article=news_article)
     candidate = retry.get("full_description", "")
     try:
         retry_score = score_description_seo(candidate)
@@ -2029,13 +2049,15 @@ def generate_short_video(topic: str, category: str, video_id: str, publish_at: s
             format_type="shorts",
             channel_name="Vyom Ai Cloud",
         )
-        desc_result = _assemble_description(desc_result, script_text, category)
+        desc_result = _assemble_description(desc_result, script_text, category,
+                                            title=best_title, news_article=news_article)
         # P6: score it, and if something is actually missing, try once more with
         # the finding fed back. The old block wrapped all of this in
         # `except Exception: pass`, so a scorer crash and a "nothing to fix" both
         # looked identical to the log -- silence was the only signal.
         desc_result, seo_score = _seo_polish_description(
-            desc_result, script_text, category, "shorts", best_title, topic)
+            desc_result, script_text, category, "shorts", best_title, topic,
+            news_article=news_article)
         try:
             desc_result["tags"] = get_optimized_tags(category, "shorts", best_title)
         except Exception as e:
@@ -2693,14 +2715,16 @@ def generate_long_video(topic: str, category: str, video_id: str, publish_at: st
             scenes=parse_scenes_from_storyboard(str(storyboard), "long"),
             channel_name="Vyom Ai Cloud",
         )
-        desc_result = _assemble_description(desc_result, script_text, category)
+        desc_result = _assemble_description(desc_result, script_text, category,
+                                            title=best_title, news_article=news_article)
         # P6: score it, and if something is actually missing, try once more with
         # the finding fed back. The old block wrapped all of this in
         # `except Exception: pass`, so a scorer crash and a "nothing to fix" both
         # looked identical to the log -- silence was the only signal.
         desc_result, seo_score = _seo_polish_description(
             desc_result, script_text, category, "long", best_title, topic,
-            scenes=parse_scenes_from_storyboard(str(storyboard), "long"))
+            scenes=parse_scenes_from_storyboard(str(storyboard), "long"),
+            news_article=news_article)
         try:
             desc_result["tags"] = get_optimized_tags(category, "long", best_title)
         except Exception as e:

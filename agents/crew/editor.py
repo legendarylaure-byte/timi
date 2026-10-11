@@ -9,7 +9,7 @@ def create_editor_crew(animation: str = "", voice: str = "", music: str = "", fo
         role="Video Editor",
         goal="Composite visual assets, voice-over, text overlays, and music into a polished educational tech video",
         backstory="""You are a professional video editor specializing in educational technology content.
-You composite stock footage, screen captures, diagrams, and code snippets with voice-over
+You composite cinematic stock footage and diagrams with voice-over
 and background music into polished final videos. You add text overlays for key points,
 smooth transitions between scenes, and ensure proper audio mixing with voice dominant over music.""",
         llm=llm,

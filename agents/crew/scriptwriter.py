@@ -53,7 +53,7 @@ CRITICAL: This is a LONG-FORM video ({category}). Write enough content for {max_
 - Each NARRATION should be 20-40 words (8-15 seconds at speaking pace).
 - Structure: Hook (0-15s) → Context (15-60s) → Main explanation (8-12 scenes) → Summary → Outro with CTA.
 - Use analogies and real-world examples to explain concepts.
-- Include visual cues in VISUAL lines for: diagrams, code snippets, screen recordings, or stock footage.
+- Include visual cues in VISUAL lines for: diagrams or cinematic stock footage.
 - End with a clear takeaway and call-to-action (like, subscribe, comment).
 """
     else:
@@ -92,7 +92,7 @@ VISUAL: [RENDER_TYPE: description]
 RULES (STRICT):
 1. NARRATION lines contain ONLY text to be spoken aloud. No scene numbers, no timings, no descriptions.
 2. VISUAL lines contain ONLY visual directions. Never spoken aloud. Start with the render type tag in brackets.
-3. RENDER_TYPE must be: [LTX] for cinematic footage matching the narration (the default for most scenes); [CODE] for static code snippets on screen.
+3. RENDER_TYPE must be: [LTX] for cinematic footage matching the narration (the default for every scene). Never emit a code-snippet render type.
 4. CRITICAL — Every VISUAL line MUST include ALL of: camera angle (close-up/wide/dolly/tracking/top-down/over-the-shoulder), lighting (neon glow/soft diffused/dramatic side/volumetric/rim), colors, specific objects visible, and motion. Example good: "[LTX] Close-up dolly shot of glowing processor chip with neon circuit pathways, dramatic side lighting casting long shadows, deep violet and magenta color palette, particles flowing along circuits" Example bad (NEVER write): "[LTX] Animated visualization of AI processing data" or "[LTX] Technology concept" — these are too vague to generate anything specific.
 5. NEVER include text like "Scene 1:" or "(0-30 seconds)" or "###" inside NARRATION.
 6. Every NARRATION line WILL be read by the voice-over — so it must be complete, natural sentences.
@@ -113,6 +113,7 @@ RULES (STRICT):
     - End with the big picture — how this connects to the broader topic.
 17. NARRATION TONE: calm, curious, conversational. Never bullet-point reading. Never "in this video we will cover" or "today we'll learn". Write like you're explaining to a curious friend over coffee.
 18. Let the visual lead: the narration describes what's happening on screen in real-time. If a diagram element appears, the narration arrives with it. "Now watch this weight change..." as the weight animates.
+19. SPECIFIC ANGLE — Pitch a NARROW, CONCRETE angle, never a generic "What is X?" topic overview. Pick ONE specific, surprising or counter-intuitive claim about the topic and build the whole video around it (e.g. not "How GPUs work" but "Why your GPU spends most of its time waiting"). If the optimization note supplies an angle, that angle is MANDATORY — do not drift back to a broad explainer.
 
 At the end include:
 - Key takeaway (1-2 sentences)
@@ -269,12 +270,12 @@ VISUAL: [RENDER_TYPE: description]
 
 DEEP LESSON RULES:
 1. NARRATION lines contain ONLY text to be spoken aloud. Write complete, natural sentences.
-2. VISUAL lines start with RENDER_TYPE in brackets: [LTX] for cinematic footage matching the narration (the default for most scenes). [CODE] for static code snippets.
+2. VISUAL lines start with RENDER_TYPE in brackets: [LTX] for cinematic footage matching the narration (the default for every scene). Never emit a code-snippet render type.
 3. [LTX] is your PRIMARY visual tool. Every explanation should have a corresponding cinematic visualization. Describe the scene vividly: camera angle, components, lighting, depth, motion. Be specific about what the viewer sees from what angle.
 4. ONE RUNNING EXAMPLE: Choose ONE concrete scenario at the start and use it throughout. Every concept should be explained in terms of this example.
 5. WHY BEFORE WHAT: Before introducing any concept, first explain WHY it's needed. "But why do we need layers? Let's look at edge detection..."
 6. PROGRESSIVE REVEAL: Start with the simplest version. Add complexity gradually. Never show a complete equation or diagram upfront — build it piece by piece.
-7. NO VIRAL TRICKS: Do NOT use hook formulas, power words lists, or gap-frame techniques. The content's intellectual curiosity IS the hook.
+7. OPEN WITH A REAL HOOK: the first 30-60 seconds must earn attention — open on the concrete puzzle or counter-intuitive claim, not a definition or a roadmap. AFTER the hook, drop the viral tricks: no power-word lists, no gap-frame teasing for the rest of the lesson. The content's intellectual curiosity carries the rest.
 8. ACKNOWLEDGE LIMITATIONS: "This is a simplification, but it helps build intuition" or "Admittedly, this is an arbitrary choice" — honesty builds trust.
 9. EVERY technical term is preceded by an intuitive explanation. Never use jargon without defining it in context first.
 10. END EVERY SECTION with a natural pause or summary before moving to the next.

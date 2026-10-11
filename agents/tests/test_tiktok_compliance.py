@@ -503,7 +503,7 @@ def _stub_publish(monkeypatch, used):
     monkeypatch.setenv("PLATFORM_UPLOAD_DELAY", "0")
     monkeypatch.setattr(mpp, "upload_to_platform", _fake)
     monkeypatch.setattr(mpp, "optimize_title_for_platform", lambda t, p: t)
-    monkeypatch.setattr(mpp, "optimize_for_platform", lambda t, d, p: d)
+    monkeypatch.setattr(mpp, "optimize_for_platform", lambda t, d, p, **k: d)
     monkeypatch.setattr(mpp, "log_activity", lambda *a, **k: None)
     _no_r2(monkeypatch)
 

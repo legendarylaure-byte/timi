@@ -27,6 +27,14 @@ SCORES_FILE = DATA_DIR / "topic_scores.json"
 
 VALID_CATEGORIES = ["AI News", "Science & Technology", "Programming & Software", "World News (24hr)", "Nepal News"]
 
+# Generic explainer openers. A title that starts with one of these is a broad
+# "overview", not a niche angle — the shape the channel was over-publishing.
+GENERIC_OPENERS = (
+    "what is", "what are", "introduction to", "intro to",
+    "overview of", "basics of", "a beginner", "beginners guide",
+    "beginner's guide",
+)
+
 CPM_RATES = {
     "Programming & Software": 13,
     "Science & Technology": 12,
@@ -65,6 +73,13 @@ def _score_viral_potential(title: str) -> int:
     """Score title for viral hooks (0-25)."""
     score = 10  # base
     t = title.lower()
+
+    # Generic overview openers are the "what is X" explainer shape the channel
+    # kept over-producing: no angle, nothing to click. Rank them below a title
+    # that names a specific, surprising claim. Prefix match only, so a specific
+    # title that happens to contain the words ("...explained simply") is safe.
+    if t.startswith(GENERIC_OPENERS):
+        score -= 6
 
     # Question marks create curiosity
     if "?" in title:
@@ -182,6 +197,8 @@ def score_topic(title: str, category: str, description: str = "") -> TopicScore:
         reasoning_parts.append("strong viral hooks")
     elif viral <= 10:
         reasoning_parts.append("weak title hooks")
+    if title.lower().startswith(GENERIC_OPENERS):
+        reasoning_parts.append("generic overview title (prefer a specific angle)")
     if demand >= 18:
         reasoning_parts.append("high search demand")
     if comp >= 20:

@@ -367,9 +367,9 @@ def get_voice_settings(content_type: str = "general") -> dict:
             "pitch": "-2Hz",
         },
         "educational": {
-            "voice": "en-US-JennyNeural",
-            "rate": "-8%",
-            "pitch": "-2Hz",
+            "voice": "en-US-EmmaMultilingualNeural",
+            "rate": "-4%",
+            "pitch": "-1Hz",
         },
         "deep_lesson": {
             "voice": "en-US-JennyNeural",
@@ -392,7 +392,15 @@ def get_voice_settings(content_type: str = "general") -> dict:
             "pitch": DEFAULT_PITCH,
         }
     }
-    return settings.get(content_type, settings["general"])
+    resolved = dict(settings.get(content_type, settings["general"]))
+    # ponytail: one calibration dial for the channel voice. Unset = the
+    # per-profile default above; set = override every content type. The ear is
+    # the judge, so leave a knob rather than bake one number into five profiles.
+    for _key, _env in (("voice", "VOICE_NAME"), ("rate", "VOICE_RATE"), ("pitch", "VOICE_PITCH")):
+        _val = os.getenv(_env)
+        if _val:
+            resolved[_key] = _val
+    return resolved
 
 
 def _hard_wrap(text: str, max_chars: int) -> list[str]:

@@ -6,7 +6,6 @@ import logging
 from PIL import Image, ImageDraw
 from datetime import datetime
 
-from utils.screen_capture import render_terminal, render_ide, render_browser, render_code_snippet
 from utils.stock_video import search_videos_for_scenes as _search_stock
 from utils.concurrent_pipeline import run_with_gpu_lock
 from models import get_video_model
@@ -18,8 +17,6 @@ OUTPUT_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file
 os.makedirs(OUTPUT_DIR, exist_ok=True)
 
 CACHE = {}
-
-MAX_STOCK_FOOTAGE_RATIO = 0.6
 
 
 def _build_ltx_prompt(scene: dict, visual: str) -> str:
@@ -102,18 +99,11 @@ def _generate_static_image(description: str, keyword: str = "", width: int = 192
 
 
 def _enforce_asset_diversity(scenes: list[dict]) -> list[dict]:
-    stock_count = sum(1 for s in scenes if s.get("asset_type", "STOCK_FOOTAGE") == "STOCK_FOOTAGE")
-    total = len(scenes)
-    if total < 3 or stock_count / total <= MAX_STOCK_FOOTAGE_RATIO:
-        return scenes
-    overage = stock_count - int(total * MAX_STOCK_FOOTAGE_RATIO)
-    alternatives = ["STATIC_IMAGE", "SCREEN_CAPTURE", "CODE_SNIPPET"]
-    changed = 0
-    for s in scenes:
-        if s.get("asset_type", "STOCK_FOOTAGE") == "STOCK_FOOTAGE" and changed < overage:
-            alt = random.choice(alternatives)
-            s["asset_type"] = alt
-            changed += 1
+    # ponytail: no-op since code cards were removed. Its non-stock alternatives
+    # were CODE_SNIPPET/SCREEN_CAPTURE (deleted) and STATIC_IMAGE (a branded
+    # title card) -- and a title card is a WORSE scene than footage, which is the
+    # exact thing this channel is fixing. Keep the call so scene dicts pass
+    # through untouched; shot variety within stock is the diversity now.
     return scenes
 
 
@@ -140,6 +130,37 @@ def _get_stock_clip(keyword: str, orientation: str = "landscape", duration: floa
     return None
 
 
+def _collect_stock_shots(attempts: list[str], orientation: str, duration: float,
+                         video_id: str) -> list[dict]:
+    """Fetch up to STOCK_SHOTS_PER_SCENE distinct clips for one scene.
+
+    Multi-shot B-roll so a scene is not one clip held or looped for its whole
+    length -- the single biggest cause of the "slideshow" look. Only fetched
+    when the scene is long enough to fit 2+ shots of at least MIN_SHOT_SECONDS
+    each, so a ~2.5s short scene degrades to single-shot by arithmetic rather
+    than by a format special-case.
+    """
+    max_shots = int(os.getenv("STOCK_SHOTS_PER_SCENE", "3"))
+    min_shot = float(os.getenv("MIN_SHOT_SECONDS", "2.0"))
+    n = min(max_shots, int(duration // min_shot)) if min_shot > 0 else max_shots
+    if n < 2:
+        return []
+    shots: list[dict] = []
+    for query in dict.fromkeys(q for q in attempts if q):
+        if len(shots) >= n:
+            break
+        path = _get_stock_clip(query, orientation, duration, video_id=video_id)
+        if not path or not os.path.exists(path):
+            continue
+        # _get_stock_clip caches per keyword, so two different queries can hand
+        # back the same clip; two identical shots is worse than one.
+        if any(s["path"] == path for s in shots):
+            continue
+        shots.append({"path": path})
+        logger.info(f"[AssetRouter] stock shot {len(shots)}/{n} (query={query[:60]})")
+    return shots
+
+
 def _render_scene_inner(scene: dict, video_id: str, scene_idx: int,
                         format_type: str, duration: float) -> dict | None:
     render_type = scene.get("render_type", "stock")
@@ -154,13 +175,6 @@ def _render_scene_inner(scene: dict, video_id: str, scene_idx: int,
     kw_list = clean_scene_keywords(scene.get("asset_keywords", [kw])) or clean_scene_keywords([kw]) or ["technology"]
     if isinstance(kw_list, str):
         kw_list = [kw_list]
-
-    if render_type == "code" or asset_type in ("CODE_SNIPPET", "SCREEN_CAPTURE"):
-        code = description.split("\n") if description else ["# code example", f"# {kw}"]
-        path = render_code_snippet(code, width=1920, height=1080)
-        if path:
-            logger.info(f"[AssetRouter] Scene {scene_idx}: code snippet OK")
-            return {"path": path, "duration": duration, "asset_type": "CODE_SNIPPET", "source": "code_snippet"}
 
     model = get_video_model()
     if model and model.is_available():
@@ -191,11 +205,15 @@ def _render_scene_inner(scene: dict, video_id: str, scene_idx: int,
         # owner-approved as the LOOK and is kept -- it just must not outrank the
         # topic. Same number of API calls in the common case.
         attempts = [kw_list[0], ", ".join(kw_list) or description, *kw_list[1:]]
-        for query in dict.fromkeys(q for q in attempts if q):
-            path = _get_stock_clip(query, orientation, duration, video_id=video_id)
-            if path and os.path.exists(path):
-                logger.info(f"[AssetRouter] Scene {scene_idx}: stock OK (query={query[:60]})")
-                return {"path": path, "duration": duration, "asset_type": "STOCK_FOOTAGE", "source": "stock"}
+        shots = _collect_stock_shots(attempts, orientation, duration, video_id)
+        if shots:
+            logger.info(f"[AssetRouter] Scene {scene_idx}: stock OK "
+                        f"({len(shots)} shot(s), query={attempts[0][:60]})")
+            result = {"path": shots[0]["path"], "duration": duration,
+                      "asset_type": "STOCK_FOOTAGE", "source": "stock"}
+            if len(shots) >= 2:
+                result["shots"] = shots
+            return result
     logger.warning(f"[AssetRouter] Scene {scene_idx}: ALL render methods exhausted "
                    f"(render_type={render_type}, asset_type={asset_type}, keywords={kw_list})")
     return None
@@ -328,8 +346,7 @@ def describe_render_chain() -> list[tuple[str, str, str]]:
                     "intentional: LTX needs MLX (Apple-only) and the cloud model is "
                     "disabled; all visuals come from stock/code/branded-card"))
 
-    out.append(("stock", "on", ""))
-    out.append(("code_snippets", "on (PIL terminal/ide/browser panels)", ""))
+    out.append(("stock", "on (multi-shot B-roll)", ""))
     out.append(("branded_card", "on (last-resort floor)", ""))
     return out
 

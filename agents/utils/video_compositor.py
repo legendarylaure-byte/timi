@@ -112,6 +112,11 @@ def _final_crf(format_type: str) -> str:
 # Channel logo watermark opacity. 1.0 was a sticker competing with the footage.
 LOGO_ALPHA = 0.6
 
+# Dark-frame trim _process_single_shot applies to the head of every video clip
+# (diffusion models emit near-black boundary frames). A multi-shot scene must ask
+# for slice+this per shot or it comes up n*this short and desyncs from narration.
+_LEAD_TRIM = 0.5
+
 logger = logging.getLogger(__name__)
 PRESET = "medium"
 
@@ -413,9 +418,14 @@ def _generate_transition_whoosh(duration_ms: int = 300,
 
 
 def mix_audio(voice_path: str, music_path: Optional[str], output_path: str,
-              voice_volume_db: float = 2, music_volume_db: float = -24,
+              voice_volume_db: float = 2, music_volume_db: Optional[float] = None,
               duck_db: float = -8, sfx_scenes: Optional[list] = None,
               duration_ms: Optional[int] = None) -> bool:
+    if music_volume_db is None:
+        try:
+            music_volume_db = float(os.getenv("MUSIC_VOLUME_DB", "-21"))
+        except ValueError:
+            music_volume_db = -21.0
     try:
         voice = AudioSegment.from_file(voice_path) + voice_volume_db
         if len(voice) > 1000:
@@ -496,9 +506,57 @@ def _apply_ducking(music: AudioSegment, voice: AudioSegment, duck_db: float = -6
 
 
 def _process_clip(clip: dict, target_w: int, target_h: int, idx: int, format_type: str = "shorts", vid: str = "") -> str | None:
+    """One clip dict -> ONE processed file for the scene.
+
+    A scene may carry `shots` (2+ distinct stock clips, multi-shot B-roll): each
+    shot is processed to its slice of the scene's duration and the results are
+    hard-cut together, so the scene no longer has to hold or loop a single clip
+    for its whole length (the "slideshow" look). Downstream still sees one file
+    of the full duration, which is what keeps chapter / annotation / CTA timing
+    (all keyed on clip["duration"]) working unchanged.
+    """
+    shots = clip.get("shots") or []
+    if len(shots) >= 2:
+        total = float(clip.get("duration", 8.0))
+        n = len(shots)
+        slice_len = max(total / n, 0.5)
+        seg_files = []
+        for j, shot in enumerate(shots):
+            s_dur = slice_len if j < n - 1 else max(total - slice_len * (n - 1), 0.5)
+            sub = dict(clip)
+            sub.pop("shots", None)
+            sub["path"] = shot["path"]
+            sub["duration"] = s_dur + _LEAD_TRIM  # renders back down to s_dur
+            sub["is_static"] = False
+            shot_out = str(TEMP_DIR / f"clip_{vid}_{idx:03d}_s{j}.mp4")
+            # distinct seed per shot -> adjacent shots do not pan identically
+            if not _process_single_shot(sub, target_w, target_h, idx * 100 + j,
+                                        format_type, vid, shot_out):
+                continue
+            if (_get_duration(shot_out) or 0.0) < s_dur - 0.3:
+                ext = str(TEMP_DIR / f"clip_{vid}_{idx:03d}_s{j}_ext.mp4")
+                # _extend_clip returns True on its "already long enough" early-out
+                # WITHOUT writing ext, so only adopt it if a file actually landed.
+                if _extend_clip(shot_out, ext, s_dur) and os.path.exists(ext):
+                    shot_out = ext
+            seg_files.append(shot_out)
+        if len(seg_files) >= 2:
+            combined = _concat_only(seg_files, f"{vid}_{idx:03d}_multi")
+            if combined and os.path.exists(combined):
+                return combined
+        if seg_files:
+            return seg_files[0]  # one good shot beats none
+        return None
+
+    return _process_single_shot(
+        clip, target_w, target_h, idx, format_type, vid,
+        str(TEMP_DIR / f"clip_{vid}_{idx:03d}.mp4"))
+
+
+def _process_single_shot(clip: dict, target_w: int, target_h: int, idx: int,
+                         format_type: str, vid: str, out: str) -> str | None:
     src = clip["path"]
     dur = clip.get("duration", 8.0)
-    out = str(TEMP_DIR / f"clip_{vid}_{idx:03d}.mp4")
     camera = clip.get("camera", {}) or {}
 
     try:
@@ -1038,30 +1096,12 @@ def composite_video(clips: list[dict], voice_path: str, music_path: Optional[str
     vf_parts = ["unsharp=3:3:0.3:3:3:0.2"]
 
     if scenes:
-        for i, s in enumerate(scenes):
-            if i >= len(clips):
-                break
-            title = s.get("keyword") or s.get("description") or ""
-            if title:
-                escaped = title.replace("'", "\u2019").replace(":", "\\:").replace("-", "\\-")
-                ts = sum(c.get("duration", 8.0) for c in clips[:i])
-                te = ts + clips[i].get("duration", 8.0) - 0.5
-                x_expr = (
-                    f"if(lt(t\\,{ts}+0.3)\\,-text_w+(w+text_w)*(t-{ts})/0.3\\,"
-                    f"if(gte(t\\,{te}-0.3)\\,(w-text_w)/2-(w+text_w)*(t-({te}-0.3))/0.3\\,"
-                    f"(w-text_w)/2))"
-                )
-                vf_parts.append(
-                    f"drawtext=text='{escaped}':fontsize=28:fontcolor={PURPLE}:box=1:boxcolor=black@0.4:"
-                    f"boxborderw=6:x={x_expr}:y=h-130:enable='between(t\\,{ts}\\,{te})'"
-                )
-
-        # ponytail: no text overlays in the video body. This plus the
-        # `callout` annotations in scene_parser used to burn extracted keyterms
-        # onto the frame twice (large at top, small teal at bottom-left) and
-        # both collided with the burned subtitle track. Removed 09-28 after the
-        # owner reviewed real output. The only text on screen is now the
-        # subtitle track + the CTA/midroll graphics below.
+        # ponytail: NO text overlays in the video body -- this is now literally
+        # true. The per-scene purple lower-third ("keyword or description" burned
+        # at y=h-130) still rendered here despite the comment below claiming
+        # otherwise; it sat right under the amber subtitle track and was the
+        # bottom purple box the owner flagged. Deleted. The only text on screen
+        # is the subtitle track + the CTA/midroll graphics below.
 
         # Annotations — callouts, steps, definitions, arrows, highlights, counters
         if os.getenv("ENABLE_ANNOTATIONS", "true").lower() == "true":

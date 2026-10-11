@@ -23,7 +23,7 @@ def _stub_side_effects(monkeypatch, captured):
     monkeypatch.setattr(mpp, "_send_telegram_notification", lambda *a, **k: None)
     monkeypatch.setattr(mpp, "_register_in_playlist", lambda *a, **k: None)
     monkeypatch.setattr(mpp, "optimize_title_for_platform", lambda t, p: t)
-    monkeypatch.setattr(mpp, "optimize_for_platform", lambda t, d, p: d)
+    monkeypatch.setattr(mpp, "optimize_for_platform", lambda t, d, p, **k: d)
 
     # R2 cleanup fires on any success and would otherwise delete from the real
     # bucket with real credentials.

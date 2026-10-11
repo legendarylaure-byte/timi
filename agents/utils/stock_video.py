@@ -367,7 +367,15 @@ def _keyword_expand(base_keyword: str) -> list[str]:
     # A few scene-specific variations beat a generic alias list.
     queries.append(f"{base} close up")
     queries.append(f"{base} 4k")
-    return queries[:6]
+
+    # Real-world queries first; abstract ones (the vocabulary that produced the
+    # slate-blue look -- "neon", "holographic", "cgi", "3d", ...) sink to the end
+    # so they are only searched if nothing concrete returns. Single choke point:
+    # every scene query reaches Pexels/Pixabay through here. _ABSTRACT_TITLE_RE is
+    # the existing list, reused rather than re-declared.
+    concrete = [q for q in queries if not _ABSTRACT_TITLE_RE.search(q)]
+    abstract = [q for q in queries if _ABSTRACT_TITLE_RE.search(q)]
+    return (concrete + abstract)[:6]
 
 
 def _handle_rate_limit(resp: requests.Response, source: str, max_retries: int = 1) -> requests.Response:
@@ -813,10 +821,16 @@ def search_and_download(
     # signature so the one caller need not change; it is not feeding this sort.
     for c in unique:
         c["_cid"] = f"{c['source']}_{c['id']}"
+    # Prefer candidates the provider says can FILL the scene slot, so a 10s scene
+    # is not served a 3s clip looped 3x. _extend_clip loops when it must, and a
+    # loop is visible every single time. Provider durations are approximate and
+    # default to 5, so this is a preference tier, not a filter: if nothing fits,
+    # ordering falls back to the repeat penalty alone.
     unique.sort(
         key=lambda c: (
+            c.get("duration", 0) >= target_duration,
             -_repeat_penalty(c["_cid"])
-            + _stable_jitter(video_id, scene_idx, c["_cid"])
+            + _stable_jitter(video_id, scene_idx, c["_cid"]),
         ),
         reverse=True,
     )

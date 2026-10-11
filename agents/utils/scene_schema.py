@@ -83,8 +83,11 @@ VALID_DIRECTIONS = ["left", "right", "top", "bottom"]
 VALID_EFFECTS = ["fade_in", "fade_out", "none"]
 VALID_TRANSITIONS = ["cut", "fade", "dissolve", "slide_left", "slide_right", "zoom", "none", "circle_open", "circle_close", "pixelize", "wipe_left", "wipe_right", "smooth_left", "smooth_right", "fade_gradual"]
 
-ASSET_TYPES = ["STOCK_FOOTAGE", "SCREEN_CAPTURE", "CODE_SNIPPET", "STATIC_IMAGE"]
-RENDER_TYPES = ["stock", "code"]
+# ponytail: SCREEN_CAPTURE/CODE_SNIPPET and render_type "code" removed 2026-10 --
+# the fake `snippet.py` code cards read as unprofessional. normalize() now coerces
+# any stale code scene to STOCK_FOOTAGE, so old stored scenes degrade safely.
+ASSET_TYPES = ["STOCK_FOOTAGE", "STATIC_IMAGE"]
+RENDER_TYPES = ["stock"]
 
 SHAPE_TYPES = ["circle", "square", "rounded_square", "arrow", "line"]
 ANIMATION_TYPES = [

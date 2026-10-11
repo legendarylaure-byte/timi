@@ -20,6 +20,7 @@ Rules:
 4. Balance across categories — don't over-use one category
 5. Follow trending AI/tech topics on social media
 6. Avoid repetitive topics within the same week
+7. Every title MUST carry a SPECIFIC, narrow angle — never a generic "What is X" or "Introduction to X" overview. Name the specific claim, surprise, or promise the video delivers.
 
 Return ONLY valid JSON:
 {

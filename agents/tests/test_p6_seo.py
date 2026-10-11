@@ -298,8 +298,8 @@ def test_a_lost_retry_is_distinguishable_from_no_retry(monkeypatch):
         monkeypatch.setattr(main, "suggest_seo_improvements", lambda *a, **k: [])
         monkeypatch.setattr(main, "generate_description", fake_generate)
         monkeypatch.setattr(main, "_assemble_description",
-                            lambda d, *a: {"full_description": d["full_description"],
-                                           "tags": d.get("tags") or []})
+                            lambda d, *a, **k: {"full_description": d["full_description"],
+                                                "tags": d.get("tags") or []})
         monkeypatch.setattr(main, "get_optimized_tags", lambda *a: ["t"])
         desc, score = main._seo_polish_description(
             original, "script", "AI News", "short", "Title", "Topic")

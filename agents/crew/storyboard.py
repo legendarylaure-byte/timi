@@ -26,16 +26,15 @@ For each scene, specify the RENDER_TYPE and VISUAL ASSET TYPE to use."""
 
     storyboard_artist = Agent(
         role="Visual Director for Tech Content",
-        goal="Create scene-by-scene visual plans for educational tech videos using stock footage, screen captures, diagrams, and code snippets",
+        goal="Create scene-by-scene visual plans for educational tech videos using cinematic stock footage and diagrams",
         backstory="""You are a professional visual director specializing in educational technology content.
 You translate scripts into detailed visual plans that the video pipeline can execute.
-Your storyboards specify which asset type to use per scene: stock footage for atmosphere,
-screen captures for tool demonstrations,
-and code snippets for technical deep-dives. You match visual style to content type.
+Your storyboards specify the topic and shot for each scene and lean on cinematic real-world
+b-roll of the actual subject. You match visual style to content type.
 You specify camera angles, lighting, and composition to ensure each scene is visually engaging.
 
-IMPORTANT: Vary your asset types across scenes. Do not use STOCK_FOOTAGE for more than 60% of scenes.
-Mix in SCREEN_CAPTURE, CODE_SNIPPET, and STATIC_IMAGE to keep the video visually diverse.""",
+IMPORTANT: Vary the SUBJECT and shot across scenes so consecutive scenes do not look alike.
+On-screen code cards and screen-capture panels are NOT used -- every scene is real footage.""",
         llm=llm,
         verbose=True,
         allow_delegation=False,
@@ -47,12 +46,12 @@ Mix in SCREEN_CAPTURE, CODE_SNIPPET, and STATIC_IMAGE to keep the video visually
 
 {scene_instruction}
 
-PRESERVE the RENDER_TYPE tags from the script's VISUAL lines: [LTX] for cinematic/b-roll, [CODE] for code snippets. If no tag is present, infer the best one.
+PRESERVE the RENDER_TYPE tags from the script's VISUAL lines: [LTX] for cinematic/b-roll. Code-snippet scenes are not used; if a [CODE] tag appears, treat it as [LTX].
 
 For EACH scene output:
 1. Scene number and timing (e.g., "Scene 1: 0-12s")
-2. RENDER_TYPE: [LTX | CODE]
-3. ASSET TYPE: one of [STOCK_FOOTAGE, SCREEN_CAPTURE, CODE_SNIPPET, STATIC_IMAGE]
+2. RENDER_TYPE: [LTX]
+3. ASSET TYPE: STOCK_FOOTAGE (STATIC_IMAGE only as a rare branded card)
 4. Visual description: what the viewer sees — screen content, diagram elements, footage subject
 5. Camera angle: specify the shot type (e.g., close-up on hands typing, wide shot of server room, over-the-shoulder at monitor, top-down of circuit board, dolly-in on neural network visualization, smooth pan across architecture diagram, macro shot of chip components)
 6. Lighting: specify lighting style (e.g., dramatic side lighting, soft diffused overhead, neon glow from screens, warm key light with cool fill, volumetric god rays through server vents, rim lighting on subject, cinematic low-key for mystery)
@@ -61,8 +60,8 @@ For EACH scene output:
 
 OUTPUT FORMAT — one block per scene:
 --SCENE 1 (0-12s)--
-RENDER_TYPE: [LTX | CODE]
-ASSET_TYPE: [STOCK_FOOTAGE | SCREEN_CAPTURE | CODE_SNIPPET | STATIC_IMAGE]
+RENDER_TYPE: [LTX]
+ASSET_TYPE: [STOCK_FOOTAGE | STATIC_IMAGE]
 VISUAL: [what the viewer sees]
 CAMERA: [shot type, camera movement]
 LIGHTING: [lighting style]

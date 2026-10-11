@@ -1,15 +1,10 @@
 import os
-import random
-import sys
-import json
-import requests
 import logging
 from pathlib import Path
 from typing import Optional
 
 from dotenv import load_dotenv
 from pydub import AudioSegment
-from pydub.generators import Sine, Triangle
 
 load_dotenv()
 
@@ -18,18 +13,10 @@ logger = logging.getLogger(__name__)
 MUSIC_DIR = Path(__file__).parent.parent / "tmp" / "music"
 MUSIC_DIR.mkdir(parents=True, exist_ok=True)
 
-PIXABAY_API_KEY = os.getenv("PIXABAY_API_KEY", "")
-USE_MUSICGEN = os.getenv("USE_MUSICGEN", "false").lower() == "true"
+SR = 44100
+LOOP_SECONDS = 40.0
 
-MOOD_TO_PIXABAY_QUERY = {
-    "focused": "ambient electronic background study",
-    "energetic": "upbeat motivational corporate technology",
-    "cinematic": "cinematic orchestral epic trailer",
-    "ambient": "ambient atmospheric meditation drone",
-    "modern": "modern electronic rhythmic tech",
-    "uplifting": "uplifting inspirational happy corporate",
-    "documentary": "ambient documentary cinematic nature",
-}
+USE_MUSICGEN = os.getenv("USE_MUSICGEN", "false").lower() == "true"
 
 MOOD_CONFIGS = {
     "focused": {"bpm": 85, "notes": [196.00, 220.00, 261.63, 329.63, 392.00, 440.00], "waveform": "sine"},
@@ -40,23 +27,6 @@ MOOD_CONFIGS = {
     "uplifting": {"bpm": 120, "notes": [261.63, 293.66, 329.63, 349.23, 392.00, 440.00, 493.88], "waveform": "triangle"},
     "documentary": {"bpm": 55, "notes": [130.81, 164.81, 196.00, 220.00, 261.63, 329.63], "waveform": "sine"},
 }
-
-
-def detect_mood(category: str, tier: str = "") -> str:
-    if tier == "documentary":
-        return "documentary"
-    category = category.lower()
-    mood_map = {
-        "explained": "focused", "tutorial": "modern", "deep": "ambient",
-        "breakdown": "focused", "analysis": "focused", "news": "energetic",
-        "build": "uplifting", "code": "modern", "career": "uplifting",
-        "industry": "cinematic",
-    }
-    for key, mood in mood_map.items():
-        if key in category:
-            return mood
-    return "focused"
-
 
 ENERGY_KEYWORDS = {
     "high": {"breakthrough", "crucially", "revolutionary", "game-changing",
@@ -92,75 +62,163 @@ def score_scene_energy(text: str) -> str:
 
 
 # ---------------------------------------------------------------------------
-# Pixabay music search (primary)
+# Own-generator soundscapes (news / relaxing)
+#
+# Two license-free beds, rendered once each and cached. The bed is a SEAMLESS
+# loop: every oscillator and LFO frequency is quantized to an integer number of
+# cycles over LOOP_SECONDS, bell tails are wrapped to the buffer start, and the
+# reverb is circular (FFT length == signal length). So sample[-1] -> sample[0]
+# is continuous and mix_audio can repeat the bed to any video length with no
+# seam. No edge fades here -- the compositor applies its own fade_in/fade_out.
 # ---------------------------------------------------------------------------
 
-def _search_pixabay_music(query: str, duration: float) -> list[dict]:
-    if not PIXABAY_API_KEY:
-        return []
-    params = {
-        "key": PIXABAY_API_KEY,
-        "q": query,
-        "duration": f"0,{int(duration) + 60}",
-        "per_page": 5,
-    }
-    try:
-        resp = requests.get("https://pixabay.com/api/audio/", params=params, timeout=15)
-        if resp.status_code == 403:
-            logger.debug("[music_gen] Pixabay audio API returned 403 (key may not have audio scope)")
-            return []
-        resp.raise_for_status()
-        data = resp.json()
-        hits = []
-        for track in data.get("hits", []):
-            hits.append({
-                "id": track.get("id"),
-                "url": track.get("audio_url", ""),
-                "duration": track.get("duration", 0),
-                "tags": track.get("tags", ""),
-                "title": track.get("title", ""),
-            })
-        return hits
-    except Exception as e:
-        logger.debug(f"[music_gen] Pixabay search failed: {e}")
-        return []
+BED_PEAK = 0.28
+NEWS_MUSIC_CATEGORIES = {"World News (24hr)", "Nepal News"}
+MUSIC_PROFILES = ("news", "relaxing")
 
 
-def _download_pixabay_track(url: str, output_path: str) -> bool:
-    try:
-        resp = requests.get(url, timeout=60, stream=True)
-        if resp.status_code == 403:
-            logger.debug("[music_gen] Pixabay track download 403 (access denied)")
-            return False
-        resp.raise_for_status()
-        with open(output_path, "wb") as f:
-            for chunk in resp.iter_content(chunk_size=8192):
-                f.write(chunk)
-        return os.path.exists(output_path) and os.path.getsize(output_path) > 1000
-    except Exception as e:
-        logger.debug(f"[music_gen] Pixabay download failed: {e}")
-        return False
+def select_music_profile(category, tier: str = "") -> str:
+    """Map a video's category (and tier) to one of the two beds.
+
+    Exact category set, deliberately NOT a substring match: "AI News" must map
+    to relaxing, only the two real news categories get the news bed.
+    """
+    if tier == "documentary":
+        return "relaxing"
+    if isinstance(category, (list, tuple)):
+        category = category[0] if category else ""
+    cat = str(category or "").strip()
+    return "news" if cat in NEWS_MUSIC_CATEGORIES else "relaxing"
 
 
-def _try_pixabay_music(category: str, mood: str, duration: float, output_path: str) -> bool:
-    query = MOOD_TO_PIXABAY_QUERY.get(mood, "ambient electronic background")
-    logger.info(f"[music_gen] Searching Pixabay: '{query}'")
-    tracks = _search_pixabay_music(query, duration)
-    if not tracks:
-        logger.info("[music_gen] No Pixabay tracks found")
-        return False
+def _quant(f: float, period: float) -> float:
+    """Snap a frequency to exactly `round(f*period)` cycles over the loop."""
+    return round(f * period) / period
 
-    best = tracks[0]
-    logger.info(f"[music_gen] Downloading: {best.get('title', 'unknown')} ({best.get('duration', 0)}s)")
-    if _download_pixabay_track(best["url"], output_path):
-        logger.info(f"[music_gen] Pixabay track saved -> {output_path}")
-        return True
 
-    return False
+def _spectral_lowpass(x, fc):
+    import numpy as np
+    X = np.fft.rfft(x)
+    f = np.fft.rfftfreq(len(x), 1 / SR)
+    X = X / np.sqrt(1.0 + (f / fc) ** 2)
+    return np.fft.irfft(X, len(x))
+
+
+def _circular_reverb(x, tau, mix, seed):
+    import numpy as np
+    n = len(x)
+    rng = np.random.default_rng(seed)
+    m = int(SR * min(3.0, tau * 3))
+    t = np.arange(m) / SR
+    rir = rng.standard_normal(m) * np.exp(-t / tau)
+    rir /= np.sqrt((rir ** 2).sum() + 1e-12)
+    wet = np.fft.irfft(np.fft.rfft(x, n) * np.fft.rfft(rir, n), n)
+    wet *= np.sqrt(np.mean(x ** 2)) / (np.sqrt(np.mean(wet ** 2)) + 1e-12)
+    return x * (1 - mix) + wet * mix
+
+
+def _pad(freqs, t, T, seed):
+    import numpy as np
+    rng = np.random.default_rng(seed)
+    out = np.zeros_like(t)
+    for f in freqs:
+        det = rng.uniform(-0.25, 0.25)
+        lfo_f = rng.uniform(0.04, 0.12)
+        lfo_p = rng.uniform(0, 2 * np.pi)
+        amp = 0.55 + 0.45 * np.sin(2 * np.pi * _quant(lfo_f, T) * t + lfo_p)
+        out += np.sin(2 * np.pi * _quant(f + det, T) * t + rng.uniform(0, 2 * np.pi)) * amp
+    return out / len(freqs)
+
+
+def _bells(t, freqs, decay, seed, level, count, T):
+    import numpy as np
+    rng = np.random.default_rng(seed)
+    n = len(t)
+    out = np.zeros(n)
+    for _ in range(count):
+        start = int(rng.integers(0, n))
+        f = _quant(float(rng.choice(freqs)), T)
+        m = int(SR * decay * 3)
+        tt = np.arange(m) / SR
+        tone = np.sin(2 * np.pi * f * tt) * np.exp(-tt / decay) * level
+        idx = (start + np.arange(m)) % n        # wrap decay tail -> seamless
+        out[idx] += tone
+    return out
+
+
+def _pulse(t, hz, sharp, T):
+    import numpy as np
+    ph = (t * _quant(hz, T)) % 1.0
+    return np.exp(-ph * sharp)
+
+
+def _synth_bed(profile: str, loop_seconds: float = LOOP_SECONDS):
+    """Return a stereo float array (2, N) that loops seamlessly."""
+    import numpy as np
+    T = loop_seconds
+    n = int(SR * T)
+    t = np.arange(n) / SR
+    A4 = 432.0
+
+    def note(semis):
+        return A4 * 2.0 ** (semis / 12.0)
+
+    root = note(-24)                            # A2 ~108
+
+    if profile == "news":
+        minor = [root, root * 6 / 5, root * 1.5, root * 2]
+        pad_l = _pad(minor, t, T, 31)
+        pad_r = _pad(minor, t, T, 32)
+        env = _pulse(t, 1.9, 7.0, T)
+        sub = np.sin(2 * np.pi * _quant(root * 0.5, T) * t) * (0.25 + 0.55 * env)
+        # soft newsroom tick; random noise (tiny seam at 0.05 amp, lowpassed away)
+        tick = np.random.default_rng(41).standard_normal(n) * _pulse(t, 1.9, 40.0, T) * 0.05
+        tick = _spectral_lowpass(tick, 6000)
+        L = _spectral_lowpass(pad_l * 0.6 + sub + tick, 4800)
+        R = _spectral_lowpass(pad_r * 0.6 + sub + np.roll(tick, 300), 4800)
+        L = _circular_reverb(L, 0.9, 0.28, 51)
+        R = _circular_reverb(R, 0.9, 0.28, 52)
+        peak = 0.28
+    else:                                       # relaxing
+        pad_l = _pad([root, root * 1.5, root * 2, root * 3], t, T, 11)
+        pad_r = _pad([root, root * 1.5, root * 2, root * 3], t, T, 12)
+        sub = np.sin(2 * np.pi * _quant(root * 0.5, T) * t) * 0.55
+        bel = _bells(t, [note(0), note(7), note(12), note(19)], 1.6, 13, 0.42, 12, T)
+        L = _spectral_lowpass(pad_l * 0.55 + sub + bel, 3200)
+        R = _spectral_lowpass(pad_r * 0.55 + sub + np.roll(bel, 900), 3200)
+        L = _circular_reverb(L, 1.4, 0.38, 21)
+        R = _circular_reverb(R, 1.4, 0.38, 22)
+        peak = 0.30
+
+    stereo = np.stack([L, R])
+    stereo = stereo / (np.abs(stereo).max() + 1e-12) * peak
+    return stereo
+
+
+def _write_bed_wav(path: str, stereo) -> None:
+    import numpy as np
+    import wave
+    pcm = (np.clip(stereo.T, -1, 1) * 32767).astype("<i2")
+    with wave.open(path, "wb") as w:
+        w.setnchannels(2)
+        w.setsampwidth(2)
+        w.setframerate(SR)
+        w.writeframes(pcm.tobytes())
+
+
+def _ensure_bed(profile: str) -> str:
+    """Render bed_{profile}.wav once and reuse it (cache lives in MUSIC_DIR)."""
+    MUSIC_DIR.mkdir(parents=True, exist_ok=True)
+    path = MUSIC_DIR / f"bed_{profile}.wav"
+    if path.exists() and path.stat().st_size > 10000:
+        return str(path)
+    _write_bed_wav(str(path), _synth_bed(profile))
+    logger.info(f"[music_gen] Rendered '{profile}' bed -> {path}")
+    return str(path)
 
 
 # ---------------------------------------------------------------------------
-# MusicGen integration (secondary — requires MPS or CUDA)
+# MusicGen integration (optional — requires MPS or CUDA; off by default)
 # ---------------------------------------------------------------------------
 
 def _build_musicgen_prompt(category: str, scene_moods: list[str]) -> str:
@@ -192,7 +250,6 @@ def _build_musicgen_prompt(category: str, scene_moods: list[str]) -> str:
             "modern": "modern and rhythmic", "uplifting": "uplifting and inspiring",
         }
         arc_parts = [mood_labels.get(m, m) for m in unique_moods]
-        total_dur = len(scene_moods) * 8
         if len(unique_moods) == 1:
             arc = f"The music has a consistent {arc_parts[0]} mood throughout."
         else:
@@ -229,11 +286,9 @@ def _generate_musicgen_local(prompt: str, duration_seconds: float, output_path: 
         import torch
         from transformers import AutoProcessor, MusicgenForConditionalGeneration
         import scipy.io.wavfile as wavfile
-        import numpy as np
     except ImportError:
         return False
 
-    device = None
     if torch.cuda.is_available():
         device = "cuda"
     elif torch.backends.mps.is_available():
@@ -267,123 +322,33 @@ def _try_musicgen(category: str, duration: float, scene_moods: list[str], output
         return False
     prompt = _build_musicgen_prompt(category, scene_moods)
     logger.info(f"[music_gen] MusicGen prompt: {prompt}")
-    if _generate_musicgen_local(prompt, duration, output_path):
-        return True
-    return False
-
-
-# ---------------------------------------------------------------------------
-# Procedural music generation (last resort)
-# ---------------------------------------------------------------------------
-
-def generate_melody(duration_seconds: float, mood: str = "focused", output_path: Optional[str] = None,
-                    scene_moods: Optional[list[str]] = None) -> Optional[str]:
-    if scene_moods and len(scene_moods) > 1:
-        return _generate_mood_arc_melody(duration_seconds, scene_moods, output_path)
-    config = MOOD_CONFIGS.get(mood, MOOD_CONFIGS["focused"])
-    bpm = config["bpm"]
-    notes = config["notes"]
-    waveform = config["waveform"]
-    beat_duration = 60.0 / bpm
-    total_beats = int(duration_seconds / beat_duration)
-    gen = Sine if waveform == "sine" else Triangle
-
-    # Documentary/ambient: sustained chord pads instead of note-by-note melody
-    if mood in ("documentary", "ambient", "cinematic"):
-        chord_dur = int(beat_duration * 4 * 1000)
-        pad = AudioSegment.silent(duration=0)
-        for start_beat in range(0, total_beats, 4):
-            freq = random.choice(notes)
-            tone = gen(freq).to_audio_segment(duration=chord_dur)
-            tone = tone - 20
-            pad = pad.overlay(tone, position=int(start_beat * beat_duration * 1000))
-        pad = pad[:int(duration_seconds * 1000)]
-        pad = AudioSegment.from_mono_audiosegments(pad, pad)
-        if output_path is None:
-            output_path = str(MUSIC_DIR / f"music_{mood}_{random.randint(1000,9999)}.wav")
-        pad.export(output_path, format="wav")
-        return output_path
-
-    melody = AudioSegment.silent(duration=0)
-    for _ in range(total_beats):
-        freq = random.choice(notes)
-        note_duration = random.choice([beat_duration * 0.5, beat_duration, beat_duration * 1.5])
-        note_ms = int(note_duration * 1000)
-        tone = gen(freq).to_audio_segment(duration=note_ms - 50)
-        tone = tone.fade_in(20).fade_out(30) - 15
-        melody += tone
-
-    melody = melody[:int(duration_seconds * 1000)]
-    melody = AudioSegment.from_mono_audiosegments(melody, melody)
-
-    if output_path is None:
-        output_path = str(MUSIC_DIR / f"music_{mood}_{random.randint(1000,9999)}.wav")
-
-    melody.export(output_path, format="wav")
-    return output_path
-
-
-def _generate_mood_arc_melody(duration_seconds: float, scene_moods: list[str], output_path: str) -> str:
-    n_moods = len(scene_moods)
-    seg_duration = duration_seconds / n_moods
-    segments = []
-    for i, mood in enumerate(scene_moods):
-        if mood not in MOOD_CONFIGS:
-            mood = "focused"
-        seg_path = str(MUSIC_DIR / f"mood_seg_{i:03d}.wav")
-        generate_melody(seg_duration, mood=mood, output_path=seg_path, scene_moods=None)
-        segments.append(seg_path)
-    combined = AudioSegment.empty()
-    for i, seg_path in enumerate(segments):
-        if os.path.exists(seg_path):
-            seg = AudioSegment.from_file(seg_path)
-            seg_len = len(seg)
-            if seg_len < 100:
-                continue
-            crossfade = min(100, seg_len // 4)
-            crossfade = crossfade if combined else 0
-            combined = combined.append(seg, crossfade=crossfade)
-    combined.export(output_path, format="wav")
-    return output_path
+    return _generate_musicgen_local(prompt, duration, output_path)
 
 
 # ---------------------------------------------------------------------------
 # Main entry point
 # ---------------------------------------------------------------------------
 
-def generate_background_music(category: str, duration: float = 60, output_filename: Optional[str] = None, scene_moods: Optional[list[str]] = None, tier: str = "", video_id: str = "") -> dict:
-    MUSIC_DIR.mkdir(parents=True, exist_ok=True)
-    mood = detect_mood(category, tier=tier)
-    if output_filename is None:
-        output_filename = f"bg_{mood}_{video_id}.wav" if video_id else f"bg_{mood}.wav"
-    output_path = str(MUSIC_DIR / output_filename)
+def generate_background_music(category: str, duration: float = 60, output_filename: Optional[str] = None,
+                              scene_moods: Optional[list[str]] = None, tier: str = "", video_id: str = "") -> dict:
+    profile = select_music_profile(category, tier=tier)
 
-    source = None
-    music_path = None
+    # Optional MusicGen (requires CUDA/MPS; USE_MUSICGEN defaults off).
+    if USE_MUSICGEN:
+        out = str(MUSIC_DIR / (output_filename or f"bg_{profile}_{video_id or 'x'}.wav"))
+        if _try_musicgen(category, duration, scene_moods or [profile], out) and os.path.exists(out):
+            try:
+                audio = AudioSegment.from_file(out)
+                return {"path": out, "duration": len(audio) / 1000.0, "mood": profile,
+                        "success": True, "source": "musicgen"}
+            except Exception as e:
+                logger.warning(f"[music_gen] MusicGen file is corrupt: {e}")
 
-    # Try Pixabay first
-    if _try_pixabay_music(category, mood, duration, output_path):
-        source = "pixabay"
-        music_path = output_path
-
-    # Try MusicGen (if enabled)
-    if not music_path:
-        scene_moods = scene_moods or [mood]
-        if _try_musicgen(category, duration, scene_moods, output_path):
-            source = "musicgen"
-            music_path = output_path
-
-    # Fall back to procedural
-    if not music_path:
-        logger.info("[music_gen] All external music sources failed, using procedural fallback")
-        music_path = generate_melody(duration, mood, output_path, scene_moods=scene_moods)
-        source = "procedural"
-
-    if music_path and os.path.exists(music_path):
-        try:
-            audio = AudioSegment.from_file(music_path)
-            return {"path": music_path, "duration": len(audio) / 1000.0, "mood": mood, "success": True, "source": source}
-        except Exception as e:
-            logger.warning(f"[music_gen] Generated music file is corrupt: {e}")
-
-    return {"path": None, "duration": 0, "mood": mood, "success": False}
+    try:
+        music_path = _ensure_bed(profile)
+        audio = AudioSegment.from_file(music_path)
+        return {"path": music_path, "duration": len(audio) / 1000.0, "mood": profile,
+                "success": True, "source": "own-generator"}
+    except Exception as e:
+        logger.warning(f"[music_gen] Failed to render '{profile}' bed: {e}")
+        return {"path": None, "duration": 0, "mood": profile, "success": False}

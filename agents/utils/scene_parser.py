@@ -188,8 +188,8 @@ Return ONLY a valid JSON array of scene objects. Each scene object has this exac
 {
     "background": "solid_black|solid_white|solid_indigo|solid_slate|brand_dark|gradient_dark_tech|gradient_blueprint|gradient_neon|gradient_corporate|gradient_minimal",
   "duration": 8.0,
-  "render_type": "stock|code",
-  "asset_type": "STOCK_FOOTAGE|SCREEN_CAPTURE|CODE_SNIPPET|STATIC_IMAGE",
+  "render_type": "stock",
+  "asset_type": "STOCK_FOOTAGE|STATIC_IMAGE",
   "asset_keywords": ["keyword1", "keyword2"],
   "narration_text": "The EXACT spoken narration text that will be read during this scene. Copy it verbatim from the script's NARRATION lines.",
   "ltx_prompt": "Describe the scene in 2-3 vivid sentences optimized for AI video generation. FIRST sentence must name the exact concrete objects from the narration (GPU chip, vector index structure, terminal window, circuit board) - not abstractions like 'technology'. Then camera angle, lighting, composition, colors, and motion.",
@@ -213,17 +213,15 @@ RULES:
 - Each scene should be 5-12 seconds
 - Use asset_type to specify what visual content to show
 - asset_keywords should describe what to search for or render
-- render_type: "stock" for cinematic/b-roll footage, "code" for code snippets
+- render_type: always "stock" (cinematic b-roll footage). On-screen code cards are NOT used.
 - ltx_prompt is CRITICAL: Write a detailed 2-3 sentence visual description optimized for text-to-video AI. Reference SPECIFIC visual elements mentioned in the script's NARRATION — if the narration talks about GPUs, describe GPU chips and data pathways; if it mentions training data, show data streams and processing pipelines. Never use generic descriptions. Include: camera angle (close-up, wide, tracking, dolly, over-the-shoulder, top-down), lighting (neon glow, soft diffused, dramatic side, volumetric, rim light), composition (subject placement, depth layers), colors, and motion. Example: "Close-up of futuristic circuit board with glowing purple neon pathways, dramatic side lighting casting long shadows, camera slowly pulling back to reveal a glowing central processor chip, sparks of light traveling along the circuits, deep violet to magenta gradient color palette, cinematic 24fps quality"
 - Text should be short phrases (3-8 words), not full sentences
 - Background should match the scene mood
 - camera.zoom of 1.0 means no zoom, >1 zooms in
 - Include text overlays for key spoken phrases
 - Match asset_type to the technical content:
-  - STOCK_FOOTAGE for general concepts/demonstrations
-  - SCREEN_CAPTURE for tool tutorials and code walkthroughs
-  - CODE_SNIPPET for showing code examples
-  - STATIC_IMAGE for reference images
+  - STOCK_FOOTAGE for nearly every scene (cinematic b-roll of the real-world subject)
+  - STATIC_IMAGE only as a rarity (branded reference card)
 
 Generate scenes that follow the narrative arc of the script. Maintain visual continuity across consecutive scenes."""  # noqa: E501
 
@@ -233,7 +231,7 @@ def _ensure_visual_variety(scenes: list[dict]) -> list[dict]:
         return scenes
 
     variety_indicators = {
-        "render_type": {"stock", "code", "static"},
+        "render_type": {"stock"},
         "music_mood": {"focused", "uplifting", "energetic", "calm", "serious", "suspenseful", "hopeful", "curious"},
         "background": None,
     }
@@ -310,9 +308,9 @@ def _llm_scene_parse(
   - "narration_text": EXACT spoken narration for that scene (copy verbatim from NARRATION lines)
   - "description": A 10-15 word summary of what this scene visually IS (e.g. "neural network diagram with animated forward pass", "GPU chip closeup with data flow arrows"). This field is used to select the BEST animation template — be specific about the visual concept.
   - "ltx_prompt": A vivid 2-3 sentence visual description for AI text-to-video generation. Include camera angle, lighting, composition, colors, and motion. CRITICAL: The PRIMARY source for ltx_prompt is the STORYBOARD's VISUAL/CAMERA/LIGHTING fields — copy their specific visual elements (camera angle, lighting, colors, objects, motion) into the ltx_prompt. The narration_text provides context only. Never use generic descriptions.
-  - "render_type": "stock" for cinematic/b-roll footage, "code" for code snippets.
+  - "render_type": always "stock" (cinematic b-roll footage). On-screen code cards are NOT used.
 
-Read the VISUAL lines from the script/storyboard — they contain [LTX], or [CODE] tags. Use these to set render_type: [CODE] → "code", [LTX] or no tag → "stock".
+Read the VISUAL lines from the script/storyboard — they contain [LTX] tags. render_type is always "stock".
 
 Title: {title}
 Category: {category}
@@ -687,9 +685,9 @@ def _pick_lighting_by_content(text_lower: str, mood: str, scene_index: int) -> s
 
 
 def _infer_render_type(text: str) -> str:
-    m = re.search(r'\[(CODE|LTX)\]', text, re.IGNORECASE)
-    if m and m.group(1).upper() == "CODE":
-        return "code"
+    # ponytail: always stock -- [CODE] cards removed 2026-10. Kept as a function
+    # so the rule-path caller need not change; returns a constant so a stray
+    # [CODE] tag in an LLM/stored script can never re-introduce the fake card.
     return "stock"
 
 
@@ -724,10 +722,6 @@ def _infer_ltx_prompt(text: str, title: str = "", scene_index: int = 0, scene: d
             bg_hint = "on a clean professional background, "
 
     asset_hint = ""
-    if scene:
-        at = scene.get("asset_type", "")
-        if at == "CODE_SNIPPET":
-            asset_hint = "syntax-highlighted code on screen, "
 
     text_hint = ""
     if scene:
@@ -805,7 +799,7 @@ def _infer_asset_type(text: str) -> str:
     m = re.search(r'ASSET_TYPE\s*:\s*(\w+)', text, re.IGNORECASE)
     if m:
         at = m.group(1).upper()
-        if at in ("STOCK_FOOTAGE", "SCREEN_CAPTURE", "CODE_SNIPPET", "STATIC_IMAGE"):
+        if at in ("STOCK_FOOTAGE", "STATIC_IMAGE"):
             return at
     return "STOCK_FOOTAGE"
 
@@ -832,66 +826,24 @@ def _infer_keywords(text: str, title: str = "") -> list[str]:
     word_freq = Counter(words)
     top_words = [w for w, _ in word_freq.most_common(15)]
 
-    tech_terms = ["AI", "machine learning", "deep learning", "neural network", "transformer",
-                  "GPT", "LLM", "data", "algorithm", "code", "GPU", "training", "inference",
-                  "automation", "cloud", "API", "model", "embedding", "attention",
-                  "token", "pipeline", "architecture", "framework", "PyTorch", "TensorFlow",
-                  "layer", "weight", "bias", "gradient", "vector", "matrix"]
-    found_tech = [t for t in tech_terms if t.lower() in text_lower]
-
-    visual_map = {
-        "transformer": "neural network architecture with flowing attention connections",
-        "attention": "data streams connecting across a neural grid",
-        "neural": "glowing neural pathways and synaptic connections",
-        "algorithm": "algorithm visualization with flowing data patterns",
-        "data": "streaming data visualization with glowing particles",
-        "model": "abstract 3D model rotating with data layers",
-        "network": "interconnected nodes pulsing with data flow",
-        "training": "neural network training visualization with loss curves",
-        "token": "word embeddings floating in vector space",
-        "learning": "brain with glowing neural connections forming patterns",
-        "layer": "transparent stacked layers with data flowing between them",
-        "vector": "vectors in multidimensional space with directional arrows",
-        "matrix": "matrix multiplication visualization with glowing cells",
-        "GPU": "processor chip with parallel data pathways",
-        "inference": "data flowing through a pipeline with processing nodes",
-        "embedding": "word vectors arranged in semantic space",
-        "hallucination": "AI model generating incorrect outputs with visual distortion and glitch effects",
-        "fine_tuning": "pre-trained model weights being adjusted with new data pathways connecting in",
-        "tokenization": "text being split into colored word fragments with token ID labels appearing",
-        "prompt": "text input being processed through an AI pipeline with glowing nodes",
-        "agent": "autonomous AI agent with decision nodes and branching action pathways",
-        "RAG": "knowledge base documents connected to an AI model with retrieval pathway arrows",
-        "diffusion": "image forming from random noise patterns gradually becoming clearer",
-        "encoder": "input data being compressed into a latent representation with arrows converging",
-        "decoder": "latent representation expanding into output data with arrows diverging",
-        "quantization": "numerical precision levels being reduced with rounding visualization",
-        "overfitting": "model curve fitting training data points exactly but diverging from test data",
-        "backpropagation": "error gradients flowing backward through network layers with glow trails",
-        "classification": "data points being sorted into labeled categories with boundary lines",
-        "regression": "data points with a trend line passing through the distribution",
-        "cluster": "data points grouping into colored clusters in 2D space",
-        "latent": "abstract compressed representation space with floating data points",
-    }
-    found_visual = []
-    for word in top_words[:5] + found_tech:
-        key = word.lower().replace(" ", "_")
-        if key in visual_map and visual_map[key] not in found_visual:
-            found_visual.append(visual_map[key])
-        elif key not in found_visual:
-            for vk, vv in visual_map.items():
-                if vk in word.lower() and vv not in found_visual:
-                    found_visual.append(vv)
-                    break
-
     title_terms = [t.strip() for t in title_clean.replace(" and ", " ").replace(" with ", " ").split() if len(t.strip()) > 3]
-    combined = []
-    if title_terms:
-        combined.append(title_clean)
-    combined.extend(found_tech[:3])
-    combined.extend(found_visual[:3])
 
-    return combined[:6] if combined else ["technology", "abstract", "digital"]
+    # ponytail: the abstract `visual_map` (["glowing neural pathways",
+    # "abstract 3D model rotating with data layers", ...]) was DELETED from the
+    # query path 2026-10. It was the vocabulary that produced the channel's
+    # slate-blue look -- Pexels fuzzy-matches such phrases to generic CGI renders.
+    # The concrete, real-world per-category vocabulary already lives in
+    # CATEGORY_VISUAL_KEYWORDS (appended by _apply_category_style), so only the
+    # abstract half is gone, not the visual identity.
+    #
+    # The video title used to LEAD every query, so every scene in a video searched
+    # the same phrase and returned near-identical footage (measured 2026-10-10:
+    # ~26 scenes, all query="new features in python 3.11"). The scene's OWN words
+    # now lead; the title survives only as a last-resort fallback.
+    combined = [w for w in top_words if len(w) > 3][:4]
+    if not combined and title_terms:
+        combined = [title_clean]
+    return combined[:6] if combined else ["computer", "office", "technology"]
 
 
 def _infer_text(text: str) -> list[dict]:
@@ -978,7 +930,7 @@ def _get_suggested_assets(category: str) -> str:
     mapping = {
         "AI News": "STOCK_FOOTAGE (news style, AI visuals), STATIC_IMAGE (logos, products, headlines)",
         "Science & Technology": "STOCK_FOOTAGE (research labs, tech innovations, data centers)",
-        "Programming & Software": "CODE_SNIPPET (code, terminal), SCREEN_CAPTURE (IDE, tools), STOCK_FOOTAGE (developer workspace)",
+        "Programming & Software": "STOCK_FOOTAGE (developer workspace, IDE screens, terminal, typing, server room)",
     }
     return mapping.get(category, "STOCK_FOOTAGE (tech visuals)")
 

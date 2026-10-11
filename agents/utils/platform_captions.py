@@ -6,13 +6,33 @@ PERFORMANCE_HASHTAGS = {
                 "Code & Build": ["#Programming", "#Coding", "#SoftwareDev", "#WebDev", "#TechTutorial"],
                 "Tool Tutorials": ["#Productivity", "#AITools", "#TechTips", "#Workflow", "#Automation"],
                 "Deep Tech": ["#DeepTech", "#AIResearch", "#Innovation", "#FutureTech", "#TechBreakthroughs"],
+                "AI News": ["#AI", "#AINews", "#ArtificialIntelligence", "#TechNews", "#MachineLearning"],
+                "Science & Technology": ["#Science", "#Technology", "#ScienceAndTechnology", "#Innovation", "#TechEducation"],
+                "Programming & Software": ["#Programming", "#Coding", "#SoftwareDev", "#WebDev", "#TechTutorial"],
+                "World News (24hr)": ["#WorldNews", "#News", "#GlobalNews", "#BreakingNews", "#CurrentEvents"],
+                "Nepal News": ["#Nepal", "#NepalNews", "#Kathmandu", "#NepalUpdates", "#SouthAsia"],
                 "default": ["#Tech", "#AI", "#Education", "#Learning", "#HowThingsWork"]},
     "tiktok": {"AI Explained": ["#AI", "#ArtificialIntelligence", "#TechTok", "#LearnOnTikTok", "#AITrends", "#DeepLearning", "#TechFacts", "#EdTech"],
                "Code & Build": ["#Coding", "#Programming", "#DevTok", "#CodeTok", "#SoftwareEngineer", "#BuildInPublic", "#TechTips", "#Developer"],
+               "AI News": ["#AI", "#AINews", "#TechTok", "#TechNews", "#LearnOnTikTok", "#AITrends", "#TechFacts", "#EdTech"],
+               "Science & Technology": ["#Science", "#TechTok", "#LearnOnTikTok", "#ScienceFacts", "#Technology", "#Innovation", "#EdTech", "#DidYouKnow"],
+               "Programming & Software": ["#Coding", "#Programming", "#DevTok", "#CodeTok", "#SoftwareEngineer", "#BuildInPublic", "#TechTips", "#Developer"],
+               "World News (24hr)": ["#WorldNews", "#News", "#GlobalNews", "#BreakingNews", "#CurrentEvents", "#NewsTok", "#LearnOnTikTok", "#WorldNewsTonight"],
+               "Nepal News": ["#Nepal", "#NepalNews", "#Kathmandu", "#NepalTikTok", "#SouthAsia", "#NepalUpdates", "#NewsTok", "#LearnOnTikTok"],
                "default": ["#TechTok", "#LearnOnTikTok", "#AI", "#TechFacts", "#Education", "#HowTo", "#ViralTech", "#Trending"]},
     "instagram": {"AI Explained": ["#AI", "#ArtificialIntelligence", "#MachineLearning", "#DeepLearning", "#TechReels", "#AITrends", "#FutureIsNow", "#AIGenerated", "#TechEducation", "#Innovation"],
+                  "AI News": ["#AI", "#AINews", "#ArtificialIntelligence", "#TechNews", "#MachineLearning", "#TechReels", "#AITrends", "#FutureIsNow", "#Innovation", "#TechEducation"],
+                  "Science & Technology": ["#Science", "#Technology", "#ScienceAndTechnology", "#Innovation", "#STEM", "#TechReels", "#FutureIsNow", "#Education", "#Knowledge", "#DidYouKnow"],
+                  "Programming & Software": ["#Programming", "#Coding", "#SoftwareDev", "#WebDev", "#Developer", "#CodeNewbie", "#SoftwareEngineer", "#TechReels", "#BuildInPublic", "#TechEducation"],
+                  "World News (24hr)": ["#WorldNews", "#News", "#GlobalNews", "#BreakingNews", "#CurrentEvents", "#NewsOfTheDay", "#WorldNewsTonight", "#StayInformed", "#GlobalAffairs", "#NewsUpdate"],
+                  "Nepal News": ["#Nepal", "#NepalNews", "#Kathmandu", "#NepalUpdates", "#SouthAsia", "#NepalToday", "#NepaliNews", "#VisitNepal", "#NewsUpdate", "#StayInformed"],
                   "default": ["#Tech", "#AI", "#Education", "#Learning", "#HowThingsWork", "#TechTips", "#Innovation", "#Future", "#Knowledge", "#STEM"]},
     "facebook": {"AI Explained": ["#AI", "#Tech", "#Innovation", "#Future"],
+                 "AI News": ["#AI", "#AINews", "#TechNews", "#Tech"],
+                 "Science & Technology": ["#Science", "#Technology", "#Innovation", "#STEM"],
+                 "Programming & Software": ["#Programming", "#Coding", "#SoftwareDev", "#Tech"],
+                 "World News (24hr)": ["#WorldNews", "#News", "#GlobalNews", "#BreakingNews"],
+                 "Nepal News": ["#Nepal", "#NepalNews", "#Kathmandu", "#SouthAsia"],
                  "default": ["#AI", "#Tech", "#Innovation", "#Future"]},
 }
 
@@ -129,12 +149,11 @@ def optimize_for_platform(base_title: str, base_description: str, platform: str,
     first_sentence = base_description.split(". ")[0] if ". " in base_description else base_description[:200]
 
     if platform == "youtube":
+        # No synthetic timeline: base_description already carries the real
+        # 📖 Chapters block built from actual scene durations. The old block
+        # emitted two literal "0:00" lines and a placeholder, so every video
+        # shipped a timeline that contradicted its own chapters.
         lines = [base_description[:config["max_length"]]]
-        if config["include_timestamps"]:
-            lines.append("\n⏱️ Timeline:")
-            lines.append("0:00 - Introduction")
-            lines.append(f"0:00 - {base_title}")
-            lines.append("— Full breakdown in the video —")
         lines.append("")
         lines.append(cta)
         lines.append("")

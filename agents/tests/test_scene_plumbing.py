@@ -44,12 +44,20 @@ def test_plumbing_never_becomes_the_ltx_prompt():
 
     captured = {}
     original = ar._render_scene_inner
+    original_stock = ar._get_stock_clip
+    original_card = ar._generate_static_image
 
     def spy(scene, *a, **k):
         captured["kw"] = list(scene.get("asset_keywords", []))
         return None  # force the fallback path, we only care what it was handed
 
+    # Returning None makes dispatch_scene walk its stock -> branded-card fallback,
+    # which would otherwise hit the LIVE Pexels/Pixabay API and a slow socket read
+    # (this hung the suite for minutes). Stub both IO boundaries: the spy above
+    # already captured what this test asserts on.
     ar._render_scene_inner = spy
+    ar._get_stock_clip = lambda *a, **k: None
+    ar._generate_static_image = lambda *a, **k: None
     try:
         ar.dispatch_scene(
             {
@@ -63,6 +71,8 @@ def test_plumbing_never_becomes_the_ltx_prompt():
         )
     finally:
         ar._render_scene_inner = original
+        ar._get_stock_clip = original_stock
+        ar._generate_static_image = original_card
 
     leaked = [k for k in captured["kw"] if is_meta_token(k)]
     assert not leaked, f"plumbing reached the prompt fallback: {leaked}"

@@ -10,7 +10,7 @@ from datetime import datetime
 from utils.firebase_status import get_firestore_client, log_activity, update_video_record
 from compliance.ai_disclosure import get_ai_disclosure
 from utils.sanitize import safe_log
-from utils.platform_captions import optimize_for_platform, optimize_title_for_platform
+from utils.platform_captions import optimize_for_platform, optimize_title_for_platform, _truncate_utf16
 from utils.subprocess_helper import (retry_with_backoff, rate_limiter, security_audit, safe_run,
                                     register_temp_dir, NonRetryableError)
 
@@ -303,9 +303,9 @@ def upload_to_platform(platform: str, title: str, description: str, video_path: 
                                   stitch_disabled=tiktok_stitch_disabled,
                                   brand_content=tiktok_brand_content,
                                   brand_organic=tiktok_brand_organic,
-                                  progress_cb=progress_cb)
+                                  progress_cb=progress_cb, description=description)
         elif platform == 'instagram':
-            return _upload_instagram(title, video_path, format_type)
+            return _upload_instagram(title, video_path, format_type, description=description)
         elif platform == 'facebook':
             return _upload_facebook(title, description, video_path, thumbnail_path)
         else:
@@ -461,7 +461,7 @@ def _upload_tiktok(title: str, video_path: str, format_type: str, privacy_level:
                    comment_disabled: bool = False, duet_disabled: bool = False,
                    stitch_disabled: bool = False,
                    brand_content: bool = False, brand_organic: bool = False,
-                   progress_cb=None) -> dict:
+                   progress_cb=None, description: str = None) -> dict:
     """Upload to TikTok via Content Posting API v2 with retry, rate limit, idempotency."""
     if not rate_limiter("tiktok_upload", max_per_hour=5):
         # Soft limit: warn, never block. A 5-video slate needs exactly 5 per
@@ -619,7 +619,10 @@ def _upload_tiktok(title: str, video_path: str, format_type: str, privacy_level:
         # default is exactly what gets an app rejected, so the state is always
         # stated here rather than inherited.
         post_info = {
-            'title': title,
+            # TikTok's `title` IS the caption. The optimized caption
+            # (hook + body + CTA + hashtags) is used when supplied; TikTok
+            # caps it at 2200 UTF-16 units.
+            'title': _truncate_utf16(description, 2200) if description else title,
             'privacy_level': privacy_level,
             'disable_comment': bool(comment_disabled),
             'disable_duet': bool(duet_disabled),
@@ -701,7 +704,7 @@ def _upload_tiktok(title: str, video_path: str, format_type: str, privacy_level:
         return {'success': False, 'platform': 'tiktok', 'error': safe_log(str(e))}
 
 
-def _upload_instagram(title: str, video_path: str, format_type: str) -> dict:
+def _upload_instagram(title: str, video_path: str, format_type: str, description: str = None) -> dict:
     """Upload to Instagram via Graph API with retry, rate limit, token refresh."""
     if not rate_limiter("instagram_upload", max_per_hour=5):
         # Soft limit, same reasoning as _upload_tiktok: warn, never drop a platform.
@@ -766,7 +769,11 @@ def _upload_instagram(title: str, video_path: str, format_type: str) -> dict:
             'access_token': access_token,
             'media_type': media_type,
             'video_url': instagram_video_url,
-            'caption': title,
+            # The optimized caption (hook + body + CTA + hashtags) from
+            # optimize_for_platform, falling back to the bare title. Shipping
+            # only `title` here is why every IG post was a title with no
+            # description or hashtags.
+            'caption': (description or title)[:2200],
             'share_to_feed': 'true' if format_type == 'long' else 'false',
         }
         if ai_flags.get("is_ai_generated"):
@@ -1231,7 +1238,10 @@ def multi_platform_publish(video_id: str, title: str, description: str, video_pa
 
         try:
             platform_title = optimize_title_for_platform(title, platform)
-            platform_desc = optimize_for_platform(title, description, platform)
+            # `category` drives which hashtag pool is used. It used to be
+            # omitted, so every platform fell back to the default pool and the
+            # hashtags never matched the video's actual category.
+            platform_desc = optimize_for_platform(title, description, platform, category=category or "AI Explained")
 
             # TikTok takes the clean master; everything else takes the watermarked one.
             path_for_platform = video_path
