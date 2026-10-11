@@ -127,8 +127,12 @@ def test_retry_path_keeps_the_header_and_source(monkeypatch):
     def fake_generate(**kwargs):
         return {"full_description": "rewritten body", "tags": []}
 
+    # Make the retry WIN (higher score) so the winning path is the one exercised.
+    # An equal-score patch made the retry lose the tie, so the unassembled
+    # original was returned and the header/source assertion tested nothing.
     monkeypatch.setattr(main, "score_description_seo",
-                        lambda d: {"score": 40, "missing": ["cta"]})
+                        lambda d: {"score": 60 if "rewritten" in d else 40,
+                                   "missing": ["cta"]})
     monkeypatch.setattr(main, "suggest_seo_improvements", lambda *a, **k: [])
     monkeypatch.setattr(main, "generate_description", fake_generate)
     monkeypatch.setattr(main, "get_optimized_tags", lambda *a: ["t"])

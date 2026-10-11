@@ -69,7 +69,11 @@ def test_a_missing_check_triggers_exactly_one_retry_that_wins(monkeypatch):
     result, score = main._seo_polish_description(
         {"full_description": BARE}, "script", "AI News", "shorts", "Title", "topic"
     )
-    assert result["full_description"] == GOOD
+    # A winning retry replaces the whole description, so it is re-assembled the
+    # same way the first one was: the `🔎 title` fold-header is prepended before
+    # it is returned. Asserting the bare retry body here contradicted both that
+    # re-assembly (main.py:999) and test_assemble_description_prepends_title_header.
+    assert result["full_description"] == f"🔎 Title\n\n{GOOD}"
     assert score["missing"] == []
     # Exactly ONE call, and it is the retry. Zero would mean the finding was
     # ignored; more than one would mean the bound is not actually a bound.
