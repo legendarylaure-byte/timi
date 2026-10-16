@@ -37,7 +37,7 @@ textstat>=0.7.13
 pytrends>=4.9.2
 
 # Cloud video generation fallback (Replicate.com API)
-replicate>=0.30.0
+replicate>=1.0.7
 
 # chromadb is pulled in by crewai/crewai-tools — pinned here for visibility  
 # embedchain (transitive dep) requires <0.6.0, so we stay on the 0.5.x line  
