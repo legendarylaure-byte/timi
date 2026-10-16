@@ -1,6 +1,6 @@
 # Core MLX + LTX dependencies for Apple Silicon (M5 Metal GPU)
 # Install with: uv pip install -r ltx-requirements.txt
-mlx>=0.20.0
+mlx>=0.32.3
 mlx-lm>=0.20.0
 huggingface_hub>=0.27.0
 numpy<2.0
