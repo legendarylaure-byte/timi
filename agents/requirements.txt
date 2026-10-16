@@ -24,7 +24,7 @@ auth0-python>=6.1.0
 cryptography==50.0.0
 edge-tts==7.2.8
 pydub==0.25.1
-ollama==0.6.2
+ollama==0.6.3
 pytest==9.1.1
 modal==1.5.1
 diffusers==0.38.0
